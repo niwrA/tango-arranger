@@ -1,3 +1,7 @@
+## v2.6 notation quality
+
+Keep rhythmic notation readable: encode performance length as a note gate, not a fractional written duration. Default piano figures have single bass notes in the F clef and chordal/melodic material in the G clef; preserve user-defined manual piano arrangements.
+
 # Project goals — Tango Arranger
 
 ## Vision

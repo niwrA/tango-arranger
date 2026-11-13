@@ -50,7 +50,8 @@ test('variation changes pitches without changing harmony',()=>{
 test('section piano figure used in generated score',()=>{
   p.pianoFigures={A:'notes_up'};
   const a=music.generate(p).Piano.filter(n=>n.start<4);
-  assert.equal(a.length,4);
+  assert.equal(a.length,6); // four treble notes plus two monophonic bass pulses
+  assert.equal(a.filter(n=>n.pitch<60).length,2);
   p.pianoFigures={A:'chords_up'};
   const b=music.generate(p).Piano.filter(n=>n.start<4);
   assert.ok(b.length>a.length);

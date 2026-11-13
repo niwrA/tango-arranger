@@ -1,3 +1,7 @@
+## v2.6 — Rhythmic notation, piano registers and UI version
+
+The app header displays the version from `package.json` rather than a hard-coded 2.0 label. Generated piano accompaniment uses monophonic bass notes below the configurable split (bass clef) and the chosen upper figure above it (treble clef). Contrabass and bandoneon use conventional written durations with playback gates for short articulation. Existing imported or manually edited notes retain their explicit written durations. The sample user MusicXML was used for diagnostic analysis, not bundled with the app.
+
 # Tango Arranger v2.5
 
 Local-first experimental tango orchestration workbench built with Vue 3, TypeScript, Vite and Tone.js. Enter or import a single lead-sheet melody, specify harmony and sectional roles, generate a six-part **orquesta típica** score (piano, contrabass, two violins, two bandoneons; optional voice), and export MusicXML for editing in MuseScore.

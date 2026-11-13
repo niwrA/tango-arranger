@@ -411,17 +411,18 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
   const down=figure==='notes_down'||figure==='chords_down';
   const base=inst==='Piano'?70:inst==='Contrabass'?43:inst.startsWith('Violin')?73:66;
   const canPlayChords=inst==='Piano'||inst.startsWith('Bandoneon');
+  const upperFloor=inst==='Piano'?Math.max(range[0],p.pianoSplitPitch??60):range[0];
   const result:Note[]=[];
   let lastSingle:number|undefined;let lastChordCenter:number|undefined;
-  const add=(pitch:number,beat:number,duration:number,velocity=76)=>{
-    if(beat>=0&&beat<p.beats&&pitch>=range[0]&&pitch<=range[1])result.push({pitch,start:offset+beat,duration:Math.min(duration,p.beats-beat),velocity,source:'generated'});
+  const add=(pitch:number,beat:number,duration:number,velocity=76,gate?:number)=>{
+    if(beat>=0&&beat<p.beats&&pitch>=range[0]&&pitch<=range[1])result.push({pitch,start:offset+beat,duration:Math.min(duration,p.beats-beat),velocity,source:'generated',...(gate===undefined?{}:{gate})});
   };
   if(figure==='countermelody'){
     const melody=bar.melody.length?bar.melody:[{pitch:base+3,start:0,duration:p.beats/2},{pitch:base,start:p.beats/2,duration:p.beats/2}];
     let previous=base-4;
     for(const n of melody){
       const tones=harmony(n.start);const desired=n.pitch-5+(variation%3-1)*2;
-      const pitches=tones.map(pc=>closest(pc,desired,range[0],range[1]));
+      const pitches=tones.map(pc=>closest(pc,desired,upperFloor,range[1]));
       const pitch=pitches.sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired)||Math.abs(a-previous)-Math.abs(b-previous))[0];
       add(pitch,n.start,Math.min(n.duration,p.beats-n.start),67);previous=pitch;
     }
@@ -432,7 +433,7 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
     for(let i=0;i<count;i++){
       const beat=start+(p.beats-start)*i/count;
       const tones=harmony(beat),pc=tones[(i+variation)%tones.length];
-      add(closest(pc,base+(i%2?3:0),range[0],range[1]),beat,(p.beats-start)/count*0.85,74);
+      add(closest(pc,base+(i%2?3:0),upperFloor,range[1]),beat,(p.beats-start)/count*0.85,74);
     }
   }else{
     // Four positions span the complete measure, including 2/4 and 3/4.
@@ -447,25 +448,29 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
         const reference=base+shift+(down?-index*2:index*2)+(variation%2?7:0);
         for(let j=0;j<Math.min(inst==='Piano'&&(p.instrumentSettings?.Piano?.difficulty??p.difficulty)==='easy'?2:3,tones.length);j++){
           const pc=tones[(inversion+j)%tones.length];
-          const pitch=closest(pc,reference+j*4,range[0],range[1]);
-          add(pitch,beat,step*0.8,76+(i===0?9:0));
+          const pitch=closest(pc,reference+j*4,upperFloor,range[1]);
+          // Notate a full beat/slot; gate controls the detached attack.
+          add(pitch,beat,step,76+(i===0?9:0),0.8);
         }
       }else{
         const pc=tones[(index+variation)%tones.length];
-        const options=Array.from({length:range[1]-range[0]+1},(_,n)=>range[0]+n).filter(n=>n%12===pc);
+        const options=Array.from({length:range[1]-upperFloor+1},(_,n)=>upperFloor+n).filter(n=>n%12===pc);
         const target=base+shift+(down?-i*4:i*4);
         const directed=lastSingle===undefined?options:options.filter(n=>down?n<lastSingle!:n>lastSingle!);
         const candidates=directed.length?directed:options;
         const pitch=candidates.sort((a,b)=>Math.abs(a-target)-Math.abs(b-target))[0];
-        if(pitch!==undefined){add(pitch,beat,step*0.83,76);lastSingle=pitch;}
+        if(pitch!==undefined){add(pitch,beat,step,76,0.83);lastSingle=pitch;}
       }
     }
   }
-  if(inst==='Piano'&&chordal){
-    // Tango piano frequently combines the upper figure with an independent
-    // bass pulse. This is a selectable heuristic, not an automatic transcription.
-    for(let beat=0;beat<p.beats;beat+=2){const tones=harmony(beat);const pc=beat===0?tones[0]:(tones[2]??tones[0]);
-      add(closest(pc,43,range[0],Math.min(range[1],55)),beat,Math.min(0.65,p.beats-beat),90);
+  if(inst==='Piano'){
+    // Piano is a two-register texture: a MONOPHONIC bass pulse in the F clef
+    // and the selected figure exclusively in the G clef. Arrastre/fist attacks
+    // are optional gestures, never default multi-note left-hand chords.
+    const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
+    for(let beat=0;beat<p.beats;beat+=2){
+      const tones=harmony(beat),pc=beat===0?tones[0]:(tones[2]??tones[0]);
+      add(closest(pc,43,range[0],bassCeiling),beat,Math.min(1,p.beats-beat),90,0.65);
     }
   }
   return result.sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
@@ -494,9 +499,9 @@ export function generate(p:Project):Score {
       const sectionDyn=expression.sections[bar.section]??'mf';
       const dynamicScale=expression.enabled?(dynVelocity[sectionDyn]/88):1;
       const difficultyBoost=difficulty==='advanced'?1:difficulty==='intermediate'?0.84:0.65;
-      const put=(pitch:number,start:number,duration:number,velocity=80,technique?:Note['technique'])=>{
+      const put=(pitch:number,start:number,duration:number,velocity=80,technique?:Note['technique'],gate?:number)=>{
         if(pitch>=0&&pitch<=127&&duration>0&&start>=0&&start<p.beats)
-          notes.push({pitch,start:offset+start,duration:Math.min(duration,p.beats-start),velocity:Math.max(35,Math.min(127,Math.round(velocity*dynamicScale+(cfg?.dynamicsOffset??0)))),accent:Math.abs(start-Math.round(start))<0.001&&(profile.strongBeats?Math.round(start)%2===0:true),technique,source:'generated'});
+          notes.push({pitch,start:offset+start,duration:Math.min(duration,p.beats-start),velocity:Math.max(35,Math.min(127,Math.round(velocity*dynamicScale+(cfg?.dynamicsOffset??0)))),accent:Math.abs(start-Math.round(start))<0.001&&(profile.strongBeats?Math.round(start)%2===0:true),technique,source:'generated',...(gate===undefined?{}:{gate})});
       };
       if(inst.startsWith('Bandoneon')){
         const follower=settings.bandoneon[bar.section]?.[inst as 'Bandoneon I'|'Bandoneon II']??(inst==='Bandoneon I'?{target:'Violin II' as FollowTarget,method:'adapt' as FollowMethod}:undefined);
@@ -508,7 +513,7 @@ export function generate(p:Project):Score {
               const local=n.start-offset;
               const localTones=harmony(local);
               const pitch=follower.method==='octave'?n.pitch+(n.pitch<60?12:0):follower.method==='adapt'?closest(n.pitch%12,66,range[0],range[1]):follower.method==='rhythm'?closest(localTones[(Math.floor(local)+1)%localTones.length],66,range[0],range[1]):n.pitch;
-              put(Math.max(range[0],Math.min(range[1],pitch)),local,n.duration,follower.method==='rhythm'?72:80);
+              put(Math.max(range[0],Math.min(range[1],pitch)),local,n.duration,follower.method==='rhythm'?72:80,undefined,n.gate);
             }
             continue;
           }
@@ -524,22 +529,22 @@ export function generate(p:Project):Score {
           }
           pitch=Math.max(range[0],Math.min(range[1],pitch));
           if(role==='variation'&&n.duration>=1){put(pitch,n.start,n.duration/2,90);put(Math.max(range[0],Math.min(range[1],pitch+(b%2?2:-2))),n.start+n.duration/2,n.duration/2,75);}
-          else put(pitch,n.start,inst.startsWith('Bandoneon')?Math.min(n.duration,1.3):n.duration,inst.startsWith('Violin')&&profile.strings?91:85,inst.startsWith('Violin')?'arco':undefined);
+          else put(pitch,n.start,n.duration,inst.startsWith('Violin')&&profile.strings?91:85,inst.startsWith('Violin')?'arco':undefined,inst.startsWith('Bandoneon')?Math.min(1,1.3/n.duration):undefined);
         }
         continue;
       }
       if(role==='bass'){
         for(let beat=0;beat<p.beats;beat+=2){
           const t0=harmony(beat),r0=t0[0];
-          put(closest(beat===0?r0:t0[2]??r0,40,28,55),beat,Math.min(0.68,p.beats-beat),95);
-          if(profile.density>=0.85&&beat+1<p.beats){const t1=harmony(beat+1),r1=t1[0];put(closest(beat===0?t1[2]??r1:r1,42,28,55),beat+1,0.52,72);}
+          put(closest(beat===0?r0:t0[2]??r0,40,28,55),beat,Math.min(1,p.beats-beat),95,undefined,0.68);
+          if(profile.density>=0.85&&beat+1<p.beats){const t1=harmony(beat+1),r1=t1[0];put(closest(beat===0?t1[2]??r1:r1,42,28,55),beat+1,1,72,undefined,0.52);}
         }
         continue;
       }
       if(inst==='Piano'&&role==='chords'){
         const figure=p.pianoFigures?.[bar.section]??'chords_up';
         const variation=p.pianoFigureVariation?.[bar.section]??0;
-        for(const n of figureMeasure(p,inst,b,figure,variation))put(n.pitch,n.start-offset,n.duration,n.velocity);
+        for(const n of figureMeasure(p,inst,b,figure,variation))put(n.pitch,n.start-offset,n.duration,n.velocity,undefined,n.gate);
         continue;
       }
       if(role==='chords'){
@@ -579,7 +584,7 @@ export function generate(p:Project):Score {
             const dur=Math.min(0.65,p.beats-beat);
             if(technique==='double_stop'&&difficulty!=='easy'){
               const pair=playableDoubleStop(tones,inst==='Violin I'?76:69);
-              if(pair){for(const pitch of pair)put(pitch,beat,0.38,77);continue;}
+              if(pair){for(const pitch of pair)put(pitch,beat,1,77,undefined,0.38);continue;}
             }
             if(technique==='double_stop'){
               const pcs=difficulty==='easy'?[tones[0],tones[2]??root]:[tones[0],tones[1]??root,tones[2]??root];
@@ -587,17 +592,17 @@ export function generate(p:Project):Score {
             }else if(technique==='sustained'){
               put(closest(tones[1]??root,72,range[0],range[1]),beat,Math.min(1.7,p.beats-beat),66,'arco');
             }else{
-              for(const pc of tones.slice(0,3))put(closest(pc,72,range[0],range[1]),beat,0.4,75);
+              for(const pc of tones.slice(0,3))put(closest(pc,72,range[0],range[1]),beat,1,75,undefined,0.4);
             }
           }
         }else for(const beat of beats.filter(x=>x<p.beats)){
           const tones=harmony(beat),root=tones[0];
           const register=inst==='Piano'?(difficulty==='easy'?61:beat%2===0?55:(difficulty==='advanced'?76:69)):65;
           const chordCount=difficulty==='easy'?2:3;
-          const duration=inst==='Piano'?0.30+profile.legato*0.45:0.42;
-          for(const pc of tones.slice(0,chordCount))put(closest(pc,register,range[0],range[1]),beat,duration,Math.round(65+25*profile.accent));
+          const gate=inst==='Piano'?0.30+profile.legato*0.45:0.42;
+          for(const pc of tones.slice(0,chordCount))put(closest(pc,register,range[0],range[1]),beat,1,Math.round(65+25*profile.accent),undefined,gate);
           if(inst==='Piano'&&profile.yumba&&beat%2===1&&difficulty!=='easy')
-            put(closest(root,45,43,55),beat,0.22,96);
+            put(closest(root,45,43,55),beat,1,96,undefined,0.22);
         }
         continue;
       }
@@ -610,7 +615,7 @@ export function generate(p:Project):Score {
       if(inst.startsWith('Bandoneon') && !notes.some(n=>n.start>=offset&&n.start<offset+p.beats)){
         for(const beat of (difficulty==='easy'?[0,2]:[0,1,2,3]).filter(x=>x<p.beats)){
           const beatTones=harmony(beat);const pc=beatTones[(beat+(inst==='Bandoneon II'?1:0))%beatTones.length];
-          put(closest(pc,inst==='Bandoneon II'?61:67,range[0],range[1]),beat,0.36,72);
+          put(closest(pc,inst==='Bandoneon II'?61:67,range[0],range[1]),beat,1,72,undefined,0.36);
         }
       }
     }

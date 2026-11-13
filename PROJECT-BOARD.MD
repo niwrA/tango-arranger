@@ -1,3 +1,11 @@
+## v2.6 completed
+
+- [x] Fix hard-coded UI version using `package.json`.
+- [x] Separate written note durations from sounding gates for generated piano, contrabass and bandoneon.
+- [x] Keep default piano bass staff monophonic and upper chord figures in treble staff.
+- [x] Add regression checks for notation duration and piano staff assignment.
+- [ ] Validate exported score visually in MuseScore 4 on a local installation.
+
 # Tango Arranger — project board (v2.5)
 
 **Status definitions:** Done = code/doc is present; Partial = meaningful implementation with clear gaps; Planned = not implemented. **Verification is a separate axis**: Done does not imply MuseScore compatibility or historical fidelity.
