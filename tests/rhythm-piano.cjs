@@ -26,11 +26,12 @@ p.instrumentSettings.Piano.activity=1;p.instrumentSettings.Contrabass.activity=1
 const score=music.generate(p);
 test('UI version is read from package version',()=>{
  const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
- assert.equal(pkg.version,'2.6.0');
+ assert.equal(pkg.version,'2.6.1');
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  assert.match(app,/import \{version as appVersion\} from '\.\.\/package\.json'/);
  assert.match(app,/v\{\{appVersion\}\}/);
  assert.doesNotMatch(app,/prototype 2\.0/);
+ assert.match(app,/synth\?\.triggerAttackRelease\(Tone\.Frequency\(event\.pitch,'midi'\)\.toFrequency\(\)/);
 });
 test('piano generated lower staff is monophonic and within bass range',()=>{
  const lower=score.Piano.filter(n=>n.pitch<(p.pianoSplitPitch??60));

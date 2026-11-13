@@ -1,3 +1,7 @@
+## v2.6.1 — Azure build TypeScript hotfix
+
+Corrected the full-score Tone.js playback call in `src/App.vue` to pass `Tone.Frequency(event.pitch, 'midi').toFrequency()` to `PolySynth.triggerAttackRelease`. The previous `FrequencyClass<number>` object failed `vue-tsc` (TS2345) on line 442. The measure loop and note audition already used `.toFrequency()`. Package version is 2.6.1; the UI reads it from `package.json`. The full Vue production build remains unverified in this environment because npm dependencies could not be installed.
+
 ## v2.6 — Rhythmic notation, piano registers and UI version
 
 The app header displays the version from `package.json` rather than a hard-coded 2.0 label. Generated piano accompaniment uses monophonic bass notes below the configurable split (bass clef) and the chosen upper figure above it (treble clef). Contrabass and bandoneon use conventional written durations with playback gates for short articulation. Existing imported or manually edited notes retain their explicit written durations. The sample user MusicXML was used for diagnostic analysis, not bundled with the app.

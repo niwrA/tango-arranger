@@ -1,3 +1,7 @@
+## v2.6.1 — Build compatibility
+
+The Tone.js full-score playback path now converts its MIDI frequency wrapper to a numeric hertz value before invoking the synthesizer. This resolves the reported TS2345 type mismatch in the Azure build. CI should still run `npm run build` to catch future type errors before deployment.
+
 ## v2.6 notation quality
 
 Keep rhythmic notation readable: encode performance length as a note gate, not a fractional written duration. Default piano figures have single bass notes in the F clef and chordal/melodic material in the G clef; preserve user-defined manual piano arrangements.

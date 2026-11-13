@@ -439,7 +439,7 @@ async function play(){
         if(!event)return;
         if(event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,event,time);
-        else synth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi'),event.durationSeconds||defaultDuration,time,(event.velocity||defaultVelocity)/127);
+        else synth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds||defaultDuration,time,(event.velocity||defaultVelocity)/127);
       },seconds);
     }}
     transport.scheduleOnce(()=>{playing.value=false;transport.stop();synth?.releaseAll();},project.value.bars.length*project.value.beats*60/project.value.bpm+0.2);

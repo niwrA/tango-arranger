@@ -1,3 +1,9 @@
+## v2.6.1 — Azure deployment build fix
+
+- [x] Convert `Tone.Frequency` to numeric hertz before passing it to full-score `PolySynth.triggerAttackRelease` (TS2345).
+- [x] Update package version to 2.6.1 for the UI version indicator.
+- [ ] Verify complete `npm run build` in CI after dependencies install.
+
 ## v2.6 completed
 
 - [x] Fix hard-coded UI version using `package.json`.
