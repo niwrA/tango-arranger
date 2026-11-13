@@ -1,8 +1,22 @@
-# Tango Arranger v2.4
+# Tango Arranger v2.5
 
 Local-first experimental tango orchestration workbench built with Vue 3, TypeScript, Vite and Tone.js. Enter or import a single lead-sheet melody, specify harmony and sectional roles, generate a six-part **orquesta típica** score (piano, contrabass, two violins, two bandoneons; optional voice), and export MusicXML for editing in MuseScore.
 
 **Status:** prototype. The algorithm is style-informed, but is **not** a transcription of a historic orchestra or a validated replacement for a professional arranger. No automatic acceptance in MuseScore 4 can be claimed until an actual MuseScore 4 import test passes. See `PROJECT-BOARD.MD`.
+
+## Wide workspace, piano figures and expression (v2.5)
+
+The application now uses the full available browser width rather than a 1500px centered layout. Song Overview retains a horizontal instrument-by-measure map with a side editing panel; the Piano Note Editor can display its upper and lower registers side by side on very wide screens (1700px+), with horizontal scrolling within each grid.
+
+**Piano accompaniment:** For a section where Piano has the **Chords** role, select a figure in **Song Overview** or **Orchestration**: single notes ascending/descending, moving chord inversions ascending/descending, countermelody, or melody response. Chord inversion figures add independent bass pulses in the lower piano register, and the upper part moves through chord tones and inversions with optional octave displacement. These are deterministic style-informed *starting points*, not verified transcriptions of historical Argentine piano arrangements. The selected section pattern and variation are saved in the project. The generator retains manually protected instrument-measures.
+
+**Figure workbench:** In the Note Editor, choose any of the six figures for the selected instrument-measure, apply it, or cycle to another variation. Chord changes within the measure are honored. The figure replaces **only that instrument-measure** and protects it from later orchestral regeneration; the first replacement of an existing manually protected measure requires confirmation. Counters and responses use the lead-sheet melody when available; otherwise they use a simple fallback. Counterpoint quality, fingering and historical idiom remain areas for improvement.
+
+**Note gestures:** Non-piano, non-pizzicato notes can specify a **slide-to MIDI pitch** and **swell-to velocity**. The native Web Audio preview and playback interpolate pitch and amplitude over the note's sounding duration; the written rhythmic duration is unchanged. These properties persist in local autosave and `.tango` projects. MusicXML currently exports *text indications* (e.g. `gliss. to G5`, `cresc. to velocity 110`) for these single-note gestures, **not a guaranteed MuseScore glissando line or precise velocity envelope**. Piano and pizzicato notes cannot receive sustained slides/swells.
+
+**Expression across measures:** In the Note Editor, create instrument-specific crescendo/decrescendo ranges by selecting start/end measures, optional beats within those measures, and start/end intensities (80 = neutral). The browser playback applies a gradual velocity offset while preserving individual note accents; the MusicXML exporter adds standard hairpin wedges at the range boundaries. These can span multiple measures and sections. Restructuring the song clears expression ranges because their absolute measure positions are no longer reliable; the app warns before applying such a change. The older section-wide crescendo option remains available.
+
+**Verification:** the regression suite includes 16 additional figure/expression checks and MusicXML duration validation; domain, loop and Web Audio modules pass TypeScript checking. The Vue production build, browser playback and actual MuseScore 4 import remain unverified in this environment.
 
 ## Whole-measure violin arpeggios (v2.4)
 

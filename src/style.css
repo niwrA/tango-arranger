@@ -130,3 +130,20 @@
 .overview-workspace .overview-edit .overview-controls{grid-template-columns:minmax(0,1fr)}
 .overview-workspace .overview-edit .overview-actions button{flex:1 1 100%;text-align:center}
 @media(max-width:1150px){.overview-workspace{grid-template-columns:minmax(0,1fr)}.overview-workspace .overview-edit{position:static;max-height:none;overflow:visible}.overview-workspace .overview-edit .overview-controls{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}.overview-workspace .overview-edit .overview-actions button{flex:0 1 auto}}
+
+/* v2.5: wide composing and arranging workspace */
+.layout{width:100%;max-width:none;margin:0;grid-template-columns:clamp(230px,17vw,290px) minmax(0,1fr)}
+main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
+.song-map-scroll{width:100%;max-width:100%}
+.note-editor-section,.overview-section{width:100%;max-width:none}
+.figure-workbench{border:1px solid #405363;border-radius:10px;background:#1d2b36;padding:16px;margin:16px 0}
+.figure-workbench h3{margin:0 0 8px;color:#f2d6aa}
+.figure-controls{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.figure-controls label{flex:1 1 155px;margin:0}
+.figure-controls button{flex:0 0 auto;min-height:41px}
+.expression-range-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #364958;font-size:13px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}main{padding:18px 12px 45px}.figure-controls{align-items:stretch}.figure-controls button{flex:1 1 160px}}
+
+@media(min-width:1700px){.note-staff-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.note-staff-grid .note-staff-panel{min-width:0}}
+
+.overview-piano-figure{padding:12px;margin:12px 0;border:1px solid #44515e;border-radius:8px;background:#1c2b35}.overview-piano-figure label{margin-bottom:8px}.overview-piano-figure button{width:100%}

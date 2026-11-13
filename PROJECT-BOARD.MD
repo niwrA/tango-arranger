@@ -1,9 +1,12 @@
-# Tango Arranger — project board (v2.4)
+# Tango Arranger — project board (v2.5)
 
 **Status definitions:** Done = code/doc is present; Partial = meaningful implementation with clear gaps; Planned = not implemented. **Verification is a separate axis**: Done does not imply MuseScore compatibility or historical fidelity.
 
 | ID | User story / engineering task | Status | Release | Evidence / outstanding work |
 |---|---|---|---|---|
+| TA-WIDE-25 | Full-width responsive Song Overview and optional side-by-side piano staff rolls | Partial | v2.5 | CSS changes; browser visual QA pending |
+| TA-FIG-25 | Select/cycle six arranging figures and deterministic variations; section piano patterns with bass pulse and moving inversions | Partial | v2.5 | Domain generator, Note Editor, map and Orchestration controls; 16 added regression checks; idiomatic evaluation pending |
+| TA-EXPR-25 | Per-note slide/swell and instrument-specific crescendo ranges across measures | Partial | v2.5 | Web Audio automation and `.tango` persistence; MusicXML hairpins plus text for single-note gestures; MuseScore playback/engraving not verified |
 | TA-ARP-24 | Whole-measure violin arpeggio: four notes per bar, ascending/descending/alternating, pizzicato variant | Partial | v2.4 | Generator, per-section direction control, structural persistence and MusicXML regression; real MuseScore/browser audition pending |
 | TA-UI-23 | Separate song structure/section keys from measure orchestration map; map-first responsive editor workspace | Partial | v2.3 | Dedicated tab, read-only section strip, side-by-side map/editor, navigation tests; browser visual QA pending |
 | TA-VIOLIN-22 | Beat-based violin chord accompaniment: single pizzicato/tango-staccato note per beat, style-dependent marcato and editable per-section beat accents | Partial | v2.2 | New projects default to one note/beat, sounding gate and stronger marcato; MusicXML articulation tested; named-style beat choices are heuristics, real MuseScore and audio QA pending |

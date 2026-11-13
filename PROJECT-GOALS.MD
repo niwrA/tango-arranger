@@ -4,6 +4,12 @@
 
 Turn a simple tango lead sheet (melody plus harmony) into a usable, editable orquesta típica arrangement. The main value is **idiomatic, technically feasible orchestration**, not replacing MuseScore's engraving or a professional arranger's artistic judgment.
 
+## v2.5 implementation direction
+
+Keep Song Overview as the wide primary workspace. Provide reusable and adjustable musical figures for each instrument-measure, with section-level piano accompaniment choices and independent bass/chord staff behavior. Model tango-specific piano inversion movement, countermelody and response as editable heuristics rather than rigid stylistic rules. Preserve manual edits when regenerating other material.
+
+Support expressive gestures independently of written duration: continuous pitch slides and single-note amplitude swells on sustain-capable instruments, plus instrument-specific crescendo/decrescendo spans across measures. Browser playback should approximate these effects; MusicXML must preserve score readability and honestly distinguish notated hairpins from textual approximations of unimplemented glissando engraving. True historical fidelity, instrument-specific physical playability and MuseScore import validation remain goals, not achieved claims.
+
 ## Musical objectives
 
 1. **Tango-specific vocabulary:** marcato in four/two, syncopation, arrastre, yumba-inspired patterns, rubato/phrasing where supported, pizzicato/arco, melodic doubling, countermelody, chordal accompaniment and deliberate silence.
