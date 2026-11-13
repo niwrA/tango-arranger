@@ -1,3 +1,10 @@
+## v2.6.2 — Browser audio unlock
+- [x] Defer Tone.js loading until an audio user gesture; avoid eager AudioContext initialization during application startup.
+- [x] Create and resume native AudioContext before the first await, then adopt it with Tone.setContext.
+- [x] Apply the shared unlock to full playback, measure loop, ordinary and expressive note auditions.
+- [x] Add source-level audio unlock regression checks.
+- [ ] Verify actual audio playback and browser console behavior on deployed Azure Static Web Apps, Chrome, Firefox and Safari.
+
 ## v2.6.1 — Azure deployment build fix
 
 - [x] Convert `Tone.Frequency` to numeric hertz before passing it to full-score `PolySynth.triggerAttackRelease` (TS2345).

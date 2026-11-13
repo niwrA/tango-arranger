@@ -1,3 +1,7 @@
+## v2.6.2 — Browser audio activation / Azure playback
+
+The application no longer imports Tone.js during initial page load. Some browsers warn that a Web Audio `AudioContext` was started without a user gesture even when the app has not requested playback. On the first Play, measure-loop or note-audition action, `src/toneSession.ts` synchronously creates/resumes a native `AudioContext` during the user's gesture, dynamically loads Tone.js, and assigns that already-resumed context to Tone. This also supports the expressive-note audition path. Browser autoplay policies still apply: the user must click Play or a note before audio can start; a site cannot silently unlock audio. Actual deployed-browser testing is required to verify whether warnings are eliminated in each browser. The workflow and Azure Static Web Apps configuration do not need changing.
+
 ## v2.6.1 — Azure build TypeScript hotfix
 
 Corrected the full-score Tone.js playback call in `src/App.vue` to pass `Tone.Frequency(event.pitch, 'midi').toFrequency()` to `PolySynth.triggerAttackRelease`. The previous `FrequencyClass<number>` object failed `vue-tsc` (TS2345) on line 442. The measure loop and note audition already used `.toFrequency()`. Package version is 2.6.1; the UI reads it from `package.json`. The full Vue production build remains unverified in this environment because npm dependencies could not be installed.

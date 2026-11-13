@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
-import * as Tone from 'tone';
+import type {PolySynth,Synth} from 'tone';
+import {startAudioFromGesture} from './toneSession';
+// Tone.js is loaded only after the first user audio gesture.
+let Tone:typeof import('tone');
 import {version as appVersion} from '../package.json';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordCompletions,completeChordToken,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,type FigureKind} from './music';
 import {download,exportMusicXml,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts} from './io';
@@ -419,13 +422,13 @@ function setProtected(inst:Instrument,b:number,v:boolean){project.value.protecte
 function exportXml(){try{const xml=exportMusicXml(project.value,score.value);const problems=validateMusicXmlDurations(xml,project.value.beats);if(problems.length){message.value='MusicXML validation failed: '+problems.slice(0,3).join('; ');return;}download(xml,`${project.value.title.replace(/[^a-z0-9-]+/gi,'-')}.musicxml`,'application/vnd.recordare.musicxml+xml');message.value='MusicXML exported; all instrument-measures passed rhythmic validation.';}catch(err){message.value=`Export failed: ${String(err)}`;}}
 async function importFile(e:Event){const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;try{if(file.name.endsWith('.tango')){await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);structureOpen.value=false;message.value='Portable project imported as a separate local song.';}else if(file.name.endsWith('.mid')||file.name.endsWith('.midi')){pending.value=importMidi(await file.arrayBuffer());importMode.value='melody';message.value=`Found ${pending.value.length} MIDI tracks. Choose the melody track.`;}else{const result=importMusicXml(await file.text());pending.value=result.parts;if(importMode.value==='melody'){if(result.chords.length)result.chords.forEach((c,i)=>{if(project.value.bars[i])project.value.bars[i].chord=c;});if(result.keys.length){project.value.sectionKeys??={};const assigned=new Set<string>();result.keys.forEach((key,i)=>{const sec=project.value.bars[i]?.section;if(sec&&!assigned.has(sec)){project.value.sectionKeys![sec]=key;assigned.add(sec);}});}project.value.generatedScore=undefined;}message.value=`Found ${result.parts.length} MusicXML parts. Choose a melody track or import edited score.`;}}catch(err){message.value=`Import failed: ${String(err)}`;}finally{(e.target as HTMLInputElement).value='';}}
 function applyImport(){if(!pending.value.length)return;if(importMode.value==='melody'){const notes=pending.value[selectedTrack.value]?.notes??[];const needed=Math.ceil((Math.max(0,...notes.map(n=>n.start+n.duration)))/project.value.beats);while(project.value.bars.length<needed)project.value.bars.push({chord:'',melody:[],section:project.value.bars.at(-1)?.section??'A'});project.value.bars.forEach((b,i)=>b.melody=notes.filter(n=>Math.floor(n.start/project.value.beats)===i).map(n=>({...n,start:n.start-i*project.value.beats})));message.value=`Imported ${notes.length} melody notes. Set chords and sections, then generate.`;}else{project.value.importedScore=transposeScore(scoreFromParts(pending.value),-(project.value.transposeSemitones??0));let count=0;for(const inst of INSTRUMENTS)for(let b=0;b<project.value.bars.length;b++){const old=(project.value.generatedScore?.[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===b).map(n=>[n.pitch,n.start,n.duration]);const incoming=(project.value.importedScore[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===b).map(n=>[n.pitch,n.start,n.duration]);if(JSON.stringify(old)!==JSON.stringify(incoming)){setProtected(inst,b,true);count++;}}message.value=`Imported edited score; ${count} instrument-measures marked protected. Review before regenerating.`;}pending.value=[];}
-let synth:Tone.PolySynth|null=null;
+let synth:PolySynth|null=null;
 async function play(){
   if(playing.value){stopPlayback();return;}
   stopPlayback();
   const session=noteLoopSession;
   try{
-    await Tone.start();
+    Tone=await startAudioFromGesture();
     if(session!==noteLoopSession)return;
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.bpm.value=project.value.bpm;
@@ -451,14 +454,14 @@ async function play(){
 const noteLoopPlaying=ref(false);
 const noteLoopBeat=ref(-1);
 let noteLoopSession=0;
-let loopSynth:Tone.PolySynth|null=null;
+let loopSynth:PolySynth|null=null;
 function stopNoteLoop(){if(noteLoopPlaying.value)stopPlayback();else noteLoopSession++;}
 async function toggleNoteLoop(){
   if(noteLoopPlaying.value){stopNoteLoop();return;}
   stopPlayback();
   const session=noteLoopSession;
   try{
-    await Tone.start();
+    Tone=await startAudioFromGesture();
     if(session!==noteLoopSession||active.value!=='notes')return;
     loopSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
     loopSynth.volume.value=-9;
@@ -489,11 +492,11 @@ watch(()=>project.value.bpm,bpm=>{if(noteLoopPlaying.value&&Number.isFinite(bpm)
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value)stopNoteLoop();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
-let auditionSynth:Tone.Synth|null=null;
+let auditionSynth:Synth|null=null;
 async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
   if(!auditionEnabled.value)return;
   try{
-    await Tone.start();
+    Tone=await startAudioFromGesture();
     if(!auditionSynth){
       auditionSynth=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.008,decay:0.09,sustain:0.22,release:0.16}}).toDestination();
       auditionSynth.volume.value=-11;
@@ -505,12 +508,12 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
 function auditionEvent(note:Note){
   if(!auditionEnabled.value)return;
   if(note.slideTo!==undefined||note.swellTo!==undefined){
-    void Tone.start().then(()=>playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{
+    void startAudioFromGesture().then(tone=>{Tone=tone;playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{
       pitch:note.pitch+(project.value.transposeSemitones??0),
       slideTo:note.slideTo===undefined?undefined:note.slideTo+(project.value.transposeSemitones??0),
       durationSeconds:Math.max(0.025,noteSoundingDuration(note)*60/project.value.bpm),
       velocity:noteSoundingVelocity(note),endVelocity:note.swellTo
-    },Tone.now())).catch(error=>{message.value=`Expressive audition unavailable: ${String(error)}`;});
+    },Tone.now());}).catch(error=>{message.value=`Expressive audition unavailable: ${String(error)}`;});
   }else void auditionPitch(note.pitch,noteSoundingVelocity(note),noteSoundingDuration(note)*60/project.value.bpm);
 }
 function selectNoteEvent(i:number){noteSelected.value=i;const note=noteMeasure.value[i];if(note)auditionEvent(note);}

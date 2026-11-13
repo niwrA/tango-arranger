@@ -1,3 +1,6 @@
+## Browser audio activation (v2.6.2)
+Audio must start only after a real user gesture. The application should not initialize Tone.js or Web Audio on page load; first playback or note audition synchronously creates and resumes an AudioContext, and subsequent actions reuse it. A blocked context must produce a useful error rather than silently failing. Browser-specific verification remains outstanding.
+
 ## v2.6.1 — Build compatibility
 
 The Tone.js full-score playback path now converts its MIDI frequency wrapper to a numeric hertz value before invoking the synthesizer. This resolves the reported TS2345 type mismatch in the Azure build. CI should still run `npm run build` to catch future type errors before deployment.

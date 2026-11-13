@@ -62,7 +62,7 @@ async function run(){
   assert.match(app,/await adoptLocalSong\(imported\)/);
   console.log('PASS autosave, restore, new-song and imported-song flows are wired');
   assert.match(app,/async function auditionPitch/);
-  assert.match(app,/await Tone\.start\(\)/);
+  assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
   assert.match(app,/auditionEvent\(events\[index\]\)/);
   assert.match(app,/\@click="selectNoteEvent\(i\)"/);
