@@ -13,3 +13,120 @@
 .chord-editor .section-heading h2{font-size:17px}
 .chord-beat-preview{margin-top:7px;padding:12px;background:#111922;border:1px solid #3a4754;border-radius:7px;color:#e9c997;min-height:43px;font-weight:600}
 .chord-edit-button{display:block;width:100%;text-align:left;margin-top:7px}
+
+.section-key-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:12px 0}.section-key-grid label{min-width:0}
+
+.section-summary{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}.section-summary span{background:#283643;border:1px solid #44515d;border-radius:6px;padding:7px 11px;font-size:12px}.structure-editor{border-top:1px solid #3c4a58;padding-top:16px}.structure-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}.structure-fields label{margin:0}.structure-editor .overview-actions{margin:18px 0;display:flex;flex-wrap:wrap;gap:8px}
+
+/* v1.1: per-section lengths during blank-song creation. */
+.new-song-section-heading{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin:15px 0 12px;color:#e9c997}
+.new-song-section-heading span{color:#a8b6c2;font-size:12px}
+.new-song-section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:10px;margin-bottom:15px}
+.new-song-section-grid label{margin-bottom:0}
+.new-song-bulk{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:15px}
+.new-song-bulk label{max-width:185px;margin:0}
+.new-song-bulk button{margin-bottom:0}
+.new-song-error{color:#ffb4aa;font-size:13px}
+
+/* v1.2: guided instrument note editor */
+.note-editor-section{min-width:0}.note-editor-panel{margin-top:16px}.note-editor-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.note-editor-controls label{margin-bottom:5px}.note-context{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.note-context span{padding:7px 9px;border-radius:7px;background:#263542;font-size:12px;color:#d0dbe4}.note-context strong{color:#e7c38e}.note-context .manual-status{background:#5a4530;color:#ffdb9c}.note-editor-actions{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}.note-grid-scroll{overflow:auto;border:1px solid #445260;border-radius:9px;max-width:100%}.note-grid{border-collapse:collapse;width:max-content;min-width:100%;table-layout:fixed}.note-grid th,.note-grid td{border-right:1px solid #303d4b;border-bottom:1px solid #303d4b;padding:0}.note-grid thead th{background:#263642;font-size:11px;height:48px;min-width:42px}.note-grid thead th small{display:block;font-size:9px;color:#c9ae85;max-width:56px;overflow:hidden}.note-grid .note-pitch-label{position:sticky;left:0;z-index:2;min-width:72px;width:72px;background:#253440;color:#d8e1e9;font-size:11px;text-align:right;padding:0 9px}.note-grid .note-downbeat{border-left:2px solid #647a88}.note-grid-cell{width:100%;min-width:42px;height:28px;border:0;border-radius:0;padding:0;font-size:17px;font-weight:bold}.note-grid-cell.note-tone-chord{background:#415e4f}.note-grid-cell.note-tone-key{background:#334a60}.note-grid-cell.note-tone-chromatic{background:#303740}.note-grid-cell.has-note{background:#d0a66b;color:#15212b}.note-grid-cell:disabled{opacity:.28;cursor:not-allowed}.note-grid-cell:focus-visible{outline:2px solid #fff;outline-offset:-2px}.note-key-legend{display:inline-block;padding:1px 6px;border-radius:4px;margin-right:5px}.note-key-legend.chord{background:#415e4f}.note-key-legend.key{background:#334a60}.note-key-legend.chromatic{background:#303740}.note-event-list{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 18px}.note-event-button{font-size:12px;padding:8px}.note-event-button.selected{background:#d0a66b;color:#15212b}.note-properties{border-top:1px solid #43505b;padding-top:15px}.score-edit-link{font-size:11px;padding:5px 7px;display:block;margin:7px 0}
+
+
+/* v1.3: lead sheet is a section-aware harmony map, not a distant chord dialog. */
+.lead-sections{display:flex;flex-direction:column;gap:18px;margin:20px 0}
+.lead-section{background:#1a232c;border:1px solid #3b4a58;border-radius:12px;overflow:hidden}
+.lead-section-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:13px 16px;background:#273440;border-bottom:1px solid #3b4a58}
+.lead-section-title{display:flex;align-items:center;gap:12px;min-width:0}
+.lead-section-title strong{display:block;color:#f3e1c3;font-size:14px}
+.lead-section-title small{display:block;color:#a8b8c6;font-size:11px;margin-top:3px}
+.lead-section-letter{display:flex!important;align-items:center;justify-content:center;min-width:37px;height:37px;background:#5a4a34;border:1px solid #a58b60;border-radius:8px;font-size:21px!important}
+.lead-key-label{margin:0;min-width:155px}
+.lead-key-label select{margin-top:4px;padding:6px 9px}
+.lead-measure-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(126px,1fr));gap:9px;padding:13px}
+.lead-measure{background:#202c36;border:1px solid #3b4b59;border-radius:9px;min-width:0;padding:8px}
+.lead-measure.selected{border-color:#d6ac71;background:#342f2a}
+.lead-measure-select{display:flex;align-items:center;justify-content:space-between;gap:4px;width:100%;padding:3px 2px 6px;background:transparent;border:0;text-align:left}
+.lead-measure-select strong{font-size:16px;color:#f4e1c0}
+.lead-measure-select small{font-size:10px;color:#b4c2cc}
+.lead-chord-label{margin:0;font-size:10px;color:#a8b8c6}
+.lead-chord-label input:not([type=checkbox]){margin-top:4px;padding:8px 7px;font-size:13px;min-width:0}
+.inline-harmony-feedback{margin:8px 0 16px;color:#e9c997;font-size:12px;line-height:1.5}
+.measure-chord-inline{display:flex;flex-direction:column;align-items:stretch;gap:4px;width:100%;min-width:94px;padding:2px}
+.measure-heading-select{background:transparent;border:0;padding:1px 3px;display:flex;flex-direction:column;gap:2px;align-items:center}
+.measure-heading-select strong{font-size:13px}
+.song-map thead th .measure-chord-inline input:not([type=checkbox]){width:88px;min-width:0;padding:5px 4px;margin:0;font-size:11px;text-align:center;border-radius:5px}
+@media(max-width:520px){.lead-measure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lead-section-heading{align-items:stretch}.lead-key-label{width:100%}}
+
+/* v1.4: section-to-section harmony copy in the Lead Sheet. */
+.section-copy-editor{margin:18px 0}
+.section-copy-controls{display:grid;grid-template-columns:minmax(170px,1fr) minmax(170px,1fr) auto;gap:12px;align-items:end;margin:14px 0}
+.section-copy-controls label{min-width:0}
+.section-copy-controls button{white-space:nowrap}
+@media(max-width:700px){.section-copy-controls{grid-template-columns:1fr}.section-copy-controls button{width:100%}}
+
+/* v1.5: local multi-song library and note audition */
+.local-song-actions{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+.local-song-actions button{flex:1;min-width:85px;padding:8px 6px;font-size:11px}
+.local-song-actions .danger{border-color:#a66c68;color:#ffd4cc}
+.local-save-status{font-size:11px;color:#dfc391;overflow-wrap:anywhere;line-height:1.5}
+.note-audition-toggle{display:flex;align-items:center;gap:9px;align-self:center;font-size:12px}
+.note-audition-toggle input{width:auto;margin:0}
+.note-pitch-audition{padding:5px 3px;border:0;background:transparent;color:#e2c38d;font-size:11px;white-space:nowrap}
+.note-pitch-audition:hover,.note-pitch-audition:focus-visible{color:#fff;text-decoration:underline}
+
+/* v1.6: lead-sheet chord entry, keyboard progression, contextual completion */
+.lead-chord-editor{position:relative;min-width:0}
+.lead-chord-editor .lead-chord-label{margin:0;font-size:10px;color:#a8b8c6}
+.lead-chord-editor input{width:100%;margin-top:4px;padding:8px 7px;font-size:13px;min-width:0}
+.chord-suggestions{position:absolute;z-index:20;top:100%;left:0;right:0;max-height:225px;overflow-y:auto;background:#111d28;border:1px solid #9a7952;border-radius:7px;box-shadow:0 8px 24px #0009;padding:3px}
+.chord-suggestions button{display:block;width:100%;text-align:left;border:0;border-radius:4px;background:transparent;color:#f2e4cc;padding:6px 9px;font-size:12px}
+.chord-suggestions button:hover,.chord-suggestions button.is-highlighted{background:#4a4538;color:#fff}
+.lead-measure:focus-within{position:relative;z-index:5}
+
+/* v1.7: discoverable direct editing and note editor navigation. */
+.song-cell:hover{filter:brightness(1.13)}
+.song-cell:focus-visible{outline:3px solid #f7d9a6;outline-offset:-3px}
+.note-editor-navigation{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:12px 0 18px}
+.note-editor-navigation .hint{margin:0}
+.note-editor-section:focus{outline:none}
+.score-notes-shortcut{cursor:pointer}
+.score-notes-shortcut:hover{background:#31404d;border-radius:6px}
+.lead-measure-select:hover strong{text-decoration:underline}
+
+/* v1.8: Harmonic categories are hints, not disabled-note states. */
+.note-grid-cell{cursor:pointer;transition:filter .12s ease,box-shadow .12s ease}
+.note-grid-cell:hover{filter:brightness(1.32);box-shadow:inset 0 0 0 2px #b9c9d5}
+.note-grid-cell.note-tone-chromatic{background:#39414b}
+.note-grid-cell.has-note{background:#d0a66b;color:#15212b}
+
+/* Live, single-instrument measure loop in the note editor. */
+.note-loop-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;padding:12px;border:1px solid #485966;border-radius:9px;background:#25343e}
+.note-loop-controls .hint{margin:0}
+.note-grid th.note-loop-playhead{background:#685138;color:#fff0cf}
+.note-grid td.note-loop-playhead{box-shadow:inset 2px 0 #f0c77d,inset -2px 0 #f0c77d}
+
+/* v2.1: simultaneous piano upper/lower rolls, matching MusicXML grand staff. */
+.note-staff-panel{margin:12px 0 16px;border:1px solid #445260;border-radius:9px;overflow:hidden}
+.note-staff-panel .note-grid-scroll{border:0;border-radius:0}
+.note-staff-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 13px;background:#263440;color:#ead6b4;font-size:13px}
+.note-staff-heading span{font-size:11px;color:#afc0cf}
+.piano-split-setting{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 14px;border:1px solid #455665;border-radius:8px;background:#202d38}
+.piano-split-setting label{margin:0;max-width:290px}
+.piano-split-setting .hint{flex:1;min-width:200px}
+
+/* v2.3: dedicated structure/keys tab and map-first orchestration workspace */
+.tabs{flex-wrap:wrap}
+.structure-tab{min-width:0}
+.structure-tab>.overview-actions{margin-top:22px}
+.overview-section-strip{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:12px 14px;background:#1c2832;border:1px solid #344452;border-radius:10px;margin:14px 0}
+.overview-section-summary{display:flex;gap:7px;flex-wrap:wrap;min-width:0;flex:1}
+.overview-section-pill{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;background:#2b3b48;border:1px solid #445563;border-radius:6px;font-size:12px;white-space:nowrap}
+.overview-section-pill strong{color:#f0c98f}
+.overview-section-pill span{color:#e0e9f1}
+.overview-section-pill small{color:#a7b8c5}
+.overview-workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(290px,330px);gap:16px;align-items:start}
+.overview-map-pane{min-width:0}
+.overview-workspace .overview-edit{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;margin-top:0;padding:16px}
+.overview-workspace .overview-edit .overview-controls{grid-template-columns:minmax(0,1fr)}
+.overview-workspace .overview-edit .overview-actions button{flex:1 1 100%;text-align:center}
+@media(max-width:1150px){.overview-workspace{grid-template-columns:minmax(0,1fr)}.overview-workspace .overview-edit{position:static;max-height:none;overflow:visible}.overview-workspace .overview-edit .overview-controls{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}.overview-workspace .overview-edit .overview-actions button{flex:0 1 auto}}

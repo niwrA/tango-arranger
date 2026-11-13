@@ -13,6 +13,10 @@ Turn a simple tango lead sheet (melody plus harmony) into a usable, editable orq
 5. **Dynamics and form:** dynamic contrast across sections, phrase crescendos, articulations and generated velocities coherent with printed indications. A/B/A/B/C is a starting point, not a compulsory form.
 6. **Historical grounding:** profiles inspired by stylistic research on D'Arienzo, Di Sarli, Troilo, Pugliese, Canaro and Fresedo; distinguish documented characteristics from heuristics. Avoid claiming to imitate a specific recording or period with insufficient evidence.
 
+**Violin chord-accompaniment objective (v2.2):** prefer one harmonically selected note per beat, in pizzicato or exceptionally short bowed tango staccato, with composer/style-inspired marcato placement that can be overridden for each violin and section. Keep beat placement and notation independent from playback sounding gates. Do not treat profile accent defaults as historically verified transcriptions.
+
+**Editing-workflow objective (v2.3):** keep Song Overview as the default, high-frequency orchestration workspace. Separate structural form and section-key editing into a dedicated tab, retaining a compact key/form summary in the map and one-click navigation. Place the map and measure-range editor together for efficient instrument-level editing, with a responsive stacked layout on smaller screens.
+
 ## Technical and interoperability objectives
 
 1. Local-first Vue/TypeScript interface, development port 8000 strict.
@@ -77,3 +81,103 @@ Refer to the scholarly and educational references in `README.MD`. Sources establ
 - Never prepopulate a new song with demo notes or placeholder chords. Until the user enters musical material, generation must remain silent and MusicXML must contain only correctly timed rests.
 - Protect unsaved work with confirmation, retain existing import/save workflows and ensure entered melody/chords can be orchestrated immediately.
 - Preserve a single shared harmony editor; empty chord input means no harmony, not an implicit C-major chord.
+
+
+## Sectional tonality (v0.9)
+
+- Support major and minor key signatures independently per musical section; relative major/minor contrast is a useful tango convention but is not mandatory.
+- Treat **key signature**, **harmonic progression** and **global transpose** as three distinct concepts. A key change alone must not silently alter the musical pitches or the chord symbols.
+- Export each key change in MusicXML on every staff, with both fifths and mode. Provide a visible section/key label for relative-key transitions sharing an accidental signature.
+- Preserve section keys in portable projects and preserve/transpose them in MusicXML. Use a conventional key-signature spelling algorithm, with explicit future work for sophisticated enharmonic notation and non-diatonic modulation.
+- Acceptance criteria: a 4/4 A1 D minor → B1 F major → A2 D minor score exports distinct mode metadata at measures 1, 9 and 17, displays labels for each transition, and retains complete rhythmic measures. Actual MuseScore 4 display remains an unverified integration criterion.
+
+## Adjustable sectional form and notation (v1.0)
+
+- **Default song structure:** 5 × 16 measures, 4/4 tango, with contiguous section labels A–E. This is a **user-selected product default**, not a universal musicological rule; historical tango forms vary.
+- Allow the user to choose 1–26 sections and 1–128 measures per section (maximum 512 total), with individually adjustable section lengths after creation.
+- Preserve chord sequences, melodies, section keys, role presets and instrument-level overrides when expanding or shifting sections; require confirmation before removing existing measures.
+- Invalidate cached/generated/imported scores and protected-measure flags after structural changes because their absolute beat indices are no longer trustworthy. A future task is a safe three-way remapping of imported score edits.
+- Export **alphabetical rehearsal marks** (A, B, C, D, E, …) at section boundaries in the top part of the MusicXML score, independent of legacy internal names. Export all section-specific key changes to every part.
+- Acceptance: a blank default song has 80 measures and five section spans; resizing preserves the retained measure content and per-measure overrides; the exported MusicXML has the correct ordered rehearsal marks and complete durations.
+
+## v1.1 blank-song creation requirements
+
+- The new-song dialog must expose the same per-section measure lengths as the Song Overview structure editor, before creating the song.
+- Default to five sections of 16 measures (A–E); allow 1–26 sections with individually configurable lengths (1–128 each, at most 512 total).
+- The MusicXML export must emit alphabetical rehearsal marks at the beginning of each created section.
+
+## v1.3 note-editor requirements
+
+- Provide a lightweight instrument-specific piano roll with selectable measure, pitch, beat, duration and editable note properties. It must be reachable from Song Overview and Score Review.
+- Surface effective per-measure role, difficulty, activity, articulation, technique, section key, instrument MIDI range, and harmony at the selected beat. Offer role-aware chord/key suggestions without prohibiting chromatic or manually chosen notes.
+- Keep manual instrument-measure edits in the project, protect them during orchestra regeneration, and include them in MusicXML and browser playback. Permit resetting one edited measure without affecting other protected measures.
+- Support a fully blank lead sheet: a manually added note should not fabricate notes in other parts. Validate pitch, onset, duration and measure bounds.
+- Scope: this is not a full engraved staff editor, fingering optimizer or a music-theory correctness guarantee.
+
+
+## v1.3: section-aware inline lead-sheet harmony
+
+The Lead Sheet groups measures into labeled sections with key signatures and measure ranges. Section keys can be edited in their headers without changing pitches. Each measure has an inline chord-sequence input (Enter or blur to commit; Escape to discard); a measure-number button selects the melody editor. The Song Overview measure headers also expose inline chord inputs, while the expanded harmony editor remains available. Invalid chord sequences are rejected without changing the project.
+
+
+## v1.4: Copy chords between sections
+
+The Lead Sheet now has a **Copy section chords** panel with source and destination selectors and an explicit overwrite confirmation. It copies the complete chord sequence (including multiple chords per measure and empty measures) by measure position, leaving melody, section keys, instrument roles, manually edited notes, and protection flags untouched. When section lengths differ, only the first `min(source measures, destination measures)` measures are copied; extra destination measures remain unchanged. Generated accompaniment is refreshed after a change while protected manual notes are retained. Source chord strings are validated before any change. The operation is reversible by re-entering harmony or loading an earlier `.tango` save; there is no general undo stack.
+
+## v1.5: local song library and audible note editing
+
+- Maintain a stable, locally unique project identity independent of its user-editable title. Persist complete project state (including protected notes) to IndexedDB with debounced autosave and an explicit save control. Restore the most recently opened project after refresh.
+- Support multiple local songs, including several unnamed songs, and safe switching, duplication and confirmed deletion. Do not depend on cloud services or logins. Clearly communicate that clearing browser storage can erase the local library and recommend portable `.tango` backups.
+- Provide immediate pitch feedback on piano-roll cell clicks, pitch-label clicks and existing note selections. Use the existing Tone.js dependency, browser audio unlock on user gesture, and a toggle to disable note audition. Respect global transposition and do not alter note data when auditioning.
+- Future: browser-based end-to-end tests, migration/versioning strategy for the local IndexedDB schema, storage quota handling, and more realistic per-instrument timbres.
+
+
+## v1.6: Bandoneon I defaults and lead-sheet chord keyboard workflow
+
+- New songs default **Bandoneon I** to follow **Violin II**, using the `adapt` method, in every section. **Bandoneon II** retains its existing independent/section-specific orchestration. Existing saved songs keep their explicit follow settings. Change following under Orchestration → Bandoneon following.
+- In Lead Sheet, **Enter** validates/saves the chord sequence and focuses the next measure's chord field, including across section boundaries. **Tab** and **Shift+Tab** move directly among chord inputs (native tab behavior resumes at the grid edges). Invalid entries are rejected and the previous harmony is restored.
+- A contextual chord-completion menu appears when typing a chord root. Arrow keys navigate suggestions; Enter accepts a highlighted suggestion; clicking a suggestion inserts it without moving to another measure. The completion replaces only the comma-delimited chord under the caret, preserving other chord slots.
+- Diminished chord syntax: `Ddim` or `D°` (diminished triad), `Ddim7` or `D°7` (fully diminished seventh), `Dm7b5` or `Dø7` (half-diminished seventh). The chord-tone generator distinguishes these pitch-class sets.
+- This is a keyboard-first entry aid, not an exhaustive jazz-chord grammar or spell-checker for arbitrary extensions.
+
+## v1.7: Fast, contextual editing navigation
+
+- Keep a single click in the Song Overview as an orchestration-selection action, but make a double click or Enter on the focused cell open the Note Editor at precisely that instrument/measure. Avoid altering the musical project simply by navigating.
+- Offer previous/next measure controls within the Note Editor, boundary-safe keyboard shortcuts, and a return path to the original map cell with keyboard focus restored. Never intercept typing inside text, numeric, or select controls.
+- Allow direct navigation from the Score Review note list and from a Lead Sheet measure number to its melody editor, without disrupting the existing chord-entry workflow.
+- Verify wiring and keyboard guards with automated checks; add actual browser interaction and keyboard accessibility tests when the frontend build toolchain is available.
+
+## v1.8: Chromatic freedom in the note editor
+
+The note editor must permit chromatic and out-of-chord notes for all instruments, including melody, bass, and chord roles. Chord and key pitch-class coloring is advisory, never a restriction. The editor offers sharp/flat display labels without changing concert pitch; explicit per-note enharmonic export spelling is a separate future enhancement. Instrument range and measure bounds remain enforced.
+
+## Articulation acceptance criteria (v1.9)
+
+- Preserve rhythmic notation separately from audible note length. A written quarter note remains a quarter note in MusicXML even when performed as very short tango staccato.
+- Make marcato louder and longer than tango staccato at equal base velocity, with user-editable per-note playback gate and base velocity.
+- Encode staccato as a MusicXML dot and tango marcato as a strong-accent wedge with staccato, without relying solely on text directions.
+- Make note-level articulation available for all instruments and retain it through protected-measure regeneration and local `.tango` saving.
+- **Limitations:** exact playback gate is application-specific and does not round-trip as a standard MusicXML attribute; actual MuseScore rendering, instrument-specific samples and detailed historical calibration remain unverified.
+
+## Measure-loop playback acceptance criteria (v2.0)
+
+- The Note Editor can loop **only the currently selected instrument-measure** at the project tempo, with a clear play/stop toggle, keyboard shortcut and active-beat indication.
+- Play sounding notes with their **current** pitch (plus global transposition), start beat, velocity and note-level articulation gate. Do not change written durations or exported MusicXML. Clip playback tails to the loop boundary.
+- Re-read note events on each loop pass so manually edited notes are heard without restarting playback. Do not regenerate or modify project data merely to play a loop.
+- Stop and cancel the loop when the instrument, measure, song or tab changes, and avoid overlapping the whole-arrangement playback transport.
+- Test timing and state wiring without requiring a real browser. **Outstanding:** actual browser playback, browser automation and representative instrument samples.
+
+## Piano grand-staff and chord-entry acceptance criteria (v2.1)
+
+- Export one piano part with two staves, numbered G/F clefs, separate voice and staff tags, and an exact measure-duration backup between upper and lower voices. A bass note and an upper chord at the same beat must remain simultaneous, not sequential. Preserve articulation and key changes.
+- Offer a piano-specific two-register note editor with independently adjustable visible octaves. Keep a single piano instrument, one loop and one protected measure per edit; persist an editable MIDI split pitch with a middle-C default. Do not silently change pitches when reassigning staves.
+- Accept comma-separated repeated chords such as `C,C`, `C,G`, `C,C,C,G`. Filter chord suggestions based on the token under the caret and replace only that token on selection. Do not auto-commit incomplete sequences during typing. Save on Enter/Tab/blur, and reject malformed completed sequences without corrupting the previous harmony.
+- Regression tests must validate independent staff durations and the comma-preserving token behavior. Real Vue/browser keyboard testing and actual MuseScore 4 import remain separate acceptance gates.
+
+## v2.4 — Whole-measure arpeggio semantics
+
+- Arpeggio and pizzicato arpeggio produce exactly four consecutive monophonic chord tones per complete measure, not repeated per accompaniment beat.
+- Allow per-section, per-violin ascending, descending or alternating arpeggio direction, preserving settings in `.tango` and section resizing.
+- Use the harmony at each of the four note onsets, including comma-separated mid-measure changes.
+- Maintain written rhythmic durations for MusicXML, with pizzicato articulation and short local playback gate.
+- Verify with regression tests; actual MuseScore 4 import and browser playback remain pending.

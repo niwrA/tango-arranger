@@ -1,9 +1,16 @@
-# Tango Arranger — project board (v0.5)
+# Tango Arranger — project board (v2.4)
 
 **Status definitions:** Done = code/doc is present; Partial = meaningful implementation with clear gaps; Planned = not implemented. **Verification is a separate axis**: Done does not imply MuseScore compatibility or historical fidelity.
 
 | ID | User story / engineering task | Status | Release | Evidence / outstanding work |
 |---|---|---|---|---|
+| TA-ARP-24 | Whole-measure violin arpeggio: four notes per bar, ascending/descending/alternating, pizzicato variant | Partial | v2.4 | Generator, per-section direction control, structural persistence and MusicXML regression; real MuseScore/browser audition pending |
+| TA-UI-23 | Separate song structure/section keys from measure orchestration map; map-first responsive editor workspace | Partial | v2.3 | Dedicated tab, read-only section strip, side-by-side map/editor, navigation tests; browser visual QA pending |
+| TA-VIOLIN-22 | Beat-based violin chord accompaniment: single pizzicato/tango-staccato note per beat, style-dependent marcato and editable per-section beat accents | Partial | v2.2 | New projects default to one note/beat, sounding gate and stronger marcato; MusicXML articulation tested; named-style beat choices are heuristics, real MuseScore and audio QA pending |
+| TA-PIANO-21 | Two-staff piano MusicXML with independent simultaneous voices and split-register note editor | Partial | v2.1 | Staff 1 G clef, staff 2 F clef, two voices and backup; split point saved; automatic hand assignment and MuseScore visual QA pending |
+| TA-CHORD-21 | Preserve comma-separated chord tokens during autocomplete and keyboard editing | Partial | v2.1 | Input commit deferred to blur/Enter/Tab; token-level completion; repeated-chord tests; browser UX QA pending |
+| TA-LOOP-20 | Loop current instrument-measure in Note Editor, live edits and beat highlight | Partial | v2.0 | Tone transport loop, gate/velocity/transpose, stop on navigation, eight tests; real browser/audio QA pending |
+| TA-ART-19 | Distinct tango staccato/marcato attacks, note-level gate editor and MusicXML markings | Partial | v1.9 | Note duration separate from sounding gate; 28%/58% defaults, marcato +14 velocity; MusicXML dot/wedge; real MuseScore playback and note-level gate roundtrip not yet verified |
 | TA-001 | Local-first Vue/TypeScript workbench | Done | v0.1 | `src/App.vue` |
 | TA-002 | Manual melody/chord input and section roles | Partial | v0.1 | Text entry; staff editor planned |
 | TA-003 | MIDI and MusicXML import | Partial | v0.1 | Complex meter, repeats, grace notes unsupported |
@@ -31,7 +38,7 @@
 | TA-025 | Real phrase-level role/density planning | Planned | Next | Separate plan from notes, human overrides |
 | TA-026 | Valid independent multiple-voice MusicXML and pickups | Planned | Future | Current exporter flattens overlaps to tied chords |
 | TA-027 | Optimized violin fingering and bandoneon voicing | Planned | Future | Position/ergonomic checks and pitch motion optimization |
-| TA-028 | Staff/piano-roll editor | Planned | Future | Current interface is text + note overview |
+| TA-028 | Staff/piano-roll editor | Partial | v1.3 | Guided beat-grid piano roll implemented; engraved staff editor and full note notation remain planned |
 | TA-029 | Three-way merge from MuseScore | Planned | Future | Currently instrument-measure protection only |
 | TA-030 | Historical excerpt comparison/golden reference set | Planned | Next | Score/legal-source selection, analysis and listening validation |
 | TA-031 | Per-instrument expression differences | Partial | v0.5 | `dynamicsOffset` in data model and UI; not independently listening-verified |
@@ -147,3 +154,116 @@
 | TA-067 | Confirmation before replacing an unsaved project | Implemented | UI source; browser interaction pending |
 | TA-068 | Browser interaction and MuseScore 4 acceptance | Pending | Requires Vue runtime and MuseScore 4 |
 | TA-069 | Keep exactly three documentation files | Done | README.MD, PROJECT-GOALS.MD, PROJECT-BOARD.MD |
+
+
+## v0.9 — Section key signatures
+
+| ID | Story / task | Status | Verification / follow-up |
+|---|---|---|---|
+| TA-050 | Store and edit major/minor key per section | Done | `sectionKeys`, Song Overview, Lead Sheet and Orchestration controls |
+| TA-051 | Show section keys in Song Overview | Done | Section + key shown in each measure header |
+| TA-052 | Export key signature changes to all MusicXML parts | Done | `<fifths>` and `<mode>` at each key transition; regression |
+| TA-053 | Display relative major/minor changes despite shared accidentals | Done | Text direction above Piano at section boundaries |
+| TA-054 | Keep key changes independent of notes and chords | Done | Data model separation; regression |
+| TA-055 | Apply global transpose to keys alongside notes and harmony | Done | Regression for Dm→Em and F→G |
+| TA-056 | Persist and load section keys in `.tango` projects | Done | JSON persistence; legacy projects receive editable first-chord guess |
+| TA-057 | Read imported MusicXML key signatures | Partial | Basic key changes read and mapped to sections on melody import; browser test pending |
+| TA-058 | Improved enharmonic spelling in tonal context | Partial | Diatonic spelling + minor raised leading tone; chromatic voice-leading pending |
+| TA-059 | End-to-end MuseScore 4 display verification | Planned | Need to open exported score in MuseScore 4 and check section text, signatures and warnings |
+| TA-060 | Vue production build / CI verification | Planned | Dependencies not available in this execution environment |
+
+**v0.9 execution:** implemented UI, project model, MusicXML export/import key handling and automated tests. The full browser build and MuseScore 4 application test have **not** been completed.
+
+## v1.0 — Song structure and rehearsal letters
+
+| ID | Story / task | Status | Verification / remaining work |
+|---|---|---|---|
+| TA-081 | Default new song to five 16-measure sections (A–E) | Done | `blankProject()` regression: 80 bars, five spans |
+| TA-082 | Choose section count and common length when creating a song | Done | UI source and custom-length regression; browser UX not run |
+| TA-083 | Edit individual section lengths, add and remove sections in Song Overview | Done | Section editor, input constraints and confirmation prompts; browser UX not run |
+| TA-084 | Preserve chords/melody and remap per-measure overrides on section resize | Done | Regression for relative measure positions, role and articulation remapping |
+| TA-085 | Prevent silent data loss on structural edits | Partial | UI confirms shrinking and score/protection invalidation; imported score remapping not implemented |
+| TA-086 | Export sequential alphabetical MusicXML rehearsal marks | Done | Regression checks first-part `<rehearsal>` A–E and legacy label migration |
+| TA-087 | Preserve per-section key signatures and dynamics when renaming/reordering sections | Done | Section remapping in domain model; visual browser QA pending |
+| TA-088 | Update exactly the three permitted documentation files | Done | `README.MD`, `PROJECT-GOALS.MD`, `PROJECT-BOARD.MD` only |
+| TA-089 | Full Vue production build and browser interaction | Blocked | npm registry DNS failure (`EAI_AGAIN`); no browser build verification |
+| TA-090 | Open exported score in MuseScore 4 and confirm rehearsal marks | Pending | MuseScore 4 unavailable in this runtime |
+
+**v1.0 verification:** 43 standalone regression checks passed. TypeScript domain and MusicXML export modules passed a strict typecheck with temporary external-library declarations. The MusicXML duration checker passed on custom section lengths. The source archive is validated separately. No MuseScore 4 compatibility claim is made until a real import succeeds.
+
+## v1.1 — Blank-song section editor
+
+| Item | Status | Verification |
+|---|---|---|
+| Editable per-section measure counts during New blank song | Implemented | UI input bindings and domain tests |
+| Default A–E with 16 measures each; section count adjustable | Implemented | `blankProject()` regression |
+| Live total and optional uniform-length action | Implemented | UI source; browser interaction not verified |
+| Alphabetical rehearsal letters for customized blank-song structures | Implemented | MusicXML regression |
+
+The full Vue production build and MuseScore import are still unverified in this environment.
+
+## v1.3 — Guided instrument note editor
+
+| ID | Work item | Status | Evidence / caveat |
+|---|---|---|---|
+| TA-083 | Instrument-measure piano-roll entry and deletion | Implemented | Clickable pitch/beat grid, quarter/eighth/sixteenth resolution; browser QA pending |
+| TA-084 | Role/key/chord-aware pitch palette | Implemented | Major/natural minor and beat-specific chord tones; filters are advisory |
+| TA-085 | Note property editing | Implemented | MIDI pitch, beat, duration, velocity, articulation and violin technique |
+| TA-086 | Preserve manual notes through regeneration | Implemented | Protected importedScore store and merge; regression tests pass |
+| TA-087 | Reset a single manual instrument-measure | Implemented | Other protected measures preserved in regression |
+| TA-088 | MusicXML export of manual notes | Implemented / unverified in MuseScore | Duration preflight passes; actual MuseScore 4 import pending |
+| TA-089 | Browser / Vue build verification | Pending | npm dependencies unavailable; SFC compilation not confirmed |
+
+**Verification:** 56 standalone regression checks passed. The new piano roll is a prototype and does not enforce complete instrument-specific playability, harmonic correctness or voice leading.
+
+
+## v1.3: section-aware inline lead-sheet harmony
+
+The Lead Sheet groups measures into labeled sections with key signatures and measure ranges. Section keys can be edited in their headers without changing pitches. Each measure has an inline chord-sequence input (Enter or blur to commit; Escape to discard); a measure-number button selects the melody editor. The Song Overview measure headers also expose inline chord inputs, while the expanded harmony editor remains available. Invalid chord sequences are rejected without changing the project.
+
+
+## v1.4: Copy chords between sections
+
+The Lead Sheet now has a **Copy section chords** panel with source and destination selectors and an explicit overwrite confirmation. It copies the complete chord sequence (including multiple chords per measure and empty measures) by measure position, leaving melody, section keys, instrument roles, manually edited notes, and protection flags untouched. When section lengths differ, only the first `min(source measures, destination measures)` measures are copied; extra destination measures remain unchanged. Generated accompaniment is refreshed after a change while protected manual notes are retained. Source chord strings are validated before any change. The operation is reversible by re-entering harmony or loading an earlier `.tango` save; there is no general undo stack.
+
+## v1.5: local library and note audition
+
+| ID | User story / engineering task | Status | Release | Evidence / outstanding work |
+|---|---|---|---|---|
+| TA-053 | Debounced autosave to browser IndexedDB, even for unnamed songs | Done (browser verification pending) | v1.5 | `src/localProjects.ts`, `src/App.vue`; simulated CRUD tests |
+| TA-054 | Select, restore, duplicate and delete multiple locally saved songs | Done (browser verification pending) | v1.5 | Stable song IDs, sidebar selector, confirmed delete |
+| TA-055 | Restore last-opened song and preserve manually edited notes | Done (browser verification pending) | v1.5 | Complete project snapshots and last-opened pointer |
+| TA-056 | Audition notes when clicked in piano roll, pitch labels and event list | Done (audio verification pending) | v1.5 | Tone.js synth; toggle; global transposition applied |
+| TA-057 | IndexedDB schema migration, quota handling, automated browser E2E | Planned | Future | Not covered by simulated tests |
+
+**Release verification:** Existing generator/MusicXML regressions plus `tests/local-library.cjs` with a simulated IndexedDB implementation. Full Vue production build, real browser persistence, audio playback, and MuseScore 4 import remain unverified.
+
+
+## v1.6: Bandoneon I defaults and lead-sheet chord keyboard workflow
+
+- New songs default **Bandoneon I** to follow **Violin II**, using the `adapt` method, in every section. **Bandoneon II** retains its existing independent/section-specific orchestration. Existing saved songs keep their explicit follow settings. Change following under Orchestration → Bandoneon following.
+- In Lead Sheet, **Enter** validates/saves the chord sequence and focuses the next measure's chord field, including across section boundaries. **Tab** and **Shift+Tab** move directly among chord inputs (native tab behavior resumes at the grid edges). Invalid entries are rejected and the previous harmony is restored.
+- A contextual chord-completion menu appears when typing a chord root. Arrow keys navigate suggestions; Enter accepts a highlighted suggestion; clicking a suggestion inserts it without moving to another measure. The completion replaces only the comma-delimited chord under the caret, preserving other chord slots.
+- Diminished chord syntax: `Ddim` or `D°` (diminished triad), `Ddim7` or `D°7` (fully diminished seventh), `Dm7b5` or `Dø7` (half-diminished seventh). The chord-tone generator distinguishes these pitch-class sets.
+- This is a keyboard-first entry aid, not an exhaustive jazz-chord grammar or spell-checker for arbitrary extensions.
+
+## v1.7: Direct editing navigation
+
+| ID | User story / engineering task | Status | Release | Evidence / outstanding work |
+|---|---|---|---|---|
+| TA-091 | Double-click a map instrument-measure to edit its notes | Done (browser verification pending) | v1.7 | `src/App.vue` cell double-click opens exact instrument and measure; single-click selection unchanged |
+| TA-092 | Enter on focused map cell opens notes; Space retains selection | Done (browser verification pending) | v1.7 | Keydown handler, accessible label and tooltip |
+| TA-093 | Navigate adjacent measures in Note Editor and return to focused map cell | Done (browser verification pending) | v1.7 | Buttons, `[`, `]`, `Escape`, editable-control guards, focus restoration |
+| TA-094 | Direct note-edit access from Score Review note list | Done (browser verification pending) | v1.7 | Double-click note list; explicit Edit notes button retained |
+| TA-095 | Double-click Lead Sheet measure number to focus melody editor | Done (browser verification pending) | v1.7 | Focus after Vue DOM update, without changing chord entry |
+| TA-096 | Real-browser keyboard/mouse navigation E2E test | Planned | Future | Vue build dependencies and browser runner unavailable in this environment |
+
+**Verification:** 71 existing music/export regressions + 6 local-library/audio wiring checks + 8 new navigation checks = **85 passing checks**. Vue script TypeScript parse passes; full Vue production build and browser behavior are not verified.
+
+## v1.8: Unrestricted chromatic entry within instrument range
+
+- **Done:** Every semitone in the note-editor grid is clickable, irrespective of chord, key, role, or difficulty. Harmonic coloring remains informational.
+- **Done:** Editor pitch labels support automatic key-based, sharp, or flat spellings. MIDI pitch and playback do not change.
+- **Done:** Regression coverage for chromatic melody/bass entries, regeneration protection, MusicXML export, and UI wiring.
+- **Planned:** User-selectable per-note enharmonic spelling persisted into MusicXML (the current exporter infers spelling from section key).
+- **Verification limit:** Full Vue production build, browser note interactions, and actual MuseScore 4 import still require local validation.
