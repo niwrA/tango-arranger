@@ -4,7 +4,7 @@ export type Role = 'melody'|'harmony'|'chords'|'bass'|'fill'|'variation'|'rest';
 export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
-export type Note = { articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number };
+export type Note = { articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark };
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
   staccato:0.28,marcato_staccato:0.58,legato:0.94
@@ -21,7 +21,28 @@ export function noteSoundingVelocity(n:Note):number {
 }
 
 export type Difficulty = 'easy'|'intermediate'|'advanced';
-export type DynamicMark = 'pp'|'p'|'mp'|'mf'|'f'|'ff';
+export type DynamicMark = 'ppp'|'pp'|'p'|'mp'|'mf'|'f'|'ff'|'fff';
+export const DYNAMIC_MARKS:DynamicMark[]=['ppp','pp','p','mp','mf','f','ff','fff'];
+export const DYNAMIC_VELOCITIES:Record<DynamicMark,number>={ppp:38,pp:52,p:63,mp:74,mf:88,f:101,ff:112,fff:122};
+export type MeasureDynamics={start?:DynamicMark;end?:DynamicMark};
+export type MelodyDucking={enabled:boolean;reduction:number};
+/** Explicit per-instrument measure endpoints; unspecified endpoints inherit prior dynamics. */
+export function measureDynamicVelocity(p:Pick<Project,'measureDynamics'|'beats'>,inst:Instrument,absoluteBeat:number,base:number):number {
+ const bar=Math.max(0,Math.floor(absoluteBeat/p.beats));
+ const settings=p.measureDynamics?.[`${inst}:${bar}`];if(!settings)return base;
+ const start=settings.start?DYNAMIC_VELOCITIES[settings.start]:undefined;
+ const end=settings.end?DYNAMIC_VELOCITIES[settings.end]:undefined;
+ if(start===undefined&&end===undefined)return base;
+ if(start!==undefined&&end!==undefined){const t=Math.max(0,Math.min(1,(absoluteBeat-bar*p.beats)/p.beats));return Math.max(1,Math.min(127,Math.round(base+(start+(end-start)*t-88))));}
+ return Math.max(1,Math.min(127,Math.round(base+(start??end??88)-88)));
+}
+export function melodyDuckingFactor(p:Pick<Project,'melodyDucking'|'roles'|'measureRoles'|'bars'|'beats'>,inst:Instrument,absoluteBeat:number):number {
+ if(inst==='Contrabass'||p.melodyDucking?.enabled===false)return 1;
+ const b=Math.floor(absoluteBeat/p.beats),bar=p.bars[b];if(!bar)return 1;
+ const lead=p.measureRoles?.[`${inst}:${b}`]??p.roles[bar.section]?.[inst];if(lead==='melody')return 1;
+ const hasLead=INSTRUMENTS.some(i=>i!==inst&&(p.measureRoles?.[`${i}:${b}`]??p.roles[bar.section]?.[i])==='melody');
+ return hasLead?Math.max(0.1,Math.min(1,(100-(p.melodyDucking?.reduction??22))/100)):1;
+}
 export type InstrumentSettings = { difficulty?:Difficulty; activity?:number; dynamicsOffset?:number };
 export type ExpressionSettings = { enabled:boolean; sections:Record<string,DynamicMark>; crescendo:boolean };
 export const defaultInstrumentSettings=():Partial<Record<Instrument,InstrumentSettings>>=>({Piano:{difficulty:'advanced',activity:1},Contrabass:{difficulty:'advanced',activity:1},'Violin I':{difficulty:'advanced',activity:0.92},'Violin II':{difficulty:'advanced',activity:0.88},'Bandoneon I':{difficulty:'advanced',activity:0.93},'Bandoneon II':{difficulty:'advanced',activity:0.85},Voice:{difficulty:'easy',activity:0}});
@@ -164,7 +185,7 @@ export function resizeSections(p:Project,lengths:number[]):Project {
     orchestration:{violin,bandoneon},violinMarcatoBeats,violinArpeggioDirections,expression:{...(p.expression??defaultExpression()),sections:dynamics},
     pianoFigures:Object.fromEntries(lengths.map((_,i)=>[sectionLetter(i),p.pianoFigures?.[old[i]?.label]??'chords_up'])),
     pianoFigureVariation:Object.fromEntries(lengths.map((_,i)=>[sectionLetter(i),p.pianoFigureVariation?.[old[i]?.label]??0])),
-    expressionRanges:[], // old absolute measure positions are invalid after restructuring
+    expressionRanges:[],measureDynamics:{}, // old absolute measure positions are invalid after restructuring
 
     measureRoles:remap(p.measureRoles),measureViolinTechniques:remap(p.measureViolinTechniques),
     articulation:{...(p.articulation??defaultArticulation()),overrides:remap(p.articulation?.overrides)},
@@ -172,7 +193,7 @@ export function resizeSections(p:Project,lengths:number[]):Project {
 }
 export type Bar = { chord:string; melody:Note[]; section:string };
 export type Score = Record<Instrument,Note[]>;
-export type Project = { version:1; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
@@ -392,7 +413,7 @@ export function convertTwoFourToFour(p:Project):Project {
   }
   return {...p,beats:4,bars,protectedBars:{}};
 }
-const dynVelocity:Record<DynamicMark,number>={pp:52,p:63,mp:74,mf:88,f:101,ff:112};
+const dynVelocity=DYNAMIC_VELOCITIES;
 export function instrumentActivity(score:Score,inst:Instrument,barCount:number,beats:number):number {
   if(!barCount)return 0;
   let active=0;for(let b=0;b<barCount;b++)if((score[inst]??[]).some(n=>n.start<b*beats+beats&&n.start+n.duration>b*beats))active++;

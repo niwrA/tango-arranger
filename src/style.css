@@ -201,3 +201,12 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .note-properties-popup{position:fixed;z-index:81;inset:auto 3vw 4vh;max-width:880px;max-height:85vh;overflow:auto;margin:auto;padding:20px;background:#1a232c;border:1px solid #d0a66b;border-radius:14px;box-shadow:0 20px 70px #000c}
 .note-properties-popup-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 @media(max-width:600px){.transport-bar{border-radius:0 0 10px 10px}.help-toggle{flex:1 1 100%}.note-properties-popup{inset:auto 0 0;max-height:88vh;border-radius:16px 16px 0 0}.page-title-actions{width:100%}.page-title-actions button{flex:1}}
+
+/* v2.8: large touch resize affordance, visible note length, explicit numeric controls. */
+.note-grid-cell.has-note{overflow:visible;z-index:1;touch-action:none;position:relative;isolation:isolate}
+.note-grid-cell.has-note::after{display:none}
+.note-length-preview{position:absolute;left:0;top:4px;bottom:4px;background:#d0a66b;border:1px solid #ffe1aa;border-radius:5px;pointer-events:none;z-index:0}
+.note-resize-handle{position:absolute;right:0;top:0;height:100%;width:22px;display:flex;align-items:center;justify-content:center;background:#f5d29d;color:#342314;font-size:16px;z-index:1;border-left:2px solid #74542c;touch-action:none}
+.note-duration-controls{display:flex;align-items:stretch;gap:6px}
+.note-duration-controls input{min-width:0;flex:1}
+.note-duration-controls button{min-width:44px;min-height:44px;font-size:22px;touch-action:manipulation}

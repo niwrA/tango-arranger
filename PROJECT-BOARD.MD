@@ -304,3 +304,13 @@ Playback controls are now at the top of the main workspace, with a direct 440 Hz
 - The Note Editor supports dragging a note's right edge to change written duration and its center vertically to transpose, with long-press opening the properties panel. Existing notes are selected on tap rather than deleted; deletion remains in the properties panel.
 - Note properties have velocity and sounding-length sliders alongside precise numeric inputs.
 - Less-used global actions are also grouped under More tools; existing access points are retained.
+
+
+## v2.8 Note duration editing
+Touch note resize now uses pointer capture, a larger resize handle, visible note-length preview, and duration stepper controls. Written duration remains independent from articulation gate.
+
+### v2.9 dynamics and melody balance
+- Optional measure start/end ppp–fff marks per instrument; both endpoints export a MusicXML hairpin.
+- Optional note-level subito mark; MusicXML exports the immediate dynamic.
+- Automatic accompaniment ducking while another part has the melody; contrabass is exempt, with configurable reduction.
+- Playback applies the measure dynamic envelope and accompaniment reduction at note onset; soundfont/realistic dynamics and MuseScore playback still require verification.
