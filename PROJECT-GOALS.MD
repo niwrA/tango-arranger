@@ -202,3 +202,12 @@ The note editor must permit chromatic and out-of-chord notes for all instruments
 
 ### v2.6.3 mobile and audio diagnostics
 Playback controls are now at the top of the main workspace, with a direct 440 Hz Test sound control and visible audio status. Mobile project settings and local song library are collapsed behind a toggle; tabs scroll horizontally and the transport remains sticky on small screens. A blank song with no generated notes now displays a clear message rather than silently appearing to play. Actual browser audio on Azure/mobile devices still requires device testing.
+
+
+## v2.7 — Note editor and workspace ergonomics
+- New projects default to Advanced overall and instrument difficulty; saved songs retain their chosen settings.
+- The transport stays visible while scrolling on desktop and mobile.
+- A global Show/Hide explanations control stores the choice locally in this browser.
+- The Note Editor supports dragging a note's right edge to change written duration and its center vertically to transpose, with long-press opening the properties panel. Existing notes are selected on tap rather than deleted; deletion remains in the properties panel.
+- Note properties have velocity and sounding-length sliders alongside precise numeric inputs.
+- Less-used global actions are also grouped under More tools; existing access points are retained.

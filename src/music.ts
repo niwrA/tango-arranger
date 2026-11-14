@@ -24,7 +24,7 @@ export type Difficulty = 'easy'|'intermediate'|'advanced';
 export type DynamicMark = 'pp'|'p'|'mp'|'mf'|'f'|'ff';
 export type InstrumentSettings = { difficulty?:Difficulty; activity?:number; dynamicsOffset?:number };
 export type ExpressionSettings = { enabled:boolean; sections:Record<string,DynamicMark>; crescendo:boolean };
-export const defaultInstrumentSettings=():Partial<Record<Instrument,InstrumentSettings>>=>({Piano:{difficulty:'intermediate',activity:1},Contrabass:{difficulty:'intermediate',activity:1},'Violin I':{difficulty:'intermediate',activity:0.92},'Violin II':{difficulty:'intermediate',activity:0.88},'Bandoneon I':{difficulty:'intermediate',activity:0.93},'Bandoneon II':{difficulty:'intermediate',activity:0.85},Voice:{difficulty:'easy',activity:0}});
+export const defaultInstrumentSettings=():Partial<Record<Instrument,InstrumentSettings>>=>({Piano:{difficulty:'advanced',activity:1},Contrabass:{difficulty:'advanced',activity:1},'Violin I':{difficulty:'advanced',activity:0.92},'Violin II':{difficulty:'advanced',activity:0.88},'Bandoneon I':{difficulty:'advanced',activity:0.93},'Bandoneon II':{difficulty:'advanced',activity:0.85},Voice:{difficulty:'easy',activity:0}});
 export const defaultExpression=():ExpressionSettings=>({enabled:true,sections:{A1:'mp',B1:'mf',A2:'mp',B2:'f',C:'f'},crescendo:true});
 /** Editable, deterministic arranging figures. These are stylistic building blocks,
  * not a claim that any composer used one invariant accompaniment pattern. */
@@ -291,10 +291,10 @@ export function blankProject(options:{title?:string;measures?:number;sections?:n
     sectionKeys:Object.fromEntries(labels.map(label=>[label,'C'])),
     bars:lengths.flatMap((length,i)=>Array.from({length},()=>({chord:'',melody:[] as Note[],section:labels[i]}))),
     roles,protectedBars:{},transposeSemitones:0,articulation:defaultArticulation(),
-    orchestration,difficulty:'intermediate',instrumentSettings:defaultInstrumentSettings(),expression
+    orchestration,difficulty:'advanced',instrumentSettings:defaultInstrumentSettings(),expression
   };
 }
-export function demoProject():Project {const chords=['Dm','Dm','Gm','A7','Dm','Gm','A7','Dm','F','C7','F','A7','Dm','Gm','A7','Dm','Dm','Dm','Gm','A7','Dm','Gm','A7','Dm','F','C7','F','A7','Dm','Gm','A7','Dm','Dm','Gm','A7','Dm','Dm','Gm','A7','Dm'];const pattern=[[74,1],[77,1],[76,1],[74,1]];return {version:1,title:'Untitled Tango (demo melody)',bpm:124,beats:4,profile:'traditional',sectionKeys:{A1:'Dm',B1:'F',A2:'Dm',B2:'F',C:'Dm'},bars:chords.map((chord,i)=>({chord,section:i<8?'A1':i<16?'B1':i<24?'A2':i<32?'B2':'C',melody:pattern.map(([pitch,duration],j)=>({pitch:pitch+(i%8===4?-2:0)+(i%16>=8?3:0),start:j,duration}))})),roles:defaultRoles(),protectedBars:{},transposeSemitones:0,articulation:defaultArticulation(),orchestration:defaultOrchestration(),difficulty:'intermediate',instrumentSettings:defaultInstrumentSettings(),expression:defaultExpression()};}
+export function demoProject():Project {const chords=['Dm','Dm','Gm','A7','Dm','Gm','A7','Dm','F','C7','F','A7','Dm','Gm','A7','Dm','Dm','Dm','Gm','A7','Dm','Gm','A7','Dm','F','C7','F','A7','Dm','Gm','A7','Dm','Dm','Gm','A7','Dm','Dm','Gm','A7','Dm'];const pattern=[[74,1],[77,1],[76,1],[74,1]];return {version:1,title:'Untitled Tango (demo melody)',bpm:124,beats:4,profile:'traditional',sectionKeys:{A1:'Dm',B1:'F',A2:'Dm',B2:'F',C:'Dm'},bars:chords.map((chord,i)=>({chord,section:i<8?'A1':i<16?'B1':i<24?'A2':i<32?'B2':'C',melody:pattern.map(([pitch,duration],j)=>({pitch:pitch+(i%8===4?-2:0)+(i%16>=8?3:0),start:j,duration}))})),roles:defaultRoles(),protectedBars:{},transposeSemitones:0,articulation:defaultArticulation(),orchestration:defaultOrchestration(),difficulty:'advanced',instrumentSettings:defaultInstrumentSettings(),expression:defaultExpression()};}
 /** Beat positions (zero-based) for violin chord-accompaniment marcato.
  * Profile defaults are arranging heuristics, not claims about fixed composer rules.
  * A section override can specify any subset, including none, for each violin. */
@@ -490,7 +490,7 @@ export function generate(p:Project):Score {
     for(const inst of order){
       const configuredRole=p.measureRoles?.[`${inst}:${b}`]??sectionRoles[inst]??'rest',notes=score[inst],range=instrumentRange(inst);
       if(!bar.chord.trim() && configuredRole!=='melody' && configuredRole!=='variation')continue; // No invented harmony before chord entry.
-      const cfg=p.instrumentSettings?.[inst]; const difficulty=cfg?.difficulty??p.difficulty??'intermediate';
+      const cfg=p.instrumentSettings?.[inst]; const difficulty=cfg?.difficulty??p.difficulty??'advanced';
       const activity=Math.max(0,Math.min(1,cfg?.activity??(inst==='Voice'?0:0.9)));
       const intentionalRest=configuredRole==='rest';
       const activeBar=!intentionalRest && ((b*7+INSTRUMENTS.indexOf(inst)*3)%100)<Math.round(activity*100);
@@ -670,7 +670,7 @@ export function noteEditorContext(p:Project,inst:Instrument,barIndex:number):Not
   const mode=parseKeySignature(key).mode;
   return {
     role:p.measureRoles?.[`${inst}:${barIndex}`]??p.roles[section]?.[inst]??'rest',
-    key,mode,difficulty:p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'intermediate',
+    key,mode,difficulty:p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'advanced',
     range:instrumentRange(inst),articulation:measureArticulation(p,inst,barIndex),
     technique:inst.startsWith('Violin')?(p.measureViolinTechniques?.[`${inst}:${barIndex}`]??p.orchestration?.violin[section]?.[inst as 'Violin I'|'Violin II']??'tango_staccato'):undefined,
     activity:p.instrumentSettings?.[inst]?.activity??(inst==='Voice'?0:0.9),

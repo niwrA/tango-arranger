@@ -647,7 +647,7 @@ test('sharp and flat labels denote identical sounding pitches',()=>{
 test('note editor never disables a piano-roll cell based on chord or key',()=>{
   const src=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
   assert.doesNotMatch(src,/pitchAllowed|noteFilter|:disabled="!pitchAllowed/);
-  assert.match(src,/@click="toggleNote\(pitch,beat\)"/);
+  assert.match(src,/@click="noteCellClick\(pitch,beat\)"/);
   assert.match(src,/note-tone-\$\{pitchClass\(pitch,beat\)\}/);
   assert.match(src,/v-model="editorAccidentals"/);
   assert.match(src,/\{\{displayPitch\(pitch\)\}\}/);
