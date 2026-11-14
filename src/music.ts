@@ -576,9 +576,14 @@ export function generate(p:Project):Score {
       const cfg=p.instrumentSettings?.[inst]; const difficulty=cfg?.difficulty??p.difficulty??'advanced';
       const activity=Math.max(0,Math.min(1,cfg?.activity??(inst==='Voice'?0:0.9)));
       const intentionalRest=configuredRole==='rest';
-      const activeBar=!intentionalRest && ((b*7+INSTRUMENTS.indexOf(inst)*3)%100)<Math.round(activity*100);
+      // Violin II harmony is a real second line to Violin I's melody, not an
+      // independently sparse accompaniment. Respect explicit Rest/zero activity.
+      const violinDuet=inst==='Violin II'&&configuredRole==='harmony'&&
+        (p.measureRoles?.[`Violin I:${b}`]??sectionRoles['Violin I'])==='melody';
+      const activeBar=!intentionalRest && activity>0 &&
+        (violinDuet||((b*7+INSTRUMENTS.indexOf(inst)*3)%100)<Math.round(activity*100));
       if(!activeBar)continue;
-      const role=(configuredRole==='fill' && inst.startsWith('Bandoneon'))?(bar.melody.length?'harmony':'chords'):(configuredRole==='harmony'&&!bar.melody.length?'chords':configuredRole);
+      const role=(configuredRole==='fill' && inst.startsWith('Bandoneon'))?(bar.melody.length?'harmony':'chords'):(configuredRole==='harmony'&&!bar.melody.length&&!violinDuet?'chords':configuredRole);
       const sectionDyn=expression.sections[bar.section]??'mf';
       const dynamicScale=expression.enabled?(dynVelocity[sectionDyn]/88):1;
       const difficultyBoost=difficulty==='advanced'?1:difficulty==='intermediate'?0.84:0.65;
@@ -602,7 +607,17 @@ export function generate(p:Project):Score {
           }
         }
       }
-      const primary=bar.melody;
+      // Violin I was generated earlier in the instrument order. When the
+      // violin I measure was manually edited, use its protected notes instead.
+      // This ensures the harmony follows the *sounding* violin melody, even if
+      // the lead sheet and the edited violin part differ in rhythm or pitch.
+      const violinSource=violinDuet
+        ? (p.protectedBars[`Violin I:${b}`]&&p.importedScore
+          ? p.importedScore['Violin I'] : score['Violin I'])
+            .filter(n=>n.start>=offset-1e-7&&n.start<offset+p.beats-1e-7)
+            .map(n=>({...n,start:n.start-offset}))
+        : [];
+      const primary=violinDuet?violinSource:bar.melody;
       if(role==='melody'||role==='harmony'||role==='variation'){
         for(const n of primary){
           let pitch=n.pitch;

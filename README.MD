@@ -1,3 +1,32 @@
+## v4.0.0 — Configurable live melody keyboard (2026-11-14)
+
+The Note Editor live-capture keyboard now has independent **Start note** and **End note** selectors, with all semitones in the selected instrument register available. The inclusive range can be a single note, part of an octave, or multiple octaves. The keyboard scrolls horizontally for wide spans and uses full-size touch targets. The selected pitch dropdown follows the displayed range; if either endpoint excludes its former pitch, the selected pitch is clamped to the nearest displayed key. Recorded draft taps are preserved when changing the keyboard display range. Opening a different instrument defaults the keyboard to the octave containing the initial note. This affects only the live-input keyboard, not the instrument range, note-editor pitch grid, or previously captured notes.
+
+## v3.9.0 — Playback from beginning or selected measure
+
+The sticky playback bar now has **From beginning**, **From measure N**, and **Stop** controls. The selected measure is the same measure highlighted in Song Overview or chosen in the lead-sheet and note editors. Either start button restarts playback from its chosen position, including while another playback mode is active. Notes with attacks before the selected measure are not replayed; all remaining events are scheduled relative to that measure, and playback ends at the song end. The note and rhythm loop controls remain independent.
+
+# Tango Arranger v3.8 — Live tap recording
+
+## Current release (v3.8.0)
+
+Both editors offer a full-arrangement loop for one measure or a range, with optional metronome and configurable input latency. The Rhythm Editor has a large tap pad and a per-measure draft preview; captured measures can be loaded into the editable rhythm grid, modified, and saved back to the take before applying to selected parts. The Note Editor adds a one-octave on-screen piano keyboard: tapping a key while recording captures its pitch and quantized onset; the rhythm pad uses the selected pitch. Captured notes replace only the recorded instrument-measures after explicit confirmation, and remain editable/protected. This is touch or keyboard input, not microphone or MIDI capture.
+
+# Tango Arranger v3.7 — Keyboard shortcuts for note and rhythm editing
+
+## v3.7.0
+
+Keyboard editing: in the Note Editor or Rhythm Editor, select a note/attack and press Delete or Backspace to remove it. Left/Right arrows move selection, +/- change duration in 0.25-beat steps, and L toggles the respective loop. Note Editor also supports Up/Down to transpose the selected note by one semitone, [ and ] to navigate measures, and Escape to return to the map (or close note properties). Rhythm Editor supports A to toggle accent, S to split an attack, and Escape to deselect. Shortcuts are ignored in inputs, textareas, selects and contenteditable fields and when Ctrl/Alt/Meta is held (Shift is ignored except for the usual Shift+= plus key). Space toggles looping only when a native button is not focused, preserving Space-to-activate accessibility. Deleting a note keeps its instrument-measure protected; deleting a rhythm attack only changes the working pattern until Apply is pressed.
+
+
+**Violin duet:** In Orchestration, set **Violin I → Melody** and **Violin II → Harmony**. The harmony follows Violin I's sounding pitches and onset/duration positions, including protected manual edits, using chord tones below the melody. Changes to section roles regenerate unprotected parts immediately. The Song Overview measure-role editor also supports these combinations.
+
+**Manual rhythm:** Open **5 · Rhythm editor**. Select a preset and reference instrument to fill the sixteenth-note grid. Select an attack to change its onset, duration or accent; drag its right edge, split it, delete it, or click an empty grid step to add a new attack. Gaps are rests. Press **Loop edited rhythm** to hear click accents or retimed notes from a selected instrument/measure. Select target parts and measure scope, then press **Apply edited rhythm to selected parts**. Existing protected edits are skipped unless overwrite is explicitly confirmed. Applied rhythm is saved as protected note events; the unsaved grid pattern itself is an editor buffer.
+
+**Known limitation:** Full Vue production compilation, browser touch interaction, and actual MuseScore import were not verified in this environment because npm registry access was unavailable. Domain TypeScript and automated regression tests passed.
+
+---
+
 # Tango Arranger v3.3 — Free chord editing, duration controls and section-key transposition
 
 ## Lead Sheet chords
@@ -304,3 +333,30 @@ The clickable Tango Arranger header opens an in-app About page explaining the wo
 
 ## v3.1.0 — Note duration editor correction
 The note grid now renders each note as a **single bar with actual horizontal width proportional to its written duration**; the resize handle is located at the note's true endpoint, not the right edge of the onset cell. Notes with onsets between grid divisions also display at their actual position. Dragging the handle on a touchscreen captures the pointer on the stable grid scroller, so dragging remains active when Vue rerenders the note. The selected-note editor has immediate numeric and slider duration controls and 0.25-beat stepper buttons, with an explicit maximum at the measure boundary. Every successful edit updates the protected manual score and MusicXML. A new executable regression test checks duration math, persistence through regeneration and MusicXML validity. Browser touchscreen verification is still required.
+
+
+## v3.4.0 — Explicit section-key confirmation (2026-11-14)
+
+The Structure & Keys and Lead Sheet section-key selectors now open a modal with selectable radio options (transpose chords, transpose chords and melody, or change signature only). Chord transposition is the default. The user must explicitly press **Apply key change**; **Cancel** preserves the song. Errors are shown inside the dialog, not only in the page status behind the modal. The modal has a fixed visible action footer and is teleported to the document body for reliable stacking and touch interaction.
+
+
+## v3.5.0 — Shift+click measure range selection (2026-11-14)
+
+The Song orchestration map supports selecting an inclusive measure range for the Edit instrument measures panel: click a cell or measure heading to set an anchor, then Shift+click the ending measure in either direction. Shift+click twice also works. The range is highlighted in the map for the selected instrument, and the From/To inputs are populated automatically. The first endpoint's editing settings are preserved when extending the range; no edits occur until Apply to range is pressed. Keyboard support includes Shift+Enter and Shift+Space on instrument cells, and Shift+Enter on measure headings. Normal double-click or Enter still opens the note editor. The anchor is cleared when switching songs.
+
+
+## v3.6.0 — Violin harmony and manual rhythm editing
+
+- When Violin I is assigned Melody and Violin II Harmony in the same section/measure, generate a chord-tone lower harmony line from Violin I's actual notes, including protected manual Violin I edits. Changing section roles regenerates unprotected notes immediately; manual Violin II notes remain protected.
+- The Rhythm Editor now loads any existing preset into a manually editable sixteenth-note attack grid. Add/delete attacks, move onset by beat entry, edit duration by number/stepper/right-edge drag, and set accents. Gaps are rests; attacks cannot overlap.
+- Loop the current edited pattern as percussion-like clicks or hear the selected instrument's existing pitches retimed to the pattern. The next loop uses current edits.
+- Apply the edited pattern to chosen instruments and measures, respecting protected notes unless overwrite is explicitly confirmed. Piano register and chord voicings remain separate. The pattern itself is a transient editing buffer; applied note events are saved in the project and exported to MusicXML.
+
+
+## v3.8 — Live tap recording (14 November 2026)
+
+- Rhythm and note editors can loop the full orchestral arrangement over one measure or a chosen measure range, with an optional metronome.
+- Large touch/keyboard-accessible rhythm pad captures quantized attack times; the note editor also provides a playable one-octave chromatic keyboard for pitched taps.
+- Captures are draft takes. Review, undo, clear, edit rhythm measures in the grid, and explicitly apply. Protected note measures require confirmation.
+- Taps quantize to 0.25-beat steps, with adjustable input-latency correction. Short-tap durations are inferred as at most one beat; refine note durations afterward.
+- Browser audio playback and touch latency must be verified on a deployed device; the recording is not microphone or MIDI input.

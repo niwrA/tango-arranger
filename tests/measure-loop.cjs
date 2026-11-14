@@ -51,7 +51,7 @@ test('note editor loop UI has play/stop, beat indicator and shortcut',()=>{
   assert.match(vue,/@click="toggleNoteLoop"/);
   assert.match(vue,/noteLoopPlaying\?'■ Stop measure loop':'▶ Loop this instrument measure'/);
   assert.match(vue,/note-loop-playhead/);
-  assert.match(vue,/event\.key==='l'/);
+  assert.match(vue,/action==='loop'\)\{event\.preventDefault\(\);void toggleNoteLoop\(\)/);
   assert.match(vue,/role="status" aria-live="polite"/);
 });
 test('loop refreshes notes on every measure repeat and stops on navigation',()=>{

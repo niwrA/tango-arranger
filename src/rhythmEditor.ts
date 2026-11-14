@@ -105,3 +105,72 @@ export function applyRhythmPreset(p:Project,source:Score|undefined,options:Rhyth
   }
   return {project:next,updated,skippedProtected,skippedEmpty};
 }
+
+
+/** Manual rhythm pattern. Each attack has an independently editable length,
+ * and rests are represented by gaps. Times are quarter-note beats. */
+export function validateRhythmPattern(slots:RhythmSlot[],beats:number,step=0.25):RhythmSlot[]{
+  if(!Number.isFinite(beats)||beats<=0||!Number.isFinite(step)||step<=0)throw Error('Invalid meter or grid resolution');
+  const sorted=slots.map(s=>({...s})).sort((a,b)=>a.beat-b.beat);
+  for(let i=0;i<sorted.length;i++){
+    const s=sorted[i];
+    if(!Number.isFinite(s.beat)||!Number.isFinite(s.duration)||s.duration<step-1e-7||s.beat<0||s.beat+s.duration>beats+1e-7||
+      Math.abs(s.beat/step-Math.round(s.beat/step))>1e-6||Math.abs(s.duration/step-Math.round(s.duration/step))>1e-6)
+      throw Error('Rhythm attacks must fit the beat grid and measure');
+    if(i&&sorted[i-1].beat+sorted[i-1].duration>s.beat+1e-7)throw Error('Rhythm attacks cannot overlap');
+  }
+  return sorted;
+}
+export function addRhythmAttack(slots:RhythmSlot[],beats:number,beat:number,step=0.25):RhythmSlot[]{
+  const at=Math.round(beat/step)*step;
+  if(at<0||at>=beats)return slots;
+  const existing=validateRhythmPattern(slots,beats,step);
+  if(existing.some(s=>at>=s.beat-1e-7&&at<s.beat+s.duration-1e-7))return existing;
+  const next=existing.find(s=>s.beat>at);
+  return validateRhythmPattern([...existing,{beat:at,duration:Math.min(1,beats-at,next?next.beat-at:beats-at),accent:Number.isInteger(at)}],beats,step);
+}
+export function updateRhythmAttack(slots:RhythmSlot[],beats:number,index:number,changes:Partial<RhythmSlot>,step=0.25):RhythmSlot[]{
+  const current=validateRhythmPattern(slots,beats,step);
+  if(index<0||index>=current.length)throw Error('Select an attack first');
+  const edited={...current[index],...changes};
+  edited.beat=Math.round(edited.beat/step)*step;
+  edited.duration=Math.round(edited.duration/step)*step;
+  return validateRhythmPattern(current.map((s,i)=>i===index?edited:s),beats,step);
+}
+export function applyRhythmPattern(p:Project,source:Score|undefined,options:Omit<RhythmApplication,'preset'>&{slots:RhythmSlot[]}):RhythmApplyResult{
+  const slots=validateRhythmPattern(options.slots,p.beats);
+  if(!slots.length)throw Error('Add at least one rhythm attack');
+  if(!options.instruments.length||!options.measures.length)throw Error('Choose instruments and measures');
+  if(!['rhythm','accents'].includes(options.mode))throw Error('Invalid rhythm mode');
+  const instruments=[...new Set(options.instruments)];
+  const measures=[...new Set(options.measures)].sort((a,b)=>a-b);
+  if(instruments.some(i=>!INSTRUMENTS.includes(i))||measures.some(i=>!Number.isInteger(i)||i<0||i>=p.bars.length))throw Error('Invalid rhythm targets');
+  let next=p,updated=0,skippedProtected=0,skippedEmpty=0;
+  let current=source??p.generatedScore??mergeScores(p,generate(p));
+  for(const b of measures)for(const inst of instruments){
+    if(next.protectedBars[`${inst}:${b}`]&&!options.overwriteProtected){skippedProtected++;continue;}
+    const original=(current[inst]??[]).filter(n=>Math.floor((n.start+1e-7)/p.beats)===b);
+    if(!original.length){skippedEmpty++;continue;}
+    const notes=retimeMeasure(original,inst,b,p.beats,slots,options.mode,p.pianoSplitPitch??60);
+    next=replaceInstrumentMeasure(next,current,inst,b,notes);
+    current=next.generatedScore!;updated++;
+  }
+  return {project:next,updated,skippedProtected,skippedEmpty};
+}
+
+/** Adapt meter-scaled presets to the manual sixteenth-note editing grid. */
+export function quantizeRhythmPreset(slots:RhythmSlot[],beats:number,step=0.25):RhythmSlot[]{
+  const positions=[...new Set(slots.map(s=>Math.min(beats-step,Math.max(0,Math.round(s.beat/step)*step))))].sort((a,b)=>a-b);
+  const result=positions.map((beat,i)=>({beat,duration:(positions[i+1]??beats)-beat,accent:slots.some(s=>Math.round(s.beat/step)*step===beat&&s.accent)}));
+  return validateRhythmPattern(result,beats,step);
+}
+
+/** Split a long attack into two independently editable notes. */
+export function splitRhythmAttack(slots:RhythmSlot[],beats:number,index:number,step=0.25):RhythmSlot[]{
+  const current=validateRhythmPattern(slots,beats,step);
+  const target=current[index];
+  if(!target||target.duration<step*2)throw Error('Select an attack at least two grid steps long');
+  const firstDuration=Math.round((target.duration/2)/step)*step;
+  const split=target.beat+firstDuration;
+  return validateRhythmPattern([...current.slice(0,index),{...target,duration:firstDuration},{beat:split,duration:target.duration-firstDuration,accent:false},...current.slice(index+1)],beats,step);
+}

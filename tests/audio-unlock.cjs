@@ -25,7 +25,7 @@ test('Tone.js adopts the already resumed native audio context',()=>{
 });
 test('Full playback and measure loop unlock on their user gestures',()=>{
  const matches=app.match(/Tone=await startAudioFromGesture\(\);/g)||[];
- assert.equal(matches.length,4,'play, loop, single-note audition, test sound');
+ assert.equal(matches.length,6,'play, note loop, rhythm loop, capture loop, single-note audition, test sound');
 });
 test('Expressive audition also unlocks audio before accessing Tone',()=>{
  assert.match(app,/startAudioFromGesture\(\)\.then\(tone=>\{Tone=tone;playExpressiveEvent/);

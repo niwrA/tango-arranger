@@ -150,7 +150,9 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 
 /* v2.6.3: primary transport is discoverable on desktop and reachable on mobile. */
 .transport-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin-bottom:14px;border:1px solid #40515f;background:#1b2934;border-radius:12px}
-.transport-play{width:auto;min-width:190px;font-weight:700;min-height:46px}
+.transport-play{width:auto;min-width:155px;font-weight:700;min-height:46px}
+.transport-stop{min-height:46px;min-width:86px}
+.transport-stop:disabled{opacity:.5;cursor:not-allowed}
 .transport-test{min-height:46px}
 .transport-status{flex:1 1 230px;font-size:12px;color:#c1cbd3;line-height:1.45}
 .mobile-settings-toggle{display:none}
@@ -177,7 +179,8 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
   .header-actions button:first-child{grid-column:span 2}
   main{padding:10px 10px 90px}
   .transport-bar{position:sticky;top:0;z-index:20;gap:7px;margin:0 -2px 12px;padding:8px;border-radius:0 0 10px 10px;box-shadow:0 4px 15px #0009}
-  .transport-play{min-width:0;flex:1 1 55%;font-size:14px}
+  .transport-play{min-width:0;flex:1 1 42%;font-size:13px}
+  .transport-stop{flex:1 1 18%;min-height:42px}
   .transport-test{flex:1 1 30%;font-size:12px;padding:8px}
   .transport-status{flex-basis:100%;font-size:11px}
   .page-title{gap:8px}.page-title button{width:100%}
@@ -245,3 +248,72 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .duration-preview{height:12px;border:1px solid #67717c;background:#1d2934;border-radius:6px;overflow:hidden}
 .duration-preview span{display:block;height:100%;background:#d0a66b;min-width:1px;transition:width .08s ease}
 .note-duration-field .note-duration-controls .primary{min-width:60px;font-size:12px}
+
+/* v3.4: key-change confirmation is explicit, accessible and usable on touch screens. */
+.key-change-backdrop{padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+.key-change-dialog{display:flex;flex-direction:column;gap:0;width:min(100%,620px);max-height:min(90dvh,850px);margin:0;padding:0;overflow:hidden}
+.key-change-content{padding:22px 22px 12px;overflow-y:auto;min-height:0;overscroll-behavior:contain}
+.key-change-content h2{margin-top:0}
+.key-change-options{border:0;margin:16px 0;padding:0;display:grid;gap:10px;min-width:0}
+.key-change-options legend{font-size:13px;font-weight:700;color:#e5c596;padding-bottom:8px}
+.key-change-choice{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #556574;border-radius:9px;background:#202e3a;cursor:pointer;margin:0;font-size:14px;line-height:1.4}
+.key-change-choice.is-selected{border-color:#e7c38e;background:#374032}
+.key-change-choice input[type=radio]{flex:0 0 auto;width:21px;height:21px;margin:0;accent-color:#d0a66b;cursor:pointer}
+.key-change-choice span{display:grid;gap:5px}
+.key-change-choice small{display:block;color:#b9c7d2;font-weight:400}
+.key-change-error{padding:12px;border:1px solid #d98274;background:#482a2b;color:#ffe0dc;border-radius:7px;font-size:13px;line-height:1.5}
+.key-change-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 22px;background:#202a34;border-top:1px solid #445260;flex:0 0 auto}
+.key-change-actions button{min-height:46px;touch-action:manipulation}
+.key-change-confirm{font-weight:700;min-width:185px}
+@media(max-width:520px){.key-change-content{padding:16px 14px 8px}.key-change-actions{padding:12px 14px}.key-change-actions button{flex:1;min-width:0}.key-change-confirm{min-width:0}}
+
+/* v3.5: visible instrument-specific map range selection (without masking role colors). */
+.song-map thead th.map-range-heading{background:#3c4b54;box-shadow:inset 0 -3px #d6ad74}
+.song-map thead th.map-range-heading .measure-heading-select strong{color:#ffe1a9}
+.song-cell.range-selected{box-shadow:inset 0 0 0 2px #e8bb78;filter:brightness(1.15)}
+.song-cell.range-selected.range-start{box-shadow:inset 0 0 0 3px #f5d6a0}
+.song-cell.range-selected.range-end{border-right:3px solid #fff0c9}
+.song-cell.range-selected.focused{outline:2px solid #fff4d5;outline-offset:1px}
+.map-range-summary{margin:8px 0 10px;padding:10px 12px;background:#293a45;border:1px solid #ae8c5f;border-radius:7px;font-size:13px;color:#f2dfbd}
+.map-range-instructions{margin:0 0 16px}
+.map-range-instructions kbd{font:inherit;font-weight:750;background:#3d4b55;border:1px solid #6c7982;border-radius:4px;padding:1px 5px;color:#fff}
+
+/* v3.6: editable rhythm piano-roll with true note widths and resize endpoints. */
+.rhythm-loop-controls{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin:16px 0}.rhythm-loop-controls label{min-width:135px;max-width:190px;margin:0}.rhythm-loop-controls label input,.rhythm-loop-controls label select{margin-top:3px}.rhythm-ruler{display:grid;grid-template-columns:repeat(var(--rhythm-beats),minmax(0,1fr));margin:14px 0 0;background:#283947;border:1px solid #526171;border-bottom:0;border-radius:7px 7px 0 0}.rhythm-ruler span{text-align:left;padding:8px;color:#e7cfa8;font-size:12px;border-left:1px solid #5e7180}.rhythm-ruler span:first-child{border-left:0}.rhythm-ruler .rhythm-current-beat{background:#6c5634;color:#fff}.rhythm-track{position:relative;display:flex;width:100%;height:68px;border:1px solid #526171;border-radius:0 0 7px 7px;background:#263441;overflow:hidden;touch-action:pan-y}.rhythm-step-cell{flex:1;min-width:0;border:0;border-right:1px solid #394c59;border-radius:0;background:transparent;padding:0}.rhythm-step-cell.rhythm-step-downbeat{border-left:2px solid #758896}.rhythm-step-cell:hover{background:#455a69}.rhythm-event{position:absolute;top:10px;height:46px;display:flex;justify-content:space-between;align-items:center;min-width:0;padding:3px 0 3px 7px;background:#5b8192;border:1px solid #b3d4df;border-radius:5px;color:#fff;font-weight:600;overflow:hidden;box-shadow:0 1px 5px #0006;touch-action:none}.rhythm-event-accent{background:#997246;border-color:#f1d09d}.rhythm-event-selected{outline:2px solid #fff;outline-offset:1px;z-index:2}.rhythm-event>span:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px}.rhythm-resize-handle{height:100%;min-width:21px;display:flex;align-items:center;justify-content:center;background:#182e3a99;border-left:1px solid #d7e5ea;cursor:ew-resize;font-size:13px;touch-action:none}.rhythm-event-properties{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:15px 0 10px}.rhythm-event-properties label{min-width:0}.rhythm-step-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:10px 0}.rhythm-step-actions button{font-size:12px}.rhythm-step-actions .secondary{padding:7px 9px}@media(max-width:550px){.rhythm-track{height:80px}.rhythm-event{top:15px;height:48px}.rhythm-event>span:first-child{font-size:11px}.rhythm-resize-handle{min-width:24px}}
+
+/* v3.7: visible keyboard-focus targets and compact shortcut legend. */
+.editor-shortcut-help{font-size:12px;line-height:1.65;color:#d3dce5;border:1px solid #455565;border-radius:7px;padding:8px 11px;margin:10px 0;background:#1d2a35}
+.rhythm-editor-section:focus-visible,.note-editor-section:focus-visible{outline:2px solid #d0a66b;outline-offset:4px}
+.rhythm-event:focus-visible,.note-event-button:focus-visible{outline:3px solid #f8d492;outline-offset:2px}
+
+
+/* v3.8: live rhythm and melody capture. Large targets support touch and keyboard. */
+.live-capture{margin:16px 0;border:1px solid #63778b;border-radius:12px;padding:16px;background:#1a2935}
+.live-capture-controls,.live-capture-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:10px 0}
+.live-capture-controls label,.live-capture-actions label{flex:1 1 130px;margin:0;max-width:260px}
+.live-capture-controls input[type="number"],.live-capture-controls select{width:100%}
+.live-capture-controls .capture-check{display:flex;align-items:center;gap:6px;flex:0 1 170px}
+.live-capture-controls .capture-check input{width:auto}
+.live-capture-status{font-size:13px;font-weight:700;color:#d9e6ee;padding:6px 0}
+.capture-tap-pad{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;width:100%;min-height:98px;border:2px solid #8da7b5;border-radius:12px;background:#31576c;color:#fff;font-size:23px;font-weight:800;touch-action:manipulation;user-select:none}
+.capture-tap-pad:active:not(:disabled){background:#56839c}
+.capture-tap-pad span{font-size:12px;font-weight:400}
+.capture-tap-pad:disabled{opacity:.5;cursor:not-allowed}
+.capture-piano{display:flex;align-items:stretch;gap:3px;min-height:104px;margin:12px 0;overflow-x:auto}
+.capture-piano-key{flex:1 0 42px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;padding:8px 2px;border:2px solid #607584;border-radius:0 0 7px 7px;background:#f2f4f7;color:#142331;touch-action:manipulation;user-select:none;font-weight:700}
+.capture-piano-key.capture-piano-black{background:#263340;color:#fff;min-height:75px;margin-bottom:26px;border-color:#72899b}
+.capture-piano-key.capture-piano-selected{outline:3px solid #f2b34d;outline-offset:-4px}
+.capture-piano-key:focus-visible,.capture-tap-pad:focus-visible{outline:3px solid #f2b34d;outline-offset:2px}
+.capture-piano-key small{font-size:11px}
+.live-capture-take{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid #3e5262}
+.live-capture-take strong{min-width:90px}
+.capture-beat-strip{display:flex;flex-wrap:wrap;gap:6px}
+.capture-beat-strip span{border-radius:6px;background:#355267;padding:5px 8px;font-size:12px;color:#f0f6fa}
+.capture-beat-strip em{color:#b6c6d1;font-size:12px}
+@media(max-width:650px){.live-capture{padding:10px}.capture-piano-key{flex-basis:40px}.live-capture-controls label{flex-basis:120px}}
+
+/* v4.0: multi-octave capture keyboard scrolls instead of squeezing notes. */
+.capture-piano{scrollbar-width:thin;scrollbar-color:#8da7b5 #1a2935;overscroll-behavior-x:contain;padding:4px 3px 9px}
+.capture-piano-key{flex:0 0 44px}
+.capture-range-summary{margin:4px 0 8px;font-variant-numeric:tabular-nums}
+@media(max-width:650px){.capture-piano-key{flex-basis:43px}}

@@ -50,7 +50,7 @@ try{
  assert.throws(()=>r.rhythmSlots('unknown',4),/Unknown rhythm/);
  assert.throws(()=>r.applyRhythmPreset(p,base,{instruments:['Piano'],measures:[-1],preset:'style',mode:'rhythm'}),/Invalid rhythm targets/);
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
- for(const snippet of ["active==='rhythm'",'Rhythm editor','rhythmTargets','applyRhythmSelection','rhythmProtectedCount','Rhythm section','Entire song','Overwrite protected manual edits','rhythm-beat-preview'])assert.ok(app.includes(snippet),snippet);
+ for(const snippet of ["active==='rhythm'",'Rhythm editor','rhythmTargets','applyRhythmSelection','rhythmProtectedCount','Rhythm section','Entire song','Overwrite protected manual edits','rhythm-track'])assert.ok(app.includes(snippet),snippet);
  assert.ok(css.includes('.rhythm-workspace'));
  console.log('Rhythm editor: 104+ functional, safety, layout and notation-domain assertions passed');
 }finally{fs.rmSync(tmp,{recursive:true,force:true});}

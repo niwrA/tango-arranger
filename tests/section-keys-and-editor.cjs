@@ -75,7 +75,23 @@ test('lead sheet retains free text and suggestions require an explicit action',(
  assert.match(app,/@click="toggleLeadSuggestions\(/);
  assert.match(app,/:value="leadChordText\(/);
  assert.match(app,/Your draft is retained/);
- assert.match(app,/applySectionKeyChange\('chords-and-melody'\)/);
+ assert.match(app,/@submit\.prevent="applySectionKeyChange"/);
+});
+test('section key modal requires explicit confirmation and shows errors inside dialog',()=>{
+ const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
+ const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+ assert.match(app,/const keyChangeMode=ref<SectionKeyChangeMode>\('chords'\)/);
+ assert.match(app,/keyChangeMode\.value='chords'/);
+ assert.match(app,/<Teleport to="body">/);
+ assert.match(app,/<form class="editor key-change-dialog"[^>]+@submit\.prevent="applySectionKeyChange"/);
+ assert.match(app,/type="radio" name="section-key-mode" value="chords"/);
+ assert.match(app,/type="radio" name="section-key-mode" value="chords-and-melody"/);
+ assert.match(app,/type="radio" name="section-key-mode" value="signature"/);
+ assert.match(app,/<button type="submit" class="primary key-change-confirm">Apply key change<\/button>/);
+ assert.match(app,/v-if="keyChangeError" class="key-change-error" role="alert"/);
+ assert.match(app,/function cancelSectionKeyChange\(\)\{pendingKeyChange\.value=null;keyChangeError\.value='';\}/);
+ assert.match(css,/\.key-change-actions\{[^}]*flex:0 0 auto/);
+ assert.doesNotMatch(app,/@click="applySectionKeyChange\('/);
 });
 test('duration editor has explicit Apply and saved duration feedback',()=>{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');

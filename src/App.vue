@@ -11,7 +11,12 @@ import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSon
 import {measureLoopEvents} from './measureLoop';
 import {playExpressiveEvent} from './expressiveAudio';
 import {clampWrittenDuration,dragWrittenDuration} from './noteEditing';
-import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPreset,type RhythmPreset,type RhythmMode} from './rhythmEditor';
+import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
+import {selectMapMeasure} from './mapSelection';
+import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
+import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
+import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
+import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -51,17 +56,20 @@ async function flushAutosave(){
   await saveQueue;
 }
 function stopPlayback(){
+  const wasPlayingArrangement=playing.value;
   // Invalidate a pending Tone.start() before it can schedule anything.
-  noteLoopSession++;
-  if(playing.value||noteLoopPlaying.value){Tone.getTransport().stop();Tone.getTransport().cancel();}
-  synth?.releaseAll();loopSynth?.releaseAll();
-  playing.value=false;noteLoopPlaying.value=false;noteLoopBeat.value=-1;
+  noteLoopSession++;rhythmLoopSession++;captureSession++;
+  if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value){Tone.getTransport().stop();Tone.getTransport().cancel();}
+  synth?.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
+  playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
+  rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
+  capturePlaying.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;
 }
 function selectProjectInEditor(p:Project){
   stopPlayback();project.value=p;selectedBar.value=0;overviewFocus.value=0;
-  overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);
+  overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
-  chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;
+  chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
   leadDrafts.value={};pendingKeyChange.value=null;
 }
 async function adoptLocalSong(p:Project){
@@ -111,30 +119,41 @@ const compactHelp=ref(localStorage.getItem('tango-compact-help')==='true');
 watch(compactHelp,value=>localStorage.setItem('tango-compact-help',String(value)));
 const advancedToolsOpen=ref(false);
 const noteDetailsPopup=ref(false);
-const mobileSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const active=ref<'overview'|'structure'|'lead'|'arrange'|'rhythm'|'score'|'notes'|'about'>('overview');const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'>('melody');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const playing=ref(false);const score=computed(()=>project.value.generatedScore??generate(project.value));const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
+const mobileSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const active=ref<'overview'|'structure'|'lead'|'arrange'|'rhythm'|'score'|'notes'|'about'>('overview');const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'>('melody');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>project.value.generatedScore??generate(project.value));const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 watch(project,scheduleAutosave,{deep:true});
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
 onMounted(()=>{void initializeLocalLibrary();document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
 function saveIfHidden(){if(document.visibilityState==='hidden')saveOnLeave();}
-onBeforeUnmount(()=>{document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();});
+onBeforeUnmount(()=>{document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
+const keyChangeMode=ref<SectionKeyChangeMode>('chords');
+const keyChangeError=ref('');
 function setSectionKey(section:string,event:Event){
   const to=(event.target as HTMLSelectElement).value,from=keyForSection(section);
   parseKeySignature(to);
-  // Revert the native select until the musician explicitly chooses an operation.
+  // Revert the native select until the musician confirms an operation.
   (event.target as HTMLSelectElement).value=from;
-  if(to!==from)pendingKeyChange.value={section,from,to};
+  if(to===from)return;
+  keyChangeMode.value='chords';
+  keyChangeError.value='';
+  pendingKeyChange.value={section,from,to};
 }
-function applySectionKeyChange(mode:SectionKeyChangeMode){
+function applySectionKeyChange(){
   const pending=pendingKeyChange.value;if(!pending)return;
+  const mode=keyChangeMode.value;
+  keyChangeError.value='';
   try{
-    project.value=changeSectionKey(project.value,pending.section,pending.to,mode);
-    message.value=`Section ${pending.section}: ${pending.from} → ${pending.to}. ${mode==='signature'?'Key signature only; pitches and harmony unchanged.':mode==='chords'?'Chords transposed; melody and protected notes kept unchanged.':'Chords and lead melody transposed; protected instrument notes transposed as well.'} Changing mode does not reharmonize chord qualities.`;
+    const changed=changeSectionKey(project.value,pending.section,pending.to,mode);
+    project.value=changed;
     pendingKeyChange.value=null;
-  }catch(error){message.value=`Key change not applied: ${String(error)}`;}
+    message.value=`Section ${pending.section}: ${pending.from} → ${pending.to}. ${mode==='signature'?'Key signature only; pitches and harmony unchanged.':mode==='chords'?'Chords transposed; melody and protected notes kept unchanged.':'Chords and lead melody transposed; protected instrument notes transposed as well.'} Chord qualities are preserved.`;
+  }catch(error){
+    keyChangeError.value=error instanceof Error?error.message:String(error);
+    message.value=`Key change not applied: ${keyChangeError.value}`;
+  }
 }
-function cancelSectionKeyChange(){pendingKeyChange.value=null;}
+function cancelSectionKeyChange(){pendingKeyChange.value=null;keyChangeError.value='';}
 
 const violinTechniques:ViolinTechnique[]=['tango_staccato','pizzicato','arpeggio','pizzicato_arpeggio','double_stop','sustained','block'];const followTargets:FollowTarget[]=['independent','Piano','Violin I','Violin II','Bandoneon I'];const followMethods:FollowMethod[]=['exact','octave','adapt','rhythm'];
 function violinSetting(inst:'Violin I'|'Violin II'):ViolinTechnique{return project.value.orchestration?.violin[chosenSection.value]?.[inst]??'tango_staccato';}
@@ -171,6 +190,7 @@ function followSetting(inst:'Bandoneon I'|'Bandoneon II'){return project.value.o
 function setFollow(inst:'Bandoneon I'|'Bandoneon II',field:'target'|'method',event:Event){project.value.orchestration??=defaultOrchestration();project.value.orchestration.bandoneon[chosenSection.value]??={};project.value.orchestration.bandoneon[chosenSection.value][inst]={...followSetting(inst),[field]:(event.target as HTMLSelectElement).value};}
 // Rhythm editor targets the sounding score, never the lead sheet or chord progression.
 const rhythmPresets=RHYTHM_PRESETS;
+const rhythmEditorRegion=ref<HTMLElement|null>(null);
 const rhythmPreset=ref<RhythmPreset>('marcato_four');
 const rhythmPreviewInstrument=ref<Instrument>('Piano');
 const rhythmMode=ref<RhythmMode>('rhythm');
@@ -183,7 +203,331 @@ const rhythmTargets=ref<Instrument[]>(['Piano','Contrabass','Bandoneon I','Bando
 const rhythmOverwrite=ref(false);
 const rhythmFeedback=ref('');
 const rhythmPresetInfo=computed(()=>rhythmPresets.find(x=>x.id===rhythmPreset.value)!);
-const rhythmPreview=computed(()=>rhythmSlots(rhythmPreset.value,project.value.beats,rhythmPreviewInstrument.value,project.value.profile));
+// A pattern is an editable score of attacks/rests, not a fixed preset preview.
+const rhythmGridStep=0.25;
+const rhythmPattern=ref<RhythmSlot[]>(rhythmSlots('marcato_four',4,'Piano'));
+const rhythmSelected=ref(0);
+const rhythmLoopPlaying=ref(false);
+const rhythmLoopBeat=ref(-1);
+const rhythmLoopMeasure=ref(1);
+const rhythmLoopSound=ref<'clicks'|'instrument'>('clicks');
+let rhythmLoopSynth:Synth|null=null;
+let rhythmLoopSession=0;
+const rhythmSteps=computed(()=>Array.from({length:Math.round(project.value.beats/rhythmGridStep)},(_,i)=>i*rhythmGridStep));
+const rhythmSelectedSlot=computed(()=>rhythmPattern.value[rhythmSelected.value]);
+function loadRhythmPreset(){
+  try{
+    rhythmPattern.value=quantizeRhythmPreset(rhythmSlots(rhythmPreset.value,project.value.beats,rhythmPreviewInstrument.value,project.value.profile),project.value.beats,rhythmGridStep);
+    rhythmSelected.value=rhythmPattern.value.length?0:-1;
+    rhythmFeedback.value=`Loaded ${rhythmPresetInfo.value.label} into the editable grid. Change attacks, durations or accents before applying.`;
+  }catch(error){rhythmFeedback.value=String(error);}
+}
+watch([rhythmPreset,rhythmPreviewInstrument,()=>project.value.beats],loadRhythmPreset);
+function rhythmAddAt(beat:number){
+  const old=rhythmPattern.value;
+  const next=addRhythmAttack(old,project.value.beats,beat,rhythmGridStep);
+  rhythmPattern.value=next;
+  const i=next.findIndex(s=>Math.abs(s.beat-beat)<1e-6);
+  if(i>=0)rhythmSelected.value=i;
+}
+function rhythmSplit(){
+  try{
+    rhythmPattern.value=splitRhythmAttack(rhythmPattern.value,project.value.beats,rhythmSelected.value,rhythmGridStep);
+    rhythmSelected.value+=1;rhythmFeedback.value='Split attack into two editable durations.';focusSelectedRhythmAttack();
+  }catch(error){rhythmFeedback.value=error instanceof Error?error.message:String(error);}
+}
+function rhythmDelete(){
+  if(!rhythmSelectedSlot.value)return;
+  rhythmPattern.value=rhythmPattern.value.filter((_,i)=>i!==rhythmSelected.value);
+  rhythmSelected.value=Math.min(rhythmSelected.value,rhythmPattern.value.length-1);
+  rhythmFeedback.value='Deleted the selected rhythm attack.';
+  focusSelectedRhythmAttack();
+}
+function focusSelectedRhythmAttack(){
+  void nextTick(()=>{
+    const index=rhythmSelected.value;
+    if(index>=0)rhythmEditorRegion.value?.querySelectorAll<HTMLButtonElement>('.rhythm-event')[index]?.focus({preventScroll:true});
+    else rhythmEditorRegion.value?.focus({preventScroll:true});
+  });
+}
+function handleRhythmEditorKey(event:KeyboardEvent){
+  if(pendingKeyChange.value||newSongOpen.value)return;
+  const action=editorKeyAction(event,'rhythm');if(!action)return;
+  if(action==='loop'){event.preventDefault();void toggleRhythmLoop();}
+  else if(action==='delete'&&rhythmSelectedSlot.value){event.preventDefault();rhythmDelete();}
+  else if((action==='previous'||action==='next')&&rhythmPattern.value.length){
+    event.preventDefault();
+    const count=rhythmPattern.value.length;
+    rhythmSelected.value=rhythmSelected.value<0?(action==='next'?0:count-1):Math.max(0,Math.min(count-1,rhythmSelected.value+(action==='next'?1:-1)));
+    focusSelectedRhythmAttack();
+  }else if((action==='shorten'||action==='lengthen')&&rhythmSelectedSlot.value){
+    event.preventDefault();rhythmDurationStep(action==='lengthen'?1:-1);
+  }else if(action==='accent'&&rhythmSelectedSlot.value){
+    event.preventDefault();rhythmEdit({accent:!rhythmSelectedSlot.value.accent});
+  }else if(action==='split'&&rhythmSelectedSlot.value){event.preventDefault();rhythmSplit();}
+  else if(action==='escape'&&rhythmSelectedSlot.value){
+    event.preventDefault();rhythmSelected.value=-1;rhythmEditorRegion.value?.focus({preventScroll:true});
+  }
+}
+function rhythmEdit(changes:Partial<RhythmSlot>){
+  try{
+    const previous=rhythmSelectedSlot.value;if(!previous)return;
+    const updated=updateRhythmAttack(rhythmPattern.value,project.value.beats,rhythmSelected.value,changes,rhythmGridStep);
+    rhythmPattern.value=updated;
+    rhythmSelected.value=updated.findIndex(s=>s.beat===('beat' in changes?Math.round(changes.beat!/rhythmGridStep)*rhythmGridStep:previous.beat));
+    rhythmFeedback.value='';
+  }catch(error){rhythmFeedback.value=error instanceof Error?error.message:String(error);}
+}
+function rhythmDurationStep(delta:number){if(rhythmSelectedSlot.value)rhythmEdit({duration:rhythmSelectedSlot.value.duration+delta*rhythmGridStep});}
+let rhythmResizeStart:{index:number;x:number;duration:number;width:number}|null=null;
+function rhythmResizeDown(e:PointerEvent,index:number){
+  e.preventDefault();e.stopPropagation();
+  const target=e.currentTarget as HTMLElement;
+  const track=target.closest('.rhythm-track') as HTMLElement|null;
+  if(!track)return;
+  rhythmSelected.value=index;
+  rhythmResizeStart={index,x:e.clientX,duration:rhythmPattern.value[index].duration,width:track.getBoundingClientRect().width};
+  target.setPointerCapture(e.pointerId);
+}
+function rhythmResizeMove(e:PointerEvent){
+  if(!rhythmResizeStart)return;
+  const drag=rhythmResizeStart;
+  const delta=Math.round((e.clientX-drag.x)/drag.width*project.value.beats/rhythmGridStep)*rhythmGridStep;
+  if(delta===0)return;
+  try{
+    const current=rhythmPattern.value[drag.index];
+    if(!current)return;
+    const next=rhythmPattern.value[drag.index+1];
+    const maximum=(next?.beat??project.value.beats)-current.beat;
+    const duration=Math.max(rhythmGridStep,Math.min(maximum,drag.duration+delta));
+    rhythmPattern.value=updateRhythmAttack(rhythmPattern.value,project.value.beats,drag.index,{duration},rhythmGridStep);
+  }catch(error){rhythmFeedback.value=String(error);}
+}
+function rhythmResizeUp(){rhythmResizeStart=null;}
+
+const rhythmPreview=computed(()=>rhythmPattern.value);
+async function toggleRhythmLoop(){
+  if(rhythmLoopPlaying.value){stopPlayback();return;}
+  stopPlayback();
+  const session=rhythmLoopSession;
+  try{
+    Tone=await startAudioFromGesture();
+    if(session!==rhythmLoopSession||active.value!=='rhythm')return;
+    rhythmLoopSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.045,sustain:0.05,release:0.06}}).toDestination();
+    rhythmLoopSynth.volume.value=-13;
+    loopSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    loopSynth.volume.value=-9;
+    const transport=Tone.getTransport();
+    transport.stop();transport.cancel();transport.position=0;
+    transport.timeSignature=project.value.beats;
+    transport.bpm.value=project.value.bpm;
+    transport.scheduleRepeat(time=>{
+      // The pattern is read on every repetition so edits are audible immediately.
+      const slots=rhythmPattern.value;
+      const b=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(rhythmLoopMeasure.value)-1));
+      const inst=rhythmPreviewInstrument.value;
+      const originals=(score.value[inst]??[]).filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===b);
+      if(rhythmLoopSound.value==='instrument'&&originals.length){
+        const notes=retimeMeasure(originals,inst,b,project.value.beats,slots,'rhythm',project.value.pianoSplitPitch??60);
+        const events=measureLoopEvents(notes,b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value);
+        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds,time+event.onsetSeconds,event.velocity/127);
+      }else{
+        for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/project.value.bpm,slot.accent?0.95:0.55);
+      }
+    },'1m',0);
+    let beat=0;
+    transport.scheduleRepeat(time=>{
+      const current=beat%project.value.beats;beat++;
+      Tone.getDraw().schedule(()=>{if(session===rhythmLoopSession&&rhythmLoopPlaying.value)rhythmLoopBeat.value=current;},time);
+    },'4n',0);
+    rhythmLoopPlaying.value=true;
+    transport.start();
+  }catch(error){rhythmFeedback.value=`Rhythm loop unavailable: ${String(error)}`;stopPlayback();}
+}
+// Live tap recording is a draft take. A separate full-arrangement loop is shared
+// by the rhythm and note editors; switching tabs or projects cancels the loop.
+const capturePlaying=ref(false);
+const rhythmCaptureTaps=ref<CapturedTap[]>([]);
+const melodyCaptureTaps=ref<CapturedTap[]>([]);
+const captureTaps=computed<CapturedTap[]>({
+  get:()=>active.value==='notes'?melodyCaptureTaps.value:rhythmCaptureTaps.value,
+  set:value=>{if(active.value==='notes')melodyCaptureTaps.value=value;else rhythmCaptureTaps.value=value;}
+});
+const captureFrom=ref(1);
+const captureTo=ref(1);
+const captureLatency=ref(0);
+const captureMetronome=ref(true);
+const capturePlayBar=ref(-1);
+const capturePlayBeat=ref(-1);
+const captureFeedback=ref('');
+const capturePitch=ref(72);
+const captureStartPitch=ref(72);
+const captureEndPitch=ref(83);
+const captureEditedRhythms=ref<Record<number,RhythmSlot[]>>({});
+const captureEditBar=ref(1);
+let captureSession=0;
+let captureSynth:PolySynth|null=null;
+let captureClickSynth:Synth|null=null;
+const captureKind=computed((): 'rhythm'|'melody'=>active.value==='notes'?'melody':'rhythm');
+const captureFirst=computed(()=>Math.max(0,Math.min(project.value.bars.length-1,Math.floor(Number(captureFrom.value)||1)-1)));
+const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.value.bars.length-1,Math.floor(Number(captureTo.value)||1)-1)));
+const captureBarNumbers=computed(()=>Array.from({length:captureLast.value-captureFirst.value+1},(_,i)=>captureFirst.value+i));
+const capturePitchOptions=computed(()=>keyboardPitchOptions(noteCtx.value.range));
+const captureKeyboardPitches=computed(()=>keyboardPitches(captureStartPitch.value,captureEndPitch.value,noteCtx.value.range));
+function changeCaptureKeyboardStart(){
+  const next=changeKeyboardBoundary('start',captureStartPitch.value,captureEndPitch.value,noteCtx.value.range);
+  captureStartPitch.value=next.start;captureEndPitch.value=next.end;
+  capturePitch.value=clampKeyboardPitch(capturePitch.value,next);
+}
+function changeCaptureKeyboardEnd(){
+  const next=changeKeyboardBoundary('end',captureStartPitch.value,captureEndPitch.value,noteCtx.value.range);
+  captureStartPitch.value=next.start;captureEndPitch.value=next.end;
+  capturePitch.value=clampKeyboardPitch(capturePitch.value,next);
+}
+const captureNoteLabels=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+function captureBarRhythm(bar:number):RhythmSlot[]{
+  return captureEditedRhythms.value[bar]??rhythmFromTaps(captureTaps.value,bar,project.value.beats);
+}
+function captureSetRangeToCurrent(){
+  const b=active.value==='notes'?selectedBar.value+1:Math.max(1,Math.min(project.value.bars.length,rhythmLoopMeasure.value));
+  captureFrom.value=b;captureTo.value=b;captureEditBar.value=b;
+}
+function captureClear(){captureTaps.value=[];captureEditedRhythms.value={};captureFeedback.value='Cleared the draft take; the arrangement was not changed.';}
+function captureUndo(){
+  if(!captureTaps.value.length)return;
+  const removed=captureTaps.value.at(-1)!;
+  captureTaps.value=captureTaps.value.slice(0,-1);
+  delete captureEditedRhythms.value[removed.bar];
+  captureFeedback.value='Removed last tap from the draft.';
+}
+async function toggleCaptureLoop(){
+  if(capturePlaying.value){stopPlayback();return;}
+  if(!project.value.bars.length)return;
+  stopPlayback();
+  const session=captureSession;
+  const first=captureFirst.value,last=captureLast.value;
+  const editor=active.value;
+  try{
+    Tone=await startAudioFromGesture();
+    if(session!==captureSession||active.value!==editor)return;
+    captureSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    captureSynth.volume.value=-13;
+    captureClickSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.04,sustain:0,release:0.04}}).toDestination();
+    captureClickSynth.volume.value=-18;
+    const transport=Tone.getTransport();
+    transport.stop();transport.cancel();transport.position=0;
+    transport.timeSignature=project.value.beats;transport.bpm.value=project.value.bpm;
+    let measure=0;
+    transport.scheduleRepeat(time=>{
+      const b=first+measure%(last-first+1);measure++;
+      const currentScore=score.value;
+      for(const inst of INSTRUMENTS){
+        const events=measureLoopEvents(currentScore[inst]??[],b,project.value.beats,project.value.bpm,
+          project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value);
+        for(const event of events){
+          if(event.slideTo!==undefined||event.endVelocity!==undefined)
+            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,event,time+event.onsetSeconds);
+          else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
+            event.durationSeconds,time+event.onsetSeconds,Math.max(0.05,event.velocity/127*0.8));
+        }
+      }
+    },'1m',0);
+    let beatCount=0;
+    transport.scheduleRepeat(time=>{
+      const beat=beatCount%project.value.beats;
+      const bar=first+Math.floor(beatCount/project.value.beats)%(last-first+1);
+      beatCount++;
+      if(captureMetronome.value)captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
+      Tone.getDraw().schedule(()=>{
+        if(session===captureSession&&capturePlaying.value){capturePlayBar.value=bar;capturePlayBeat.value=beat;}
+      },time);
+    },'4n',0);
+    capturePlaying.value=true;
+    captureFeedback.value=`Recording draft taps against full arrangement, measures ${first+1}–${last+1}. Tap the pad or pitch keys; stop to review.`;
+    transport.start();
+  }catch(error){captureFeedback.value=`Could not start arrangement loop: ${String(error)}`;stopPlayback();}
+}
+function captureTap(pitch?:number){
+  if(!capturePlaying.value){captureFeedback.value='Start the arrangement loop before tapping.';return;}
+  try{
+    const pos=capturePosition(Tone.getTransport().seconds,project.value.bpm,project.value.beats,
+      captureFirst.value,captureLast.value,0.25,captureLatency.value);
+    const chosenPitch=pitch??capturePitch.value;
+    const tap:CapturedTap=captureKind.value==='melody'?{...pos,pitch:chosenPitch}:pos;
+    captureTaps.value=addCapturedTap(captureTaps.value,tap,captureKind.value);
+    delete captureEditedRhythms.value[pos.bar];
+    captureFeedback.value=`Captured measure ${pos.bar+1}, beat ${(pos.beat+1).toFixed(2)}${captureKind.value==='melody'?` · ${midiName(chosenPitch)}`:''}. ${captureTaps.value.length} draft taps.`;
+    if(captureKind.value==='melody')void auditionPitch(chosenPitch,90,0.12);
+  }catch(error){captureFeedback.value=`Tap not captured: ${String(error)}`;}
+}
+function capturePointerTap(event:PointerEvent,pitch?:number){if(!event.isPrimary||event.button!==0)return;captureTap(pitch);}
+function captureKeyboardClick(event:MouseEvent,pitch?:number){if(event.detail===0)captureTap(pitch);}
+function capturePianoKey(event:PointerEvent,pitch:number){
+  capturePitch.value=pitch;
+  if(capturePlaying.value)capturePointerTap(event,pitch);
+  else void auditionPitch(pitch);
+}
+function capturePianoKeyClick(event:MouseEvent,pitch:number){
+  if(event.detail!==0)return;
+  capturePitch.value=pitch;
+  if(capturePlaying.value)captureTap(pitch);else void auditionPitch(pitch);
+}
+function loadCaptureBarToRhythm(){
+  const bar=Math.max(captureFirst.value,Math.min(captureLast.value,Math.floor(captureEditBar.value)-1));
+  const slots=captureBarRhythm(bar);
+  if(!slots.length){captureFeedback.value=`No recorded attacks in measure ${bar+1}.`;return;}
+  rhythmPattern.value=validateRhythmPattern(slots,project.value.beats);
+  rhythmSelected.value=0;
+  captureFeedback.value=`Loaded captured measure ${bar+1} into the rhythm grid. Edit it and save it back to the take.`;
+}
+function saveRhythmGridToCapture(){
+  const bar=Math.max(captureFirst.value,Math.min(captureLast.value,Math.floor(captureEditBar.value)-1));
+  try{
+    captureEditedRhythms.value={...captureEditedRhythms.value,[bar]:validateRhythmPattern(rhythmPattern.value,project.value.beats)};
+    captureFeedback.value=`Saved edited measure ${bar+1} in the draft take. The score is unchanged until Apply.`;
+  }catch(error){captureFeedback.value=String(error);}
+}
+function applyCapturedRhythm(){
+  if(capturePlaying.value){captureFeedback.value='Stop recording before applying the take.';return;}
+  if(!rhythmTargets.value.length){captureFeedback.value='Select at least one target instrument.';return;}
+  const bars=captureBarNumbers.value.filter(b=>captureBarRhythm(b).length);
+  if(!bars.length){captureFeedback.value='Record some taps before applying.';return;}
+  const protectedCount=bars.reduce((n,b)=>n+rhythmTargets.value.filter(inst=>project.value.protectedBars[`${inst}:${b}`]).length,0);
+  if(protectedCount&&!rhythmOverwrite.value){captureFeedback.value=`Skipped protected measures unless Overwrite protected is enabled (${protectedCount} affected).`;}
+  if(protectedCount&&rhythmOverwrite.value&&!window.confirm(`Overwrite ${protectedCount} protected instrument-measures with the recorded rhythm?`))return;
+  if(!window.confirm(`Apply the captured rhythm to ${rhythmTargets.value.length} instruments across ${bars.length} recorded measures? Existing notes in unprotected measures will be retimed.`))return;
+  try{
+    let next=project.value,source=score.value,updated=0,skipped=0;
+    for(const b of bars){
+      const result=applyRhythmPattern(next,source,{instruments:rhythmTargets.value,measures:[b],
+        slots:captureBarRhythm(b),mode:rhythmMode.value,overwriteProtected:rhythmOverwrite.value});
+      next=result.project;source=next.generatedScore??source;updated+=result.updated;skipped+=result.skippedProtected+result.skippedEmpty;
+    }
+    project.value=next;
+    captureFeedback.value=`Applied recorded rhythm to ${updated} instrument-measures; skipped ${skipped}. Draft retained for further editing.`;
+    message.value=captureFeedback.value;
+  }catch(error){captureFeedback.value=`Could not apply take: ${String(error)}`;}
+}
+function applyCapturedMelody(){
+  if(capturePlaying.value){captureFeedback.value='Stop recording before applying the take.';return;}
+  const bars=captureBarNumbers.value.filter(b=>melodyFromTaps(captureTaps.value,b,project.value.beats).length);
+  if(!bars.length){captureFeedback.value='Record some pitched taps before applying.';return;}
+  const protectedBars=bars.filter(b=>project.value.protectedBars[`${noteInst.value}:${b}`]);
+  if(!window.confirm(`Replace ${noteInst.value} notes in ${bars.length} recorded measures with the captured melody? ${protectedBars.length} measure(s) already have protected edits. The lead sheet is unchanged.`))return;
+  try{
+    let next=project.value,source=score.value,count=0;
+    for(const b of bars){
+      const notes=melodyFromTaps(captureTaps.value,b,project.value.beats).map(t=>
+        suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration));
+      next=replaceInstrumentMeasure(next,source,noteInst.value,b,notes);
+      source=next.generatedScore??source;count+=notes.length;
+    }
+    project.value=next;
+    noteSelected.value=-1;noteStep.value=0.25;
+    captureFeedback.value=`Applied ${count} captured notes to ${bars.length} ${noteInst.value} measures; all are protected for further editing.`;
+    message.value=captureFeedback.value;
+  }catch(error){captureFeedback.value=`Could not apply melody: ${String(error)}`;}
+}
 const rhythmMeasures=computed(()=>{
   if(rhythmScope.value==='song')return project.value.bars.map((_,i)=>i);
   if(rhythmScope.value==='section')return project.value.bars.flatMap((b,i)=>b.section===rhythmSection.value?[i]:[]);
@@ -205,9 +549,10 @@ function applyRhythmSelection(){
   if(special&&!window.confirm('This selection includes melody or voice parts. Replacing their rhythmic placement may change the melody. Continue?'))return;
   if(rhythmOverwrite.value&&rhythmProtectedCount.value&&!window.confirm(`Overwrite ${rhythmProtectedCount.value} protected instrument-measures? Their manual note edits will be replaced.`))return;
   try{
-    const result=applyRhythmPreset(project.value,score.value,{instruments:targets,measures:rhythmMeasures.value,preset:rhythmPreset.value,mode:rhythmMode.value,overwriteProtected:rhythmOverwrite.value});
+    const slots=validateRhythmPattern(rhythmPattern.value,project.value.beats,rhythmGridStep);
+    const result=applyRhythmPattern(project.value,score.value,{instruments:targets,measures:rhythmMeasures.value,slots,mode:rhythmMode.value,overwriteProtected:rhythmOverwrite.value});
     project.value=result.project;
-    rhythmFeedback.value=`Applied ${rhythmPresetInfo.value.label} to ${result.updated} instrument-measures. Skipped ${result.skippedProtected} protected and ${result.skippedEmpty} silent instrument-measures.`;
+    rhythmFeedback.value=`Applied edited rhythm (${slots.length} attacks) to ${result.updated} instrument-measures. Skipped ${result.skippedProtected} protected and ${result.skippedEmpty} silent instrument-measures.`;
     message.value=rhythmFeedback.value;
   }catch(error){rhythmFeedback.value=`Rhythm application failed: ${String(error)}`;}
 }
@@ -271,7 +616,7 @@ async function createBlankSong(){
     await flushAutosave();
     stopPlayback();
     await adoptLocalSong(fresh);
-    selectedBar.value=0;overviewFocus.value=0;overviewStart.value=1;overviewEnd.value=Math.min(8,fresh.bars.length);
+    selectedBar.value=0;overviewFocus.value=0;overviewStart.value=1;overviewEnd.value=Math.min(8,fresh.bars.length);mapRangeAnchor.value=null;
     overviewInstrument.value='Violin II';chosenSection.value='A';active.value='lead';
     chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;
   leadDrafts.value={};pendingKeyChange.value=null;
@@ -459,13 +804,15 @@ function applyStructure(){
     if((deleting||hasScores)&&!window.confirm(warning))return;
     const next=resizeSections(project.value,sectionLengths.value);
     project.value=next;selectedBar.value=Math.min(selectedBar.value,next.bars.length-1);overviewFocus.value=selectedBar.value;
-    overviewStart.value=1;overviewEnd.value=Math.min(16,next.bars.length);
+    overviewStart.value=1;overviewEnd.value=Math.min(16,next.bars.length);mapRangeAnchor.value=null;
     chosenSection.value=next.bars[selectedBar.value].section;
     chordEditorOpen.value=false;structureOpen.value=false;
     message.value=`Updated structure: ${sectionLengths.value.length} sections, ${next.bars.length} measures. Generate orchestra again before exporting.`;
   }catch(error){message.value=`Structure update rejected: ${String(error)}`;}
 }
 const overviewFocus=ref(0);
+/** The fixed endpoint of a Shift+click range, or null before the first map selection. */
+const mapRangeAnchor=ref<number|null>(null);
 const overviewInstruments=computed(()=>INSTRUMENTS.filter(inst=>inst!=='Voice'||project.value.roles[project.value.bars[0]?.section]?.Voice!=='rest'));
 function effectiveRole(inst:Instrument,i:number):Role{return project.value.measureRoles?.[`${inst}:${i}`]??project.value.roles[project.value.bars[i]?.section]?.[inst]??'rest';}
 function roleOverridden(inst:Instrument,i:number){return Object.prototype.hasOwnProperty.call(project.value.measureRoles??{},`${inst}:${i}`);}
@@ -474,6 +821,39 @@ function articulationOverride(inst:Instrument,i:number):Articulation{return proj
 function cellArticulation(inst:Instrument,i:number):string{if(inst.startsWith('Violin')&&effectiveRole(inst,i)==='chords'&&!project.value.articulation?.overrides?.[`${inst}:${i}`]&&['tango_staccato','pizzicato'].includes(violinTechnique(inst,i)??'')){const beats=violinMarcatoBeatsFor(project.value,project.value.bars[i].section,inst as 'Violin I'|'Violin II').map(n=>n+1);return `${violinTechnique(inst,i)==='pizzicato'?'Pizz.':'Stacc.'}${beats.length?' ^'+beats.join(','):''}`;}const mode=measureArticulation(project.value,inst,i);return mode==='marcato_staccato'?'Marc.':mode==='staccato'?'Stacc.':mode==='legato'?(inst.startsWith('Violin')?'Arco':'Legato'):'—';}
 function cellLabel(inst:Instrument,i:number):string{const role=effectiveRole(inst,i);const tech=violinTechnique(inst,i);return role==='chords'&&inst==='Piano'?(project.value.pianoFigures?.[project.value.bars[i].section]??'chords_up').replaceAll('_',' '):role==='chords'&&tech?tech.replaceAll('_',' '):role;}
 function focusOverview(inst:Instrument,i:number){overviewInstrument.value=inst;overviewFocus.value=i;overviewStart.value=i+1;overviewEnd.value=i+1;selectedBar.value=i;chosenSection.value=project.value.bars[i].section;overviewRole.value=project.value.measureRoles?.[`${inst}:${i}`]??'inherit';overviewArt.value=articulationOverride(inst,i);overviewTechnique.value=project.value.measureViolinTechniques?.[`${inst}:${i}`]??'inherit';}
+/** A plain click chooses an anchor. Shift+click extends without replacing the range's editing settings. */
+function selectOverviewMapCell(inst:Instrument,i:number,event:Pick<MouseEvent,'shiftKey'>){
+  const selection=selectMapMeasure(mapRangeAnchor.value,i,project.value.bars.length,event.shiftKey);
+  mapRangeAnchor.value=selection.anchor;
+  if(!event.shiftKey)focusOverview(inst,i);
+  else{
+    overviewInstrument.value=inst;
+    overviewFocus.value=i;
+    selectedBar.value=i;
+    chosenSection.value=project.value.bars[i].section;
+  }
+  overviewStart.value=selection.start;
+  overviewEnd.value=selection.end;
+  overviewNotice.value=event.shiftKey?`Selected ${inst}, measures ${selection.start}–${selection.end}. Choose settings and press Apply to range.`:'';
+}
+/** Measure headings can anchor/extend the same range for the currently selected instrument. */
+function selectOverviewMeasureHeading(i:number,event:Pick<MouseEvent,'shiftKey'>){
+  selectOverviewMapCell(overviewInstrument.value,i,event);
+  selectLeadMeasure(i);
+}
+/** Manual From/To edits establish the From field as the next Shift+click anchor. */
+function anchorMapRangeFromInput(){
+  const n=Number(overviewStart.value);
+  if(Number.isFinite(n))mapRangeAnchor.value=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(n)-1));
+}
+function onMapCellDoubleClick(inst:Instrument,i:number,event:MouseEvent){
+  if(!event.shiftKey)openMapCellNotes(inst,i);
+}
+function onMapCellEnter(inst:Instrument,i:number,event:KeyboardEvent){
+  if(event.shiftKey)selectOverviewMapCell(inst,i,event);
+  else openMapCellNotes(inst,i);
+}
+
 /** The map's single click edits orchestration; a double click or Enter opens exact notes. */
 function openMapCellNotes(inst:Instrument,i:number){focusOverview(inst,i);openNoteEditor(inst,i);}
 function returnToMap(){
@@ -481,27 +861,70 @@ function returnToMap(){
   focusOverview(inst,i);active.value='overview';
   void nextTick(()=>document.querySelector<HTMLButtonElement>(`.song-cell[data-map-measure="${i}"][data-map-instrument="${inst}"]`)?.focus());
 }
-/** Keyboard shortcuts are active only in the note editor, never inside editable controls. */
-function handleNoteEditorKey(event:KeyboardEvent){
-  if(event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||event.defaultPrevented)return;
+/** Shortcuts work when the editor or its note/attack buttons have focus.
+ * Native inputs, select boxes, contenteditable regions and modified browser keys
+ * always retain their own keyboard behavior. */
+function editorKeyAction(event:KeyboardEvent,editor:EditorKind){
   const target=event.target as HTMLElement|null;
-  if(target?.closest('input,textarea,select,[contenteditable="true"]'))return;
-  if(event.key==='Escape'){event.preventDefault();returnToMap();}
-  else if(event.key==='['&&selectedBar.value>0){event.preventDefault();openNoteEditor(noteInst.value,selectedBar.value-1);}
-  else if(event.key===']'&&selectedBar.value<project.value.bars.length-1){event.preventDefault();openNoteEditor(noteInst.value,selectedBar.value+1);}
-  else if(event.key==='l'){event.preventDefault();void toggleNoteLoop();}
+  return resolveEditorShortcut(editor,event.key,{
+    altKey:event.altKey,ctrlKey:event.ctrlKey,metaKey:event.metaKey,shiftKey:event.shiftKey,
+    isComposing:event.isComposing,defaultPrevented:event.defaultPrevented,
+    editable:!!target?.closest('input,textarea,select,[contenteditable]'),
+    buttonFocused:!!target?.closest('button,[role="button"]')
+  });
+}
+function handleNoteEditorKey(event:KeyboardEvent){
+  if(pendingKeyChange.value||newSongOpen.value)return;
+  const action=editorKeyAction(event,'notes');if(!action)return;
+  if(action==='escape'){
+    event.preventDefault();
+    if(noteDetailsPopup.value)noteDetailsPopup.value=false;
+    else returnToMap();
+  }else if(action==='previousMeasure'&&selectedBar.value>0){event.preventDefault();openNoteEditor(noteInst.value,selectedBar.value-1);}
+  else if(action==='nextMeasure'&&selectedBar.value<project.value.bars.length-1){event.preventDefault();openNoteEditor(noteInst.value,selectedBar.value+1);}
+  else if(action==='loop'){event.preventDefault();void toggleNoteLoop();}
+  else if(action==='delete'&&selectedEvent.value){event.preventDefault();deleteSelectedNote();}
+  else if((action==='previous'||action==='next')&&noteMeasure.value.length){
+    event.preventDefault();
+    const count=noteMeasure.value.length;
+    const index=noteSelected.value<0?(action==='next'?0:count-1):Math.max(0,Math.min(count-1,noteSelected.value+(action==='next'?1:-1)));
+    selectNoteEvent(index);
+    focusSelectedNoteButton();
+  }else if((action==='shorten'||action==='lengthen')&&selectedEvent.value){
+    event.preventDefault();changeNoteDuration(action==='lengthen'?0.25:-0.25);
+  }else if((action==='pitchUp'||action==='pitchDown')&&selectedEvent.value){
+    event.preventDefault();
+    const pitch=selectedEvent.value.pitch+(action==='pitchUp'?1:-1);
+    if(pitch<noteCtx.value.range[0]||pitch>noteCtx.value.range[1])message.value='Selected pitch is at the instrument register limit.';
+    else updateSelectedNote('pitch',String(pitch));
+  }
+}
+function focusSelectedNoteButton(){
+  void nextTick(()=>{
+    const index=noteSelected.value;
+    if(index>=0)noteEditorRegion.value?.querySelectorAll<HTMLButtonElement>('.note-event-button')[index]?.focus({preventScroll:true});
+    else noteEditorRegion.value?.focus({preventScroll:true});
+  });
 }
 function focusLeadMelody(i:number){
   selectLeadMeasure(i);
   void nextTick(()=>document.querySelector<HTMLTextAreaElement>('[data-lead-melody]')?.focus());
 }
 function applyOverviewRange(){const start=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(overviewStart.value)-1)),end=Math.max(start,Math.min(project.value.bars.length-1,Math.floor(overviewEnd.value)-1));if(!Number.isFinite(start)||!Number.isFinite(end)){overviewNotice.value='Invalid measure range';return;}project.value.measureRoles??={};project.value.measureViolinTechniques??={};project.value.articulation??=defaultArticulation();for(let i=start;i<=end;i++){const key=`${overviewInstrument.value}:${i}`;if(overviewRole.value==='inherit')delete project.value.measureRoles[key];else project.value.measureRoles[key]=overviewRole.value;if(overviewArt.value==='auto')delete project.value.articulation.overrides[key];else if(overviewInstrument.value.startsWith('Violin')||overviewInstrument.value.startsWith('Bandoneon'))project.value.articulation.overrides[key]=overviewArt.value;if(overviewInstrument.value.startsWith('Violin')){if(overviewTechnique.value==='inherit')delete project.value.measureViolinTechniques[key];else project.value.measureViolinTechniques[key]=overviewTechnique.value;}}
-project.value.generatedScore=undefined;overviewNotice.value=`Applied settings to ${overviewInstrument.value}, measures ${start+1}–${end+1}. The preview now uses regenerated notes; protected imported measures are unchanged when using Generate orchestra.`;selectedBar.value=start;}
-function applyOverviewSection(){const index=project.value.bars.findIndex(b=>b.section===chosenSection.value);const positions=project.value.bars.map((b,i)=>b.section===chosenSection.value?i:-1).filter(i=>i>=0);if(index<0||!positions.length)return;const begin=Math.min(...positions),finish=Math.max(...positions);if(positions.length!==finish-begin+1){overviewNotice.value='Section is non-contiguous. Select a measure range instead.';return;}overviewStart.value=begin+1;overviewEnd.value=finish+1;applyOverviewRange();}
+project.value.generatedScore=mergeScores(project.value,generate(project.value));overviewNotice.value=`Applied settings to ${overviewInstrument.value}, measures ${start+1}–${end+1}. Unprotected notes have been regenerated; protected manual measures are retained.`;selectedBar.value=start;}
+function applyOverviewSection(){const index=project.value.bars.findIndex(b=>b.section===chosenSection.value);const positions=project.value.bars.map((b,i)=>b.section===chosenSection.value?i:-1).filter(i=>i>=0);if(index<0||!positions.length)return;const begin=Math.min(...positions),finish=Math.max(...positions);if(positions.length!==finish-begin+1){overviewNotice.value='Section is non-contiguous. Select a measure range instead.';return;}overviewStart.value=begin+1;overviewEnd.value=finish+1;mapRangeAnchor.value=begin;applyOverviewRange();}
 const bar=computed(()=>project.value.bars[selectedBar.value]);const melodyString=computed(()=>bar.value.melody.map(n=>`${midiName(n.pitch)}:${n.duration}@${n.start}`).join(' '));const melodyText=ref('');watch(selectedBar,()=>melodyText.value=melodyString.value,{immediate:true});watch(()=>project.value.bars[selectedBar.value]?.melody,()=>melodyText.value=melodyString.value,{deep:true});
 function setMelody(){const notes:Note[]=[];const tokens=melodyText.value.trim().split(/\s+/).filter(Boolean);let next=0;for(const token of tokens){const m=token.match(/^([A-Ga-g][#b]?-?\d+)(?::([\d.]+))?(?:@([\d.]+))?$/);if(!m){message.value=`Invalid note: ${token}. Example: D5:1@0`;return;}const pitch=parsePitch(m[1]);if(pitch===null)continue;const duration=Number(m[2]??1),start=m[3]===undefined?next:Number(m[3]);if(!Number.isFinite(duration)||duration<=0||start<0||start+duration>project.value.beats+0.00001){message.value=`Invalid timing: ${token}`;return;}notes.push({pitch,start,duration});next=start+duration;}bar.value.melody=notes;message.value=`Updated melody in bar ${selectedBar.value+1}. Regenerate to apply.`;}
 function regenerate(){const fresh=generate(project.value);project.value.generatedScore=mergeScores(project.value,fresh);message.value=`Generated ${scoreStats(project.value.generatedScore)} notes across ${INSTRUMENTS.length} parts. Protected measures retained.`;}
-function setRole(inst:Instrument,e:Event){const sec=chosenSection.value;project.value.roles[sec]??={};project.value.roles[sec][inst]=(e.target as HTMLSelectElement).value as Role;}
+function setRole(inst:Instrument,e:Event){
+  const sec=chosenSection.value;
+  project.value.roles[sec]??={};
+  project.value.roles[sec][inst]=(e.target as HTMLSelectElement).value as Role;
+  project.value.generatedScore=mergeScores(project.value,generate(project.value));
+  message.value=inst==='Violin II'&&project.value.roles[sec]?.['Violin II']==='harmony'&&project.value.roles[sec]?.['Violin I']==='melody'
+    ? `Violin II harmony generated from Violin I's melody in section ${sec}. Protected manual measures remain unchanged.`
+    : `${inst} role updated in section ${sec}; unprotected parts regenerated.`;
+}
 function setProtected(inst:Instrument,b:number,v:boolean){project.value.protectedBars[`${inst}:${b}`]=v;}
 function exportXml(){try{const xml=exportMusicXml(project.value,score.value);const problems=validateMusicXmlDurations(xml,project.value.beats);if(problems.length){message.value='MusicXML validation failed: '+problems.slice(0,3).join('; ');return;}download(xml,`${project.value.title.replace(/[^a-z0-9-]+/gi,'-')}.musicxml`,'application/vnd.recordare.musicxml+xml');message.value='MusicXML exported; all instrument-measures passed rhythmic validation.';}catch(err){message.value=`Export failed: ${String(err)}`;}}
 async function importFile(e:Event){const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;try{if(file.name.endsWith('.tango')){await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);structureOpen.value=false;message.value='Portable project imported as a separate local song.';}else if(file.name.endsWith('.mid')||file.name.endsWith('.midi')){pending.value=importMidi(await file.arrayBuffer());importMode.value='melody';message.value=`Found ${pending.value.length} MIDI tracks. Choose the melody track.`;}else{const result=importMusicXml(await file.text());pending.value=result.parts;if(importMode.value==='melody'){if(result.chords.length)result.chords.forEach((c,i)=>{if(project.value.bars[i])project.value.bars[i].chord=c;});if(result.keys.length){project.value.sectionKeys??={};const assigned=new Set<string>();result.keys.forEach((key,i)=>{const sec=project.value.bars[i]?.section;if(sec&&!assigned.has(sec)){project.value.sectionKeys![sec]=key;assigned.add(sec);}});}project.value.generatedScore=undefined;}message.value=`Found ${result.parts.length} MusicXML parts. Choose a melody track or import edited score.`;}}catch(err){message.value=`Import failed: ${String(err)}`;}finally{(e.target as HTMLInputElement).value='';}}
@@ -516,20 +939,23 @@ async function testAudio(){
     audioStatus.value='Test tone sent (A4, 440 Hz). If silent, check device volume and browser audio settings.';
   }catch(error){audioStatus.value=`Audio test failed: ${String(error)}`;message.value=audioStatus.value;}
 }
-async function play(){
-  if(playing.value){stopPlayback();return;}
+async function play(origin:PlaybackOrigin){
+  // Both play buttons always start a fresh pass. Stop is a separate control.
   stopPlayback();
   const session=noteLoopSession;
+  const startMeasure=origin==='selected'?selectedBar.value:0;
+  const window=arrangementPlaybackWindow(project.value.bars.length,project.value.beats,project.value.bpm,startMeasure);
   try{
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession)return;
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
-    const noteCount=INSTRUMENTS.filter(inst=>inst!=='Voice').reduce((count,inst)=>count+(score.value[inst]?.length??0),0);
-    if(!noteCount){message.value='Nothing to play yet. Enter a melody or chords and generate the orchestra, or use Test sound to verify audio.';return;}
-    audioStatus.value=`Playing ${noteCount} notes · audio context ${Tone.getContext().state}`;
+    let noteCount=0;
     for(const inst of INSTRUMENTS){if(inst==='Voice')continue;for(const n of score.value[inst]??[]){
-      const seconds=n.start*60/project.value.bpm;
+      const seconds=arrangementEventTime(n.start,window);
+      // The requested measure is a hard start: earlier attacks are not replayed.
+      if(seconds===null)continue;
+      noteCount++;
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
@@ -541,8 +967,10 @@ async function play(){
         else synth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds||defaultDuration,time,(event.velocity||defaultVelocity)/127);
       },seconds);
     }}
-    transport.scheduleOnce(()=>{playing.value=false;transport.stop();synth?.releaseAll();},project.value.bars.length*project.value.beats*60/project.value.bpm+0.2);
-    transport.start();playing.value=true;
+    if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
+    audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · audio context ${Tone.getContext().state}`;
+    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},window.durationSeconds+0.2);
+    transport.start();playing.value=true;playbackOrigin.value=origin;
   }catch(error){message.value=`Playback unavailable: ${String(error)}`;stopPlayback();}
 }
 // A dedicated measure loop shares the Tone transport with full-score playback;
@@ -583,9 +1011,9 @@ async function toggleNoteLoop(){
     transport.start();
   }catch(error){message.value=`Measure loop unavailable: ${String(error)}. Check browser audio permissions.`;stopPlayback();}
 }
-watch(active,tab=>{if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();});
-watch(()=>project.value.bpm,bpm=>{if(noteLoopPlaying.value&&Number.isFinite(bpm)&&bpm>0)Tone.getTransport().bpm.value=bpm;});
-watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value)stopNoteLoop();});
+watch(active,tab=>{if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value)stopPlayback();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
+watch(()=>project.value.bpm,bpm=>{if((noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)&&Number.isFinite(bpm)&&bpm>0)Tone.getTransport().bpm.value=bpm;});
+watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
 let auditionSynth:Synth|null=null;
@@ -778,7 +1206,7 @@ function applyWrittenDurationDraft(){if(selectedEvent.value)updateSelectedNote('
 const noteDurationPercent=computed(()=>selectedEvent.value?Math.round(selectedEvent.value.duration/project.value.beats*100):0);
 const selectedDurationMax=computed(()=>selectedEvent.value?Number((project.value.beats-(selectedEvent.value.start-selectedBar.value*project.value.beats)).toFixed(3)):project.value.beats);
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
-  stopNoteLoop();
+  stopNoteLoop();if(capturePlaying.value)stopPlayback();
   const arrivingFromAnotherView=active.value!=='notes';
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
   overviewFocus.value=selectedBar.value;
@@ -793,6 +1221,10 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
     pianoBassCenter.value=bass.length?Math.round(bass.reduce((sum,n)=>sum+n.pitch,0)/bass.length):49;
   }
   noteSelected.value=-1;noteDetailsPopup.value=false;figurePreviewKey.value='';
+  captureFrom.value=selectedBar.value+1;captureTo.value=selectedBar.value+1;captureEditBar.value=selectedBar.value+1;
+  capturePitch.value=existing[0]?.pitch??Math.max(range[0],Math.min(range[1],typical));
+  const keyboard=defaultKeyboardRange(capturePitch.value,range);
+  captureStartPitch.value=keyboard.start;captureEndPitch.value=keyboard.end;
   expressionStart.value=selectedBar.value+1;expressionEnd.value=selectedBar.value+1;expressionStartBeat.value=1;expressionEndBeat.value=project.value.beats;
   noteStep.value=instrumentDifficulty(inst)==='easy'?1:instrumentDifficulty(inst)==='advanced'?0.25:0.5;
   noteLength.value=noteEditorContext(project.value,inst,selectedBar.value).role==='chords'&&!inst.startsWith('Violin')?0.5:1;
@@ -860,7 +1292,15 @@ function updateSelectedNote(field:'pitch'|'start'|'duration'|'velocity'|'articul
     if(['pitch','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(next);
   }catch(error){message.value=`Note edit rejected: ${String(error)}`;}
 }
-function deleteSelectedNote(){if(!selectedEvent.value)return;const events=noteMeasure.value.filter((_,i)=>i!==noteSelected.value);project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);noteSelected.value=-1;}
+function deleteSelectedNote(){
+  if(!selectedEvent.value)return;
+  const removed=noteSelected.value;
+  const events=noteMeasure.value.filter((_,i)=>i!==removed);
+  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
+  noteSelected.value=events.length?Math.min(removed,events.length-1):-1;
+  message.value=`Deleted note from ${noteInst.value}, measure ${selectedBar.value+1}. Manual measure protected.`;
+  focusSelectedNoteButton();
+}
 function clearNoteMeasure(){project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,[]);noteSelected.value=-1;message.value=`Cleared and protected ${noteInst.value} measure ${selectedBar.value+1}.`;}
 function restoreNoteMeasure(){project.value=resetInstrumentMeasure(project.value,noteInst.value,selectedBar.value);noteSelected.value=-1;message.value=`Restored generated ${noteInst.value} measure ${selectedBar.value+1}; other protected measures retained.`;}
 const currentNotes=computed(()=>INSTRUMENTS.map(inst=>({inst,notes:(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value)})));
@@ -875,7 +1315,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="local-song-actions"><button class="secondary" :disabled="!libraryReady" @click="saveNow">Save now</button><button class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong">Duplicate song</button><button class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong">Delete song</button></div>
 <p class="local-save-status" role="status">{{saveStatus}}</p><p class="hint">Changes are saved automatically in this browser, including unnamed songs and manual note edits. Browser storage can be cleared; export .tango backups for safekeeping. Local songs do not sync between devices.</p>
 <div class="divider"></div><div class="eyebrow">IMPORT & ROUND TRIP</div><label class="file-picker">↑ Import .tango / .musicxml / .mid<input type="file" accept=".tango,.xml,.musicxml,.mid,.midi" @change="importFile" hidden/></label><div v-if="pending.length" class="import-panel"><label>Import as<select v-model="importMode"><option value="melody">Melody only</option><option value="score">Edited full score</option></select></label><label v-if="importMode==='melody'">Track<select v-model.number="selectedTrack"><option v-for="(track,i) in pending" :key="i" :value="i">{{track.name}} ({{track.notes.length}} notes)</option></select></label><button class="primary" @click="applyImport">Apply import</button></div><p class="hint">After editing in MuseScore, export MusicXML and import it here as “Edited full score”. Changed measures will be protected.</p></aside>
-<main><div class="transport-bar" role="group" aria-label="Arrangement playback"><button type="button" class="play transport-play" @click="play">{{playing?'■ Stop playback':'▶ Play arrangement'}}</button><button type="button" class="secondary transport-test" @click="testAudio">♪ Test sound</button><span class="transport-status" role="status" aria-live="polite">{{audioStatus}}</span><button type="button" class="secondary help-toggle" :aria-pressed="compactHelp" @click="compactHelp=!compactHelp">{{compactHelp?'ⓘ Show explanations':'ⓘ Hide explanations'}}</button></div><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
+<main><div class="transport-bar" role="group" aria-label="Arrangement playback"><button type="button" :class="['transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'">▶ From beginning</button><button type="button" :class="['transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'">▶ From measure {{selectedBar+1}}</button><button type="button" class="secondary transport-stop" :disabled="!playing" @click="stopPlayback" aria-label="Stop arrangement playback">■ Stop</button><button type="button" class="secondary transport-test" @click="testAudio">♪ Test sound</button><span class="transport-status" role="status" aria-live="polite">{{audioStatus}}</span><button type="button" class="secondary help-toggle" :aria-pressed="compactHelp" @click="compactHelp=!compactHelp">{{compactHelp?'ⓘ Show explanations':'ⓘ Hide explanations'}}</button></div><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
   <div class="section-heading"><h2>New blank song</h2><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
   <p class="muted">Start with an empty lead sheet: no demo melody, no chord symbols and no generated accompaniment. Default: five sections (A–E), each with sixteen measures. Set each section length before creating the song; the alphabetical section labels also appear as MuseScore rehearsal marks.</p>
   <div class="two"><label>Song title<input v-model="newSongTitle" placeholder="Untitled Tango"/></label><label>Number of sections (A, B, C…)<input v-model.number="newSongSections" type="number" min="1" max="26"/></label></div>
@@ -887,7 +1327,36 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
 </div><div v-if="active!=='about'" class="page-title"><div><h1>Arrange your tango</h1><p>From one melody and chords to a complete orchestra score.</p></div><div class="page-title-actions"><button class="primary" @click="regenerate">↻ Generate orchestra</button><button class="secondary" type="button" :aria-expanded="advancedToolsOpen" @click="advancedToolsOpen=!advancedToolsOpen">⚙ {{advancedToolsOpen?'Hide tools':'More tools'}}</button></div></div><div v-if="advancedToolsOpen && active!=='about'" class="editor advanced-tools"><button class="secondary" @click="exportXml">Export MusicXML</button><button class="secondary" @click="saveProject(project)">Backup .tango</button><button class="secondary" @click="newSongOpen=!newSongOpen">New song</button><button class="secondary" @click="mobileSettingsOpen=!mobileSettingsOpen">Project settings</button></div><nav class="tabs" aria-label="Main work areas"><button :class="{active:active==='overview'}" @click="active='overview'">1 · Song overview</button><button :class="{active:active==='structure'}" @click="active='structure'">2 · Structure & keys</button><button :class="{active:active==='lead'}" @click="active='lead'">3 · Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">4 · Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">5 · Rhythm editor</button><button :class="{active:active==='score'}" @click="active='score'">6 · Score review</button><button :class="{active:active==='notes'}" @click="active='notes'">7 · Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav><div v-if="active!=='about'" class="notice">{{message}}</div>
-<div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange"><div class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title"><h2 id="key-change-title">Change section {{pendingKeyChange.section}}: {{pendingKeyChange.from}} → {{pendingKeyChange.to}}</h2><p>How should the section change? Chord qualities and inversions remain intact. A change between major and minor with the same tonic does not automatically reharmonize chords.</p><div class="key-change-options"><button type="button" class="secondary" @click="applySectionKeyChange('signature')">Key signature only <small>Keep chords and all notes unchanged</small></button><button type="button" class="secondary" @click="applySectionKeyChange('chords')">Transpose section chords <small>Keep lead melody and protected notes unchanged</small></button><button type="button" class="primary" @click="applySectionKeyChange('chords-and-melody')">Transpose chords + melody <small>Also move protected instrument notes to the new key</small></button></div><button type="button" class="secondary" @click="cancelSectionKeyChange">Cancel</button></div></div>
+<Teleport to="body">
+  <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
+    <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
+      <div class="key-change-content">
+        <h2 id="key-change-title">Change section {{pendingKeyChange.section}}: {{pendingKeyChange.from}} → {{pendingKeyChange.to}}</h2>
+        <p id="key-change-description">Choose what to transpose. The new key will not be saved until you press <strong>Apply key change</strong>. Chord qualities and inversions are preserved; major/minor changes do not automatically reharmonize.</p>
+        <fieldset class="key-change-options">
+          <legend>What should change?</legend>
+          <label class="key-change-choice" :class="{'is-selected':keyChangeMode==='chords'}">
+            <input v-model="keyChangeMode" type="radio" name="section-key-mode" value="chords" />
+            <span><strong>Transpose section chords</strong><small>Recommended · keep lead melody and protected notes unchanged</small></span>
+          </label>
+          <label class="key-change-choice" :class="{'is-selected':keyChangeMode==='chords-and-melody'}">
+            <input v-model="keyChangeMode" type="radio" name="section-key-mode" value="chords-and-melody" />
+            <span><strong>Transpose chords + melody</strong><small>Also transpose the lead melody and protected instrument notes</small></span>
+          </label>
+          <label class="key-change-choice" :class="{'is-selected':keyChangeMode==='signature'}">
+            <input v-model="keyChangeMode" type="radio" name="section-key-mode" value="signature" />
+            <span><strong>Key signature only</strong><small>Keep chords and all note pitches unchanged</small></span>
+          </label>
+        </fieldset>
+        <p v-if="keyChangeError" class="key-change-error" role="alert">Unable to apply: {{keyChangeError}}. You can choose another option or cancel.</p>
+      </div>
+      <div class="key-change-actions">
+        <button type="button" class="secondary" @click="cancelSectionKeyChange">Cancel</button>
+        <button type="submit" class="primary key-change-confirm">Apply key change</button>
+      </div>
+    </form>
+  </div>
+</Teleport>
 <div v-if="chordEditorOpen && active!=='about'" class="editor chord-editor" role="region" aria-label="Measure harmony editor">
   <div class="section-heading"><h2>Harmony · measure {{selectedBar+1}}</h2><button class="secondary" type="button" @click="chordEditorOpen=false">Close</button></div>
   <p class="muted">Chords belong to the measure and apply to all instruments. Leave the field empty to clear the harmony. Commas divide the measure into slots: in 4/4, <code>D,G</code> changes to G on beat 3; <code>D,D,D,G</code> changes on beat 4. Repeated symbols hold the chord.</p>
@@ -904,7 +1373,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='score'">Open Score Review →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Current version: v{{appVersion}}. Highlights from recent releases.</p>
-    <div class="release-entry"><h3>v3.3.0 · Free chord entry, note duration and section-key choices</h3><p>Optional chord suggestions without forced selection, explicit written-duration editing feedback, and key-change options to transpose section harmony and melody.</p></div>
+    <div class="release-entry"><h3>v4.0.0 · Custom live melody keyboard range</h3><p>Choose the start and end note independently to display any chromatic keyboard span within the instrument register, including ranges across multiple octaves. Existing captured takes are preserved when the keyboard display range changes.</p></div>
+    <div class="release-entry"><h3>v3.9.0 · Playback start position</h3><p>Separate controls start arrangement playback from measure 1 or from the currently selected measure. A dedicated Stop button ends playback; starting either mode restarts from that position.</p></div>
+    <div class="release-entry"><h3>v3.8.0 · Live tap capture</h3><p>Loop a measure or phrase with full orchestration, tap rhythms in real time, or play an on-screen octave keyboard to capture pitched notes. Quantize to a sixteenth-note grid, review and edit draft takes, then apply explicitly.</p></div>
+    <div class="release-entry"><h3>v3.7.0 · Keyboard shortcuts for rhythm and note editing</h3><p>Delete/Backspace removes selected notes or rhythm attacks. Arrow keys navigate selections; shortcuts adjust durations, note pitch and rhythm accents, and control loops. Editable fields retain native keyboard behavior.</p></div>
+    <div class="release-entry"><h3>v3.5.0 · Shift+click orchestration map ranges</h3><p>Click a map cell or measure heading to anchor a selection, then Shift+click another measure to fill From/To in the instrument range editor. Selected measures are highlighted; applying remains explicit.</p></div>
+    <div class="release-entry"><h3>v3.6.0 · Violin duet harmony and manual rhythm grid</h3><p>Violin II Harmony follows Violin I Melody, including protected violin edits. Rhythm presets fill an editable attack, rest, accent and duration grid with live loop playback and selected-part application.</p></div>
+    <div class="release-entry"><h3>v3.4.0 · Confirm section key changes</h3><p>Choose a section-key transposition mode, then explicitly apply it. Errors are shown in the dialog.</p></div>
+    <div class="release-entry"><h3>v3.3.0 · Free chord entry, note duration and section-key choices</h3><p>Optional chord suggestions, written-duration editing feedback, and section-key transposition options.</p></div>
     <div class="release-entry"><h3>v3.2.0 · Rhythm editor</h3><p>Apply tango rhythmic presets to the rhythm section, any selected parts, a section, measure range or whole song. Preserve voicings, protect manual edits and preview accents.</p></div>
     <div class="release-entry"><h3>v3.1.0 · Accurate note durations</h3><p>Full-length piano-roll note bars, real endpoint touch handles, immediate duration slider and numeric edits, and protected-score persistence tests.</p></div>
     <div class="release-entry"><h3>v3.0.0 · About &amp; release notes</h3><p>Click the Tango Arranger title to open this guide and release history. Added an About &amp; releases navigation tab.</p></div>
@@ -925,13 +1401,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div v-if="structureOpen" class="structure-editor"><div class="structure-fields"><label v-for="(length,i) in sectionLengths" :key="i">Section {{sectionLetter(i)}} · measures<input type="number" min="1" max="128" v-model.number="sectionLengths[i]"/></label></div><div class="overview-actions"><button class="secondary" type="button" :disabled="sectionLengths.length>=26" @click="addSection">+ Add section</button><button class="secondary" type="button" :disabled="sectionLengths.length<=1" @click="removeSection">− Remove last section</button><button class="primary" type="button" @click="applyStructure">Apply {{sectionLengths.length}} sections · {{structureTotal}} measures</button></div><p class="hint">Existing notes and chords are preserved by position within their section. Shortening a section removes its final measures; expanding inserts empty measures. Structural changes invalidate generated/imported scores and their protection flags.</p></div></div>
 <div class="editor"><h3>Keys by section</h3><p class="muted">Choose a new key, then decide whether to change the signature only, transpose section chords, or transpose both chords and lead melody. Chord qualities are preserved; this is transposition, not automatic major/minor reharmonization.</p><div class="section-key-grid"><label v-for="sec in sections" :key="sec">{{sec}} key<select :value="keyForSection(sec)" @change="setSectionKey(sec,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label></div></div>
 <div class="overview-actions"><button type="button" class="primary" @click="active='overview'">Continue arranging in Song Overview →</button></div></section>
-<section v-else-if="active==='overview'" class="overview-section"><div class="section-heading"><h2>Song orchestration map</h2><button class="secondary" type="button" @click="active='rhythm'">♫ Edit rhythm</button><span>{{project.bars.length}} measures · {{INSTRUMENTS.length}} parts</span></div><p class="muted">This is your main measure-level arranging workspace. Structure and section keys have their own tab. Scan roles and playing techniques across the whole piece. Edit chords directly in each measure heading (Enter or blur to save); click an instrument heading to open the expanded chord editor for the selected measure. Click a cell to select its orchestration settings; double-click or press Enter on a focused cell to edit its notes. Use the range editor to apply a role, articulation or violin chord technique to multiple measures. Empty overrides inherit section defaults and generated articulation cycles.</p>
+<section v-else-if="active==='overview'" class="overview-section"><div class="section-heading"><h2>Song orchestration map</h2><button class="secondary" type="button" @click="active='rhythm'">♫ Edit rhythm</button><span>{{project.bars.length}} measures · {{INSTRUMENTS.length}} parts</span></div><p class="muted">This is your main measure-level arranging workspace. Structure and section keys have their own tab. Scan roles and playing techniques across the whole piece. Edit chords directly in each measure heading (Enter or blur to save); click an instrument heading to open the expanded chord editor for the selected measure. Click a cell to select its orchestration settings; double-click or press Enter on a focused cell to edit its notes. Click a first map cell or measure heading, then hold Shift and click the final measure to select a range (either direction). You can also Shift+click both endpoints. The highlighted range fills From/To in Edit instrument measures; press Apply to range to make changes. Use the range editor to apply a role, articulation or violin chord technique to multiple measures. Empty overrides inherit section defaults and generated articulation cycles.</p>
 <div class="overview-section-strip" aria-label="Section structure and key summary"><div class="overview-section-summary"><span v-for="(span,i) in sectionSpans(project)" :key="i" class="overview-section-pill"><strong>{{sectionLetter(i)}}</strong><span>{{keyForSection(span.label)}}</span><small>{{span.start+1}}–{{span.start+span.measures}}</small></span></div><button type="button" class="secondary" @click="active='structure'">Edit structure &amp; keys</button></div>
 <div class="overview-legend"><span><i class="legend-dot melody"></i> Melody</span><span><i class="legend-dot chords"></i> Chords / arpeggio / pizzicato</span><span><i class="legend-dot harmony"></i> Harmony</span><span><i class="legend-dot bass"></i> Bass</span><span><i class="legend-dot rest"></i> Rest</span><span><i class="legend-dot overridden"></i> Manual override (corner)</span></div>
 <div class="overview-workspace"><div class="overview-map-pane">
-<div class="song-map-scroll"><table class="song-map"><thead><tr><th class="sticky-instrument">Instrument</th><th v-for="(b,i) in project.bars" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}`" @click="selectLeadMeasure(i)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in overviewInstruments" :key="inst"><th class="sticky-instrument"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}`" @click="overviewInstrument=inst;openChordEditor(overviewFocus)">{{inst}} <span aria-hidden="true">♫</span></button></th><td v-for="(b,i) in project.bars" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${effectiveRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${effectiveRole(inst,i)}. Double-click or press Enter to edit notes; Space to select orchestration.`" :title="`${inst} · measure ${i+1} · ${effectiveRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @click="focusOverview(inst,i)" @dblclick.stop="openMapCellNotes(inst,i)" @keydown.enter.stop.prevent="openMapCellNotes(inst,i)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
+<div class="song-map-scroll"><table class="song-map"><thead><tr><th class="sticky-instrument">Instrument</th><th v-for="(b,i) in project.bars" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in overviewInstruments" :key="inst"><th class="sticky-instrument"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}`" @click="overviewInstrument=inst;openChordEditor(overviewFocus)">{{inst}} <span aria-hidden="true">♫</span></button></th><td v-for="(b,i) in project.bars" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${effectiveRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${effectiveRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${effectiveRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 </div>
-<div class="editor overview-edit"><h3>Edit instrument measures</h3><div class="overview-controls"><label>Instrument<select v-model="overviewInstrument"><option v-for="inst in INSTRUMENTS" :key="inst" :value="inst">{{inst}}</option></select></label><label>From measure<input v-model.number="overviewStart" type="number" min="1" :max="project.bars.length"/></label><label>To measure<input v-model.number="overviewEnd" type="number" :min="overviewStart" :max="project.bars.length"/></label><label>Musical role<select v-model="overviewRole"><option value="inherit">Inherit section</option><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></label><label v-if="overviewInstrument.startsWith('Violin')||overviewInstrument.startsWith('Bandoneon')">Articulation<select v-model="overviewArt"><option v-for="mode in articulationModes" :key="mode" :value="mode">{{mode==='auto'?'Inherit default':mode==='legato'?(overviewInstrument.startsWith('Violin')?'Arco / legato':'Legato'):mode.replaceAll('_',' ')}}</option></select></label><label v-if="overviewInstrument.startsWith('Violin')">Chord technique<select v-model="overviewTechnique"><option value="inherit">Inherit section</option><option v-for="tech in violinTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select></label></div><div v-if="overviewInstrument==='Piano'" class="overview-piano-figure"><label>Piano figure · section {{chosenSection}}<select :value="pianoFigureForSection()" @change="setPianoFigure"><option v-for="kind in FIGURE_KINDS" :key="kind" :value="kind">{{figureLabels[kind]}}</option></select></label><button class="secondary" @click="nextPianoFigureVariation">↻ New section piano variation</button><p class="hint">Generated Piano Chords measures in this section use the selected figure. Protected manual measures stay unchanged.</p></div><div class="overview-actions"><button class="primary" @click="applyOverviewRange">Apply to range</button><button class="secondary" @click="applyOverviewSection">Apply to current section ({{chosenSection}})</button><button class="secondary" @click="overviewStart=1;overviewEnd=project.bars.length">Select whole song</button><button class="secondary" @click="regenerate">↻ Regenerate / merge protected edits</button><button class="secondary" @click="openNoteEditor(overviewInstrument,overviewFocus)">♫ Edit notes in selected cell</button></div><p class="hint" role="status">{{overviewNotice||'Choose a cell to load its overrides. Inherit restores the section or automatic default. The range editor changes only the selected instrument.'}}</p><p class="hint">Tip: for a violin playing chords, choose the Chords role and then tango staccato or pizzicato for one note per beat. Other techniques remain optional. Arco and staccato articulation are separate from the harmonic role.</p></div>
+<div class="editor overview-edit"><h3>Edit instrument measures</h3><p class="map-range-summary" role="status">{{overviewInstrument}} · measures <strong>{{overviewStart}}–{{overviewEnd}}</strong> · {{Math.max(0,overviewEnd-overviewStart+1)}} selected</p><p class="hint map-range-instructions">Click a starting measure in the map, then <kbd>Shift</kbd> + click the ending measure. Selection works in both directions; changes are made only when you press Apply to range.</p><div class="overview-controls"><label>Instrument<select v-model="overviewInstrument"><option v-for="inst in INSTRUMENTS" :key="inst" :value="inst">{{inst}}</option></select></label><label>From measure<input v-model.number="overviewStart" type="number" min="1" :max="project.bars.length" @change="anchorMapRangeFromInput"/></label><label>To measure<input v-model.number="overviewEnd" type="number" :min="overviewStart" :max="project.bars.length" @change="anchorMapRangeFromInput"/></label><label>Musical role<select v-model="overviewRole"><option value="inherit">Inherit section</option><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></label><label v-if="overviewInstrument.startsWith('Violin')||overviewInstrument.startsWith('Bandoneon')">Articulation<select v-model="overviewArt"><option v-for="mode in articulationModes" :key="mode" :value="mode">{{mode==='auto'?'Inherit default':mode==='legato'?(overviewInstrument.startsWith('Violin')?'Arco / legato':'Legato'):mode.replaceAll('_',' ')}}</option></select></label><label v-if="overviewInstrument.startsWith('Violin')">Chord technique<select v-model="overviewTechnique"><option value="inherit">Inherit section</option><option v-for="tech in violinTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select></label></div><div v-if="overviewInstrument==='Piano'" class="overview-piano-figure"><label>Piano figure · section {{chosenSection}}<select :value="pianoFigureForSection()" @change="setPianoFigure"><option v-for="kind in FIGURE_KINDS" :key="kind" :value="kind">{{figureLabels[kind]}}</option></select></label><button class="secondary" @click="nextPianoFigureVariation">↻ New section piano variation</button><p class="hint">Generated Piano Chords measures in this section use the selected figure. Protected manual measures stay unchanged.</p></div><div class="overview-actions"><button class="primary" @click="applyOverviewRange">Apply to range</button><button class="secondary" @click="applyOverviewSection">Apply to current section ({{chosenSection}})</button><button class="secondary" @click="overviewStart=1;overviewEnd=project.bars.length;mapRangeAnchor=0">Select whole song</button><button class="secondary" @click="regenerate">↻ Regenerate / merge protected edits</button><button class="secondary" @click="openNoteEditor(overviewInstrument,overviewFocus)">♫ Edit notes in selected cell</button></div><p class="hint" role="status">{{overviewNotice||'Choose a cell to load its overrides. Inherit restores the section or automatic default. The range editor changes only the selected instrument.'}}</p><p class="hint">Tip: for a violin playing chords, choose the Chords role and then tango staccato or pizzicato for one note per beat. Other techniques remain optional. Arco and staccato articulation are separate from the harmonic role.</p></div>
 </div>
 </section>
 <section v-else-if="active==='lead'"><div class="section-heading"><h2>Melody & harmony</h2><span>{{project.bars.length}} measures</span></div><p class="muted">Compose melody and harmony here; use Song Overview for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
@@ -963,22 +1439,58 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 <p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 <button class="secondary" @click="addBar">+ Add measure to last section</button><div class="editor"><h3>Measure {{selectedBar+1}}</h3><div class="two"><label>Chords in measure <button class="secondary chord-edit-button" type="button" @click="openChordEditor(selectedBar)">{{bar.chord||'No chord'}} · Expanded harmony editor</button></label><label>Section<input :value="bar.section" disabled/><small class="hint">Change boundaries using Song Overview → Edit sections & measures.</small></label></div><label>Key signature for {{bar.section}}<select :value="keyForSection(bar.section)" @change="setSectionKey(bar.section,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select><small class="hint">You'll choose whether to transpose this section's harmony and melody.</small></label><label>Melody notes<textarea v-model="melodyText" data-lead-melody rows="3" spellcheck="false"/></label><button class="primary" @click="setMelody">Apply melody notes</button><button class="secondary" @click="openNoteEditor('Violin I',selectedBar)">♫ Edit instrument notes</button><p class="hint">Lead-sheet melody remains the generative source; instrument notes are edited separately and protected from regeneration.</p></div></section>
-<section v-else-if="active==='arrange'"><div class="section-heading"><h2>Orchestration roles</h2><span>Phrase-level presets</span></div><div class="section-tabs"><button v-for="s in sections" :key="s" :class="{selected:chosenSection===s}" @click="chosenSection=s">{{s}}</button></div><div class="editor"><label>Key signature for {{chosenSection}}<select :value="keyForSection(chosenSection)" @change="setSectionKey(chosenSection,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label></div><div class="role-list"><div v-for="inst in INSTRUMENTS" :key="inst" class="role-row"><span>{{inst}}</span><select :value="project.roles[chosenSection]?.[inst]??'rest'" @change="setRole(inst,$event)"><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></div></div><div class="editor"><h3>Piano accompaniment figure</h3><p class="muted">For Piano with the Chords role, use a moving upper-staff figure and, for chord-inversion figures, an independent bass pulse. Variations alter inversions and register. These are arranging heuristics; use the Note Editor for individual counterlines and gestures.</p><div class="two"><label>Figure for {{chosenSection}}<select :value="pianoFigureForSection()" @change="setPianoFigure"><option v-for="kind in FIGURE_KINDS" :key="kind" :value="kind">{{figureLabels[kind]}}</option></select></label><div class="align-bottom"><button class="secondary" @click="nextPianoFigureVariation">Try next piano variation ({{(project.pianoFigureVariation?.[chosenSection]??0)+1}})</button></div></div></div><div class="editor"><h3>Violin chord accompaniment</h3><p class="muted">For the Chords role, tango staccato and pizzicato play exactly one chord tone per beat. Unaccented notes are extremely short; selected marcato beats are louder and longer. Choose marcato beats for each violin in this section (1-based, e.g. 1,3). Defaults depend on the style profile and can be overridden; these are arranging heuristics, not fixed composer rules. Arpeggio and pizzicato arpeggio play exactly four successive single notes across the entire measure (not four per beat). Select ascending, descending, or alternating direction below. Double stop, sustained and block remain optional techniques.</p><div class="role-list"><div v-for="inst in (['Violin I','Violin II'] as const)" :key="inst" class="role-row"><span>{{inst}}</span><select :value="violinSetting(inst)" @change="setViolinSetting(inst,$event)"><option v-for="tech in violinTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select><label class="hint">Arpeggio direction <select :value="violinArpeggioDirection(inst)" @change="setViolinArpeggioDirection(inst,$event)" :aria-label="`Arpeggio direction for ${inst}`"><option value="alternate">Alternate each measure</option><option value="up">Up</option><option value="down">Down</option></select></label><label class="hint">Marcato beats <input type="text" :value="violinMarcatoText(inst)" @change="setViolinMarcato(inst,$event)" placeholder="1,3" aria-label="Marcato beats for violin chord accompaniment"/></label></div></div></div><div class="editor"><h3>Bandoneon following</h3><p class="muted">Choose a source and how to follow it for this section. Following overrides the bandoneon's role when the source has notes.</p><div v-for="inst in (['Bandoneon I','Bandoneon II'] as const)" :key="inst" class="two"><label>{{inst}} follows<select :value="followSetting(inst).target" @change="setFollow(inst,'target',$event)"><option v-for="target in followTargets" :key="target" :value="target">{{target}}</option></select></label><label>Method<select :value="followSetting(inst).method" @change="setFollow(inst,'method',$event)"><option v-for="method in followMethods" :key="method" :value="method">{{method}}</option></select></label></div></div><div class="editor"><h3>Instrument difficulty and activity</h3><p class="muted">Activity is a deterministic target for measures containing musical material, not beats sounded. Explicit Rest roles remain silent. The level limits technical complexity without automatically making the part sparse.</p><div class="role-list"><div v-for="inst in INSTRUMENTS.filter(i=>i!=='Voice')" :key="inst" class="role-row"><span>{{inst}}</span><select :value="instrumentDifficulty(inst)" @change="setInstrumentDifficulty(inst,$event)"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select><label class="hint">Activity <input type="number" min="0" max="100" step="5" :value="instrumentTarget(inst)" @change="setInstrumentTarget(inst,$event)"/> %</label><label class="hint">Dynamics offset <input type="number" min="-25" max="25" step="5" :value="instrumentDynamicsOffset(inst)" @change="setInstrumentDynamicsOffset(inst,$event)"/></label></div></div></div><div class="editor"><h3>Dynamics and phrase expression</h3><label><input type="checkbox" :checked="project.melodyDucking?.enabled??true" @change="setDuckingEnabled"/> Lower accompanying parts while another part carries the melody (keep contrabass unchanged)</label><label>Accompaniment reduction (%)<input type="range" min="0" max="75" step="5" :value="project.melodyDucking?.reduction??22" @input="setDuckingReduction"/>{{project.melodyDucking?.reduction??22}}%</label><label><input type="checkbox" :checked="project.expression?.enabled??true" @change="toggleExpression('enabled',$event)"/> Export dynamics and scale generated velocities</label><label>Dynamic at start of {{chosenSection}}<select :value="sectionDynamic()" @change="setSectionDynamic"><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label><input type="checkbox" :checked="project.expression?.crescendo??true" @change="toggleExpression('crescendo',$event)"/> Add section crescendos</label></div><div class="editor"><h3>Eight-bar articulation and measure overrides</h3><p class="muted">Default: approximately eight measures marcato/staccato alternating with lyrical legato (arco for bowed violin). Bandoneon legato describes connected phrasing, not bowing. Violin II and Bandoneon II switches are staggered for variation.</p><label><input type="checkbox" :checked="project.articulation?.enabled??true" @change="project.articulation??=defaultArticulation();project.articulation.enabled=($event.target as HTMLInputElement).checked"/> Generate articulation cycles</label><label>Measures per phase<input type="number" min="1" max="32" :value="project.articulation?.phraseBars??8" @change="project.articulation??=defaultArticulation();project.articulation.phraseBars=Math.max(1,Math.min(32,Number(($event.target as HTMLInputElement).value)||8))"/></label><label>Override measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}}</option></select></label><div class="role-list"><div v-for="inst in INSTRUMENTS.filter(i=>i.startsWith('Violin')||i.startsWith('Bandoneon'))" :key="inst" class="role-row"><span>{{inst}}</span><select :value="barArticulation(inst)" @change="setBarArticulation(inst,$event)"><option v-for="art in articulationModes" :key="art" :value="art">{{art.replaceAll('_',' ')}}</option></select><small class="hint">{{inferredArticulation(inst)}}</small></div></div><p class="hint">Press Generate orchestra after changing articulation. An explicit override takes precedence over the default cycle.</p></div><div class="editor"><h3>Tango gestures</h3><p class="muted">First experimental gesture: insert a two-note piano approach before beat 3 of the selected measure.</p><div class="two"><label>Target measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.chord}}</option></select></label><div class="align-bottom"><button class="secondary" @click="addArrastre">+ Simple arrastre lead-in</button></div></div><p class="hint">Profiles model selected accompaniment, accent and expression tendencies; these are configurable heuristics, not transcriptions of any specific recording.</p></div></section>
-<section v-else-if="active==='rhythm'" class="rhythm-editor-section">
+<section v-else-if="active==='arrange'"><div class="section-heading"><h2>Orchestration roles</h2><span>Phrase-level presets</span></div><div class="section-tabs"><button v-for="s in sections" :key="s" :class="{selected:chosenSection===s}" @click="chosenSection=s">{{s}}</button></div><div class="editor"><label>Key signature for {{chosenSection}}<select :value="keyForSection(chosenSection)" @change="setSectionKey(chosenSection,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label></div><div class="role-list"><div v-for="inst in INSTRUMENTS" :key="inst" class="role-row"><span>{{inst}}</span><select :value="project.roles[chosenSection]?.[inst]??'rest'" @change="setRole(inst,$event)"><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></div></div><p class="hint">When Violin I plays Melody and Violin II plays Harmony, Violin II automatically follows Violin I's actual notes with a lower chord-tone harmony. Protected Violin II measures remain unchanged.</p><div class="editor"><h3>Piano accompaniment figure</h3><p class="muted">For Piano with the Chords role, use a moving upper-staff figure and, for chord-inversion figures, an independent bass pulse. Variations alter inversions and register. These are arranging heuristics; use the Note Editor for individual counterlines and gestures.</p><div class="two"><label>Figure for {{chosenSection}}<select :value="pianoFigureForSection()" @change="setPianoFigure"><option v-for="kind in FIGURE_KINDS" :key="kind" :value="kind">{{figureLabels[kind]}}</option></select></label><div class="align-bottom"><button class="secondary" @click="nextPianoFigureVariation">Try next piano variation ({{(project.pianoFigureVariation?.[chosenSection]??0)+1}})</button></div></div></div><div class="editor"><h3>Violin chord accompaniment</h3><p class="muted">For the Chords role, tango staccato and pizzicato play exactly one chord tone per beat. Unaccented notes are extremely short; selected marcato beats are louder and longer. Choose marcato beats for each violin in this section (1-based, e.g. 1,3). Defaults depend on the style profile and can be overridden; these are arranging heuristics, not fixed composer rules. Arpeggio and pizzicato arpeggio play exactly four successive single notes across the entire measure (not four per beat). Select ascending, descending, or alternating direction below. Double stop, sustained and block remain optional techniques.</p><div class="role-list"><div v-for="inst in (['Violin I','Violin II'] as const)" :key="inst" class="role-row"><span>{{inst}}</span><select :value="violinSetting(inst)" @change="setViolinSetting(inst,$event)"><option v-for="tech in violinTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select><label class="hint">Arpeggio direction <select :value="violinArpeggioDirection(inst)" @change="setViolinArpeggioDirection(inst,$event)" :aria-label="`Arpeggio direction for ${inst}`"><option value="alternate">Alternate each measure</option><option value="up">Up</option><option value="down">Down</option></select></label><label class="hint">Marcato beats <input type="text" :value="violinMarcatoText(inst)" @change="setViolinMarcato(inst,$event)" placeholder="1,3" aria-label="Marcato beats for violin chord accompaniment"/></label></div></div></div><div class="editor"><h3>Bandoneon following</h3><p class="muted">Choose a source and how to follow it for this section. Following overrides the bandoneon's role when the source has notes.</p><div v-for="inst in (['Bandoneon I','Bandoneon II'] as const)" :key="inst" class="two"><label>{{inst}} follows<select :value="followSetting(inst).target" @change="setFollow(inst,'target',$event)"><option v-for="target in followTargets" :key="target" :value="target">{{target}}</option></select></label><label>Method<select :value="followSetting(inst).method" @change="setFollow(inst,'method',$event)"><option v-for="method in followMethods" :key="method" :value="method">{{method}}</option></select></label></div></div><div class="editor"><h3>Instrument difficulty and activity</h3><p class="muted">Activity is a deterministic target for measures containing musical material, not beats sounded. Explicit Rest roles remain silent. The level limits technical complexity without automatically making the part sparse.</p><div class="role-list"><div v-for="inst in INSTRUMENTS.filter(i=>i!=='Voice')" :key="inst" class="role-row"><span>{{inst}}</span><select :value="instrumentDifficulty(inst)" @change="setInstrumentDifficulty(inst,$event)"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select><label class="hint">Activity <input type="number" min="0" max="100" step="5" :value="instrumentTarget(inst)" @change="setInstrumentTarget(inst,$event)"/> %</label><label class="hint">Dynamics offset <input type="number" min="-25" max="25" step="5" :value="instrumentDynamicsOffset(inst)" @change="setInstrumentDynamicsOffset(inst,$event)"/></label></div></div></div><div class="editor"><h3>Dynamics and phrase expression</h3><label><input type="checkbox" :checked="project.melodyDucking?.enabled??true" @change="setDuckingEnabled"/> Lower accompanying parts while another part carries the melody (keep contrabass unchanged)</label><label>Accompaniment reduction (%)<input type="range" min="0" max="75" step="5" :value="project.melodyDucking?.reduction??22" @input="setDuckingReduction"/>{{project.melodyDucking?.reduction??22}}%</label><label><input type="checkbox" :checked="project.expression?.enabled??true" @change="toggleExpression('enabled',$event)"/> Export dynamics and scale generated velocities</label><label>Dynamic at start of {{chosenSection}}<select :value="sectionDynamic()" @change="setSectionDynamic"><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label><input type="checkbox" :checked="project.expression?.crescendo??true" @change="toggleExpression('crescendo',$event)"/> Add section crescendos</label></div><div class="editor"><h3>Eight-bar articulation and measure overrides</h3><p class="muted">Default: approximately eight measures marcato/staccato alternating with lyrical legato (arco for bowed violin). Bandoneon legato describes connected phrasing, not bowing. Violin II and Bandoneon II switches are staggered for variation.</p><label><input type="checkbox" :checked="project.articulation?.enabled??true" @change="project.articulation??=defaultArticulation();project.articulation.enabled=($event.target as HTMLInputElement).checked"/> Generate articulation cycles</label><label>Measures per phase<input type="number" min="1" max="32" :value="project.articulation?.phraseBars??8" @change="project.articulation??=defaultArticulation();project.articulation.phraseBars=Math.max(1,Math.min(32,Number(($event.target as HTMLInputElement).value)||8))"/></label><label>Override measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}}</option></select></label><div class="role-list"><div v-for="inst in INSTRUMENTS.filter(i=>i.startsWith('Violin')||i.startsWith('Bandoneon'))" :key="inst" class="role-row"><span>{{inst}}</span><select :value="barArticulation(inst)" @change="setBarArticulation(inst,$event)"><option v-for="art in articulationModes" :key="art" :value="art">{{art.replaceAll('_',' ')}}</option></select><small class="hint">{{inferredArticulation(inst)}}</small></div></div><p class="hint">Press Generate orchestra after changing articulation. An explicit override takes precedence over the default cycle.</p></div><div class="editor"><h3>Tango gestures</h3><p class="muted">First experimental gesture: insert a two-note piano approach before beat 3 of the selected measure.</p><div class="two"><label>Target measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.chord}}</option></select></label><div class="align-bottom"><button class="secondary" @click="addArrastre">+ Simple arrastre lead-in</button></div></div><p class="hint">Profiles model selected accompaniment, accent and expression tendencies; these are configurable heuristics, not transcriptions of any specific recording.</p></div></section>
+<section v-else-if="active==='rhythm'" ref="rhythmEditorRegion" class="rhythm-editor-section" tabindex="-1" @keydown="handleRhythmEditorKey">
   <div class="section-heading"><h2>Rhythm editor</h2><span>Pattern → instruments → measures</span></div>
   <p class="muted">Apply a rhythmic template to selected orchestra parts. Pitches and chord voicings are retained, including separate piano bass and treble registers. Rhythm edits are saved as protected note changes; the lead-sheet harmony is never modified.</p>
   <div class="rhythm-workspace">
     <div class="editor rhythm-primary">
       <h3>1 · Choose a rhythm</h3>
       <label>Rhythm preset<select v-model="rhythmPreset"><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
-      <p class="hint">{{rhythmPresetInfo.description}}</p>
-      <label>Preview instrument<select v-model="rhythmPreviewInstrument"><option v-for="inst in INSTRUMENTS" :key="inst" :value="inst">{{inst}}</option></select></label>
-      <div class="rhythm-beat-preview" role="img" :aria-label="`Rhythm preview: ${rhythmPresetInfo.label}`">
-        <div v-for="slot in rhythmPreview" :key="slot.beat" class="rhythm-beat" :class="{'rhythm-beat-accent':slot.accent}" :style="{left:`${100*slot.beat/project.beats}%`,width:`${100*slot.duration/project.beats}%`}">
-          <strong>{{slot.accent?'›':'•'}}</strong><small>{{Number((slot.beat+1).toFixed(2))}}</small>
-        </div>
+      <p class="hint">{{rhythmPresetInfo.description}} · Changing the preset or reference instrument reloads the grid; apply or finish your edits before switching.</p>
+      <label>Reference instrument<select v-model="rhythmPreviewInstrument"><option v-for="inst in INSTRUMENTS" :key="inst" :value="inst">{{inst}}</option></select></label>
+      <div class="rhythm-loop-controls" aria-label="Rhythm loop playback">
+        <button type="button" :class="rhythmLoopPlaying?'play':'primary'" @click="toggleRhythmLoop">{{rhythmLoopPlaying?'■ Stop rhythm loop':'▶ Loop edited rhythm'}}</button>
+        <label>Sound<select v-model="rhythmLoopSound"><option value="clicks">Rhythm clicks</option><option value="instrument">Selected instrument notes</option></select></label>
+        <label>Measure<input v-model.number="rhythmLoopMeasure" type="number" min="1" :max="project.bars.length"/></label>
+        <span class="hint" role="status">{{rhythmLoopPlaying?`Playing beat ${rhythmLoopBeat+1} of ${project.beats}`:'Stopped · edits can be heard on the next loop'}}</span>
       </div>
-      <p class="hint">Beat positions in {{project.beats}}/4 for {{rhythmPreviewInstrument}}; accented attacks are highlighted. For marcato en dos, piano bass and upper chord registers use complementary beats.</p>
+      <div class="editor live-capture" aria-label="Tap rhythm recording">
+  <div class="section-heading"><h3>Live tap recording · full arrangement</h3><span>Draft take · not saved until Apply</span></div>
+  <p class="hint">Loop one measure or a phrase with the entire orchestra. Tap along in real time; taps are quantized to the nearest sixteenth note. Each pass can replace or add attacks. Stop and refine the captured measure in the grid above.</p>
+  <div class="live-capture-controls">
+    <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
+    <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
+    <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Use selected measure</button>
+    <label>Tap latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label>
+    <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
+  </div>
+  <div class="live-capture-status" role="status">{{capturePlaying?`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`:'Stopped'}} · {{captureTaps.length}} taps in draft</div>
+  <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter on this pad</span></button>
+  <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button></div>
+  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`rhythm-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div></div>
+  <div class="live-capture-actions"><label>Edit captured measure<select v-model.number="captureEditBar"><option v-for="b in captureBarNumbers" :key="b" :value="b+1">{{b+1}}</option></select></label><button type="button" class="secondary" :disabled="!captureTaps.length" @click="loadCaptureBarToRhythm">Load into rhythm grid ↑</button><button type="button" class="secondary" @click="saveRhythmGridToCapture">Save edited grid to take</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedRhythm">Apply recorded take to selected instruments</button></div>
+  <p class="hint">The recorded take uses the instrument selection and protected-edit setting below. For a single measure, you can instead load its rhythm into the grid and use the normal Apply edited rhythm action. When recording a phrase, save each edited measure back to the take before applying.</p>
+  <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
+</div>
+      <div class="rhythm-ruler" :style="{'--rhythm-beats':project.beats}"><span v-for="beat in project.beats" :key="beat" :class="{'rhythm-current-beat':rhythmLoopPlaying&&rhythmLoopBeat===beat-1}">{{beat}}</span></div>
+      <div class="rhythm-track" role="group" aria-label="Editable rhythm attacks and durations">
+        <button v-for="beat in rhythmSteps" :key="beat" type="button" class="rhythm-step-cell" :class="{'rhythm-step-downbeat':Number.isInteger(beat)}" :title="`Add attack at beat ${beat+1}`" :aria-label="`Add rhythm attack at beat ${beat+1}`" @click="rhythmAddAt(beat)"></button>
+        <button v-for="(slot,i) in rhythmPreview" :key="`attack-${slot.beat}`" type="button" class="rhythm-event" :class="{'rhythm-event-accent':slot.accent,'rhythm-event-selected':rhythmSelected===i}" :style="{left:`${100*slot.beat/project.beats}%`,width:`${100*slot.duration/project.beats}%`}" :aria-label="`Attack at beat ${slot.beat+1}, duration ${slot.duration}, ${slot.accent?'accented':'unaccented'}`" @click="rhythmSelected=i">
+          <span>{{slot.accent?'›':'•'}} {{slot.duration}}</span>
+          <span class="rhythm-resize-handle" role="presentation" title="Drag to change written duration" @pointerdown="rhythmResizeDown($event,i)" @pointermove="rhythmResizeMove" @pointerup="rhythmResizeUp" @pointercancel="rhythmResizeUp" @click.stop>↔</span>
+        </button>
+      </div>
+      <p class="hint">Tap an empty sixteenth-note grid cell to add an attack. Select a bar to edit it; drag its right edge to resize. Gaps are rests. A preset is only the starting point.</p>
+      <p class="editor-shortcut-help"><strong>Keyboard:</strong> Delete / Backspace remove selected attack · ← → select attacks · + / − change duration · A toggle accent · S split · L loop · Esc deselect. Shortcuts pause while typing in fields.</p>
+      <div v-if="rhythmSelectedSlot" class="rhythm-event-properties">
+        <label>Attack beat<input type="number" min="1" :max="project.beats" step="0.25" :value="rhythmSelectedSlot.beat+1" @change="rhythmEdit({beat:Number(($event.target as HTMLInputElement).value)-1})"/></label>
+        <label>Written duration (beats)<input type="number" min="0.25" :max="project.beats-rhythmSelectedSlot.beat" step="0.25" :value="rhythmSelectedSlot.duration" @change="rhythmEdit({duration:Number(($event.target as HTMLInputElement).value)})"/></label>
+        <label>Accent<select :value="rhythmSelectedSlot.accent?'accent':'normal'" @change="rhythmEdit({accent:($event.target as HTMLSelectElement).value==='accent'})"><option value="accent">Accented</option><option value="normal">Normal</option></select></label>
+        <div class="rhythm-step-actions"><button class="secondary" type="button" @click="rhythmDurationStep(-1)">− ¼ beat</button><button class="secondary" type="button" @click="rhythmDurationStep(1)">+ ¼ beat</button><button class="secondary" type="button" @click="rhythmSplit">Split attack</button><button class="secondary" type="button" @click="rhythmDelete">Delete attack</button></div>
+      </div>
+      <div class="rhythm-step-actions"><button type="button" class="secondary" @click="loadRhythmPreset">↻ Reload preset</button><button type="button" class="secondary" @click="rhythmPattern=[];rhythmSelected=-1">Clear grid</button></div>
       <label>What to apply<select v-model="rhythmMode"><option value="rhythm">Rhythm, written durations and accents</option><option value="accents">Accents and articulation only (keep timing)</option></select></label>
     </div>
     <div class="editor rhythm-secondary">
@@ -991,18 +1503,39 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div v-if="rhythmScope==='range'" class="two"><label>First measure<input type="number" min="1" :max="project.bars.length" v-model.number="rhythmStart"/></label><label>Last measure<input type="number" min="1" :max="project.bars.length" v-model.number="rhythmEnd"/></label></div>
       <p class="hint">{{rhythmTargets.length}} instruments × {{rhythmMeasures.length}} measures. {{rhythmProtectedCount}} already protected.</p>
       <label class="rhythm-overwrite"><input type="checkbox" v-model="rhythmOverwrite"/> Overwrite protected manual edits (confirmation required)</label>
-      <button type="button" class="primary rhythm-apply" @click="applyRhythmSelection">Apply rhythm to selected parts</button>
+      <button type="button" class="primary rhythm-apply" @click="applyRhythmSelection">Apply edited rhythm to selected parts</button>
       <p v-if="rhythmFeedback" class="rhythm-feedback" role="status">{{rhythmFeedback}}</p>
     </div>
   </div>
-  <p class="hint">Silent measures are skipped rather than filled with invented notes. Melody and voice parts can be included explicitly, with a warning. Changes are retained through regeneration and included in MusicXML and .tango backups. The templates are configurable rhythmic heuristics, not historical transcriptions.</p>
+  <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango backups. Presets are starting-point heuristics, not transcriptions.</p>
 </section>
 <section v-else-if="active==='score'"><div class="section-heading"><h2>Generated score review</h2><span>{{scoreStats(score)}} notes · {{INSTRUMENTS.length}} parts</span></div><p class="muted">Review instrument-measures, protect edits imported from MuseScore, and regenerate selectively. Double-click any instrument’s note list to edit that instrument and measure. This is a note-event overview, not an engraved staff score.</p><div class="two"><label>Measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}} · {{b.chord}}</option></select></label><div class="align-bottom"><button class="secondary" @click="exportXml">Export score to MuseScore ↗</button></div></div><div class="score-rows"><div v-for="entry in currentNotes" :key="entry.inst" class="score-row"><div class="score-name"><strong>{{entry.inst}}</strong><button class="secondary score-edit-link" @click="openNoteEditor(entry.inst,selectedBar)">Edit notes</button><small class="muted">{{activitySummary(entry.inst)}}% measures active</small><label class="protect"><input type="checkbox" :checked="!!project.protectedBars[`${entry.inst}:${selectedBar}`]" @change="setProtected(entry.inst,selectedBar,($event.target as HTMLInputElement).checked)"/> Protect</label></div><div class="notes score-notes-shortcut" :title="`Double-click to edit ${entry.inst} notes in measure ${selectedBar+1}`" @dblclick="openNoteEditor(entry.inst,selectedBar)"><span v-for="(n,i) in entry.notes" :key="i" class="note-chip">{{midiName(n.pitch+(project.transposeSemitones??0))}} <small>{{n.duration}} beat</small></span><span v-if="!entry.notes.length" class="muted">Rest</span></div></div></div></section>
 
 <section v-else ref="noteEditorRegion" class="note-editor-section" tabindex="-1" @keydown="handleNoteEditorKey">
   <div class="section-heading"><h2>Instrument note editor</h2><span>Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span></div>
-  <div class="note-editor-navigation" aria-label="Note editor navigation"><button type="button" class="secondary" @click="returnToMap">← Back to map</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous measure</button><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next measure →</button><span class="hint">Keyboard: [ previous · ] next · L loop · Esc map (outside text fields)</span></div>
+  <div class="note-editor-navigation" aria-label="Note editor navigation"><button type="button" class="secondary" @click="returnToMap">← Back to map</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous measure</button><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next measure →</button><span class="editor-shortcut-help">Keyboard: Delete / Backspace remove note · ← → select notes · ↑ ↓ pitch ± semitone · + / − duration ± ¼ beat · [ ] measures · L loop · Esc map. Text fields keep normal typing.</span></div>
   <div class="note-loop-controls" aria-label="Measure playback"><button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop measure loop':'▶ Loop this instrument measure'}}</button><span class="hint" role="status" aria-live="polite">{{noteLoopPlaying?`Looping ${noteInst}, measure ${selectedBar+1} · beat ${noteLoopBeat<0?'…':noteLoopBeat+1}`:'Stopped · plays only the selected instrument and measure'}}</span></div>
+  <div class="editor live-capture" aria-label="Tap melody recording">
+  <div class="section-heading"><h3>Live melody and rhythm input</h3><span>Full orchestra loop · draft take</span></div>
+  <p class="hint">Loop a measure or phrase and tap the pitch keys below at the right moment. Each key tap records both pitch and rhythmic onset, quantized to a sixteenth note. Alternatively, select a pitch and tap the large rhythm pad. Nothing replaces the existing notes until you press Apply captured notes.</p>
+  <div class="live-capture-controls">
+    <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
+    <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
+    <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Current measure</button>
+    <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label>
+    <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
+  </div>
+  <div class="live-capture-status" role="status">{{capturePlaying?`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`:'Stopped'}} · {{captureTaps.length}} pitched taps</div>
+  <div class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in captureKeyboardPitches" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
+  <p class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
+  <div class="capture-piano" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
+  <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{noteInst}}</button></div>
+  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in melodyFromTaps(captureTaps,b,project.beats)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</span><em v-if="!melodyFromTaps(captureTaps,b,project.beats).length">No taps</em></div></div>
+  <p class="hint">The captured durations are initial guesses (up to one beat, shortened before the next attack). After applying, use the Note Editor's duration controls and note bars to refine them. Only measures containing recorded notes are replaced; the lead-sheet melody is not modified.</p>
+  <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
+</div>
   <p class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
     <div class="note-editor-controls">

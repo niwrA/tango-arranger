@@ -1,0 +1,33 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const cp=require('node:child_process');
+const root=path.resolve(__dirname,'..');
+const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tango-keyboard-'));
+let count=0;
+const check=(name,fn)=>{fn();count++;console.log('PASS '+name);};
+try{
+ const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/melodyKeyboard.ts')],{encoding:'utf8'});
+ assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+ const {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch}=require(path.join(tmp,'melodyKeyboard.js'));
+ check('Available pitches include both instrument endpoints',()=>assert.deepEqual(keyboardPitchOptions([55,57]),[55,56,57]));
+ check('Start/end range includes both endpoints across octaves',()=>assert.deepEqual(keyboardPitches(55,74,[48,88]),Array.from({length:20},(_,i)=>55+i)));
+ check('Single note range is valid',()=>assert.deepEqual(keyboardPitches(64,64,[48,88]),[64]));
+ check('Range is clipped to instrument',()=>assert.deepEqual(keyboardPitches(40,100,[48,88]),Array.from({length:41},(_,i)=>48+i)));
+ check('Moving start past end moves end to start',()=>assert.deepEqual(changeKeyboardBoundary('start',80,75,[55,96]),{start:80,end:80}));
+ check('Moving end below start moves start to end',()=>assert.deepEqual(changeKeyboardBoundary('end',80,72,[55,96]),{start:72,end:72}));
+ check('Start and end selections clamp to register',()=>assert.deepEqual(changeKeyboardBoundary('end',65,120,[55,96]),{start:65,end:96}));
+ check('Default keyboard covers selected note in its octave',()=>assert.deepEqual(defaultKeyboardRange(74,[55,96]),{start:72,end:83}));
+ check('Default keyboard trims low instrument boundary',()=>assert.deepEqual(defaultKeyboardRange(55,[55,96]),{start:55,end:59}));
+ check('Selected pitch is clamped after boundary edit',()=>assert.equal(clampKeyboardPitch(72,{start:76,end:88}),76));
+ check('Pitch options for contrabass span entire register',()=>assert.equal(keyboardPitchOptions([28,55]).length,28));
+ const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
+ const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+ check('Both note boundaries are editable',()=>{assert.match(app,/Start note<select v-model.number="captureStartPitch"/);assert.match(app,/End note<select v-model.number="captureEndPitch"/);});
+ check('Changing a boundary updates the selected tap pitch',()=>{assert.match(app,/capturePitch.value=clampKeyboardPitch\(capturePitch.value,next\)/);});
+ check('Live keyboard and selected pitch use same range',()=>{assert.match(app,/v-for="pitch in captureKeyboardPitches"/);assert.match(app,/captureKeyboardPitches=computed/);});
+ check('Wide keyboards scroll horizontally',()=>{assert.match(css,/\.capture-piano\{[^}]*overflow-x:auto/);assert.match(css,/\.capture-piano-key\{flex:0 0 44px/);});
+ check('Captured taps are not discarded on range change',()=>{const f=app.slice(app.indexOf('function changeCaptureKeyboardStart'),app.indexOf('function captureBarRhythm'));assert.doesNotMatch(f,/captureTaps.value\s*=/);});
+ console.log(`Melody keyboard: ${count} checks passed.`);
+}finally{fs.rmSync(tmp,{recursive:true,force:true});}

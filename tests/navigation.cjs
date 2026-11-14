@@ -9,9 +9,11 @@ function test(name,fn){fn();tests++;console.log('PASS',name);}
 test('map cell single click selects; double click and Enter open the exact instrument-measure',()=>{
   const cell=src.match(/<button type="button" :class="\['song-cell'[\s\S]*?<\/button>/)?.[0];
   assert.ok(cell,'song map cell button not found');
-  assert.match(cell,/@click="focusOverview\(inst,i\)"/);
-  assert.match(cell,/@dblclick\.stop="openMapCellNotes\(inst,i\)"/);
-  assert.match(cell,/@keydown\.enter\.stop\.prevent="openMapCellNotes\(inst,i\)"/);
+  assert.match(cell,/@click="selectOverviewMapCell\(inst,i,\$event\)"/);
+  assert.match(cell,/@dblclick\.stop="onMapCellDoubleClick\(inst,i,\$event\)"/);
+  assert.match(cell,/@keydown\.enter\.stop\.prevent="onMapCellEnter\(inst,i,\$event\)"/);
+  assert.match(src,/if\(!event\.shiftKey\)openMapCellNotes\(inst,i\)/);
+  assert.match(src,/else openMapCellNotes\(inst,i\)/);
   assert.match(src,/function openMapCellNotes\(inst:Instrument,i:number\)\{focusOverview\(inst,i\);openNoteEditor\(inst,i\);\}/);
   assert.match(cell,/:aria-label="`\$\{inst\}, measure \$\{i\+1\}/);
 });
@@ -24,13 +26,13 @@ test('note editor can return to same instrument and measure in map',()=>{
 test('note editor has previous and next measure actions with safe boundaries',()=>{
   assert.match(src,/:disabled="selectedBar<=0" @click="openNoteEditor\(noteInst,selectedBar-1\)"/);
   assert.match(src,/:disabled="selectedBar>=project\.bars\.length-1" @click="openNoteEditor\(noteInst,selectedBar\+1\)"/);
-  assert.match(src,/event\.key==='\['&&selectedBar\.value>0/);
-  assert.match(src,/event\.key==='\]'&&selectedBar\.value<project\.value\.bars\.length-1/);
+  assert.match(src,/action==='previousMeasure'&&selectedBar\.value>0/);
+  assert.match(src,/action==='nextMeasure'&&selectedBar\.value<project\.value\.bars\.length-1/);
 });
 test('note-editor shortcuts ignore text fields and modifier keys',()=>{
-  assert.match(src,/if\(event\.altKey\|\|event\.ctrlKey\|\|event\.metaKey\|\|event\.shiftKey\|\|event\.defaultPrevented\)return/);
-  assert.match(src,/target\?\.closest\('input,textarea,select,\[contenteditable="true"\]'\)/);
-  assert.match(src,/if\(event\.key==='Escape'\)\{event\.preventDefault\(\);returnToMap\(\)/);
+  assert.match(src,/altKey:event\.altKey,ctrlKey:event\.ctrlKey,metaKey:event\.metaKey,shiftKey:event\.shiftKey/);
+  assert.match(src,/target\?\.closest\('input,textarea,select,\[contenteditable\]'\)/);
+  assert.match(src,/if\(action==='escape'\)\{/);
   assert.match(src,/ref="noteEditorRegion" class="note-editor-section" tabindex="-1" @keydown="handleNoteEditorKey"/);
 });
 test('score note list double click and lead-sheet melody double click are wired',()=>{
@@ -65,7 +67,17 @@ test('note-editor shortcuts respect boundaries, modifiers and text-entry focus',
   assert.ok(code);
   const compiled=ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   const actions=[],selectedBar={value:3},noteInst={value:'Violin II'},project={value:{bars:Array(5).fill({})}};
-  const handler=vm.runInNewContext(`${compiled};handleNoteEditorKey`,{selectedBar,noteInst,project,returnToMap:()=>actions.push('map'),openNoteEditor:(inst,i)=>actions.push([inst,i])});
+  const {resolveEditorShortcut}=(()=>{
+    const source=fs.readFileSync(path.join(root,'src/editorShortcuts.ts'),'utf8');
+    const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+    const exports={};vm.runInNewContext(compiled,{exports});return exports;
+  })();
+  const handler=vm.runInNewContext(`${compiled};handleNoteEditorKey`,{
+    selectedBar,noteInst,project,
+    editorKeyAction:(event,kind)=>resolveEditorShortcut(kind,event.key,{altKey:event.altKey,ctrlKey:event.ctrlKey,metaKey:event.metaKey,shiftKey:event.shiftKey,editable:!!event.target?.closest?.('input,textarea,select,[contenteditable]')}),
+    pendingKeyChange:{value:null},newSongOpen:{value:false},noteDetailsPopup:{value:false},
+    returnToMap:()=>actions.push('map'),openNoteEditor:(inst,i)=>actions.push([inst,i])
+  });
   const ev=(key,extra={})=>({key,altKey:false,ctrlKey:false,metaKey:false,shiftKey:false,defaultPrevented:false,target:{closest:()=>null},preventDefault(){this.prevented=true;},...extra});
   let e=ev('[');handler(e);assert.equal(e.prevented,true);assert.deepEqual(actions.pop(),['Violin II',2]);
   e=ev(']');handler(e);assert.deepEqual(actions.pop(),['Violin II',4]);
