@@ -29,7 +29,7 @@
 .new-song-error{color:#ffb4aa;font-size:13px}
 
 /* v1.2: guided instrument note editor */
-.note-editor-section{min-width:0}.note-editor-panel{margin-top:16px}.note-editor-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.note-editor-controls label{margin-bottom:5px}.note-context{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.note-context span{padding:7px 9px;border-radius:7px;background:#263542;font-size:12px;color:#d0dbe4}.note-context strong{color:#e7c38e}.note-context .manual-status{background:#5a4530;color:#ffdb9c}.note-editor-actions{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}.note-grid-scroll{overflow:auto;border:1px solid #445260;border-radius:9px;max-width:100%}.note-grid{border-collapse:collapse;width:max-content;min-width:100%;table-layout:fixed}.note-grid th,.note-grid td{border-right:1px solid #303d4b;border-bottom:1px solid #303d4b;padding:0}.note-grid thead th{background:#263642;font-size:11px;height:48px;min-width:42px}.note-grid thead th small{display:block;font-size:9px;color:#c9ae85;max-width:56px;overflow:hidden}.note-grid .note-pitch-label{position:sticky;left:0;z-index:2;min-width:72px;width:72px;background:#253440;color:#d8e1e9;font-size:11px;text-align:right;padding:0 9px}.note-grid .note-downbeat{border-left:2px solid #647a88}.note-grid-cell{width:100%;min-width:42px;height:28px;border:0;border-radius:0;padding:0;font-size:17px;font-weight:bold}.note-grid-cell.note-tone-chord{background:#415e4f}.note-grid-cell.note-tone-key{background:#334a60}.note-grid-cell.note-tone-chromatic{background:#303740}.note-grid-cell.has-note{background:#d0a66b;color:#15212b}.note-grid-cell:disabled{opacity:.28;cursor:not-allowed}.note-grid-cell:focus-visible{outline:2px solid #fff;outline-offset:-2px}.note-key-legend{display:inline-block;padding:1px 6px;border-radius:4px;margin-right:5px}.note-key-legend.chord{background:#415e4f}.note-key-legend.key{background:#334a60}.note-key-legend.chromatic{background:#303740}.note-event-list{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 18px}.note-event-button{font-size:12px;padding:8px}.note-event-button.selected{background:#d0a66b;color:#15212b}.note-properties{border-top:1px solid #43505b;padding-top:15px}.score-edit-link{font-size:11px;padding:5px 7px;display:block;margin:7px 0}
+.note-editor-section{min-width:0}.note-editor-panel{margin-top:16px}.note-editor-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.note-editor-controls label{margin-bottom:5px}.note-context{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.note-context span{padding:7px 9px;border-radius:7px;background:#263542;font-size:12px;color:#d0dbe4}.note-context strong{color:#e7c38e}.note-context .manual-status{background:#5a4530;color:#ffdb9c}.note-editor-actions{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}.note-grid-scroll{overflow:auto;border:1px solid #445260;border-radius:9px;max-width:100%}.note-grid{border-collapse:collapse;width:max-content;min-width:100%;table-layout:fixed}.note-grid th,.note-grid td{border-right:1px solid #303d4b;border-bottom:1px solid #303d4b;padding:0}.note-grid thead th{background:#263642;font-size:11px;height:48px;min-width:42px}.note-grid thead th small{display:block;font-size:9px;color:#c9ae85;max-width:56px;overflow:hidden}.note-grid .note-pitch-label{position:sticky;left:0;z-index:2;min-width:72px;width:72px;background:#253440;color:#d8e1e9;font-size:11px;text-align:right;padding:0 9px}.note-grid .note-downbeat{border-left:2px solid #647a88}.note-grid-cell{width:100%;min-width:42px;height:28px;border:0;border-radius:0;padding:0;font-size:17px;font-weight:bold}.note-grid-cell.note-tone-chord{background:#415e4f}.note-grid-cell.note-tone-key{background:#334a60}.note-grid-cell.note-tone-chromatic{background:#303740}.note-grid-cell:disabled{opacity:.28;cursor:not-allowed}.note-grid-cell:focus-visible{outline:2px solid #fff;outline-offset:-2px}.note-key-legend{display:inline-block;padding:1px 6px;border-radius:4px;margin-right:5px}.note-key-legend.chord{background:#415e4f}.note-key-legend.key{background:#334a60}.note-key-legend.chromatic{background:#303740}.note-event-list{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 18px}.note-event-button{font-size:12px;padding:8px}.note-event-button.selected{background:#d0a66b;color:#15212b}.note-properties{border-top:1px solid #43505b;padding-top:15px}.score-edit-link{font-size:11px;padding:5px 7px;display:block;margin:7px 0}
 
 
 /* v1.3: lead sheet is a section-aware harmony map, not a distant chord dialog. */
@@ -97,7 +97,7 @@
 .note-grid-cell{cursor:pointer;transition:filter .12s ease,box-shadow .12s ease}
 .note-grid-cell:hover{filter:brightness(1.32);box-shadow:inset 0 0 0 2px #b9c9d5}
 .note-grid-cell.note-tone-chromatic{background:#39414b}
-.note-grid-cell.has-note{background:#d0a66b;color:#15212b}
+
 
 /* Live, single-instrument measure loop in the note editor. */
 .note-loop-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;padding:12px;border:1px solid #485966;border-radius:9px;background:#25343e}
@@ -194,8 +194,6 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .compact-help .editor{margin-top:12px;padding:14px}
 .page-title-actions{display:flex;gap:8px;flex-wrap:wrap}
 .advanced-tools{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.note-grid-cell.has-note{position:relative;touch-action:none;user-select:none;cursor:ns-resize}
-.note-grid-cell.has-note::after{content:'';position:absolute;right:0;top:0;bottom:0;width:12px;background:#ffe1aa55;border-left:2px solid #302419;cursor:ew-resize}
 .note-properties input[type=range]{width:100%;accent-color:#d0a66b;margin:10px 0;min-height:26px}
 .note-properties-backdrop{position:fixed;inset:0;background:#000b;z-index:80}
 .note-properties-popup{position:fixed;z-index:81;inset:auto 3vw 4vh;max-width:880px;max-height:85vh;overflow:auto;margin:auto;padding:20px;background:#1a232c;border:1px solid #d0a66b;border-radius:14px;box-shadow:0 20px 70px #000c}
@@ -203,10 +201,31 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 @media(max-width:600px){.transport-bar{border-radius:0 0 10px 10px}.help-toggle{flex:1 1 100%}.note-properties-popup{inset:auto 0 0;max-height:88vh;border-radius:16px 16px 0 0}.page-title-actions{width:100%}.page-title-actions button{flex:1}}
 
 /* v2.8: large touch resize affordance, visible note length, explicit numeric controls. */
-.note-grid-cell.has-note{overflow:visible;z-index:1;touch-action:none;position:relative;isolation:isolate}
-.note-grid-cell.has-note::after{display:none}
-.note-length-preview{position:absolute;left:0;top:4px;bottom:4px;background:#d0a66b;border:1px solid #ffe1aa;border-radius:5px;pointer-events:none;z-index:0}
 .note-resize-handle{position:absolute;right:0;top:0;height:100%;width:22px;display:flex;align-items:center;justify-content:center;background:#f5d29d;color:#342314;font-size:16px;z-index:1;border-left:2px solid #74542c;touch-action:none}
 .note-duration-controls{display:flex;align-items:stretch;gap:6px}
 .note-duration-controls input{min-width:0;flex:1}
 .note-duration-controls button{min-width:44px;min-height:44px;font-size:22px;touch-action:manipulation}
+
+/* About page and accessible clickable brand */
+.brand-link{border:0;background:transparent;padding:0;text-align:left;color:inherit;cursor:pointer;border-radius:8px}.brand-link:hover{filter:none;color:#e7c38e}.brand-link:focus-visible{outline:2px solid #e7c38e;outline-offset:5px}.brand-label{display:block}.brand-label strong{display:block}.about-page{max-width:1100px;margin:0 auto}.about-page .section-heading{gap:16px;flex-wrap:wrap}.about-page h1{font-size:clamp(24px,3vw,36px)}.about-intro{font-size:17px;line-height:1.7;color:#c4cdd6;max-width:850px}.about-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.about-grid .editor{margin-top:0;display:flex;flex-direction:column;align-items:flex-start}.about-grid .editor p{flex:1;line-height:1.65;color:#b7c3cc}.about-releases{margin-top:22px}.release-entry{padding:14px 0;border-top:1px solid #35414c}.release-entry h3{margin:0 0 7px;font-size:16px}.release-entry p{margin:0;line-height:1.6;color:#b7c3cc}@media(max-width:700px){.about-grid{grid-template-columns:1fr}.about-page .section-heading button{width:100%}}
+
+/* v3.1: true piano-roll note bars spanning their full written duration. */
+.note-grid{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;min-width:calc(72px + var(--grid-steps) * 44px)}
+.note-grid .note-pitch-label{width:72px;min-width:72px}
+.note-grid thead th:not(.note-pitch-label){width:44px;min-width:44px}
+.note-time-lane{padding:0!important;position:relative;overflow:visible}
+.note-lane-grid{display:grid;grid-template-columns:repeat(var(--grid-steps),minmax(0,1fr));position:relative;height:28px;width:100%;isolation:isolate}
+.note-lane-grid .note-grid-cell{min-width:0;width:100%;height:28px;touch-action:manipulation;cursor:crosshair;border-right:1px solid #303d4b;border-bottom:1px solid #303d4b}
+.note-lane-grid .note-grid-cell.note-downbeat{border-left:2px solid #647a88}
+.note-lane-grid .note-grid-cell.note-loop-playhead{box-shadow:inset 2px 0 #f0c77d,inset -2px 0 #f0c77d}
+.note-bar{position:absolute;top:2px;height:24px;min-width:0;padding:0 23px 0 4px;border:1px solid #ffe1aa;border-radius:5px;background:#d0a66b;color:#15212b;z-index:3;overflow:visible;touch-action:none;user-select:none;cursor:ns-resize;text-align:left;white-space:nowrap;box-sizing:border-box}
+.note-bar.selected{background:#f0c47b;border:2px solid #fff3cf;z-index:5}
+.note-bar-label{font-size:11px;line-height:18px;font-weight:700;pointer-events:none;overflow:hidden;display:block;text-overflow:clip}
+.note-bar-unit{font-weight:400}
+.note-bar .note-resize-handle{right:0;top:0;width:22px;height:100%;border-radius:0 4px 4px 0;cursor:ew-resize}
+.note-bar:focus-visible{outline:2px solid white;outline-offset:1px}
+.note-duration-field{display:flex;flex-direction:column;gap:6px;min-width:180px}
+.note-duration-field label{font-size:13px;font-weight:600}
+.note-duration-field .note-duration-slider{width:100%;accent-color:#d0a66b;min-height:32px}
+.note-duration-field .note-duration-controls input{width:80px;min-width:55px}
+@media(max-width:600px){.note-bar .note-resize-handle{width:24px}.note-bar{padding-right:25px}.note-duration-field{grid-column:1/-1}}

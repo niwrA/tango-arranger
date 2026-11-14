@@ -221,3 +221,10 @@ Touch note resize now uses pointer capture, a larger resize handle, visible note
 - Optional note-level subito mark; MusicXML exports the immediate dynamic.
 - Automatic accompaniment ducking while another part has the melody; contrabass is exempt, with configurable reduction.
 - Playback applies the measure dynamic envelope and accompaniment reduction at note onset; soundfont/realistic dynamics and MuseScore playback still require verification.
+
+
+## v3.0.0 About and release notes
+The clickable Tango Arranger header opens an in-app About page explaining the workflow and summarizing recent releases. The About & releases tab also provides access. The page is responsive and includes shortcuts to the main editing areas.
+
+## v3.1.0 — Correct note duration rendering and editing
+Render every note as a continuous horizontal piano-roll bar whose width represents its **written duration**, including off-grid onsets. Resize at the bar's real right edge, not at the onset grid cell. Keep touch pointer capture stable during rerender and pitch movement. Expose immediate duration editing with numeric, slider and +/- controls. Clamp at measure boundaries and preserve manual edits through generation, playback and MusicXML. Automated domain tests verify persistence; physical touch and browser acceptance remain outstanding.

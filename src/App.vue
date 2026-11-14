@@ -10,6 +10,7 @@ import {download,exportMusicXml,validateMusicXmlDurations,saveProject,loadProjec
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
 import {measureLoopEvents} from './measureLoop';
 import {playExpressiveEvent} from './expressiveAudio';
+import {clampWrittenDuration,dragWrittenDuration} from './noteEditing';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -108,7 +109,7 @@ const compactHelp=ref(localStorage.getItem('tango-compact-help')==='true');
 watch(compactHelp,value=>localStorage.setItem('tango-compact-help',String(value)));
 const advancedToolsOpen=ref(false);
 const noteDetailsPopup=ref(false);
-const mobileSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const active=ref<'overview'|'structure'|'lead'|'arrange'|'score'|'notes'>('overview');const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'>('melody');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const playing=ref(false);const score=computed(()=>project.value.generatedScore??generate(project.value));const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
+const mobileSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const active=ref<'overview'|'structure'|'lead'|'arrange'|'score'|'notes'|'about'>('overview');const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'>('melody');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const playing=ref(false);const score=computed(()=>project.value.generatedScore??generate(project.value));const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 watch(project,scheduleAutosave,{deep:true});
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
 onMounted(()=>{void initializeLocalLibrary();document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
@@ -596,14 +597,22 @@ const noteSelected=ref(-1);
 type NoteDrag={index:number;mode:'resize'|'pitch';pointerId:number;startX:number;startY:number;startPitch:number;startDuration:number;cellWidth:number;moved:boolean;longPress:ReturnType<typeof setTimeout>|null};
 let noteDrag:NoteDrag|null=null;
 let suppressNoteClick=false;
+/** The overlay spans the actual note, so its right-hand handle is the real note end.
+ * Capture on the stable grid scroller, not the note itself: pitch changes can move
+ * a note to a different row while the finger is still down.
+ */
 function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
   const index=noteAt(pitch,beat);if(index<0||!event.isPrimary||event.button!==0)return;
-  const target=event.currentTarget as HTMLElement;const rect=target.getBoundingClientRect();
-  // A separate 22px touch target avoids requiring pixel-perfect edge presses.
+  const target=event.currentTarget as HTMLElement;
+  const grid=target.closest<HTMLElement>('.note-lane-grid');
+  const scroller=target.closest<HTMLElement>('.note-grid-scroll');
+  if(!grid||!scroller)return;
+  const rect=target.getBoundingClientRect();
   const mode=(event.target as HTMLElement).closest('.note-resize-handle')||event.clientX>=rect.right-22?'resize':'pitch';
   const note=noteMeasure.value[index];noteSelected.value=index;
-  noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startPitch:note.pitch,startDuration:note.duration,cellWidth:rect.width,moved:false,longPress:null};
-  target.setPointerCapture(event.pointerId);
+  const cellWidth=grid.getBoundingClientRect().width/noteBeats.value.length;
+  noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startPitch:note.pitch,startDuration:note.duration,cellWidth,moved:false,longPress:null};
+  scroller.setPointerCapture(event.pointerId);
   noteDrag.longPress=setTimeout(()=>{if(noteDrag&&!noteDrag.moved){noteDetailsPopup.value=true;suppressNoteClick=true;}},600);
 }
 function moveNoteDrag(event:PointerEvent){
@@ -612,15 +621,18 @@ function moveNoteDrag(event:PointerEvent){
   drag.moved=true;if(drag.longPress){clearTimeout(drag.longPress);drag.longPress=null;}
   const note=noteMeasure.value[drag.index];if(!note)return;
   if(drag.mode==='resize'){
-    const delta=Math.round((event.clientX-drag.startX)/Math.max(1,drag.cellWidth)/noteStep.value)*noteStep.value;
     const localStart=note.start-selectedBar.value*project.value.beats;
-    const duration=Math.max(0.25,Math.min(project.value.beats-localStart,Number((drag.startDuration+delta).toFixed(3))));
+    const duration=dragWrittenDuration(drag.startDuration,event.clientX-drag.startX,drag.cellWidth,noteStep.value,localStart,project.value.beats);
     if(Math.abs(duration-note.duration)>0.0001)updateSelectedNote('duration',String(duration));
   }else{
     const target=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLElement>('[data-note-pitch]');
     const next=target?Number(target.dataset.notePitch):drag.startPitch-Math.round((event.clientY-drag.startY)/28);
     const [lo,hi]=noteCtx.value.range;const pitch=Math.max(lo,Math.min(hi,next));
-    if(Number.isInteger(pitch)&&pitch!==note.pitch)updateSelectedNote('pitch',String(pitch));
+    if(Number.isInteger(pitch)&&pitch!==note.pitch){
+      updateSelectedNote('pitch',String(pitch));
+      // The sorted note list may reorder when pitch changes.
+      drag.index=noteSelected.value;
+    }
   }
 }
 function endNoteDrag(event:PointerEvent){
@@ -628,21 +640,27 @@ function endNoteDrag(event:PointerEvent){
   if(noteDrag.longPress)clearTimeout(noteDrag.longPress);
   if(noteDrag.moved)suppressNoteClick=true;
   noteDrag=null;
-}
-function noteAtDuration(pitch:number,beat:number):number|undefined{
-  const n=noteMeasure.value.find(n=>n.pitch===pitch&&Math.abs(n.start-selectedBar.value*project.value.beats-beat)<0.00001);
-  return n?.duration;
+  // Click events generated by the completed drag arrive before this timeout.
+  setTimeout(()=>{suppressNoteClick=false;},0);
 }
 function changeNoteDuration(delta:number){
   if(!selectedEvent.value)return;
   const localStart=selectedEvent.value.start-selectedBar.value*project.value.beats;
-  const next=Math.max(0.25,Math.min(project.value.beats-localStart,Math.round((selectedEvent.value.duration+delta)*4)/4));
+  const next=clampWrittenDuration(localStart,Math.round((selectedEvent.value.duration+delta)*4)/4,project.value.beats);
+  if(Math.abs(next-selectedEvent.value.duration)<0.0001){
+    message.value=delta>0?'This note already reaches the end of the measure.':'Minimum written duration is 0.25 beats.';
+    return;
+  }
   updateSelectedNote('duration',String(next));
 }
 function noteCellClick(pitch:number,beat:number){
   if(suppressNoteClick){suppressNoteClick=false;return;}
-  const index=noteAt(pitch,beat);if(index>=0){noteSelected.value=index;return;}
   toggleNote(pitch,beat);
+}
+function noteBarClick(pitch:number,beat:number){
+  if(suppressNoteClick){suppressNoteClick=false;return;}
+  const index=noteAt(pitch,beat);
+  if(index>=0)noteSelected.value=index;
 }
 
 const noteCtx=computed(()=>noteEditorContext(project.value,noteInst.value,selectedBar.value));
@@ -674,6 +692,7 @@ function shiftPianoRegister(staff:'treble'|'bass',semitones:number){
   else pianoBassCenter.value=Math.max(lo+8,Math.min(Math.min(hi,pianoSplit.value-1)-8,pianoBassCenter.value+semitones));
 }
 const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
+const selectedDurationMax=computed(()=>selectedEvent.value?Number((project.value.beats-(selectedEvent.value.start-selectedBar.value*project.value.beats)).toFixed(3)):project.value.beats);
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
   stopNoteLoop();
   const arrivingFromAnotherView=active.value!=='notes';
@@ -730,7 +749,13 @@ function updateSelectedNote(field:'pitch'|'start'|'duration'|'velocity'|'articul
   let value:number|string=raw;
   if(['pitch','start','duration','velocity','gate','slideTo','swellTo'].includes(field)&&raw!=='inherit')value=Number(raw);
   if(field==='gate')value=(value as number)/100;
-  if(field==='duration'&&(!Number.isFinite(value)||Number(value)<0.25)){message.value='Duration must be at least 0.25 beats';return;}
+  if(field==='duration'){
+    if(!Number.isFinite(value)||Number(value)<0.25){message.value='Duration must be at least 0.25 beats';return;}
+    const localStart=old.start-selectedBar.value*project.value.beats;
+    const limited=clampWrittenDuration(localStart,Number(value),project.value.beats);
+    if(limited!==value)message.value=`Duration limited to ${limited} beats: the note must end within this measure.`;
+    value=limited;
+  }
   if(field==='start')value=selectedBar.value*project.value.beats+(value as number);
   const next={...old,[field]:value};
   if(field==='articulation'){
@@ -747,6 +772,7 @@ function updateSelectedNote(field:'pitch'|'start'|'duration'|'velocity'|'articul
     project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events.map((n,i)=>i===index?next:n));
     const id=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-8);
     noteSelected.value=id;
+    if(field==='duration')message.value=`${noteInst.value} · measure ${selectedBar.value+1}: written duration set to ${next.duration} beats (saved as a protected edit).`;
     if(['pitch','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(next);
   }catch(error){message.value=`Note edit rejected: ${String(error)}`;}
 }
@@ -759,7 +785,7 @@ function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
 </script>
 <template>
-<div class="shell" :class="{'compact-help':compactHelp}"><header><div class="brand"><span class="logo">𝄞</span><div><strong>Tango Arranger</strong><small>Orquesta típica workbench · v{{appVersion}}</small></div></div><div class="header-actions"><button class="secondary" @click="newSongOpen=!newSongOpen">+ New blank song</button><button class="secondary" @click="saveProject(project)">↓ Export .tango backup</button><button class="primary" @click="exportXml">↓ Export MusicXML</button></div></header>
+<div class="shell" :class="{'compact-help':compactHelp}"><header><button class="brand brand-link" type="button" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>Orquesta típica workbench · v{{appVersion}}</small></span></button><div class="header-actions"><button class="secondary" @click="newSongOpen=!newSongOpen">+ New blank song</button><button class="secondary" @click="saveProject(project)">↓ Export .tango backup</button><button class="primary" @click="exportXml">↓ Export MusicXML</button></div></header>
 <div class="layout"><div class="mobile-settings-toggle"><button type="button" class="secondary" :aria-expanded="mobileSettingsOpen" @click="mobileSettingsOpen=!mobileSettingsOpen">{{mobileSettingsOpen?'▾ Hide project settings':'▸ Project settings & library'}}</button></div><aside :class="{'mobile-settings-open':mobileSettingsOpen}"><div class="eyebrow">PROJECT</div><label>Title<input v-model="project.title"/></label><div class="two"><label>Tempo<input v-model.number="project.bpm" type="number" min="40" max="240"/></label><label>Beats / bar<input v-model.number="project.beats" type="number" min="2" max="4"/></label></div><label>Transpose entire arrangement (semitones)<input type="number" min="-24" max="24" step="1" :value="project.transposeSemitones??0" @change="setTranspose"/><small class="hint">Non-destructive concert-pitch shift: playback, score review, chords and MusicXML change together. Original lead sheet remains intact.</small></label><label>Orchestra profile<select v-model="project.profile"><option v-for="[id,name] in profiles" :key="id" :value="id">{{name}}</option></select></label><label>Overall difficulty<select v-model="project.difficulty"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select></label><button class="secondary" @click="convertMeter" :disabled="project.beats!==2">Convert paired 2/4 bars to 4/4</button><div class="divider"></div><div class="eyebrow">LOCAL SONG LIBRARY</div>
 <label>Open a saved song<select :value="localSongId" :disabled="!libraryReady" @change="openLocalSong(($event.target as HTMLSelectElement).value)"><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars · {{new Date(song.updatedAt).toLocaleString()}}</option></select></label>
 <div class="local-song-actions"><button class="secondary" :disabled="!libraryReady" @click="saveNow">Save now</button><button class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong">Duplicate song</button><button class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong">Delete song</button></div>
@@ -776,13 +802,35 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4 — Tango</option><option :value="3">3/4 — Vals</option><option :value="2">2/4 — Milonga / historical notation</option></select></label><label>Tempo (quarter notes/min)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label></div>
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
-</div><div class="page-title"><div><h1>Arrange your tango</h1><p>From one melody and chords to a complete orchestra score.</p></div><div class="page-title-actions"><button class="primary" @click="regenerate">↻ Generate orchestra</button><button class="secondary" type="button" :aria-expanded="advancedToolsOpen" @click="advancedToolsOpen=!advancedToolsOpen">⚙ {{advancedToolsOpen?'Hide tools':'More tools'}}</button></div></div><div v-if="advancedToolsOpen" class="editor advanced-tools"><button class="secondary" @click="exportXml">Export MusicXML</button><button class="secondary" @click="saveProject(project)">Backup .tango</button><button class="secondary" @click="newSongOpen=!newSongOpen">New song</button><button class="secondary" @click="mobileSettingsOpen=!mobileSettingsOpen">Project settings</button></div><nav class="tabs" aria-label="Main work areas"><button :class="{active:active==='overview'}" @click="active='overview'">1 · Song overview</button><button :class="{active:active==='structure'}" @click="active='structure'">2 · Structure & keys</button><button :class="{active:active==='lead'}" @click="active='lead'">3 · Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">4 · Orchestration</button><button :class="{active:active==='score'}" @click="active='score'">5 · Score review</button><button :class="{active:active==='notes'}" @click="active='notes'">6 · Note editor</button></nav><div class="notice">{{message}}</div>
-<div v-if="chordEditorOpen" class="editor chord-editor" role="region" aria-label="Measure harmony editor">
+</div><div v-if="active!=='about'" class="page-title"><div><h1>Arrange your tango</h1><p>From one melody and chords to a complete orchestra score.</p></div><div class="page-title-actions"><button class="primary" @click="regenerate">↻ Generate orchestra</button><button class="secondary" type="button" :aria-expanded="advancedToolsOpen" @click="advancedToolsOpen=!advancedToolsOpen">⚙ {{advancedToolsOpen?'Hide tools':'More tools'}}</button></div></div><div v-if="advancedToolsOpen && active!=='about'" class="editor advanced-tools"><button class="secondary" @click="exportXml">Export MusicXML</button><button class="secondary" @click="saveProject(project)">Backup .tango</button><button class="secondary" @click="newSongOpen=!newSongOpen">New song</button><button class="secondary" @click="mobileSettingsOpen=!mobileSettingsOpen">Project settings</button></div><nav class="tabs" aria-label="Main work areas"><button :class="{active:active==='overview'}" @click="active='overview'">1 · Song overview</button><button :class="{active:active==='structure'}" @click="active='structure'">2 · Structure & keys</button><button :class="{active:active==='lead'}" @click="active='lead'">3 · Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">4 · Orchestration</button><button :class="{active:active==='score'}" @click="active='score'">5 · Score review</button><button :class="{active:active==='notes'}" @click="active='notes'">6 · Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav><div v-if="active!=='about'" class="notice">{{message}}</div>
+<div v-if="chordEditorOpen && active!=='about'" class="editor chord-editor" role="region" aria-label="Measure harmony editor">
   <div class="section-heading"><h2>Harmony · measure {{selectedBar+1}}</h2><button class="secondary" type="button" @click="chordEditorOpen=false">Close</button></div>
   <p class="muted">Chords belong to the measure and apply to all instruments. Leave the field empty to clear the harmony. Commas divide the measure into slots: in 4/4, <code>D,G</code> changes to G on beat 3; <code>D,D,D,G</code> changes on beat 4. Repeated symbols hold the chord.</p>
   <div class="two"><label>Chord sequence<input v-model="chordDraft" spellcheck="false" @keydown.enter.prevent="applyChordEditor" placeholder="D,D,D,G"/></label><label>Beat-by-beat preview<div class="chord-beat-preview">{{chordBeatLabels(chordDraft)}}</div></label></div>
   <div class="overview-actions"><button class="primary" @click="applyChordEditor">Apply harmony</button><button class="secondary" @click="chordEditorOpen=false">Cancel</button></div>
 </div>
+<section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
+  <div class="section-heading"><h1 id="about-title">About Tango Arranger</h1><button type="button" class="secondary" @click="active='overview'">← Back to arranging</button></div>
+  <p class="about-intro">Tango Arranger is a local-first workbench for creating Argentine tango orchestra arrangements from a lead sheet. Start with a melody and chord progression, choose an orchestration style, and refine the result instrument by instrument.</p>
+  <div class="about-grid">
+    <article class="editor"><h2>Start with your song</h2><p>Enter a melody and chords in the Lead Sheet, or import MIDI or MusicXML. Define sections, measure counts, and keys in Structure &amp; Keys.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
+    <article class="editor"><h2>Arrange the orchestra</h2><p>Generate parts for piano, contrabass, violins and bandoneons. Assign roles, styles, figures and articulations by section or measure in Song Overview and Orchestration.</p><button class="secondary" type="button" @click="active='overview'">Open Song Overview →</button></article>
+    <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, written durations, velocities, articulations and expressive gestures. Audition notes or loop a measure while you work.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
+    <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='score'">Open Score Review →</button></article>
+  </div>
+  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Current version: v{{appVersion}}. Highlights from recent releases.</p>
+    <div class="release-entry"><h3>v3.1.0 · Accurate note durations</h3><p>Full-length piano-roll note bars, real endpoint touch handles, immediate duration slider and numeric edits, and protected-score persistence tests.</p></div>
+    <div class="release-entry"><h3>v3.0.0 · About &amp; release notes</h3><p>Click the Tango Arranger title to open this guide and release history. Added an About &amp; releases navigation tab.</p></div>
+    <div class="release-entry"><h3>v2.9.0 · Dynamics</h3><p>Measure start/end dynamics, crescendo and diminuendo export, individual subito markings, and melody-aware accompaniment balancing.</p></div>
+    <div class="release-entry"><h3>v2.8.0 · Touch duration editing</h3><p>Larger note-resize handles, pointer capture and duration stepper buttons for touch editing.</p></div>
+    <div class="release-entry"><h3>v2.7.0 · Note editor and compact workspace</h3><p>Direct note manipulation, note properties, advanced difficulty defaults, persistent playback controls and optional explanatory text.</p></div>
+    <div class="release-entry"><h3>v2.6.x · Notation, mobile and audio</h3><p>Cleaner rhythmic notation, piano bass/treble separation, mobile layout improvements, audio initialization and sound testing.</p></div>
+    <div class="release-entry"><h3>v2.5.0 · Piano figures and expression</h3><p>Moving inversions, countermelodies, melody responses, note slides and dynamic ranges.</p></div>
+    <div class="release-entry"><h3>v2.4.0 · Violin arpeggios</h3><p>Four-note arpeggio figures spanning a full measure, with ascending, descending and alternating directions.</p></div>
+    <div class="release-entry"><h3>v2.3.0 · Song structure workspace</h3><p>Dedicated Structure &amp; Keys tab and a measure-focused Song Overview.</p></div>
+  </div>
+  <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango backup to transfer them between devices.</p>
+</section>
 <section v-if="active==='structure'" class="structure-tab"><div class="section-heading"><h2>Song structure &amp; section keys</h2><button type="button" class="secondary" @click="active='overview'">← Back to song map</button></div><p class="muted">Define the form of your tango here: the number of sections, their measure lengths, and the concert-pitch key of each section. The Song Overview remains the main workspace for measure-level roles, articulation and note editing.</p>
 <div class="editor"><div class="section-heading"><h3>Song structure</h3><button class="secondary" type="button" @click="structureOpen?structureOpen=false:editStructure()">{{structureOpen?'Cancel structure edit':'Edit sections & measures'}}</button></div>
 <p class="muted">Default: five 16-measure sections labeled A–E. Change the number of sections and the length of each one; MuseScore receives alphabetical rehearsal marks at every section boundary.</p>
@@ -878,16 +926,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
     <div class="note-editor-actions"><template v-if="noteInst==='Piano'"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="noteCenter=Math.max(noteCtx.range[0]+9,noteCenter-12)">↓ Lower octave</button><button class="secondary" @click="noteCenter=Math.min(noteCtx.range[1]-8,noteCenter+12)">↑ Higher octave</button></template><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
-    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll"><table class="note-grid"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{Number.isInteger(beat)?beat+1:'·'}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
-      <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><button type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'has-note':noteAt(pitch,beat)>=0}]" :title="`${displayPitch(pitch)} · beat ${beat+1} · ${pitchClass(pitch,beat)}`" :aria-label="`${noteAt(pitch,beat)>=0?'Select and drag':'Add'} ${displayPitch(pitch)} on beat ${beat+1}`" :data-note-pitch="pitch" :data-note-beat="beat" @pointerdown="beginNoteDrag($event,pitch,beat)" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)" @click="noteCellClick(pitch,beat)"><span v-if="noteAt(pitch,beat)>=0" class="note-length-preview" :style="{width:`${Math.max(1,(noteAtDuration(pitch,beat)??noteStep)/noteStep)*100}%`}" aria-hidden="true"></span><span v-if="noteAt(pitch,beat)>=0" class="note-resize-handle" aria-hidden="true">↔</span></button></td></tr>
+    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{Number.isInteger(beat)?beat+1:'·'}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
+      <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
+        <button v-for="beat in noteBeats" :key="beat" type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}]" :title="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :aria-label="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :data-note-pitch="pitch" :data-note-beat="beat" @click="noteCellClick(pitch,beat)"></button>
+        <button v-for="(n,i) in noteMeasure.filter(n=>n.pitch===pitch)" :key="`${n.start}:${n.pitch}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-selectedBar*project.beats)/project.beats*100}%`,width:`${n.duration/project.beats*100}%`}" :data-note-pitch="pitch" :title="`${displayPitch(n.pitch)} · beat ${Number((n.start-selectedBar*project.beats+1).toFixed(2))} · ${n.duration} beats. Drag the right handle to resize.`" :aria-label="`Select ${displayPitch(n.pitch)}, ${n.duration} beats; drag the right edge to change duration`" @pointerdown="beginNoteDrag($event,pitch,n.start-selectedBar*project.beats)" @click.stop="noteBarClick(pitch,n.start-selectedBar*project.beats)"><span class="note-bar-label">{{n.duration}}<span class="note-bar-unit"> beat{{n.duration===1?'':'s'}}</span></span><span class="note-resize-handle" aria-hidden="true">↔</span></button>
+      </div></td></tr>
     </tbody></table></div></div>
     </div>
-    <p class="hint">Tap an empty cell to add a note. Tap a note to select it; drag its right edge to resize, or drag its center vertically to change pitch. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with the octave buttons.</p>
+    <p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the handle at the actual right endpoint to resize, or drag the middle vertically to change pitch. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with the octave buttons.</p>
     <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
     <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><h3>Edit selected note</h3><div class="note-editor-controls">
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>
       <label>Beat (starts at 1)<input type="number" min="1" :max="project.beats" step="0.25" :value="selectedEvent.start-selectedBar*project.beats+1" @change="updateSelectedNote('start',String(Number(($event.target as HTMLInputElement).value)-1))"/></label>
-      <label>Duration (beats)<div class="note-duration-controls"><button type="button" class="secondary" @click="changeNoteDuration(-0.25)" aria-label="Shorten note by quarter beat">−</button><input type="number" min="0.25" :max="project.beats" step="0.25" :value="selectedEvent.duration" @change="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><button type="button" class="secondary" @click="changeNoteDuration(0.25)" aria-label="Lengthen note by quarter beat">+</button></div></label>
+      <div class="note-duration-field"><label for="note-written-duration">Written duration · {{selectedEvent.duration}} beats</label><div class="note-duration-controls"><button type="button" class="secondary" @click="changeNoteDuration(-0.25)" :disabled="selectedEvent.duration<=0.25" aria-label="Shorten note by quarter beat">−</button><input id="note-written-duration" type="number" min="0.25" :max="selectedDurationMax" step="0.25" :value="selectedEvent.duration" @input="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><button type="button" class="secondary" @click="changeNoteDuration(0.25)" :disabled="selectedEvent.duration>=selectedDurationMax-0.0001" aria-label="Lengthen note by quarter beat">+</button></div><input class="note-duration-slider" type="range" min="0.25" :max="selectedDurationMax" step="0.25" :value="selectedEvent.duration" :disabled="selectedDurationMax<=0.25" aria-label="Written note duration in beats" @input="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><small class="hint">Written length, not sounding length · maximum {{selectedDurationMax}} beats before the measure ends.</small></div>
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short)</option><option value="marcato_staccato">Marcato ^ (strong)</option><option value="legato">Legato</option></select></label>
       <label>Sounding length (%) · {{Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)}}%<input type="range" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @input="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @change="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/></label>

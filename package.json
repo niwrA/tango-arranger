@@ -1,13 +1,13 @@
 {
   "name": "tango-arranger",
-  "version": "2.9.0",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:regression": "node tests/regression.cjs && node tests/local-library.cjs && node tests/navigation.cjs && node tests/measure-loop.cjs && node tests/violin-chords.cjs && node tests/figures-expression.cjs && node tests/rhythm-piano.cjs && node tests/audio-unlock.cjs && node tests/mobile-audio.cjs && node tests/note-ux.cjs && node tests/note-duration.cjs && node tests/measure-dynamics.cjs"
+    "test:regression": "node tests/regression.cjs && node tests/local-library.cjs && node tests/navigation.cjs && node tests/measure-loop.cjs && node tests/violin-chords.cjs && node tests/figures-expression.cjs && node tests/rhythm-piano.cjs && node tests/audio-unlock.cjs && node tests/mobile-audio.cjs && node tests/note-ux.cjs && node tests/note-duration.cjs && node tests/measure-dynamics.cjs && node tests/about.cjs && node tests/note-duration-real.cjs"
   },
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
