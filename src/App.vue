@@ -10,7 +10,7 @@ import {download,exportMusicXml,validateMusicXmlDurations,saveProject,loadProjec
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
 import {measureLoopEvents} from './measureLoop';
 import {playExpressiveEvent} from './expressiveAudio';
-import {clampWrittenDuration,dragWrittenDuration} from './noteEditing';
+import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {selectMapMeasure} from './mapSelection';
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
@@ -1107,12 +1107,17 @@ const pianoSplit=computed({
 const noteSelected=ref(-1);
 const writtenDurationDraft=ref('1');
 watch(selectedBar,()=>{writtenDurationDraft.value='';});
-type NoteDrag={index:number;mode:'resize'|'pitch';pointerId:number;startX:number;startY:number;startPitch:number;startDuration:number;cellWidth:number;moved:boolean;longPress:ReturnType<typeof setTimeout>|null};
+type NoteDrag={
+  index:number;mode:'move'|'resize-left'|'resize-right';pointerId:number;
+  startX:number;startY:number;startPitch:number;startLocal:number;startDuration:number;
+  cellWidth:number;rowHeight:number;moved:boolean;longPress:ReturnType<typeof setTimeout>|null
+};
 let noteDrag:NoteDrag|null=null;
 let suppressNoteClick=false;
-/** The overlay spans the actual note, so its right-hand handle is the real note end.
- * Capture on the stable grid scroller, not the note itself: pitch changes can move
- * a note to a different row while the finger is still down.
+/** Three gestures share the same stable grid coordinates: the center moves a note
+ * horizontally and vertically; the left/right grips adjust its written endpoints.
+ * The note element itself can be replaced while dragging, so pointer capture belongs
+ * to the persistent scroller and all changes are committed atomically.
  */
 function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
   const index=noteAt(pitch,beat);if(index<0||!event.isPrimary||event.button!==0)return;
@@ -1120,11 +1125,14 @@ function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
   const grid=target.closest<HTMLElement>('.note-lane-grid');
   const scroller=target.closest<HTMLElement>('.note-grid-scroll');
   if(!grid||!scroller)return;
-  const rect=target.getBoundingClientRect();
-  const mode=(event.target as HTMLElement).closest('.note-resize-handle')||event.clientX>=rect.right-22?'resize':'pitch';
+  const handle=(event.target as HTMLElement).closest<HTMLElement>('.note-resize-handle');
+  const mode:NoteDrag['mode']=handle?.classList.contains('note-resize-handle-left')?'resize-left':handle?'resize-right':'move';
   const note=noteMeasure.value[index];noteSelected.value=index;
-  const cellWidth=grid.getBoundingClientRect().width/noteBeats.value.length;
-  noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startPitch:note.pitch,startDuration:note.duration,cellWidth,moved:false,longPress:null};
+  const gridRect=grid.getBoundingClientRect();
+  const cellWidth=gridRect.width/noteBeats.value.length;
+  noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
+    startPitch:note.pitch,startLocal:note.start-selectedBar.value*project.value.beats,
+    startDuration:note.duration,cellWidth,rowHeight:gridRect.height,moved:false,longPress:null};
   scroller.setPointerCapture(event.pointerId);
   noteDrag.longPress=setTimeout(()=>{if(noteDrag&&!noteDrag.moved){noteDetailsPopup.value=true;suppressNoteClick=true;}},600);
 }
@@ -1133,28 +1141,43 @@ function moveNoteDrag(event:PointerEvent){
   if(Math.abs(event.clientX-drag.startX)+Math.abs(event.clientY-drag.startY)<5)return;
   drag.moved=true;if(drag.longPress){clearTimeout(drag.longPress);drag.longPress=null;}
   const note=noteMeasure.value[drag.index];if(!note)return;
-  if(drag.mode==='resize'){
-    const localStart=note.start-selectedBar.value*project.value.beats;
-    const duration=dragWrittenDuration(drag.startDuration,event.clientX-drag.startX,drag.cellWidth,noteStep.value,localStart,project.value.beats);
-    if(Math.abs(duration-note.duration)>0.0001)updateSelectedNote('duration',String(duration));
+  const dx=event.clientX-drag.startX;
+  const beats=project.value.beats;
+  let localStart=drag.startLocal;
+  let duration=drag.startDuration;
+  let pitch=drag.startPitch;
+  if(drag.mode==='resize-right'){
+    duration=dragWrittenDuration(drag.startDuration,dx,drag.cellWidth,noteStep.value,drag.startLocal,beats);
+  }else if(drag.mode==='resize-left'){
+    const geometry=dragWrittenNoteLeftEdge(drag.startLocal,drag.startDuration,dx,drag.cellWidth,noteStep.value,beats);
+    localStart=geometry.start;duration=geometry.duration;
   }else{
-    const target=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLElement>('[data-note-pitch]');
-    const next=target?Number(target.dataset.notePitch):drag.startPitch-Math.round((event.clientY-drag.startY)/28);
-    const [lo,hi]=noteCtx.value.range;const pitch=Math.max(lo,Math.min(hi,next));
-    if(Number.isInteger(pitch)&&pitch!==note.pitch){
-      updateSelectedNote('pitch',String(pitch));
-      // The sorted note list may reorder when pitch changes.
-      drag.index=noteSelected.value;
-    }
+    localStart=dragWrittenNotePosition(drag.startLocal,drag.startDuration,dx,drag.cellWidth,noteStep.value,beats);
+    const deltaPitch=Math.round((drag.startY-event.clientY)/drag.rowHeight);
+    const [lo,hi]=noteCtx.value.range;
+    pitch=Math.max(lo,Math.min(hi,drag.startPitch+deltaPitch));
   }
+  const absoluteStart=selectedBar.value*beats+localStart;
+  if(note.pitch===pitch&&Math.abs(note.start-absoluteStart)<1e-8&&Math.abs(note.duration-duration)<1e-8)return;
+  const events=noteMeasure.value.map(n=>({...n}));
+  events[drag.index]={...events[drag.index],pitch,start:absoluteStart,duration};
+  try{
+    project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
+    // Replacing the score sorts by onset and pitch, so follow the edited note.
+    const newIndex=noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-absoluteStart)<1e-8&&Math.abs(n.duration-duration)<1e-8);
+    if(newIndex>=0){drag.index=newIndex;noteSelected.value=newIndex;}
+  }catch(error){message.value=`Cannot move or resize note: ${String(error)}`;}
 }
 function endNoteDrag(event:PointerEvent){
   if(!noteDrag||event.pointerId!==noteDrag.pointerId)return;
   if(noteDrag.longPress)clearTimeout(noteDrag.longPress);
-  if(noteDrag.moved)suppressNoteClick=true;
+  if(noteDrag.moved){
+    suppressNoteClick=true;
+    const note=noteMeasure.value[noteDrag.index];
+    if(note)message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-selectedBar.value*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;
+  }
   noteDrag=null;
-  // Click events generated by the completed drag arrive before this timeout.
-  setTimeout(()=>{suppressNoteClick=false;},0);
+  setTimeout(()=>{suppressNoteClick=false;},80);
 }
 function changeNoteDuration(delta:number){
   if(!selectedEvent.value)return;
@@ -1377,6 +1400,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='score'">Open Score Review →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Current version: v{{appVersion}}. Highlights from recent releases.</p>
+    <div class="release-entry"><h3>v4.2.0 · Note movement and dual-edge resizing</h3><p>Drag the center of a note horizontally to change its onset or vertically to change pitch; diagonal dragging adjusts both. Resize from either edge: left keeps the note end fixed, right keeps its start fixed. Edits snap to the editor grid and remain within the measure.</p></div>
     <div class="release-entry"><h3>v4.1.0 · Contrabass styles</h3><p>Section and measure-level bass techniques: traditional, pizzicato, arco legato, marcato, walking and habanera. Styles change the generated rhythm, sounding length and articulation; MusicXML includes pizzicato/arco markings where appropriate.</p></div>
     <div class="release-entry"><h3>v4.0.0 · Custom live melody keyboard range</h3><p>Choose the start and end note independently to display any chromatic keyboard span within the instrument register, including ranges across multiple octaves. Existing captured takes are preserved when the keyboard display range changes.</p></div>
     <div class="release-entry"><h3>v3.9.0 · Playback start position</h3><p>Separate controls start arrangement playback from measure 1 or from the currently selected measure. A dedicated Stop button ends playback; starting either mode restarts from that position.</p></div>
@@ -1587,11 +1611,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{Number.isInteger(beat)?beat+1:'·'}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
       <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
         <button v-for="beat in noteBeats" :key="beat" type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}]" :title="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :aria-label="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :data-note-pitch="pitch" :data-note-beat="beat" @click="noteCellClick(pitch,beat)"></button>
-        <button v-for="(n,i) in noteMeasure.filter(n=>n.pitch===pitch)" :key="`${n.start}:${n.pitch}:${n.duration}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-selectedBar*project.beats)/project.beats*100}%`,width:`${n.duration/project.beats*100}%`}" :data-note-pitch="pitch" :title="`${displayPitch(n.pitch)} · beat ${Number((n.start-selectedBar*project.beats+1).toFixed(2))} · ${n.duration} beats. Drag the right handle to resize.`" :aria-label="`Select ${displayPitch(n.pitch)}, ${n.duration} beats; drag the right edge to change duration`" @pointerdown="beginNoteDrag($event,pitch,n.start-selectedBar*project.beats)" @click.stop="noteBarClick(pitch,n.start-selectedBar*project.beats)"><span class="note-bar-label">{{n.duration}}<span class="note-bar-unit"> beat{{n.duration===1?'':'s'}}</span></span><span class="note-resize-handle" aria-hidden="true">↔</span></button>
+        <button v-for="(n,i) in noteMeasure.filter(n=>n.pitch===pitch)" :key="`${n.start}:${n.pitch}:${n.duration}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-selectedBar*project.beats)/project.beats*100}%`,width:`${n.duration/project.beats*100}%`}" :data-note-pitch="pitch" :title="`${displayPitch(n.pitch)} · beat ${Number((n.start-selectedBar*project.beats+1).toFixed(2))} · ${n.duration} beats. Drag center to move; drag either edge to resize.`" :aria-label="`Select ${displayPitch(n.pitch)}, ${n.duration} beats. Drag middle to move, left or right edge to resize.`" @pointerdown="beginNoteDrag($event,pitch,n.start-selectedBar*project.beats)" @click.stop="noteBarClick(pitch,n.start-selectedBar*project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true" title="Resize from start (keep note end fixed)">◂</span><span class="note-bar-label">{{n.duration}}<span class="note-bar-unit"> beat{{n.duration===1?'':'s'}}</span></span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true" title="Resize from end (keep note start fixed)">▸</span></button>
       </div></td></tr>
     </tbody></table></div></div>
     </div>
-    <p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the handle at the actual right endpoint to resize, or drag the middle vertically to change pitch. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with the octave buttons.</p>
+    <p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with the octave buttons.</p>
     <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
     <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><h3>Edit selected note</h3><div class="note-editor-controls">
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>

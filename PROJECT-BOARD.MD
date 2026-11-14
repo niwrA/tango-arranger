@@ -1,3 +1,7 @@
+## v4.2.0 — Completed
+
+The Note Editor supports dragging a note horizontally to change its onset, vertically to change pitch, and diagonally to change both. Dragging the left resize grip changes the start while preserving the original end; dragging the right grip changes the end while preserving the start. Dragging is snapped to the current grid resolution and clamped to measure boundaries. Changes save to protected instrument-measures, survive regeneration and are exported as MusicXML.
+
 ## v4.1.1 — Azure TypeScript build fix
 
 MusicXML note event projection explicitly retains the optional `subito` property used for per-note dynamics. Added a regression check to prevent TS2339 from returning. No change to arrangement behavior.

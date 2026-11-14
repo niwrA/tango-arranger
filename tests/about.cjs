@@ -5,7 +5,7 @@ const root=path.join(__dirname,'..');
 const vue=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
 const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
 const pkg=require(path.join(root,'package.json'));
-assert.equal(pkg.version,'4.1.1');
+assert.equal(pkg.version,'4.2.0');
 assert.match(vue,/class="brand brand-link"[^>]+@click="active='about'"/);
 assert.match(vue,/aria-label="About Tango Arranger and release notes"/);
 assert.match(vue,/active==='about'/);

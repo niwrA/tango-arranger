@@ -1,0 +1,58 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const cp=require('node:child_process');
+let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const root=path.resolve(__dirname,'..');
+function load(file,imports={}){
+  const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+  const mod={exports:{}};
+  vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console,Blob,URL,setTimeout},{filename:file})((name)=>{
+    if(imports[name])return imports[name];
+    if(name==='jszip')return class JSZip{};
+    if(name==='@tonejs/midi')return {Midi:class Midi{}};
+    throw Error('Unexpected import '+name);
+  },mod,mod.exports);
+  return mod.exports;
+}
+const edit=load('src/noteEditing.ts');
+const music=load('src/music.ts');
+const io=load('src/io.ts',{'./music':music});
+let passes=0;
+function test(name,fn){fn();passes++;console.log('PASS',name);}
+test('middle drag shifts note one beat to the right',()=>assert.equal(edit.dragWrittenNotePosition(0.5,1,176,44,0.25,4),1.5));
+test('middle drag shifts note to left',()=>assert.equal(edit.dragWrittenNotePosition(2,1,-176,44,0.25,4),1));
+test('middle drag preserves initial off-grid start',()=>assert.equal(edit.dragWrittenNotePosition(0.125,0.75,44,44,0.25,4),0.375));
+test('middle drag clamps to start of measure',()=>assert.equal(edit.dragWrittenNotePosition(0.5,1,-2000,44,0.25,4),0));
+test('middle drag clamps to end of measure without changing duration',()=>assert.equal(edit.dragWrittenNotePosition(0.5,1,2000,44,0.25,4),3));
+test('middle drag supports 2/4',()=>assert.equal(edit.dragWrittenNotePosition(0,1,2000,44,0.25,2),1));
+test('left grip moves start right and shortens duration',()=>assert.deepEqual({...edit.dragWrittenNoteLeftEdge(1,2,88,44,0.25,4)},{start:1.5,duration:1.5}));
+test('left grip moves start left and lengthens duration',()=>assert.deepEqual({...edit.dragWrittenNoteLeftEdge(1,2,-88,44,0.25,4)},{start:0.5,duration:2.5}));
+test('left grip clamps to measure start',()=>assert.deepEqual({...edit.dragWrittenNoteLeftEdge(1,2,-2000,44,0.25,4)},{start:0,duration:3}));
+test('left grip cannot reduce duration below quarter beat',()=>assert.deepEqual({...edit.dragWrittenNoteLeftEdge(1,2,2000,44,0.25,4)},{start:2.75,duration:0.25}));
+test('left grip preserves right endpoint at all displacements',()=>{for(const pixels of [-500,-44,0,44,500]){const g=edit.dragWrittenNoteLeftEdge(0.75,1.5,pixels,44,0.25,4);assert.equal(Number((g.start+g.duration).toFixed(4)),2.25);}});
+test('right grip preserves note onset',()=>assert.equal(edit.dragWrittenDuration(1,88,44,0.25,1,4),1.5));
+test('drag geometry rejects invalid dimensions',()=>assert.throws(()=>edit.dragWrittenNotePosition(0,1,44,0,0.25,4)));
+test('left grip rejects notes extending beyond measure',()=>assert.throws(()=>edit.dragWrittenNoteLeftEdge(3.5,1,44,44,0.25,4)));
+test('note move and left resize persist in protected score and valid MusicXML',()=>{
+  const p=music.demoProject();p.bars=p.bars.slice(0,2);
+  const score=music.generate(p);const inst='Violin I';const notes=score[inst].filter(n=>n.start>=0&&n.start<4).map(n=>({...n}));
+  assert.ok(notes.length,'expected notes');
+  const original=notes[0];
+  const start=edit.dragWrittenNotePosition(original.start,original.duration,88,44,0.25,4);
+  const left=edit.dragWrittenNoteLeftEdge(start,original.duration,-44,44,0.25,4);
+  notes[0]={...original,start:left.start,duration:left.duration};
+  const updated=music.replaceInstrumentMeasure(p,score,inst,0,notes);
+  assert.ok(updated.protectedBars['Violin I:0']);
+  assert.ok(updated.generatedScore[inst].some(n=>n.start===left.start&&n.duration===left.duration&&n.pitch===original.pitch));
+  assert.ok(updated.importedScore[inst].some(n=>n.start===left.start&&n.duration===left.duration&&n.pitch===original.pitch));
+  assert.deepEqual(Array.from(io.validateMusicXmlDurations(io.exportMusicXml(updated,updated.generatedScore),4)),[]);
+});
+test('Vue editor exposes separate left and right resize handles and middle move mode',()=>{
+  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
+  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+  for(const token of ['note-resize-handle-left','note-resize-handle-right',"mode:'move'|'resize-left'|'resize-right'",'dragWrittenNotePosition(','dragWrittenNoteLeftEdge(','scroller.setPointerCapture(event.pointerId)','startLocal:note.start-selectedBar.value*project.value.beats'])assert.ok(app.includes(token),token);
+  for(const token of ['.note-bar .note-resize-handle-left','.note-bar .note-resize-handle-right','cursor:move'])assert.ok(css.includes(token),token);
+});
+console.log(`${passes} note move and dual-edge resize checks passed`);
