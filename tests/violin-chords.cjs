@@ -151,9 +151,10 @@ test('arpeggio MusicXML contains exactly four non-rest violin notes in 4/4',()=>
  assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,p.beats)),[]);
  assert.equal(notes(p).length,4);
 });
-test('MusicXML exports distinct staccato dots, marcato and pizzicato with full beats',()=>{
+test('MusicXML exports distinct staccato dots, marcato > accents and pizzicato with full beats',()=>{
  const p=prepared();const xml=io.exportMusicXml(p,music.generate(p));
- assert.match(xml,/<strong-accent type="up"\/><staccato\/>/);
+ assert.match(xml,/<accent\/>/);
+ assert.doesNotMatch(xml,/<strong-accent/);
  assert.match(xml,/<staccato\/>/);
  assert.match(xml,/pizz\./);
  assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,p.beats)),[]);

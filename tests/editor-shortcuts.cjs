@@ -29,7 +29,7 @@ try{
  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
  check('Both editors listen for keyboard commands on their own section',()=>{
   assert.match(app,/class="rhythm-editor-section" tabindex="-1" @keydown="handleRhythmEditorKey"/);
-  assert.match(app,/class="note-editor-section" tabindex="-1" @keydown="handleNoteEditorKey"/);
+  assert.match(app,/class="note-editor-section" tabindex="-1" :class="[^\"]+" @keydown="handleNoteEditorKey"/);
  });
  check('Both Delete actions call existing persistent edit operations',()=>{
   assert.match(app,/action==='delete'&&selectedEvent\.value\)\{event\.preventDefault\(\);deleteSelectedNote\(\);\}/);

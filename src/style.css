@@ -319,3 +319,75 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .capture-piano-key{flex:0 0 44px}
 .capture-range-summary{margin:4px 0 8px;font-variant-numeric:tabular-nums}
 @media(max-width:650px){.capture-piano-key{flex-basis:43px}}
+
+/* v4.3: compact, accessible collapsible control groups and note tool tabs. */
+.control-fold{display:block;min-width:0;margin:8px 0;border:1px solid #425363;border-radius:10px;background:#202c36;padding:0 14px 12px}
+.control-fold:not([open]){padding-bottom:0}
+.control-fold>summary{display:list-item;cursor:pointer;list-style:revert;color:#efd09e;font-weight:700;font-size:13px;line-height:1.45;padding:12px 4px;user-select:none}
+.control-fold>summary:hover{color:#fff0cf}
+.control-fold>summary:focus-visible{outline:2px solid #d2ab70;outline-offset:2px;border-radius:4px}
+.control-fold[open]>summary{margin-bottom:10px;border-bottom:1px solid #435361}
+.control-fold .control-fold{background:#1c2832}
+.sidebar-fold{margin:0 0 14px;padding:0 10px 12px}
+.sidebar-fold>summary{font-size:13px}
+.note-common-controls{margin:12px 0 4px;padding:13px 16px;background:#1e2b35;border:1px solid #405160;border-radius:10px}
+.note-common-controls .note-editor-controls{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.note-common-controls label{margin:0}
+.note-subtabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:2px solid #435462;margin:20px 0 12px}
+.note-subtabs button{background:#202c37;border-radius:8px 8px 0 0;border:1px solid #41505d;border-bottom:0;color:#bdcbd6;font-size:13px;padding:12px 16px}
+.note-subtabs button.selected{background:#3b332b;border-color:#d2ab70;color:#f5d39b;font-weight:750}
+.note-subtabs button:focus-visible{outline:2px solid #e9c38e;outline-offset:2px}
+.note-editor-section [role=tabpanel]{min-width:0}
+.note-editor-section [role=tabpanel][style*="display: none"]{display:none!important}
+.note-editor-section [role=tabpanel]>.editor{margin-top:12px}
+.note-editor-panel>.control-fold{margin:0 0 14px}
+.note-context-fold .note-context{margin:5px 0}
+.selected-note-fold{margin-top:14px}
+.selected-note-fold>.note-editor-controls{margin:8px 0}
+.figure-workbench>.control-fold{margin:0}
+@media(max-width:600px){.note-subtabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.note-subtabs button{white-space:normal;padding:10px 8px}.control-fold{padding-left:10px;padding-right:10px}.note-common-controls{padding:10px}}
+
+.note-common-controls>summary{cursor:pointer;color:#efd09e;font-size:13px;font-weight:700;margin-bottom:12px}
+.note-common-controls:not([open])>summary{margin-bottom:0}
+.note-common-controls>summary:focus-visible{outline:2px solid #d2ab70;outline-offset:3px}
+
+/* v4.3.1: make even the shortest sixteenth note draggable from its center. */
+.note-bar{padding-left:11px;padding-right:11px}
+.note-bar .note-resize-handle{width:10px;font-size:12px}
+.note-bar .note-resize-handle-left{border-right:1px solid #74542c}
+.note-bar .note-resize-handle-right{border-left:1px solid #74542c}
+.note-position-nudge{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600}
+.note-nudge-buttons{display:flex;gap:6px;flex-wrap:wrap}
+.note-nudge-buttons button{font-size:12px;padding:8px 10px;min-height:36px}
+@media(max-width:600px){.note-bar{padding-left:11px;padding-right:11px}.note-bar .note-resize-handle{width:10px}}
+
+
+/* v4.4: focused piano-roll editing with always-accessible navigation and note controls. */
+.note-focus-mode{position:fixed;inset:0;z-index:120;background:#101820;overflow:auto;overscroll-behavior:contain;padding:0 18px calc(104px + env(safe-area-inset-bottom));height:100dvh;scrollbar-gutter:stable}
+.note-focus-mode>.section-heading,.note-focus-mode>.note-editor-navigation,.note-focus-mode>.note-common-controls,.note-focus-mode>.note-loop-controls,.note-focus-mode>.note-subtabs{display:none!important}
+.note-focus-mode #note-panel-capture,.note-focus-mode #note-panel-figures,.note-focus-mode #note-panel-expression{display:none!important}
+.note-focus-mode #note-panel-notes>p.muted{display:none}
+.note-focus-mode .note-editor-panel{margin:0;padding:10px 4px 16px;border:0;background:transparent}
+.note-focus-mode .note-editor-panel>.control-fold,.note-focus-mode .note-editor-panel>p.hint,.note-focus-mode .note-editor-panel>.note-event-list,.note-focus-mode .note-editor-panel>h3{display:none}
+.note-focus-mode .note-staff-panel{margin:8px 0 12px}
+.note-focus-mode .note-grid-scroll{max-height:calc(100dvh - 215px);overflow:auto;overscroll-behavior:contain}
+.note-focus-mode .note-grid thead th{position:sticky;top:0;z-index:3}
+.note-focus-mode .note-grid thead .note-pitch-label{z-index:5}
+.note-focus-toolbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 8px;background:#182632;border-bottom:1px solid #65717c;box-shadow:0 4px 15px #0007;margin:0 -18px 8px}
+.note-focus-toolbar button{white-space:nowrap;padding:9px 12px;min-height:42px}
+.note-focus-toolbar .play{width:auto}
+.note-focus-identity{font-size:13px;color:#f1d49d;margin-right:auto;white-space:nowrap}
+.note-focus-range{display:flex;align-items:center;gap:5px;margin:0;font-size:11px;white-space:nowrap}
+.note-focus-range input:not([type=checkbox]){width:65px;min-width:60px;margin:0;padding:8px 5px}
+.note-focus-playing{font-size:12px;color:#a9e0c8}
+.note-focus-bottom{position:fixed;bottom:0;left:0;right:0;z-index:23;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 16px calc(9px + env(safe-area-inset-bottom));background:#192a36;border-top:2px solid #d0a66b;box-shadow:0 -5px 20px #0008;max-height:35dvh;overflow:auto}
+.note-focus-bottom strong{color:#f2d4a0;font-size:13px;margin-right:auto}
+.note-focus-bottom button{padding:8px 11px;min-height:40px;white-space:nowrap}
+.note-focus-articulation{display:flex;align-items:center;gap:6px;margin:0;font-size:11px}
+.note-focus-articulation select{margin:0;width:auto;min-width:110px;padding:8px 5px}
+.note-focus-mode .note-properties{display:none}
+.note-focus-mode.note-focus-more-open .note-properties{display:block;position:fixed;left:12px;right:12px;bottom:calc(82px + env(safe-area-inset-bottom));z-index:24;max-height:55dvh;overflow:auto;background:#1b2934;border:1px solid #d0a66b;border-radius:12px;padding:12px;box-shadow:0 -10px 35px #000b}
+.note-focus-mode .note-properties-backdrop{display:none}
+@media(max-width:700px){.note-focus-mode{padding:0 8px calc(155px + env(safe-area-inset-bottom))}.note-focus-toolbar{margin:0 -8px 8px;padding:7px}.note-focus-identity{flex-basis:100%;margin:0}.note-focus-toolbar button{padding:7px 9px;font-size:12px}.note-focus-range input:not([type=checkbox]){width:56px}.note-focus-bottom{padding:8px 10px calc(8px + env(safe-area-inset-bottom));gap:5px}.note-focus-bottom button{font-size:12px;padding:7px}.note-focus-mode .note-grid-scroll{max-height:calc(100dvh - 270px)}}
+
+.note-focus-view-tools{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}.note-focus-view-tools button{font-size:11px;padding:7px 9px;min-height:34px}

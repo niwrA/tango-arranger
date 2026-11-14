@@ -1,3 +1,21 @@
+## v4.4.0 — Focused Note Editor (14 November 2026)
+
+The Instrument Note Editor now offers a full-viewport **Focus editor** mode. The sticky top bar keeps previous/next measure, instrument-loop playback and optional loop-from/loop-to measure controls within reach. The bottom quick editor keeps the selected note’s timing, written duration, articulation and deletion accessible; **All note properties** reveals the complete form. Escape exits focus mode before leaving the Note Editor. The normal Notes, Live Input, Figures and Dynamics tabs remain unchanged outside focus mode. The focused loop plays only the current instrument across the selected measure range; navigating to another measure stops playback, while preserving the loop range in focus mode. This is a CSS full-viewport workspace, not the browser Fullscreen API.
+
+# Tango Arranger v4.3.3 — Notation-correct tango articulation
+
+Staccato and marcato affect **how long a note sounds**, not its **written rhythmic value**. New articulated notes default to a quarter note (one beat) in the Note Editor; selecting an explicit eighth, sixteenth or other rhythmic value still overrides the default. A note at the end of a measure is capped to the available space. Existing saved notes are not rewritten.
+
+MusicXML exports **staccato** as a dot (`<staccato/>`) for unaccented attacks and **accented staccato/marcato** as a horizontal `>` (`<accent/>`). The previous strong-accent wedge and combined wedge-plus-dot for marcato are no longer emitted. The original playback gate values (including very short violin staccato) and accent velocities remain unchanged; MuseScore receives the full written note value. Older projects containing notes previously entered with short written durations retain those values and can be corrected in the Note Editor if needed. Browser and MuseScore rendering still require manual verification.
+
+## v4.3.1 — Precise note positioning
+
+The Note Editor always starts at a sixteenth-note (0.25 beat) snap grid, independently of instrument difficulty. A half-beat offset is therefore available for every instrument. Beat headers show sixteenth subdivisions, the two resize grips are narrower to keep a usable center drag target on short notes, and selected-note controls include explicit half-beat nudges. Notes remain constrained to the current measure and protected edits persist through regeneration and MusicXML export. Browser touch interaction remains unverified.
+
+## v4.3.0 — Editor layout and collapsibility
+
+Provide a focused tabbed instrument note editor with shared measure/instrument navigation and playback controls outside the tab content. Allow control sections throughout the application to be collapsed without affecting notes or persisted project data. Keep note editing immediately available and accessible with keyboard and screen reader semantics.
+
 ## v4.2.0 — Direct note manipulation
 
 The Note Editor supports dragging a note horizontally to change its onset, vertically to change pitch, and diagonally to change both. Dragging the left resize grip changes the start while preserving the original end; dragging the right grip changes the end while preserving the start. Dragging is snapped to the current grid resolution and clamped to measure boundaries. Changes save to protected instrument-measures, survive regeneration and are exported as MusicXML.
@@ -320,3 +338,8 @@ The Song orchestration map supports selecting an inclusive measure range for the
 - Captures are draft takes. Review, undo, clear, edit rhythm measures in the grid, and explicitly apply. Protected note measures require confirmation.
 - Taps quantize to 0.25-beat steps, with adjustable input-latency correction. Short-tap durations are inferred as at most one beat; refine note durations afterward.
 - Browser audio playback and touch latency must be verified on a deployed device; the recording is not microphone or MIDI input.
+
+
+## v4.3.2 — Articulation-aware new-note duration (superseded in v4.3.3)
+
+In the Instrument Note Editor, **New note duration** defaults to **Auto (from articulation)**. Newly added staccato notes default to 0.25 beats, marcato-staccato notes to 0.5 beats and legato notes to 1 beat. Measure/section articulation is inherited, including the alternating marcato and staccato violin chord accents; explicit per-note articulation takes priority. A manually chosen fixed duration overrides Auto. These are *written* durations for newly created notes only; changing articulation on an existing note does not rewrite its rhythm. Playback sounding gates remain independently editable.

@@ -33,7 +33,7 @@ test('note-editor shortcuts ignore text fields and modifier keys',()=>{
   assert.match(src,/altKey:event\.altKey,ctrlKey:event\.ctrlKey,metaKey:event\.metaKey,shiftKey:event\.shiftKey/);
   assert.match(src,/target\?\.closest\('input,textarea,select,\[contenteditable\]'\)/);
   assert.match(src,/if\(action==='escape'\)\{/);
-  assert.match(src,/ref="noteEditorRegion" class="note-editor-section" tabindex="-1" @keydown="handleNoteEditorKey"/);
+  assert.match(src,/ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="[^\"]+" @keydown="handleNoteEditorKey"/);
 });
 test('score note list double click and lead-sheet melody double click are wired',()=>{
   assert.match(src,/class="notes score-notes-shortcut"[^>]*@dblclick="openNoteEditor\(entry\.inst,selectedBar\)"/);
@@ -75,7 +75,7 @@ test('note-editor shortcuts respect boundaries, modifiers and text-entry focus',
   const handler=vm.runInNewContext(`${compiled};handleNoteEditorKey`,{
     selectedBar,noteInst,project,
     editorKeyAction:(event,kind)=>resolveEditorShortcut(kind,event.key,{altKey:event.altKey,ctrlKey:event.ctrlKey,metaKey:event.metaKey,shiftKey:event.shiftKey,editable:!!event.target?.closest?.('input,textarea,select,[contenteditable]')}),
-    pendingKeyChange:{value:null},newSongOpen:{value:false},noteDetailsPopup:{value:false},
+    pendingKeyChange:{value:null},newSongOpen:{value:false},noteDetailsPopup:{value:false},noteFocusMore:{value:false},noteFocusMode:{value:false},exitNoteFocusMode:()=>actions.push('exitFocus'),
     returnToMap:()=>actions.push('map'),openNoteEditor:(inst,i)=>actions.push([inst,i])
   });
   const ev=(key,extra={})=>({key,altKey:false,ctrlKey:false,metaKey:false,shiftKey:false,defaultPrevented:false,target:{closest:()=>null},preventDefault(){this.prevented=true;},...extra});

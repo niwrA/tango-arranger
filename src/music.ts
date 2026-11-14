@@ -831,13 +831,37 @@ export function noteEditorPitchClass(p:Project,inst:Instrument,barIndex:number,b
   if(chord&&chordTones(chord).includes(pc))return 'chord';
   return keyPitchClasses(ctx.key).includes(pc)?'key':'chromatic';
 }
+/** Written note value and sounding length are independent. A staccato or
+ * marcato quarter note remains a written quarter note: its dot/accent affects
+ * playback gate and MusicXML articulation, not its notated duration.
+ * An explicitly chosen rhythmic value overrides this entry default.
+ */
+export function newNoteWrittenDuration(p:Project,inst:Instrument,barIndex:number,beat:number,articulation:'inherit'|Exclude<Articulation,'auto'>='inherit'):number {
+  const ctx=noteEditorContext(p,inst,barIndex);
+  if(!Number.isFinite(beat)||beat<0||beat>=p.beats)throw Error('New note onset outside measure');
+  const violinChordStyle=inst.startsWith('Violin')&&ctx.role==='chords'&&
+    (ctx.technique==='pizzicato'||ctx.technique==='tango_staccato')?
+    violinChordNoteStyle(p,p.bars[barIndex].section,inst as ViolinPart,beat,ctx.technique):undefined;
+  const bassArticulation=inst==='Contrabass'&&ctx.technique==='marcato'?'marcato_staccato':
+    inst==='Contrabass'&&ctx.technique==='arco_legato'?'legato':undefined;
+  const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`];
+  const effective=articulation!=='inherit'?articulation:(measureOverride??violinChordStyle?.articulation??ctx.articulation??bassArticulation);
+  // All articulated attacks default to a quarter note in notation. A staccato
+  // dot or marcato accent shortens/emphasizes playback, not the written value.
+  // For unmarked material, retain role-specific rhythmic defaults.
+  const length=effective==='staccato'||effective==='marcato_staccato'||effective==='legato'?1:
+    ctx.role==='bass'?0.75:ctx.role==='chords'&&inst.startsWith('Violin')&&['arpeggio','pizzicato_arpeggio'].includes(ctx.technique??'')?p.beats/4:
+    ctx.role==='chords'&&!inst.startsWith('Violin')?0.5:ctx.role==='fill'?0.5:1;
+  return Math.max(0.25,Math.min(length,p.beats-beat));
+}
 /** Default event attributes reflect the selected part's orchestration.
  * User-edited duration, velocity, articulation and pitch remain fully editable.
  */
 export function suggestedEditorNote(p:Project,inst:Instrument,barIndex:number,beat:number,pitch:number,duration?:number):Note {
   const ctx=noteEditorContext(p,inst,barIndex);
   if(!Number.isFinite(beat)||beat<0||beat>=p.beats||!Number.isInteger(pitch)||pitch<ctx.range[0]||pitch>ctx.range[1])throw Error('Note outside measure or instrument range');
-  const defaultDuration=ctx.role==='bass'?0.65:ctx.role==='chords'&&inst.startsWith('Violin')&&['arpeggio','pizzicato_arpeggio'].includes(ctx.technique??'')?p.beats/4:ctx.role==='chords'&&inst.startsWith('Violin')?1:ctx.role==='chords'?0.5:ctx.role==='fill'?0.5:1;
+  const defaultDuration=ctx.role==='chords'&&inst.startsWith('Violin')&&['arpeggio','pizzicato_arpeggio'].includes(ctx.technique??'')
+    ?p.beats/4:newNoteWrittenDuration(p,inst,barIndex,beat);
   const length=Math.min(duration??defaultDuration,p.beats-beat);
   if(!Number.isFinite(length)||length<=0)throw Error('Invalid note duration');
   const base=dynVelocity[ctx.dynamic]+(p.instrumentSettings?.[inst]?.dynamicsOffset??0);
@@ -845,8 +869,10 @@ export function suggestedEditorNote(p:Project,inst:Instrument,barIndex:number,be
   const chordStyle=inst.startsWith('Violin')&&ctx.role==='chords'&&
     (ctx.technique==='pizzicato'||ctx.technique==='tango_staccato')?
     violinChordNoteStyle(p,p.bars[barIndex].section,inst as ViolinPart,beat,ctx.technique):undefined;
+  const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`];
   return {pitch,start:barIndex*p.beats+beat,duration:length,velocity:Math.max(35,Math.min(127,Math.round(base))),
-    articulation:ctx.articulation,technique,source:'manual',...chordStyle};
+    articulation:ctx.articulation,technique,source:'manual',...chordStyle,
+    ...(measureOverride?{articulation:measureOverride,accent:measureOverride==='marcato_staccato',gate:undefined}:{})};
 }
 /** Replace exactly one instrument-measure, retaining every other part and edit.
  * Manual material is copied into importedScore because mergeScores already uses

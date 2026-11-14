@@ -561,16 +561,17 @@ test('piano editor has two simultaneous register grids and an editable split',()
   assert.ok(ma.every(n=>n.articulation==='marcato_staccato'&&n.accent));
   assert.ok(ma.every(n=>music.noteSoundingDuration(n)>music.noteSoundingDuration(st[ma.indexOf(n)])));
  });
- test('MusicXML writes staccato dots and marcato wedges without changing rhythm',()=>{
+ test('MusicXML writes staccato dots and marcato accents without changing rhythm',()=>{
   const p=music.blankProject({sections:1,measuresPerSection:1});
   const s=music.generate(p);
   s.Piano=[{pitch:60,start:0,duration:1,articulation:'staccato'},
     {pitch:62,start:1,duration:1,articulation:'marcato_staccato',accent:true},
     {pitch:64,start:2,duration:1,articulation:'legato'}];
   const xml=io.exportMusicXml(p,s);
-  assert.match(xml,/<strong-accent type="up"\/><staccato\/>/);
+  assert.match(xml,/<accent\/>/);
   assert.match(xml,/<staccato\/>/);
-  assert.equal((xml.match(/<strong-accent type="up"\/>/g)||[]).length,1);
+  assert.equal((xml.match(/<accent\/>/g)||[]).length,1);
+  assert.doesNotMatch(xml,/<strong-accent/);
   assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,4)),[]);
  });
  test('custom gate changes playback but not MusicXML note/rest durations',()=>{
@@ -593,7 +594,7 @@ test('piano editor has two simultaneous register grids and an editable split',()
   assert.equal(merged.Piano[0].articulation,'marcato_staccato');
   assert.equal(merged.Piano[0].gate,0.65);
   assert.equal(music.noteSoundingDuration(merged.Piano[0]),note.duration*0.65);
-  assert.match(io.exportMusicXml(edited,merged),/<strong-accent type="up"\/>/);
+  assert.match(io.exportMusicXml(edited,merged),/<accent\/>/);
  });
  test('invalid note gates and articulations are rejected before saving',()=>{
   const p=music.blankProject({sections:1,measuresPerSection:1});

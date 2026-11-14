@@ -58,7 +58,7 @@ test('loop refreshes notes on every measure repeat and stops on navigation',()=>
   assert.match(vue,/transport\.scheduleRepeat\(time=>\{[\s\S]*?measureLoopEvents\(score\.value\[noteInst\.value\]/);
   assert.match(vue,/\},'1m',0\)/);
   assert.match(vue,/function openNoteEditor\(inst:Instrument=overviewInstrument\.value,b:number=selectedBar\.value\)\{\s*stopNoteLoop\(\)/);
-  assert.match(vue,/watch\(active,tab=>\{if\(tab!=='notes'&&noteLoopPlaying\.value\)stopNoteLoop\(\)/);
+  assert.match(vue,/watch\(active,tab=>\{[\s\S]*?if\(tab!=='notes'&&noteLoopPlaying\.value\)stopNoteLoop\(\)/);
   assert.match(vue,/function selectProjectInEditor\(p:Project\)\{\s*stopPlayback\(\)/);
   assert.match(vue,/function stopPlayback\(\)\{[\s\S]*?noteLoopSession\+\+/);
 });

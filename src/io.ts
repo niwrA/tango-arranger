@@ -89,7 +89,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const tieStart=sources.some(n=>n.end>endSegment);
         const tieStop=sources.some(n=>n.start<begin);
         const ties=`${tieStop?'<tie type="stop"/>':''}${tieStart?'<tie type="start"/>':''}`;
-        const isAttack=!tieStop;const accent=isAttack&&sources.some(n=>n.accent&&n.start===begin);
+        const isAttack=!tieStop;
         if(isAttack&&j===0){
           const slide=sources.find(n=>n.slideTo!==undefined&&n.start===begin);
           const swell=sources.find(n=>n.swellTo!==undefined&&n.start===begin);
@@ -98,11 +98,13 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
           if(slide)out+=`<direction placement="above"><direction-type><words>${esc('gliss. to '+midiName(slide.slideTo!))}</words></direction-type></direction>`;
           if(swell)out+=`<direction placement="below"><direction-type><words>${esc((swell.swellTo!>(swell.velocity??80)?'cresc.':'dim.')+' to velocity '+swell.swellTo)}</words></direction-type></direction>`;
         }
-        const marcato=isAttack&&sources.some(n=>n.articulation==='marcato_staccato'&&n.start===begin);
-        const staccato=isAttack&&sources.some(n=>(n.articulation==='staccato'||n.articulation==='marcato_staccato')&&n.start===begin);
-        // MusicXML uses a wedge (strong-accent) for marcato and a dot for
-        // staccato. Marcato here deliberately combines the two markings.
-        const marks=(marcato?'<strong-accent type="up"/>':accent?'<accent/>':'')+(staccato?'<staccato/>':'');
+        // Tango convention: a dot for an unaccented staccato attack, and >
+        // (MusicXML accent) for accented staccato / marcato. Do not emit the
+        // vertical marcato wedge or a simultaneous dot for accented attacks.
+        // Neither mark changes the note's written MusicXML duration.
+        const markedAccent=isAttack&&sources.some(n=>n.start===begin&&(n.articulation==='marcato_staccato'||n.accent));
+        const staccato=isAttack&&!markedAccent&&sources.some(n=>n.articulation==='staccato'&&n.start===begin);
+        const marks=(markedAccent?'<accent/>':'')+(staccato?'<staccato/>':'');
         const articulationMarks=marks?`<articulations>${marks}</articulations>`:'';
         const notations=(tieStop||tieStart||articulationMarks)?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${articulationMarks}</notations>`:'';
         out+=`<note>${j?'<chord/>':''}${pitchXml(pitch,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${staffTag}${notations}</note>`;
