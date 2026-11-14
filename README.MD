@@ -1,3 +1,11 @@
+## v4.1.1 — Azure TypeScript build fix
+
+MusicXML note event projection explicitly retains the optional `subito` property used for per-note dynamics. Added a regression check to prevent TS2339 from returning. No change to arrangement behavior.
+
+## v4.1.0 — Contrabass style options
+
+Contrabass now has section and per-measure playing-style settings: traditional, pizzicato, arco legato, marcato, walking, and habanera. Styles affect generated rhythm, note length, articulation, and MusicXML technique markings where applicable. Settings persist in `.tango` projects, and protected manual measures are retained. The existing traditional bass pattern remains the default for older projects.
+
 ## v4.0.0 — Configurable live melody keyboard (2026-11-14)
 
 The Note Editor live-capture keyboard now has independent **Start note** and **End note** selectors, with all semitones in the selected instrument register available. The inclusive range can be a single note, part of an octave, or multiple octaves. The keyboard scrolls horizontally for wide spans and uses full-size touch targets. The selected pitch dropdown follows the displayed range; if either endpoint excludes its former pitch, the selected pitch is clamped to the nearest displayed key. Recorded draft taps are preserved when changing the keyboard display range. Opening a different instrument defaults the keyboard to the octave containing the initial note. This affects only the live-input keyboard, not the instrument range, note-editor pitch grid, or previously captured notes.

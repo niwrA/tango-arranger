@@ -56,7 +56,9 @@ const durationType=(ticks:number):[string,number]=>{
 const chunks=(ticks:number)=>{const values=[1920,1440,960,720,480,360,240,180,120,60,30];const out:number[]=[];let remaining=ticks;for(const v of values)while(remaining>=v){out.push(v);remaining-=v;}if(remaining)throw Error(`Duration not representable at 1/16 beat: ${ticks}`);return out;};
 function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number){
   const barTicks=Math.round(beats*DIV),offset=bar*beats;
-  const events=notes.map(n=>({pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,velocity:n.velocity}))
+  // Keep note-level dynamics in the export event projection; omitting subito
+  // makes the MusicXML direction below fail TypeScript compilation.
+  const events=notes.map(n=>({pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
@@ -69,7 +71,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
   let out='';
   const voiceTag=voice?`<voice>${voice}</voice>`:'';
   const staffTag=staff?`<staff>${staff}</staff>`:'';
-  let activeTechnique:'pizzicato'|'arco'='arco';let activeArticulation='';
+  let activeTechnique:'pizzicato'|'arco'|null=null;let activeArticulation='';
   for(let i=0;i<points.length-1;i++){
     const at=points[i],end=points[i+1],active=snapped.filter(n=>n.start<=at&&n.end>=end).sort((a,b)=>a.pitch-b.pitch);
     const pitches=[...new Set(active.map(n=>n.pitch))];
@@ -78,7 +80,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
       const nextTechnique=active.find(n=>n.technique)?.technique??'arco';
       const mode=active.find(n=>n.articulation)?.articulation??'';
       if(pitches.length&&mode!==activeArticulation){if(mode==='legato')out+=`<direction placement="above"><direction-type><words>legato</words></direction-type></direction>`;activeArticulation=mode;}
-      if(pitches.length&&nextTechnique!==activeTechnique){out+=`<direction><direction-type><words>${nextTechnique==='pizzicato'?'pizz.':'arco'}</words></direction-type><sound pizzicato="${nextTechnique==='pizzicato'?'yes':'no'}"/></direction>`;activeTechnique=nextTechnique;}
+      if(pitches.length&&active.some(n=>n.technique)&&nextTechnique!==activeTechnique){out+=`<direction><direction-type><words>${nextTechnique==='pizzicato'?'pizz.':'arco'}</words></direction-type><sound pizzicato="${nextTechnique==='pizzicato'?'yes':'no'}"/></direction>`;activeTechnique=nextTechnique;}
       const [type,dots]=durationType(dur),dot=dots?'<dot/>':'';
       if(!pitches.length)out+=`<note><rest/><duration>${dur}</duration>${voiceTag}<type>${type}</type>${dot}${staffTag}</note>`;
       else for(let j=0;j<pitches.length;j++){
