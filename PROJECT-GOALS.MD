@@ -198,3 +198,7 @@ The note editor must permit chromatic and out-of-chord notes for all instruments
 - Use the harmony at each of the four note onsets, including comma-separated mid-measure changes.
 - Maintain written rhythmic durations for MusicXML, with pizzicato articulation and short local playback gate.
 - Verify with regression tests; actual MuseScore 4 import and browser playback remain pending.
+
+
+### v2.6.3 mobile and audio diagnostics
+Playback controls are now at the top of the main workspace, with a direct 440 Hz Test sound control and visible audio status. Mobile project settings and local song library are collapsed behind a toggle; tabs scroll horizontally and the transport remains sticky on small screens. A blank song with no generated notes now displays a clear message rather than silently appearing to play. Actual browser audio on Azure/mobile devices still requires device testing.

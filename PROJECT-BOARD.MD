@@ -291,3 +291,7 @@ The Lead Sheet now has a **Copy section chords** panel with source and destinati
 - **Done:** Regression coverage for chromatic melody/bass entries, regeneration protection, MusicXML export, and UI wiring.
 - **Planned:** User-selectable per-note enharmonic spelling persisted into MusicXML (the current exporter infers spelling from section key).
 - **Verification limit:** Full Vue production build, browser note interactions, and actual MuseScore 4 import still require local validation.
+
+
+### v2.6.3 mobile and audio diagnostics
+Playback controls are now at the top of the main workspace, with a direct 440 Hz Test sound control and visible audio status. Mobile project settings and local song library are collapsed behind a toggle; tabs scroll horizontally and the transport remains sticky on small screens. A blank song with no generated notes now displays a clear message rather than silently appearing to play. Actual browser audio on Azure/mobile devices still requires device testing.

@@ -248,3 +248,7 @@ The Lead Sheet now has a **Copy section chords** panel with source and destinati
 - The **Pitch labels** control offers **Follow key signature**, **Use sharps**, or **Use flats**. For example, D♯4 and E♭4 denote the same MIDI pitch. This is an editor display preference, not an explicit enharmonic override in the saved note; MusicXML continues to choose note spelling from the section key.
 - The grid covers a scrolling 18-semitone window. Use the octave buttons to reach the rest of the instrument's supported range. Chromatic notes outside that range are still rejected.
 - Regression coverage includes out-of-chord melody and bass notes, manual-note persistence, MusicXML duration validity, enharmonic display labels, and a source check that the grid has no harmonic disabled state.
+
+
+### v2.6.3 mobile and audio diagnostics
+Playback controls are now at the top of the main workspace, with a direct 440 Hz Test sound control and visible audio status. Mobile project settings and local song library are collapsed behind a toggle; tabs scroll horizontally and the transport remains sticky on small screens. A blank song with no generated notes now displays a clear message rather than silently appearing to play. Actual browser audio on Azure/mobile devices still requires device testing.

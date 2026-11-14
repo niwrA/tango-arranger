@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
+const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+assert.match(app,/class="transport-bar"/);
+assert.match(app,/@click="play"/);
+assert.match(app,/@click="testAudio"/);
+assert.match(app,/playExpressiveEvent\(ctx,\{pitch:69,durationSeconds:0\.35/);
+assert.match(app,/Nothing to play yet/);
+assert.match(app,/mobileSettingsOpen=ref\(false\)/);
+assert.match(app,/mobile-settings-open/);
+assert.match(css,/@media\(max-width:600px\)/);
+assert.match(css,/position:sticky;top:0;z-index:20/);
+assert.match(css,/\.tabs\{overflow-x:auto/);
+assert.doesNotMatch(app,/<div class="eyebrow">PLAYBACK<\/div>/);
+console.log('11 mobile/audio UI checks passed');
