@@ -91,10 +91,10 @@ test('structure and keys are isolated from the main orchestration map',()=>{
   assert.match(overview,/@click="active='structure'"/);
 });
 test('map remains the default tab and tab navigation includes structure and keys',()=>{
-  assert.match(src,/ref<'overview'\|'structure'\|'lead'\|'arrange'\|'score'\|'notes'\|'about'>\('overview'\)/);
+  assert.match(src,/ref<'overview'\|'structure'\|'lead'\|'arrange'\|'rhythm'\|'score'\|'notes'\|'about'>\('overview'\)/);
   assert.match(src,/<nav class="tabs" aria-label="Main work areas">/);
   assert.match(src,/2 · Structure & keys/);
-  assert.match(src,/6 · Note editor/);
+  assert.match(src,/7 · Note editor/);
   assert.match(src,/<div class="overview-section-strip"/);
 });
 console.log(`${tests} navigation checks passed`);

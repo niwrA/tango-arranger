@@ -229,3 +229,19 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .note-duration-field .note-duration-slider{width:100%;accent-color:#d0a66b;min-height:32px}
 .note-duration-field .note-duration-controls input{width:80px;min-width:55px}
 @media(max-width:600px){.note-bar .note-resize-handle{width:24px}.note-bar{padding-right:25px}.note-duration-field{grid-column:1/-1}}
+
+/* v3.2 — Rhythm workbench */
+.rhythm-editor-section{min-width:0}.rhythm-workspace{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,1fr);gap:16px;align-items:start}
+.rhythm-workspace .editor{margin-top:12px}.rhythm-beat-preview{height:86px;position:relative;background:repeating-linear-gradient(90deg,#273744 0,#273744 calc(25% - 1px),#445566 calc(25% - 1px),#445566 25%);border:1px solid #536574;border-radius:8px;overflow:hidden;margin:12px 0}
+.rhythm-beat{position:absolute;top:10px;bottom:10px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;background:#345f67;border:2px solid #142a34;border-radius:6px;min-width:0;color:#e8f2f3}.rhythm-beat-accent{background:#ad8550;color:#161c23}.rhythm-beat strong{font-size:23px}.rhythm-beat small{font-size:10px}
+.rhythm-quick{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}.rhythm-quick button{padding:8px 10px;font-size:12px}.rhythm-instruments{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin-bottom:20px}.rhythm-instrument{display:flex;gap:9px;align-items:center;margin:0;padding:10px;border:1px solid #40515f;border-radius:8px;background:#202d38;font-size:13px;cursor:pointer}.rhythm-instrument input,.rhythm-overwrite input{width:18px;height:18px;flex:none}.rhythm-overwrite{display:flex;align-items:center;gap:10px}.rhythm-apply{width:100%;margin-top:4px}.rhythm-feedback{color:#d8e9d4;line-height:1.5}
+@media(max-width:980px){.rhythm-workspace{grid-template-columns:1fr}}@media(max-width:540px){.rhythm-instruments{grid-template-columns:1fr 1fr}.rhythm-workspace .editor{padding:14px}}
+
+/* v3.3: optional autocomplete, section-key choice and duration feedback */
+.lead-chord-editor{position:relative}.chord-suggestion-toggle{font-size:11px;padding:5px 7px;margin-top:4px;min-height:30px;width:100%}
+.key-change-backdrop{position:fixed;inset:0;background:#0b141cd9;display:flex;align-items:center;justify-content:center;z-index:100;padding:14px}
+.key-change-dialog{width:min(100%,600px);max-height:90vh;overflow:auto;box-shadow:0 15px 60px #0009}
+.key-change-options{display:grid;gap:9px;margin:16px 0}.key-change-options button{display:flex;flex-direction:column;align-items:flex-start;gap:5px;text-align:left;padding:12px}.key-change-options small{font-weight:400;opacity:.8}
+.duration-preview{height:12px;border:1px solid #67717c;background:#1d2934;border-radius:6px;overflow:hidden}
+.duration-preview span{display:block;height:100%;background:#d0a66b;min-width:1px;transition:width .08s ease}
+.note-duration-field .note-duration-controls .primary{min-width:60px;font-size:12px}

@@ -334,7 +334,7 @@ test('blank-song UI uses per-section measure inputs rather than a single common 
   const src=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
   assert.match(src,/class="note-grid"/);assert.match(src,/noteEditorPitchClass/);
   assert.match(src,/replaceInstrumentMeasure/);assert.match(src,/restoreNoteMeasure/);
-  assert.match(src,/6 · Note editor/);
+  assert.match(src,/7 · Note editor/);
  });
 // v1.3 inline section-aware lead sheet and overview harmony UI.
 test('lead sheet shows section boundaries, keys and measure ranges',()=>{

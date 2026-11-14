@@ -1,0 +1,56 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const cp=require('node:child_process');
+const root=path.resolve(__dirname,'..');
+const tmp=fs.mkdtempSync('/tmp/tango-rhythm-');
+try{
+ const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts')],{encoding:'utf8'});
+ assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+ const m=require(path.join(tmp,'music.js')),r=require(path.join(tmp,'rhythmEditor.js'));
+ const p=m.demoProject();const base=m.generate(p);
+ assert.equal(r.RHYTHM_PRESETS.length,14);
+ for(const preset of r.RHYTHM_PRESETS)for(const beats of [2,3,4]){
+   const slots=r.rhythmSlots(preset.id,beats,'Contrabass',p.profile);
+   assert.ok(slots.length>=2);
+   assert.ok(slots.every(s=>s.beat>=0&&s.duration>0&&s.beat+s.duration<=beats+1e-5));
+   assert.ok(slots.every((s,i)=>i===0||s.beat>slots[i-1].beat));
+ }
+ assert.deepEqual(r.rhythmSlots('marcato_two',4,'Contrabass').map(s=>s.beat),[0,2]);
+ assert.deepEqual(r.rhythmSlots('marcato_two',4,'Bandoneon I').map(s=>s.beat),[1,3]);
+ assert.deepEqual(r.rhythmSlots('tres_tres_dos',4).map(s=>s.beat),[0,1.5,3]);
+ const original=[{pitch:48,start:0,duration:1,velocity:82},{pitch:60,start:0,duration:1},{pitch:64,start:0,duration:1},{pitch:67,start:0,duration:1}];
+ const retimed=r.retimeMeasure(original,'Piano',0,4,r.rhythmSlots('marcato_four',4),'rhythm');
+ assert.equal(retimed.length,16);
+ const twoHand=r.retimeMeasure(original,'Piano',0,4,r.rhythmSlots('marcato_two',4,'Piano'),'rhythm',60,r.rhythmSlots('marcato_two',4,'Bandoneon I'));
+ assert.deepEqual([...new Set(twoHand.filter(n=>n.pitch<60).map(n=>n.start))],[0,2]);
+ assert.deepEqual([...new Set(twoHand.filter(n=>n.pitch>=60).map(n=>n.start))],[1,3]);
+ assert.deepEqual([...new Set(retimed.filter(n=>n.pitch<60).map(n=>n.pitch))],[48]);
+ assert.deepEqual([...new Set(retimed.filter(n=>n.pitch>=60).map(n=>n.pitch))],[60,64,67]);
+ assert.ok(retimed.every(n=>n.duration===1&&n.source==='manual'));
+ const accented=r.retimeMeasure(original,'Piano',0,4,r.rhythmSlots('marcato_four',4),'accents');
+ assert.equal(accented.length,4);assert.ok(accented.every(n=>n.start===0&&n.duration===1));
+ assert.deepEqual(original[0],{pitch:48,start:0,duration:1,velocity:82});
+ const single={...p,bars:[{chord:'Dm',section:'A1',melody:[]},{chord:'Gm',section:'A1',melody:[]}],protectedBars:{},generatedScore:undefined};
+ const initial=Object.fromEntries(m.INSTRUMENTS.map(i=>[i,[]]));
+ initial.Piano=[...original];initial.Contrabass=[{pitch:38,start:0,duration:1}];
+ initial['Violin I']=[{pitch:74,start:0,duration:1}];
+ let result2=r.applyRhythmPreset(single,initial,{instruments:['Piano','Contrabass'],measures:[0,1],preset:'marcato_four',mode:'rhythm'});
+ assert.equal(result2.updated,2);assert.equal(result2.skippedEmpty,2);
+ assert.equal(result2.project.generatedScore['Violin I'].length,1);
+ assert.ok(result2.project.protectedBars['Piano:0']);
+ assert.ok(result2.project.protectedBars['Contrabass:0']);
+ assert.ok(result2.project.importedScore.Piano.length===16);
+ assert.equal(m.mergeScores(result2.project,m.generate(result2.project)).Piano.filter(n=>n.start<4).length,16);
+ const again=r.applyRhythmPreset(result2.project,result2.project.generatedScore,{instruments:['Piano'],measures:[0],preset:'offbeat',mode:'rhythm'});
+ assert.equal(again.skippedProtected,1);assert.equal(again.updated,0);
+ const overwritten=r.applyRhythmPreset(result2.project,result2.project.generatedScore,{instruments:['Piano'],measures:[0],preset:'offbeat',mode:'rhythm',overwriteProtected:true});
+ assert.equal(overwritten.updated,1);assert.ok(overwritten.project.generatedScore.Piano.some(n=>n.start===0.5));
+ assert.deepEqual(result2.project.generatedScore.Piano.filter(n=>n.start<4).map(n=>n.start).slice(0,4),[0,0,0,0]);
+ assert.throws(()=>r.rhythmSlots('unknown',4),/Unknown rhythm/);
+ assert.throws(()=>r.applyRhythmPreset(p,base,{instruments:['Piano'],measures:[-1],preset:'style',mode:'rhythm'}),/Invalid rhythm targets/);
+ const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+ for(const snippet of ["active==='rhythm'",'Rhythm editor','rhythmTargets','applyRhythmSelection','rhythmProtectedCount','Rhythm section','Entire song','Overwrite protected manual edits','rhythm-beat-preview'])assert.ok(app.includes(snippet),snippet);
+ assert.ok(css.includes('.rhythm-workspace'));
+ console.log('Rhythm editor: 104+ functional, safety, layout and notation-domain assertions passed');
+}finally{fs.rmSync(tmp,{recursive:true,force:true});}

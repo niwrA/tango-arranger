@@ -1,3 +1,29 @@
+# Tango Arranger v3.3 — Free chord editing, duration controls and section-key transposition
+
+## Lead Sheet chords
+
+Chord fields accept freely typed symbols, including comma-separated sequences such as `C,C`, `Dm,A7`, `G7/B`, and `Cmaj7/G`. The suggestion list is **optional**: tap **Suggestions** to see completions for the chord at the caret, then explicitly select one. Merely typing does not force a selection. If the parser rejects an unfinished symbol on blur or Enter, the unsaved draft stays visible for correction instead of reverting silently. Only valid chord sequences are committed to the arrangement. Enter and Tab still support keyboard navigation.
+
+## Note Editor duration
+
+The selected note's **written duration** has separate `−` / `+`, slider, numeric entry and **Apply** controls. Numeric edits are committed on Change, Enter or Apply rather than on every intermediate keystroke. The duration bar's width is proportional to the actual saved duration and is keyed by that duration to force a fresh render; a second proportional preview and the saved duration label provide immediate independent feedback. The maximum is constrained by the note's start position and the end of the measure; it is not a sounding-length/gate control. Touch resize still needs testing in a real browser; source-level and domain tests cannot establish that every device behaves correctly.
+
+## Changing a section key
+
+Selecting a new key opens a decision dialog with three operations: **key signature only**, **transpose section chords**, or **transpose section chords and lead melody**. The latter also transposes protected instrument notes in the section, rejecting out-of-range notes without applying a partial change. Unprotected generated parts are regenerated from the new harmony. All other sections are left untouched. Chord qualities, inversions and comma slot positions are preserved. The spelling favors flats or sharps according to the destination key. A major/minor mode change on the same tonic is **not** automatic reharmonization; its chord qualities remain unchanged. The global arrangement transpose setting is unaffected.
+
+**Verification:** automated tests cover section-local transposition, slash chords, protected notes, invalid keys, optional chord suggestions and duration-control wiring. Full Vue/Vite build, touchscreen interactions and MuseScore rendering remain to be verified in the deployed environment.
+
+---
+
+# Tango Arranger v3.2 — Rhythm Editor
+
+The new **5 · Rhythm editor** tab offers fourteen templates (seven rhythmic figures and seven named orchestra-profile variants): Current orchestra style, Marcato en cuatro, Marcato en dos, Síncopa, 3–3–2, Habanera-inspired and Offbeat chords. Preview accents in a beat diagram. Choose the rhythm section (Piano, Contrabass, Bandoneon I/II), all parts, or any custom instrument selection. Apply to a measure range, one section or the whole song. You can apply onset/duration/accent changes or just accents/articulation while retaining original timing.
+
+The editor preserves the original pitches, chord voicings, piano register split, and per-note gestures. Existing simultaneous chord notes stay together. Silent measures are skipped rather than inventing notes; melody/voice selections require confirmation. Protected instrument-measures are skipped by default; overriding them requires a separate opt-in and confirmation. Applied results are protected manual note edits, persist in local autosave and `.tango` archives, survive orchestral regeneration and export to MusicXML. The patterns are simple editable rhythmic templates, not transcriptions of historic orchestra recordings. For 2/4 and 3/4, the reference pattern scales across the bar; this is a pragmatic approximation, not a musicological meter conversion.
+
+**Caution:** Replacing a rhythm changes onsets and written durations. It does not perform harmonic re-voicing when chords change within the bar; review the resulting notes if a measure has multiple harmonies. Browser UI, real audio and MuseScore rendering require deployment verification.
+
 ## v2.6.2 — Browser audio activation / Azure playback
 
 The application no longer imports Tone.js during initial page load. Some browsers warn that a Web Audio `AudioContext` was started without a user gesture even when the app has not requested playback. On the first Play, measure-loop or note-audition action, `src/toneSession.ts` synchronously creates/resumes a native `AudioContext` during the user's gesture, dynamically loads Tone.js, and assigns that already-resumed context to Tone. This also supports the expressive-note audition path. Browser autoplay policies still apply: the user must click Play or a note before audio can start; a site cannot silently unlock audio. Actual deployed-browser testing is required to verify whether warnings are eliminated in each browser. The workflow and Azure Static Web Apps configuration do not need changing.

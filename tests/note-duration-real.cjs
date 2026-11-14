@@ -57,6 +57,9 @@ test('pointer capture is on stable scroller and duration updates on input',()=>{
   const app=fs.readFileSync('src/App.vue','utf8');
   assert.match(app,/scroller\.setPointerCapture\(event\.pointerId\)/);
   assert.match(app,/@pointermove="moveNoteDrag\(\$event\)"/);
+  assert.match(app,/function applyWrittenDurationDraft\(/);
+  assert.match(app,/@change="applyWrittenDurationDraft"/);
+  assert.match(app,/@click="applyWrittenDurationDraft"/);
   assert.match(app,/@input="updateSelectedNote\('duration'/);
   assert.match(app,/:max="selectedDurationMax"/);
   assert.match(app,/if\(field==='duration'\)message\.value/);

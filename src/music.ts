@@ -203,6 +203,68 @@ export function transposeChord(symbol:string,semitones:number):string {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Invalid transpose');
   return symbol.replace(/(^|\/)([A-G])([#b]?)/g,(_m,prefix,step,acc)=>{const n=parsePitch(step+acc+'4');return n===null?_m:prefix+PITCHES[((n+semitones)%12+12)%12];});
 }
+/** Key changes are separate from global transposition. The caller chooses whether
+ * to move harmony, lead melody, or just the printed key signature.
+ * Qualities (m, 7, dim, etc.) and inversions are preserved; this does NOT
+ * reharmonize a major passage into minor or vice versa.
+ */
+export type SectionKeyChangeMode='signature'|'chords'|'chords-and-melody';
+export function sectionKeyInterval(fromKey:string,toKey:string):number {
+  parseKeySignature(fromKey);parseKeySignature(toKey);
+  const from=parsePitch(fromKey.replace(/m$/,'')+'4')!;
+  const to=parsePitch(toKey.replace(/m$/,'')+'4')!;
+  const up=((to-from)%12+12)%12;
+  return up>6?up-12:up;
+}
+export function transposeChordForKey(chord:string,semitones:number,toKey:string):string {
+  parseKeySignature(toKey);
+  if(!Number.isInteger(semitones)||Math.abs(semitones)>24)throw Error('Invalid key interval');
+  const spell= parseKeySignature(toKey).fifths<0?FLAT_PITCHES:SHARP_PITCHES;
+  const pitch=(root:string)=>{
+    // Use the parser directly for root case; don't change a valid accidental.
+    const parsed=parsePitch(root[0].toUpperCase()+root.slice(1)+'4');
+    if(parsed===null)throw Error('Invalid chord root: '+root);
+    return spell[((parsed+semitones)%12+12)%12];
+  };
+  const match=chord.match(/^([A-Ga-g][#b]?)(.*)$/);
+  if(!match)throw Error('Invalid chord: '+chord);
+  const slash=match[2].match(/^(.*)\/([A-Ga-g][#b]?)$/);
+  return pitch(match[1])+(slash?slash[1]+'/'+pitch(slash[2]):match[2]);
+}
+export function changeSectionKey(p:Project,section:string,toKey:string,mode:SectionKeyChangeMode):Project {
+  if(!p.bars.some(bar=>bar.section===section))throw Error('Unknown section: '+section);
+  if(!['signature','chords','chords-and-melody'].includes(mode))throw Error('Invalid section key change mode');
+  parseKeySignature(toKey);
+  const oldKey=sectionKey(p,section),delta=sectionKeyInterval(oldKey,toKey);
+  const next:Project={...p,sectionKeys:{...p.sectionKeys,[section]:toKey}};
+  if(mode==='signature')return next;
+  next.bars=p.bars.map(bar=>bar.section!==section?bar:{...bar,
+    chord:bar.chord.split(',').map(c=>c.trim()?transposeChordForKey(c.trim(),delta,toKey):'').join(','),
+    melody:mode==='chords-and-melody'?bar.melody.map(n=>{
+      const pitch=n.pitch+delta;
+      if(pitch<0||pitch>127)throw Error('Section melody transposition exceeds MIDI pitch range');
+      return {...n,pitch};
+    }):bar.melody.map(n=>({...n}))
+  });
+  // Protected instrument notes are the musician's edits. Keep them unchanged
+  // for harmony-only changes, or transpose them with the lead melody.
+  if(mode==='chords-and-melody'&&p.importedScore){
+    const transposeProtected=(inst:Instrument,n:Note):Note=>{
+      const measure=Math.floor((n.start+1e-7)/p.beats);
+      if(p.bars[measure]?.section!==section||!p.protectedBars[`${inst}:${measure}`])return {...n};
+      const [lo,hi]=instrumentRange(inst),pitch=n.pitch+delta;
+      const slideTo=n.slideTo===undefined?undefined:n.slideTo+delta;
+      if(pitch<lo||pitch>hi||(slideTo!==undefined&&(slideTo<lo||slideTo>hi)))throw Error(`Protected ${inst} note exceeds playable register; section key unchanged`);
+      return {...n,pitch,slideTo};
+    };
+    next.importedScore=Object.fromEntries(INSTRUMENTS.map(inst=>[inst,(p.importedScore?.[inst]??[]).map(n=>transposeProtected(inst,n))])) as Score;
+  }
+  // Rebuild non-protected measures from the new harmony and lead sheet.
+  // Protected measures are merged from importedScore (transposed above when requested).
+  if(p.generatedScore||p.importedScore){next.generatedScore=mergeScores(next,generate(next));}
+  return next;
+}
+
 export function measureArticulation(p:Project,inst:Instrument,barIndex:number):Exclude<Articulation,'auto'>|undefined {
   if(!(inst.startsWith('Violin')||inst.startsWith('Bandoneon')))return undefined;
   const override=p.articulation?.overrides?.[`${inst}:${barIndex}`];if(override)return override;
