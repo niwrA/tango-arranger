@@ -26,7 +26,7 @@ p.instrumentSettings.Piano.activity=1;p.instrumentSettings.Contrabass.activity=1
 const score=music.generate(p);
 test('UI version is read from package version',()=>{
  const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
- assert.equal(pkg.version,'4.4.0');
+ assert.equal(pkg.version,'4.5.0');
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  assert.match(app,/import \{version as appVersion\} from '\.\.\/package\.json'/);
  assert.match(app,/v\{\{appVersion\}\}/);

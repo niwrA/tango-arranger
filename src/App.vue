@@ -127,7 +127,9 @@ const noteLoopTo=ref(1);
 const noteLoopMeasure=ref(-1);
 function enterNoteFocusMode(){
   noteEditorTab.value='notes';noteDetailsPopup.value=false;noteFocusMore.value=false;
-  noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;
+  if(noteLoopFrom.value>selectedBar.value+1||noteLoopTo.value<selectedBar.value+1){
+    noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;
+  }
   noteFocusMode.value=true;
   void nextTick(()=>noteEditorRegion.value?.querySelector<HTMLButtonElement>('.note-focus-close')?.focus({preventScroll:true}));
 }
@@ -149,6 +151,26 @@ function changeFocusLoopFrom(){
 }
 function changeFocusLoopTo(){
   noteLoopTo.value=Math.max(noteLoopFrom.value,Math.min(project.value.bars.length,Math.round(Number(noteLoopTo.value)||noteLoopFrom.value)));
+}
+
+// The visible phrase and playback loop intentionally use the same bounds.
+const focusVisibleMeasures=computed(()=>{
+  const max=project.value.bars.length;
+  const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
+  const to=Math.max(from,Math.min(max,Math.round(Number(noteLoopTo.value)||from)));
+  return Array.from({length:to-from+1},(_,i)=>from+i-1);
+});
+function focusMeasureNotes(bar:number){
+  const beats=project.value.beats;
+  return (score.value[noteInst.value]??[]).filter(n=>Math.floor((n.start+1e-7)/beats)===bar);
+}
+function focusNoteTop(pitch:number){
+  const span=Math.max(1,noteViewEnd.value-noteViewStart.value);
+  return Math.max(0,Math.min(100,(noteViewEnd.value-pitch)/span*100));
+}
+function selectFocusMeasure(bar:number){
+  if(bar===selectedBar.value)return;
+  openNoteEditor(noteInst.value,bar);
 }
 
 function setNoteEditorTab(tab:'notes'|'capture'|'figures'|'expression'){noteEditorTab.value=tab;noteDetailsPopup.value=false;}
@@ -1152,6 +1174,27 @@ const noteLength=ref<number|'auto'>('auto');
 const newNoteArticulation=ref<'inherit'|'staccato'|'marcato_staccato'|'legato'>('inherit');
 const editorAccidentals=ref<'auto'|'sharp'|'flat'>('auto');
 const noteCenter=ref(72);
+const noteViewStart=ref(60);
+const noteViewEnd=ref(77);
+const noteViewCustom=ref(false);
+const noteViewOptions=computed(()=>Array.from({length:noteCtx.value.range[1]-noteCtx.value.range[0]+1},(_,i)=>noteCtx.value.range[0]+i));
+function changeNoteViewStart(){
+  noteViewStart.value=Math.max(noteCtx.value.range[0],Math.min(noteCtx.value.range[1],Math.round(Number(noteViewStart.value))));
+  if(noteViewStart.value>noteViewEnd.value)noteViewEnd.value=noteViewStart.value;
+  noteViewCustom.value=true;
+}
+function changeNoteViewEnd(){
+  noteViewEnd.value=Math.max(noteCtx.value.range[0],Math.min(noteCtx.value.range[1],Math.round(Number(noteViewEnd.value))));
+  if(noteViewEnd.value<noteViewStart.value)noteViewStart.value=noteViewEnd.value;
+  noteViewCustom.value=true;
+}
+function shiftNoteView(semitones:number){
+  const [lo,hi]=noteCtx.value.range;
+  const span=noteViewEnd.value-noteViewStart.value;
+  const start=Math.max(lo,Math.min(hi-span,noteViewStart.value+semitones));
+  noteViewStart.value=start;noteViewEnd.value=start+span;noteViewCustom.value=true;
+}
+
 const pianoTrebleCenter=ref(73);
 const pianoBassCenter=ref(49);
 const pianoSplit=computed({
@@ -1284,17 +1327,27 @@ function pitchWindow(lo:number,hi:number,center:number):number[]{
 }
 const noteRows=computed(()=>{
   const [lo,hi]=instrumentRange(noteInst.value);
-  return pitchWindow(lo,hi,noteCenter.value);
+  return noteViewCustom.value
+    ?Array.from({length:noteViewEnd.value-noteViewStart.value+1},(_,i)=>noteViewEnd.value-i)
+    :pitchWindow(lo,hi,noteCenter.value);
 });
 const noteStaffViews=computed(()=>{
   if(noteInst.value!=='Piano')return [{id:'single',label:'Piano roll',clef:'',pitches:noteRows.value}];
   const [lo,hi]=instrumentRange('Piano');
+  const trebleLo=Math.max(lo,pianoSplit.value,noteViewCustom.value?noteViewStart.value:lo);
+  const trebleHi=Math.min(hi,noteViewCustom.value?noteViewEnd.value:hi);
+  const bassLo=Math.max(lo,noteViewCustom.value?noteViewStart.value:lo);
+  const bassHi=Math.min(hi,pianoSplit.value-1,noteViewCustom.value?noteViewEnd.value:hi);
+  const pitches=(lower:number,upper:number,center:number)=>noteViewCustom.value
+    ?(lower<=upper?Array.from({length:upper-lower+1},(_,i)=>upper-i):[])
+    :pitchWindow(lower,upper,center);
   return [
-    {id:'treble',label:'Right hand · upper staff',clef:'Treble clef (G)',pitches:pitchWindow(Math.max(lo,pianoSplit.value),hi,pianoTrebleCenter.value)},
-    {id:'bass',label:'Left hand · lower staff',clef:'Bass clef (F)',pitches:pitchWindow(lo,Math.min(hi,pianoSplit.value-1),pianoBassCenter.value)}
-  ];
+    {id:'treble',label:'Right hand · upper staff',clef:'Treble clef (G)',pitches:pitches(trebleLo,trebleHi,pianoTrebleCenter.value)},
+    {id:'bass',label:'Left hand · lower staff',clef:'Bass clef (F)',pitches:pitches(bassLo,bassHi,pianoBassCenter.value)}
+  ].filter(staff=>staff.pitches.length>0);
 });
 function shiftPianoRegister(staff:'treble'|'bass',semitones:number){
+  if(noteViewCustom.value){shiftNoteView(semitones);return;}
   const [lo,hi]=instrumentRange('Piano');
   if(staff==='treble')pianoTrebleCenter.value=Math.max(Math.max(lo,pianoSplit.value)+8,Math.min(hi-8,pianoTrebleCenter.value+semitones));
   else pianoBassCenter.value=Math.max(lo+8,Math.min(Math.min(hi,pianoSplit.value-1)-8,pianoBassCenter.value+semitones));
@@ -1305,7 +1358,10 @@ function applyWrittenDurationDraft(){if(selectedEvent.value)updateSelectedNote('
 const noteDurationPercent=computed(()=>selectedEvent.value?Math.round(selectedEvent.value.duration/project.value.beats*100):0);
 const selectedDurationMax=computed(()=>selectedEvent.value?Number((project.value.beats-(selectedEvent.value.start-selectedBar.value*project.value.beats)).toFixed(3)):project.value.beats);
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
-  stopNoteLoop();if(capturePlaying.value)stopPlayback();
+  // Keep the phrase loop running while navigating measures of the same instrument in focus.
+  const keepFocusLoop=noteFocusMode.value&&noteLoopPlaying.value&&inst===noteInst.value;
+  if(!keepFocusLoop)stopNoteLoop();
+  if(capturePlaying.value)stopPlayback();
   const arrivingFromAnotherView=active.value!=='notes';
   if(arrivingFromAnotherView){noteFocusMode.value=false;noteFocusMore.value=false;}
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
@@ -1315,6 +1371,12 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   const existing=(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value);
   const typical=inst==='Contrabass'?43:inst==='Piano'?61:inst==='Violin I'?76:inst==='Violin II'?69:inst.startsWith('Bandoneon')?67:72;
   noteCenter.value=Math.max(range[0]+9,Math.min(range[1]-8,existing.length?Math.round(existing.reduce((sum,n)=>sum+n.pitch,0)/existing.length):typical));
+  if(arrivingFromAnotherView||!noteFocusMode.value){
+    noteViewCustom.value=true;
+    const initial=inst==='Piano'?{start:48,end:84}:{start:Math.max(range[0],noteCenter.value-9),end:Math.min(range[1],noteCenter.value+8)};
+    noteViewStart.value=Math.max(range[0],initial.start);
+    noteViewEnd.value=Math.min(range[1],initial.end);
+  }
   if(inst==='Piano'){
     const treble=existing.filter(n=>pianoStaffForPitch(n.pitch,pianoSplit.value)===1);
     const bass=existing.filter(n=>pianoStaffForPitch(n.pitch,pianoSplit.value)===2);
@@ -1478,6 +1540,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='score'">Open Score Review →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Current version: v{{appVersion}}. Highlights from recent releases.</p>
+    <div class="release-entry"><h3>v4.5.0 · Focus ranges and measure overview</h3><p>The Focus action is now in the upper-right of the regular Note Editor. Set the lowest and highest visible pitches, and use the Loop from/to measure range to view and navigate a multi-measure phrase while editing the selected measure below.</p></div>
     <div class="release-entry"><h3>v4.4.0 · Focused note editing</h3><p>Expand the Note Editor to a full-viewport piano roll. Previous/next measure, instrument loop playback and optional loop-range bounds remain in a compact sticky toolbar; selected-note quick editing stays at the bottom. Exit focus to return to the normal tabs and controls.</p></div>
     <div class="release-entry"><h3>v4.3.3 · Correct staccato and marcato notation</h3><p>Written note lengths stay independent of sounding gates: new staccato and marcato attacks default to quarter notes, with a dot for unaccented staccato and a &gt; accent for accented attacks in MusicXML. Explicit rhythmic durations remain unchanged; the short tango playback remains available.</p></div>
     <div class="release-entry"><h3>v4.3.0 · Collapsible controls and note editor tabs</h3><p>Instrument and measure navigation remain above four note editor tabs: Notes, Live input, Figures, and Dynamics &amp; expression. Control groups can be expanded or collapsed across the workspaces without changing arrangement data.</p></div>
@@ -1625,7 +1688,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <section v-else-if="active==='score'"><div class="section-heading"><h2>Generated score review</h2><span>{{scoreStats(score)}} notes · {{INSTRUMENTS.length}} parts</span></div><p class="muted">Review instrument-measures, protect edits imported from MuseScore, and regenerate selectively. Double-click any instrument’s note list to edit that instrument and measure. This is a note-event overview, not an engraved staff score.</p><details class="control-fold" open><summary>Score review controls</summary><div class="two"><label>Measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}} · {{b.chord}}</option></select></label><div class="align-bottom"><button class="secondary" @click="exportXml">Export score to MuseScore ↗</button></div></div></details><div class="score-rows"><div v-for="entry in currentNotes" :key="entry.inst" class="score-row"><div class="score-name"><strong>{{entry.inst}}</strong><button class="secondary score-edit-link" @click="openNoteEditor(entry.inst,selectedBar)">Edit notes</button><small class="muted">{{activitySummary(entry.inst)}}% measures active</small><label class="protect"><input type="checkbox" :checked="!!project.protectedBars[`${entry.inst}:${selectedBar}`]" @change="setProtected(entry.inst,selectedBar,($event.target as HTMLInputElement).checked)"/> Protect</label></div><div class="notes score-notes-shortcut" :title="`Double-click to edit ${entry.inst} notes in measure ${selectedBar+1}`" @dblclick="openNoteEditor(entry.inst,selectedBar)"><span v-for="(n,i) in entry.notes" :key="i" class="note-chip">{{midiName(n.pitch+(project.transposeSemitones??0))}} <small>{{n.duration}} beat</small></span><span v-if="!entry.notes.length" class="muted">Rest</span></div></div></div></section>
 
 <section v-else ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
-  <div class="section-heading"><h2>Instrument note editor</h2><span>Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span></div>
+  <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><span>Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
   <div v-if="noteFocusMode" class="note-focus-toolbar" role="toolbar" aria-label="Focused note editor navigation">
     <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
     <strong class="note-focus-identity">{{noteInst}} · measure {{selectedBar+1}} / {{project.bars.length}}</strong>
@@ -1636,7 +1699,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="note-focus-range">To<input type="number" :min="noteLoopFrom" :max="project.bars.length" v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"/></label>
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
-  <div class="note-editor-navigation" aria-label="Note editor navigation"><button type="button" class="secondary" @click="returnToMap">← Back to map</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus editor</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous measure</button><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next measure →</button><span class="editor-shortcut-help">Keyboard: Delete / Backspace remove note · ← → select notes · ↑ ↓ pitch ± semitone · + / − duration ± ¼ beat · [ ] measures · L loop · Esc map. Text fields keep normal typing.</span></div>
+  <div class="note-editor-navigation" aria-label="Note editor navigation"><button type="button" class="secondary" @click="returnToMap">← Back to map</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous measure</button><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next measure →</button><span class="editor-shortcut-help">Keyboard: Delete / Backspace remove note · ← → select notes · ↑ ↓ pitch ± semitone · + / − duration ± ¼ beat · [ ] measures · L loop · Esc map. Text fields keep normal typing.</span></div>
   <details class="note-common-controls" open aria-label="Shared instrument and measure controls"><summary>Instrument and measure</summary>
     <div class="note-editor-controls">
       <label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in INSTRUMENTS" :key="inst" :value="inst">{{inst}}</option></select></label>
@@ -1726,11 +1789,25 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </details>
     <details class="control-fold" open><summary>Octave, piano split and measure actions</summary>
     <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
-    <div class="note-editor-actions"><template v-if="noteInst==='Piano'"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="noteCenter=Math.max(noteCtx.range[0]+9,noteCenter-12)">↓ Lower octave</button><button class="secondary" @click="noteCenter=Math.min(noteCtx.range[1]-8,noteCenter+12)">↑ Higher octave</button></template><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div>
+    <div class="note-editor-actions"><template v-if="noteInst==='Piano'&&!noteViewCustom"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="shiftNoteView(-12)">↓ Lower octave</button><button class="secondary" @click="shiftNoteView(12)">↑ Higher octave</button></template><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div>
     </details>
+    <div class="note-view-range-controls" aria-label="Note editor visible pitch range">
+      <label>Lowest note<select v-model.number="noteViewStart" @change="changeNoteViewStart"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+      <label>Highest note<select v-model.number="noteViewEnd" @change="changeNoteViewEnd"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+      <span class="hint">Visible pitch range · {{midiName(noteViewStart)}}–{{midiName(noteViewEnd)}}</span>
+    </div>
     <div v-if="noteFocusMode" class="note-focus-view-tools" aria-label="Visible pitch range">
-      <template v-if="noteInst==='Piano'"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
-      <template v-else><button type="button" class="secondary" @click="noteCenter=Math.max(noteCtx.range[0]+9,noteCenter-12)">↓ View octave</button><button type="button" class="secondary" @click="noteCenter=Math.min(noteCtx.range[1]-8,noteCenter+12)">↑ View octave</button></template>
+      <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
+      <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
+    </div>
+    <div v-if="noteFocusMode" class="note-focus-phrase" aria-label="Visible measure range and note overview">
+      <div class="note-focus-phrase-heading"><strong>Visible measures {{noteLoopFrom}}–{{noteLoopTo}} ({{focusVisibleMeasures.length}})</strong><span class="hint">Select a measure to edit its notes below. The same range is used for loop playback.</span></div>
+      <div class="note-focus-phrase-scroll">
+        <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" :class="['note-focus-measure',{'current':barIndex===selectedBar,'playing':noteLoopPlaying&&noteLoopMeasure===barIndex}]" :aria-label="`Edit measure ${barIndex+1}, ${focusMeasureNotes(barIndex).length} notes`" :aria-current="barIndex===selectedBar?'true':undefined" @click="selectFocusMeasure(barIndex)">
+          <span class="note-focus-measure-heading">{{barIndex+1}} · {{project.bars[barIndex].section}} <small>{{project.bars[barIndex].chord||'—'}}</small></span>
+          <span class="note-focus-measure-lanes"><span v-for="(n,i) in focusMeasureNotes(barIndex)" :key="`${i}-${n.start}-${n.pitch}`" class="note-focus-measure-note" :style="{left:`${(n.start-barIndex*project.beats)/project.beats*100}%`,width:`${Math.max(1,n.duration/project.beats*100)}%`,top:`${focusNoteTop(n.pitch)}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats`"></span></span>
+        </button>
+      </div>
     </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
@@ -1740,7 +1817,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div></td></tr>
     </tbody></table></div></div>
     </div>
-    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with the octave buttons.</p>
+    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
     <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
     <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><details class="control-fold selected-note-fold" open><summary>Edit selected note · {{displayPitch(selectedEvent.pitch)}}</summary><div class="note-editor-controls">
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>

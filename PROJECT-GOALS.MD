@@ -1,3 +1,10 @@
+## v4.5.0 — Focus view navigation and range controls
+
+- Focus editor action is visible at the top-right of the ordinary Note Editor heading.
+- Lowest/Highest note selectors control the pitch range displayed in the note grid, including both piano staves; this is independent of live capture keyboard range.
+- Focus view shows the measure range chosen by Loop from / To as a scrollable note overview. Click any measure to make it the editable measure below. Playback loops the same measure range.
+- Only the selected measure is directly draggable/resizable; the phrase overview is navigational and does not allow dragging across measure boundaries.
+
 ## v4.4.0 — Focused Note Editor (14 November 2026)
 
 The Instrument Note Editor now offers a full-viewport **Focus editor** mode. The sticky top bar keeps previous/next measure, instrument-loop playback and optional loop-from/loop-to measure controls within reach. The bottom quick editor keeps the selected note’s timing, written duration, articulation and deletion accessible; **All note properties** reveals the complete form. Escape exits focus mode before leaving the Note Editor. The normal Notes, Live Input, Figures and Dynamics tabs remain unchanged outside focus mode. The focused loop plays only the current instrument across the selected measure range; navigating to another measure stops playback, while preserving the loop range in focus mode. This is a CSS full-viewport workspace, not the browser Fullscreen API.
