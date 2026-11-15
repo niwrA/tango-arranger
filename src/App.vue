@@ -1567,12 +1567,38 @@ function toggleNote(pitch:number,beat:number){
   if(index<0)noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-selectedBar.value*project.value.beats-beat)<0.00001);
   message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${index>=0?'removed':'added'} ${displayPitch(pitch)} at beat ${beat+1}. Manual measure protected.`;
 }
-function updateSelectedNote(field:'lyric'|'syllabic'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'swellTo'|'subito',raw:string){
+const lyricBatch=ref('');
+const lyricVerse=ref<1|2>(1);
+const lyricAcrossMeasures=ref(false);
+function applyLyricBatch(){
+  if(!noteInst.value.startsWith('Voice'))return;
+  const tokens=lyricBatch.value.trim().split(/\s+/).filter(Boolean).flatMap(word=>word.split('-').filter(Boolean).map((part,index,all)=>({text:part,syllabic:(all.length===1?'single':index===0?'begin':index===all.length-1?'end':'middle') as NonNullable<Note['syllabic']>})));
+  // An underscore consumes the next note onset without adding a new syllable.
+  const expanded=tokens.flatMap(t=>t.text.split('_').map((part,index)=>({text:index===0?part:'',syllabic:t.syllabic,melisma:index===0&&t.text.includes('_')})));
+  if(!expanded.length){message.value='Enter some lyrics before aligning.';return;}
+  const first=selectedBar.value,last=lyricAcrossMeasures.value?project.value.bars.length-1:first;
+  const all=score.value[noteInst.value]??[];
+  const byBar=new Map<number,Note[]>();
+  for(let bar=first;bar<=last;bar++)byBar.set(bar,all.filter(n=>n.start>=bar*project.value.beats&&n.start<(bar+1)*project.value.beats).map(n=>({...n})));
+  const slots=[...byBar.entries()].flatMap(([bar,notes])=>[...new Set(notes.map(n=>n.start))].sort((a,b)=>a-b).map(start=>({bar,start})));
+  if(expanded.length>slots.length){message.value=`${expanded.length} lyric positions but only ${slots.length} available note onsets. Nothing changed.`;return;}
+  const verse=lyricVerse.value,field=verse===1?'lyric':'lyric2',syll=verse===1?'syllabic':'syllabic2',ext=verse===1?'melisma':'melisma2';
+  const affected=new Set(slots.slice(0,expanded.length).map(s=>s.bar));
+  // Keep unrelated measures and the other verse untouched.
+  for(const bar of affected){for(const n of byBar.get(bar)??[]){delete (n as unknown as Record<string,unknown>)[field];delete (n as unknown as Record<string,unknown>)[syll];delete (n as unknown as Record<string,unknown>)[ext];}}
+  expanded.forEach((t,i)=>{const slot=slots[i],note=byBar.get(slot.bar)?.find(n=>n.start===slot.start);if(!note)return;const target=note as unknown as Record<string,unknown>;if(t.text){target[field]=t.text.slice(0,160);target[syll]=t.syllabic;}if(t.melisma)target[ext]=true;});
+  let next=project.value;
+  for(const bar of affected)next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),noteInst.value,bar,byBar.get(bar)??[]);
+  project.value=next;
+  message.value=`Aligned verse ${verse} to ${expanded.length} note onsets across ${affected.size} measure(s). Edited measures protected.`;
+}
+function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'swellTo'|'subito',raw:string){
   if(!selectedEvent.value)return;
   const events=noteMeasure.value.map(n=>({...n}));const index=noteSelected.value;const old=events[index];
   let value:number|string=raw;
   if(['pitch','start','duration','velocity','gate','slideTo','swellTo'].includes(field)&&raw!=='inherit')value=Number(raw);
-  if(field==='lyric')value=raw.trim().slice(0,160);
+  if(field==='lyric'||field==='lyric2')value=raw.trim().slice(0,160);
+  if(field==='melisma'||field==='melisma2')value=raw==='true';
   if(field==='gate')value=(value as number)/100;
   if(field==='duration'){
     if(!Number.isFinite(value)||Number(value)<0.25){message.value='Duration must be at least 0.25 beats';return;}
@@ -1583,7 +1609,7 @@ function updateSelectedNote(field:'lyric'|'syllabic'|'pitch'|'start'|'duration'|
   }
   if(field==='start')value=selectedBar.value*project.value.beats+(value as number);
   const next={...old,[field]:value};
-  if(field==='lyric'&&!raw.trim())delete next.lyric;
+  if((field==='lyric'||field==='lyric2')&&!raw.trim())delete next[field];
   if(field==='articulation'){
     if(raw==='inherit')delete next.articulation;
     next.accent=raw==='marcato_staccato';
@@ -2036,8 +2062,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>
       <label>Beat (starts at 1)<input type="number" min="1" :max="project.beats" step="0.25" :value="selectedEvent.start-selectedBar*project.beats+1" @change="updateSelectedNote('start',String(Number(($event.target as HTMLInputElement).value)-1))"/></label><div class="note-position-nudge"><span>Move onset (keep duration)</span><div class="note-nudge-buttons"><button type="button" class="secondary" aria-label="Move selected note half a beat earlier" :disabled="selectedEvent.start-selectedBar*project.beats<=0" @click="nudgeSelectedNote(-0.5)">← ½ beat</button><button type="button" class="secondary" aria-label="Move selected note half a beat later" :disabled="selectedEvent.start-selectedBar*project.beats+selectedEvent.duration>=project.beats-0.0001" @click="nudgeSelectedNote(0.5)">½ beat →</button></div></div>
       <div class="note-duration-field"><label for="note-written-duration">Written duration · {{selectedEvent.duration}} beats</label><div class="note-duration-controls"><button type="button" class="secondary" @click="changeNoteDuration(-0.25)" :disabled="selectedEvent.duration<=0.25" aria-label="Shorten note by quarter beat">−</button><input id="note-written-duration" type="number" min="0.25" :max="selectedDurationMax" step="0.25" v-model="writtenDurationDraft" @keydown.enter.prevent="applyWrittenDurationDraft" @change="applyWrittenDurationDraft"/><button type="button" class="primary" @click="applyWrittenDurationDraft">Apply</button><button type="button" class="secondary" @click="changeNoteDuration(0.25)" :disabled="selectedEvent.duration>=selectedDurationMax-0.0001" aria-label="Lengthen note by quarter beat">+</button></div><input class="note-duration-slider" type="range" min="0.25" :max="selectedDurationMax" step="0.25" :value="selectedEvent.duration" :disabled="selectedDurationMax<=0.25" aria-label="Written note duration in beats" @input="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><div class="duration-preview" role="status" :aria-label="`Written duration ${selectedEvent.duration} beats`"><span :style="{width:`${noteDurationPercent}%`}"></span></div><small class="hint">Saved duration: <strong>{{selectedEvent.duration}} beats</strong> · starts at beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}} · maximum {{selectedDurationMax}} beats until the measure ends. Written length is separate from sounding length.</small></div>
+      <div v-if="noteInst.startsWith('Voice')" class="editor"><strong>Align lyrics across this measure</strong><p class="hint">Words separated by spaces; hyphens split syllables (e.g. tan-go); underscores reserve the next note for a melisma (e.g. love_). Applies to note onsets in time order and protects edited measures.</p><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue alignment into following measures</label><label>Lyrics for measure<textarea v-model="lyricBatch" rows="2" placeholder="El cho-clo can-ta_"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to notes</button></div>
       <label v-if="noteInst.startsWith('Voice')">Lyric syllable (selected note)<input type="text" maxlength="160" :value="selectedEvent.lyric??''" placeholder="e.g. cho" @change="updateSelectedNote('lyric',($event.target as HTMLInputElement).value)"/></label>
       <label v-if="noteInst.startsWith('Voice')">Syllable position<select :value="selectedEvent.syllabic??'single'" @change="updateSelectedNote('syllabic',($event.target as HTMLSelectElement).value)"><option value="single">Single syllable</option><option value="begin">Beginning of word</option><option value="middle">Middle of word</option><option value="end">End of word</option></select></label>
+      <label v-if="noteInst.startsWith('Voice')">Verse 2 syllable<input type="text" maxlength="160" :value="selectedEvent.lyric2??''" @change="updateSelectedNote('lyric2',($event.target as HTMLInputElement).value)"/></label>
+      <label v-if="noteInst.startsWith('Voice')">Verse 2 syllable position<select :value="selectedEvent.syllabic2??'single'" @change="updateSelectedNote('syllabic2',($event.target as HTMLSelectElement).value)"><option value="single">Single</option><option value="begin">Beginning</option><option value="middle">Middle</option><option value="end">End</option></select></label>
+      <label v-if="noteInst.startsWith('Voice')"><input type="checkbox" :checked="selectedEvent.melisma??false" @change="updateSelectedNote('melisma',String(($event.target as HTMLInputElement).checked))"/> Verse 1: extend this syllable over following untexted notes</label>
+      <label v-if="noteInst.startsWith('Voice')"><input type="checkbox" :checked="selectedEvent.melisma2??false" @change="updateSelectedNote('melisma2',String(($event.target as HTMLInputElement).checked))"/> Verse 2: extend this syllable over following untexted notes</label>
       <p v-if="noteInst.startsWith('Voice')" class="hint">Attach one sung syllable to each note. For multi-syllable words use begin / middle / end. MusicXML exports lyric elements to MuseScore; tied fragments do not repeat the syllable. Lyrics are saved with protected manual notes.</p>
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>

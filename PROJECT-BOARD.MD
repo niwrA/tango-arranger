@@ -1,3 +1,10 @@
+## v5.5.3 - Lyrics export and alignment follow-up
+
+- Multi-measure lyric alignment option in the Note Editor, beginning at the selected measure; syllables and underscore-reserved melisma notes follow chronological note onsets.
+- MusicXML exports melisma start, continue, and stop extenders across barlines for both verses, while retaining the original note-level melisma flags.
+- MusicXML import recognizes only extender starts as melisma flags; continuation/stop markers are derived from the note sequence on export.
+- No full production build or MuseScore visual import verification was possible in this environment; dependency installation and manual verification remain required.
+
 ## v5.5.0 — Dynamic orchestra roster and El Choclo in 4/4 (2026-11-15)
 
 - The factory roster remains Piano, Contrabass, Violin I, Violin II, Bandoneon I, Bandoneon II and Voice. Songs may now store an optional custom `instruments` array; legacy `.tango` projects without this field continue to use the factory roster.
@@ -540,3 +547,9 @@ The Orchestration sub-tab **Section** refers to a functional orchestral group (R
 - MusicXML export: lyrics use `<lyric number="1"><syllabic>...</syllabic><text>...</text></lyric>` on the first onset, XML-escaped; tie continuations do not duplicate the syllable. MusicXML import reads lyric syllables into imported notes.
 - Built-in roster templates: Quartet, Sextet, Septet and Orquesta típica, plus the original factory seven-part roster. User presets remain local and editable; built-in templates cannot be overwritten/deleted.
 - Verification: source assertions and existing regression tests run; no browser or MuseScore GUI verification.
+
+### v5.5.2 — experimental lyric editor enhancements
+- Added measure-level text-to-note lyric alignment for vocal parts, with hyphenated syllables and underscore continuation placeholders.
+- Added a second lyric verse per note and corresponding MusicXML import/export fields.
+- Added melisma start markers in MusicXML and note properties for both verses.
+- Verification: existing core regression checks and updated source checks passed. Production build and MuseScore import remain unverified; full melisma end/continue semantics are not implemented.

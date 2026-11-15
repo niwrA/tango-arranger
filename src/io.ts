@@ -54,11 +54,28 @@ const durationType=(ticks:number):[string,number]=>{
   return [item[1],item[2]];
 };
 const chunks=(ticks:number)=>{const values=[1920,1440,960,720,480,360,240,180,120,60,30];const out:number[]=[];let remaining=ticks;for(const v of values)while(remaining>=v){out.push(v);remaining-=v;}if(remaining)throw Error(`Duration not representable at 1/16 beat: ${ticks}`);return out;};
+// Derive MusicXML extender phases from the ordered sung note onsets, including
+// across barlines. A melisma flag marks the syllable that starts the span.
+function lyricExtensionPhase(notes:Note[], source:Note, verse:1|2):'start'|'continue'|'stop'|undefined {
+  const lyricKey=verse===1?'lyric':'lyric2';
+  const flagKey=verse===1?'melisma':'melisma2';
+  const ordered=[...notes].sort((a,b)=>a.start-b.start||b.pitch-a.pitch);
+  const unique=ordered.filter((n,i)=>i===0||n.start!==ordered[i-1].start);
+  const idx=unique.findIndex(n=>n.start===source.start);
+  if(idx<0)return undefined;
+  const text=(unique[idx][lyricKey]??'').trim();
+  if(text)return unique[idx][flagKey]&&idx+1<unique.length&&!unique[idx+1][lyricKey]?.trim()?'start':undefined;
+  let begin=idx-1;
+  while(begin>=0&&!unique[begin][lyricKey]?.trim())begin--;
+  if(begin<0||!unique[begin][flagKey])return undefined;
+  const next=idx+1<unique.length?unique[idx+1]:undefined;
+  return !next||!!next[lyricKey]?.trim()?'stop':'continue';
+}
 function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number){
   const barTicks=Math.round(beats*DIV),offset=bar*beats;
   // Keep note-level dynamics in the export event projection; omitting subito
   // makes the MusicXML direction below fail TypeScript compilation.
-  const events=notes.map(n=>({pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic}))
+  const events=notes.map(n=>({pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
@@ -107,7 +124,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const marks=(markedAccent?'<accent/>':'')+(staccato?'<staccato/>':'');
         const articulationMarks=marks?`<articulations>${marks}</articulations>`:'';
         const lyricSource=isAttack&&j===0?sources.find(n=>n.start===begin&&n.lyric?.trim()):undefined;
-        const lyricXml=lyricSource?`<lyric number="1"><syllabic>${lyricSource.syllabic??'single'}</syllabic><text>${esc(lyricSource.lyric!.trim())}</text></lyric>`:'';
+        const lyricXml=isAttack&&j===0?sources.filter(n=>n.start===begin).slice(0,1).map(n=>[1,2].map(v=>{const word=(v===1?n.lyric:n.lyric2)?.trim();const phase=lyricExtensionPhase(notes,n,v as 1|2);if(!word&&!phase)return '';const syllabic=v===1?n.syllabic:n.syllabic2;return `<lyric number="${v}">${word?`<syllabic>${syllabic??'single'}</syllabic><text>${esc(word)}</text>`:''}${phase?`<extend type="${phase}"/>`:''}</lyric>`;}).join('')).join(''):'';
         const notations=(tieStop||tieStart||articulationMarks)?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${articulationMarks}</notations>`:'';
         out+=`<note>${j?'<chord/>':''}${pitchXml(pitch,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${staffTag}${notations}${lyricXml}</note>`;
       }
@@ -205,7 +222,7 @@ export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUME
 export async function saveProject(p:Project){const zip=new JSZip();zip.file('project.json',JSON.stringify(p,null,2));if(p.generatedScore)zip.file('score/generated.musicxml',exportMusicXml(p,p.generatedScore));if(p.importedScore)zip.file('score/edited.musicxml',exportMusicXml(p,p.importedScore));download(await zip.generateAsync({type:'blob'}),p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()+'.tango');}
 export async function loadProject(file:File):Promise<Project>{const zip=await JSZip.loadAsync(file);const data=zip.file('project.json');if(!data)throw Error('No project.json in archive');const p=JSON.parse(await data.async('string')) as Project;if(p.version!==1||!Array.isArray(p.bars))throw Error('Unsupported project format');p.sectionKeys??=inferSectionKeys(p);return p;}
 function nodeText(e:Element|null,tag:string){return e?.getElementsByTagName(tag)[0]?.textContent??'';}
-export function importMusicXml(text:string):{parts:{name:string;notes:Note[]}[];chords:string[];keys:string[]}{const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw Error('Invalid MusicXML');const names=Array.from(doc.getElementsByTagName('score-part')).map(e=>nodeText(e,'part-name'));const parts=Array.from(doc.getElementsByTagName('part')).map((part,i)=>{let cursor=0;const notes:Note[]=[];for(const measure of Array.from(part.getElementsByTagName('measure'))){let pos=cursor,lastStart=cursor;const divisions=Number(nodeText(measure,'divisions'))||480;for(const child of Array.from(measure.children)){if(child.tagName==='backup')pos-=Number(nodeText(child,'duration'))/divisions;if(child.tagName==='forward')pos+=Number(nodeText(child,'duration'))/divisions;if(child.tagName!=='note')continue;const dur=Number(nodeText(child,'duration'))/divisions||1;const chord=!!child.getElementsByTagName('chord').length;const start=chord?lastStart:pos;const pitch=child.getElementsByTagName('pitch')[0];if(pitch){const step=nodeText(pitch,'step'),alter=Number(nodeText(pitch,'alter'))||0,oct=nodeText(pitch,'octave');const name=step+(alter===1?'#':alter===-1?'b':'')+oct;const n=parsePitch(name);if(n!==null){const lyricElement=child.getElementsByTagName('lyric')[0];const lyric=lyricElement?nodeText(lyricElement,'text'):'';const syllabic=lyricElement?nodeText(lyricElement,'syllabic'):'';notes.push({pitch:n,start,duration:dur,source:'imported',...(lyric?{lyric,syllabic:(['single','begin','middle','end'].includes(syllabic)?syllabic:'single') as Note['syllabic']}: {})});}}if(!chord){lastStart=pos;pos+=dur;}}cursor=Math.max(cursor,pos);}return {name:names[i]??`Part ${i+1}`,notes};});const firstPart=doc.getElementsByTagName('part')[0];
+export function importMusicXml(text:string):{parts:{name:string;notes:Note[]}[];chords:string[];keys:string[]}{const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw Error('Invalid MusicXML');const names=Array.from(doc.getElementsByTagName('score-part')).map(e=>nodeText(e,'part-name'));const parts=Array.from(doc.getElementsByTagName('part')).map((part,i)=>{let cursor=0;const notes:Note[]=[];for(const measure of Array.from(part.getElementsByTagName('measure'))){let pos=cursor,lastStart=cursor;const divisions=Number(nodeText(measure,'divisions'))||480;for(const child of Array.from(measure.children)){if(child.tagName==='backup')pos-=Number(nodeText(child,'duration'))/divisions;if(child.tagName==='forward')pos+=Number(nodeText(child,'duration'))/divisions;if(child.tagName!=='note')continue;const dur=Number(nodeText(child,'duration'))/divisions||1;const chord=!!child.getElementsByTagName('chord').length;const start=chord?lastStart:pos;const pitch=child.getElementsByTagName('pitch')[0];if(pitch){const step=nodeText(pitch,'step'),alter=Number(nodeText(pitch,'alter'))||0,oct=nodeText(pitch,'octave');const name=step+(alter===1?'#':alter===-1?'b':'')+oct;const n=parsePitch(name);if(n!==null){const lyricElements=Array.from(child.getElementsByTagName('lyric'));const readVerse=(number:number)=>{const element=lyricElements.find(e=>(Number(e.getAttribute('number'))||1)===number);const text=element?nodeText(element,'text'):'';const raw=element?nodeText(element,'syllabic'):'';const syllabic=(['single','begin','middle','end'].includes(raw)?raw:'single') as NonNullable<Note['syllabic']>;return {text,syllabic,melisma:Array.from(element?.getElementsByTagName('extend')??[]).some(e=>e.getAttribute('type')==='start')};};const first=readVerse(1),second=readVerse(2);notes.push({pitch:n,start,duration:dur,source:'imported',...(first.text?{lyric:first.text,syllabic:first.syllabic}:{}),...(first.melisma?{melisma:true}:{}),...(second.text?{lyric2:second.text,syllabic2:second.syllabic}:{}),...(second.melisma?{melisma2:true}:{})});}}if(!chord){lastStart=pos;pos+=dur;}}cursor=Math.max(cursor,pos);}return {name:names[i]??`Part ${i+1}`,notes};});const firstPart=doc.getElementsByTagName('part')[0];
   let activeKey='C';const keys:string[]=[];const chords=Array.from(firstPart?.getElementsByTagName('measure')??[]).map(measure=>{
     const keyNode=Array.from(measure.children).filter(child=>child.tagName==='attributes').flatMap(a=>Array.from(a.children)).find(child=>child.tagName==='key');
     if(keyNode){const fifths=Number(nodeText(keyNode,'fifths'));const mode=nodeText(keyNode,'mode')==='minor'?'minor':'major';const found=Object.keys(KEY_SIGNATURES).find(k=>KEY_SIGNATURES[k].fifths===fifths&&KEY_SIGNATURES[k].mode===mode);if(found)activeKey=found;}

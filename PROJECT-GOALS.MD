@@ -1,3 +1,10 @@
+## v5.5.3 - Lyrics export and alignment follow-up
+
+- Multi-measure lyric alignment option in the Note Editor, beginning at the selected measure; syllables and underscore-reserved melisma notes follow chronological note onsets.
+- MusicXML exports melisma start, continue, and stop extenders across barlines for both verses, while retaining the original note-level melisma flags.
+- MusicXML import recognizes only extender starts as melisma flags; continuation/stop markers are derived from the note sequence on export.
+- No full production build or MuseScore visual import verification was possible in this environment; dependency installation and manual verification remain required.
+
 ## v5.5.0 — Dynamic orchestra roster and El Choclo in 4/4 (2026-11-15)
 
 - The factory roster remains Piano, Contrabass, Violin I, Violin II, Bandoneon I, Bandoneon II and Voice. Songs may now store an optional custom `instruments` array; legacy `.tango` projects without this field continue to use the factory roster.
@@ -425,3 +432,6 @@ The Orchestration sub-tab **Section** refers to a functional orchestral group (R
 
 - Voice note lyrics should be stored on note events, remain with protected manual edits, and export to MusicXML using standard syllabic/text elements.
 - Offer built-in quartet, sextet, septet and orquesta típica rosters, retaining the existing factory seven-part default and user-defined preset support.
+
+### Lyric editing follow-up
+Support multiple verses, per-measure lyric alignment and melisma marking without altering note timing or protected edits. Future work: full MusicXML melisma start/continue/stop semantics, multi-measure alignment, preview and MuseScore validation.

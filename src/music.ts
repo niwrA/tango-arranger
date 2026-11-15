@@ -41,7 +41,7 @@ export type Role = 'melody'|'harmony'|'chords'|'bass'|'fill'|'variation'|'rest';
 export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
-export type Note = { lyric?:string; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark };
+export type Note = { lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark };
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
   staccato:0.28,marcato_staccato:0.58,legato:0.94

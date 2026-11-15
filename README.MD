@@ -1,3 +1,10 @@
+## v5.5.3 - Lyrics export and alignment follow-up
+
+- Multi-measure lyric alignment option in the Note Editor, beginning at the selected measure; syllables and underscore-reserved melisma notes follow chronological note onsets.
+- MusicXML exports melisma start, continue, and stop extenders across barlines for both verses, while retaining the original note-level melisma flags.
+- MusicXML import recognizes only extender starts as melisma flags; continuation/stop markers are derived from the note sequence on export.
+- No full production build or MuseScore visual import verification was possible in this environment; dependency installation and manual verification remain required.
+
 ## v5.5.0 — Dynamic orchestra roster and El Choclo in 4/4 (2026-11-15)
 
 - The factory roster remains Piano, Contrabass, Violin I, Violin II, Bandoneon I, Bandoneon II and Voice. Songs may now store an optional custom `instruments` array; legacy `.tango` projects without this field continue to use the factory roster.
@@ -478,3 +485,6 @@ The Orchestration sub-tab **Section** refers to a functional orchestral group (R
 For Voice parts, select a note in the Note Editor and enter a lyric syllable. Choose single, begin, middle or end to indicate its position within a word. The lyric is saved with the note and exported as a MusicXML lyric for MuseScore. Multi-note melismas and verse management remain future work.
 
 Built-in roster templates are Factory seven-part, Quartet, Sextet, Septet and Orquesta típica. They are configurable examples rather than fixed historical orchestrations. The factory seven-part roster remains the initial default.
+
+### Lyrics enhancements (v5.5.2 experimental)
+In a Voice part's Note Editor, enter lyrics per note for verses 1 and 2, or use **Align lyrics across this measure**. Spaces separate words, hyphens separate syllables (`tan-go`), and an underscore reserves an additional note onset for a sustained syllable (`love_`). The alignment applies only to the selected measure and protects the manually edited measure from regeneration. MusicXML writes numbered lyric elements for both verses and an extension-start marker for a marked melisma. Full cross-note extension termination and MuseScore visual validation remain outstanding.
