@@ -387,3 +387,12 @@ The project settings and local library are available from a drawer rather than a
 - Top-bar actions use consistent inline SVG line icons with tooltips and accessible names, not assorted Unicode glyphs.
 - The redundant Song Overview tab and section/key summary strip have been removed. The measure-level orchestration map, Shift+click range selection and edit controls now live at the top of the Orchestration tab. Section-level orchestration settings are in a collapsible panel below. Structure & keys remains the authoritative section form/key editor.
 - Main navigation uses descriptive labels without numeric prefixes. The app opens in Orchestration, and the Note Editor returns there.
+
+
+## v5.1.0 — Compact workspace and mobile improvements
+
+Explanatory help is hidden by default for new sessions. The top-bar question-mark button toggles explanations and persists the choice in localStorage. Mobile now uses three predictable task rows (transport, song library, generation/files/settings), scrollable single-line workspace tabs, touch-sized actions, responsive editors and dialogs. Existing songs and arrangement data are unchanged.
+
+
+## v5.2 status banner
+The status message appears immediately below the top toolbar only after a new status event. It can be dismissed with the close icon and reappears when a different status message is emitted. The previous permanent green message in the workspace has been removed.

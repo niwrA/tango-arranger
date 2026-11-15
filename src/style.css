@@ -610,3 +610,68 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-properties:not(.note-properties-popup) .note-editor-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
 @media(max-width:1050px){.note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-properties:not(.note-properties-popup){position:static;top:auto;bottom:auto;width:100%;max-height:none;margin-top:12px;z-index:auto;border-radius:12px}}
 @media(max-width:700px){.lead-section-actions{margin-left:0}.lead-section-heading{align-items:stretch}.lead-section-copy{min-height:36px}.score-review-details .score-details-actions{grid-template-columns:1fr}.lead-measure-editor{padding:11px}}
+
+
+/* v5.1: compact explanations by default, a direct help toggle and intentional mobile layout. */
+.help-icon-toggle[aria-pressed="true"]{background:#4d412e;border-color:#d2ab70;color:#ffe1ac}
+.help-icon-toggle:focus-visible{outline:2px solid #e7c38e;outline-offset:2px}
+/* Do not hide status/error text, form labels or musical data in compact mode. */
+@media(max-width:760px){
+  html,body,#app,.shell{max-width:100%;overflow-x:clip}
+  .app-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"playback playback playback" "song song song" "generate files options";gap:5px 8px;padding:8px 10px;align-items:center}
+  .app-topbar .brand{display:none}
+  .app-topbar .topbar-playback{grid-area:playback;order:initial;display:flex;justify-content:flex-start;width:100%;position:static!important;margin:0!important;padding:0 0 6px!important;border-right:0;border-bottom:1px solid #394958;box-shadow:none!important;backdrop-filter:none!important}
+  .app-topbar .topbar-song{grid-area:song;order:initial;display:flex;width:100%;min-width:0;max-width:none;flex:auto;padding:0 0 6px;border-right:0;border-bottom:1px solid #394958}
+  .app-topbar .topbar-song .header-song-picker{min-width:0;flex:1 1 0;width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
+  .app-topbar .topbar-arrange{grid-area:generate;order:initial;justify-self:start}
+  .app-topbar .topbar-files{grid-area:files;order:initial;justify-self:end}
+  .app-topbar .topbar-options{grid-area:options;order:initial;justify-self:end;border-right:0;padding-right:0}
+  .app-topbar .topbar-group{min-width:0;gap:5px}
+  .app-topbar .topbar-group .icon-action{min-height:42px;min-width:42px;display:inline-flex;align-items:center;justify-content:center}
+  .app-topbar .topbar-playback .transport-play,.app-topbar .topbar-playback .transport-stop{flex:0 0 auto!important;min-width:46px!important;min-height:44px!important}
+  .app-topbar .topbar-playback .playback-menu{margin-left:auto}
+  .app-topbar .topbar-song .song-menu>summary{min-width:38px}
+  .app-topbar .generate-label,.app-topbar .files-label{display:inline;font-size:12px}
+  .app-topbar .topbar-arrange .generate-action{padding:7px 10px!important}
+  .app-topbar .topbar-menu-panel{right:0;left:auto;max-width:calc(100vw - 20px)}
+  .layout{display:block;min-width:0}
+  .layout>main{padding:10px 10px 48px;min-width:0}
+  .layout>main .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;gap:3px;margin:3px -2px 12px;padding:0 2px 5px;scrollbar-width:thin;scroll-snap-type:x proximity}
+  .layout>main .tabs button{flex:0 0 auto;white-space:nowrap;scroll-snap-align:start;min-height:42px;padding:9px 12px;font-size:12px}
+  .editor{padding:12px;margin-top:12px;min-width:0}
+  .overview-section,.overview-workspace,.note-editor-section,.rhythm-workspace{min-width:0;max-width:100%}
+  .overview-section .overview-edit .overview-controls{gap:7px}
+  .overview-section .overview-edit .overview-controls label{flex:1 1 130px;min-width:0;max-width:none}
+  .overview-section .overview-edit .overview-controls label:nth-child(-n+2){flex:1 1 90px;max-width:none}
+  .overview-section .overview-edit .overview-actions{display:flex;flex-wrap:wrap;gap:6px}
+  .overview-section .overview-edit .overview-actions button{min-height:40px}
+  .song-map-scroll,.note-grid-scroll{max-width:100%;-webkit-overflow-scrolling:touch}
+  .lead-measure-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px}
+  .lead-measure-editor{padding:10px}
+  .lead-section-heading{gap:6px}
+  .note-editor-controls,.figure-controls{min-width:0}
+  .app-modal-backdrop{padding:8px;align-items:center}
+  .app-modal{width:100%;max-height:calc(100dvh - 16px)}
+  .app-modal-content{overscroll-behavior:contain}
+  .topbar-menu-panel button{min-height:42px}
+}
+@media(max-width:400px){
+  .app-topbar{padding:6px 7px;gap:4px 5px}
+  .app-topbar .topbar-group{gap:3px}
+  .app-topbar .topbar-group .icon-action{min-width:39px;min-height:42px;padding:5px!important}
+  .app-topbar .topbar-playback .transport-play,.app-topbar .topbar-playback .transport-stop{min-width:42px!important}
+  .app-topbar .topbar-arrange .generate-label{display:none}
+  .app-topbar .topbar-files .files-label{display:none}
+  .layout>main{padding:8px 7px 40px}
+  .overview-section .overview-edit .overview-controls label{flex-basis:calc(50% - 7px)}
+  .note-editor-controls{grid-template-columns:minmax(0,1fr)}
+  .lead-section-actions{flex-wrap:wrap}
+  .lead-measure-grid{gap:5px;padding:6px}
+}
+
+/* v5.2: dismissible event-driven status directly below the global toolbar. */
+.topbar-status{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:7px 16px;background:#21352f;border-bottom:1px solid #375648;color:#bdd8c6;font-size:12px;line-height:1.45;min-width:0}
+.topbar-status-text{min-width:0;overflow-wrap:anywhere}
+.topbar-status-close{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:5px;border:1px solid #466759;border-radius:6px;background:transparent;color:inherit}
+.topbar-status-close:hover,.topbar-status-close:focus-visible{background:#305044;outline-offset:2px}
+@media(max-width:520px){.topbar-status{padding:6px 10px;gap:8px}.topbar-status-close{width:34px;height:34px}}

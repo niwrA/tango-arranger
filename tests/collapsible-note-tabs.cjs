@@ -9,7 +9,7 @@ let count=0;
 function check(name,fn){fn();count++;console.log('PASS',name);}
 const editor=vue.slice(vue.indexOf('<section v-else ref="noteEditorRegion"'),vue.indexOf('</main></div><footer>'));
 const idx=(s)=>editor.indexOf(s);
-check('release 4.3.3',()=>assert.equal(pkg.version,'5.0.0'));
+check('release 4.3.3',()=>assert.equal(pkg.version,'5.2.0'));
 check('all four note tabs exist',()=>{for(const tab of ['notes','capture','figures','expression'])assert.match(editor,new RegExp(`id="note-tab-${tab}"`));});
 check('tabs have selected state and aria controls',()=>{for(const tab of ['notes','capture','figures','expression']){assert.ok(editor.includes(`aria-controls="note-panel-${tab}"`));assert.ok(editor.includes(`:aria-selected="noteEditorTab==='${tab}'"`));assert.ok(editor.includes(`:tabindex="noteEditorTab==='${tab}'?0:-1"`));}});
 check('tab panels have visible state, labels and role',()=>{for(const tab of ['notes','capture','figures','expression'])assert.ok(editor.includes(`id="note-panel-${tab}" v-show="noteEditorTab==='${tab}'" role="tabpanel" aria-labelledby="note-tab-${tab}"`));});

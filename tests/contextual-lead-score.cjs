@@ -7,7 +7,7 @@ let count=0;
 function check(label,fn){fn();count++;console.log('PASS',label)}
 const lead=app.slice(app.indexOf('<section v-else-if="active===\'lead\'"'),app.indexOf('<section v-else-if="active===\'arrange\'"'));
 const arrange=app.slice(app.indexOf('<section v-else-if="active===\'arrange\'"'),app.indexOf('<section v-else-if="active===\'rhythm\'"'));
-check('version 5.0',()=>assert.equal(pkg.version,'5.0.0'));
+check('version 5.0',()=>assert.equal(pkg.version,'5.2.0'));
 check('no dedicated Score Review tab',()=>assert.doesNotMatch(app,/<button :class="\{active:active===\'score\'/));
 check('score notes preserved under orchestration',()=>{assert.match(arrange,/class="control-fold score-review-details"/);assert.match(arrange,/class="notes score-notes-shortcut"/);});
 check('score details closed by default',()=>assert.doesNotMatch(arrange,/<details class="control-fold score-review-details" open/));

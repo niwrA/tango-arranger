@@ -4,7 +4,7 @@ const app=fs.readFileSync('src/App.vue','utf8');
 const css=fs.readFileSync('src/style.css','utf8');
 const pkg=require('../package.json');
 const tests=[
- ['version 4.8',()=>assert.equal(pkg.version,'5.0.0')],
+ ['version 4.8',()=>assert.equal(pkg.version,'5.2.0')],
  ['project drawer toggle',()=>assert.match(app,/projectDrawerOpen=!projectDrawerOpen/)],
  ['project drawer close',()=>assert.match(app,/projectDrawerOpen.value=false/)],
  ['drawer accessibility',()=>assert.match(app,/aria-controls="song-settings-modal"/)],

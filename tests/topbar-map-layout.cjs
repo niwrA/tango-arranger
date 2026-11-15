@@ -4,7 +4,7 @@ const app=fs.readFileSync('src/App.vue','utf8');
 const css=fs.readFileSync('src/style.css','utf8');
 const pkg=require('../package.json');
 const checks=[
- ['version',()=>assert.equal(pkg.version,'5.0.0')],
+ ['version',()=>assert.equal(pkg.version,'5.2.0')],
  ['local song picker in header',()=>assert.match(app,/<header class="app-topbar">[\s\S]*id="header-song-picker"[\s\S]*<\/header>/)],
  ['song picker switches local songs',()=>assert.match(app,/@change="chooseSongFromPicker"/)],
  ['selected song settings gear opens dialog',()=>assert.match(app,/<button class="secondary icon-action header-settings"[^>]*aria-controls="song-settings-modal"[^>]*@click="projectDrawerOpen=!projectDrawerOpen"/)],
