@@ -1,0 +1,2383 @@
+{
+  "title": "El Choclo - historical melody study (ABC transcription)",
+  "bpm": 112,
+  "beats": 2,
+  "bars": [
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 65,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 81,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 81,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 65,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 68,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 68,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 75,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 83,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 80,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 80,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 71,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 65,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 81,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "A7",
+      "melody": [
+        {
+          "pitch": 81,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 73,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 73,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 79,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Dm",
+      "melody": [
+        {
+          "pitch": 79,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 77,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 65,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Dm",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 71,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 68,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        }
+      ],
+      "section": "A1"
+    },
+    {
+      "chord": "G7",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 77,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 79,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 75,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "C",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "G7",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 65,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 66,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "C",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 67,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 63,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 74,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 74,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 74,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 72,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "Dm",
+      "melody": [
+        {
+          "pitch": 71,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 68,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 75,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 76,
+          "start": 0.0,
+          "duration": 0.5
+        }
+      ],
+      "section": "B1"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 65,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 81,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 81,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 65,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 68,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 68,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 75,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 83,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 80,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 80,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 71,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 65,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 81,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "A7",
+      "melody": [
+        {
+          "pitch": 81,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 73,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 73,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 79,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Dm",
+      "melody": [
+        {
+          "pitch": 79,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 77,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 65,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Dm",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 71,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 68,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        }
+      ],
+      "section": "A2"
+    },
+    {
+      "chord": "G7",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 77,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 79,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 77,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 75,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "C",
+      "melody": [
+        {
+          "pitch": 77,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "G7",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 65,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 66,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "C",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 67,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 63,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 74,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 0.25,
+          "duration": 0.5
+        },
+        {
+          "pitch": 74,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "Am",
+      "melody": [
+        {
+          "pitch": 74,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 72,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "Dm",
+      "melody": [
+        {
+          "pitch": 71,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 68,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 75,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 76,
+          "start": 0.0,
+          "duration": 0.5
+        }
+      ],
+      "section": "B2"
+    },
+    {
+      "chord": "A",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 74,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 67,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "A",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "F#7",
+      "melody": [
+        {
+          "pitch": 70,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 70,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "Bm",
+      "melody": [
+        {
+          "pitch": 76,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 74,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 70,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "B7",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 67,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 76,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "A",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 74,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 71,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 67,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 64,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "A",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 69,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 64,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "F#7",
+      "melody": [
+        {
+          "pitch": 70,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 70,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "Bm",
+      "melody": [
+        {
+          "pitch": 76,
+          "start": 0.0,
+          "duration": 0.5
+        },
+        {
+          "pitch": 74,
+          "start": 0.5,
+          "duration": 0.5
+        },
+        {
+          "pitch": 65,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 74,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 72,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "E7",
+      "melody": [
+        {
+          "pitch": 72,
+          "start": 0.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 0.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 70,
+          "start": 0.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 0.75,
+          "duration": 0.25
+        },
+        {
+          "pitch": 65,
+          "start": 1.0,
+          "duration": 0.25
+        },
+        {
+          "pitch": 69,
+          "start": 1.25,
+          "duration": 0.25
+        },
+        {
+          "pitch": 67,
+          "start": 1.5,
+          "duration": 0.25
+        },
+        {
+          "pitch": 71,
+          "start": 1.75,
+          "duration": 0.25
+        }
+      ],
+      "section": "C"
+    },
+    {
+      "chord": "A",
+      "melody": [
+        {
+          "pitch": 69,
+          "start": 0.0,
+          "duration": 0.5
+        }
+      ],
+      "section": "C"
+    }
+  ],
+  "roles": {
+    "A1": {
+      "Piano": "chords",
+      "Contrabass": "bass",
+      "Violin I": "melody",
+      "Violin II": "harmony",
+      "Bandoneon I": "chords",
+      "Bandoneon II": "fill",
+      "Voice": "rest"
+    },
+    "B1": {
+      "Piano": "chords",
+      "Contrabass": "bass",
+      "Violin I": "harmony",
+      "Violin II": "chords",
+      "Bandoneon I": "melody",
+      "Bandoneon II": "harmony",
+      "Voice": "rest"
+    },
+    "A2": {
+      "Piano": "chords",
+      "Contrabass": "bass",
+      "Violin I": "harmony",
+      "Violin II": "melody",
+      "Bandoneon I": "chords",
+      "Bandoneon II": "fill",
+      "Voice": "rest"
+    },
+    "B2": {
+      "Piano": "chords",
+      "Contrabass": "bass",
+      "Violin I": "melody",
+      "Violin II": "harmony",
+      "Bandoneon I": "fill",
+      "Bandoneon II": "chords",
+      "Voice": "rest"
+    },
+    "C": {
+      "Piano": "chords",
+      "Contrabass": "bass",
+      "Violin I": "harmony",
+      "Violin II": "chords",
+      "Bandoneon I": "melody",
+      "Bandoneon II": "fill",
+      "Voice": "rest"
+    }
+  }
+}

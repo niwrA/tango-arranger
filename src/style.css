@@ -411,3 +411,202 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .note-focus-measure-note{position:absolute;height:5px;min-width:2px;border-radius:2px;background:#dfb778}
 .note-focus-mode .note-focus-phrase{margin:6px 0}
 @media(max-width:700px){.note-editor-heading .note-focus-enter{margin-left:0}.note-view-range-controls{gap:7px}.note-view-range-controls label{font-size:11px}.note-focus-measure{flex-basis:115px;min-width:115px}}
+
+/* v4.6: task-first workspace, contextual inspector and shared editor transport */
+.layout{display:block!important;max-width:none!important;position:relative}
+.layout>main{padding:12px clamp(12px,2.1vw,34px) 70px;max-width:none}
+.layout>aside{display:none!important}
+.workspace-utility{display:flex;align-items:center;gap:14px;min-height:45px;padding:4px 0 10px;color:#aab7c4;font-size:12px}
+.workspace-utility button{font-size:12px;padding:7px 12px}
+.project-drawer-backdrop{position:fixed;inset:0;background:#000a;z-index:180}
+.layout>aside.project-drawer-open{display:block!important;position:fixed;z-index:181;inset:0 auto 0 0;width:min(360px,94vw);overflow:auto;box-shadow:15px 0 55px #000a;padding:18px}
+.project-drawer-header{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:-18px;padding:12px 0;background:#171e26;z-index:2;margin-bottom:10px}
+.project-drawer-header button{padding:6px 11px}
+.mobile-settings-toggle{display:none!important}
+.note-editor-heading{gap:12px;flex-wrap:wrap}
+.note-editor-heading h2{margin:8px 0;font-size:18px}
+.compact-note-toolbar{display:flex;align-items:end;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:22;background:#18232ef2;backdrop-filter:blur(12px);padding:10px;border:1px solid #455667;border-radius:10px;margin:8px 0 10px;box-shadow:0 4px 18px #0005}
+.compact-note-toolbar label{margin:0;flex:0 1 170px;font-size:10px}
+.compact-note-toolbar select{margin:2px 0 0;padding:7px 9px}
+.compact-note-toolbar button{padding:8px 11px;white-space:nowrap}
+.note-editor-section:not(.note-focus-mode)>.note-editor-navigation,.note-editor-section:not(.note-focus-mode)>.note-loop-controls{display:none}
+.note-editor-section:not(.note-focus-mode)>.note-common-controls{margin:4px 0}
+.note-editor-section:not(.note-focus-mode)>.note-common-controls:not([open]){display:none}
+.note-editor-section:not(.note-focus-mode) .note-editor-panel{padding:12px;margin:8px 0;border:0;background:transparent}
+.note-editor-section:not(.note-focus-mode) .note-editor-panel>.control-fold{margin:0 0 8px}
+.note-editor-section:not(.note-focus-mode) .note-grid-scroll{max-height:70dvh;overflow:auto}
+.note-editor-section:not(.note-focus-mode) .note-grid thead th{position:sticky;top:0;z-index:3}
+.note-editor-section:not(.note-focus-mode) .note-grid thead .note-pitch-label{z-index:5}
+.note-editor-section:not(.note-focus-mode) #note-panel-notes:not(.inspector-open) .note-properties:not(.note-properties-popup){display:none}
+.inspector-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.inspector-heading button{padding:5px 9px}
+.map-context-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:12;padding:9px 12px;background:#1c2b36f5;border:1px solid #43586a;border-radius:10px;margin:10px 0;box-shadow:0 4px 18px #0005}
+.map-context-toolbar span{font-size:12px;color:#b9c6d0;margin-right:auto}
+.map-context-toolbar button{font-size:12px;padding:7px 10px}
+.rhythm-editor button,.note-editor-section button{min-height:34px}
+@media(max-width:1050px){.compact-note-toolbar{top:0}}
+@media(max-width:600px){.compact-note-toolbar{gap:5px;padding:7px}.compact-note-toolbar label{flex:1 1 100px}.compact-note-toolbar button{padding:7px 9px;font-size:12px}.note-editor-section:not(.note-focus-mode) .note-grid-scroll{max-height:55dvh}.map-context-toolbar{gap:5px}.map-context-toolbar button{padding:6px 8px}}
+
+
+/* v4.7: compact, accessible topbar for song library, settings and playback */
+.app-topbar{position:sticky;top:0;z-index:70;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px clamp(10px,1.4vw,24px);min-height:60px;background:#171e26f5;backdrop-filter:blur(16px);border-bottom:1px solid #40505e}
+.app-topbar .brand{flex:0 0 auto;gap:7px;min-width:0;padding:2px 5px}
+.app-topbar .brand .logo{font-size:28px}
+.app-topbar .brand strong{font-size:16px;white-space:nowrap}
+.app-topbar .brand small{font-size:10px;margin-top:0}
+.header-song{display:flex;align-items:center;gap:7px;min-width:150px;flex:1 1 210px;max-width:400px}
+.header-song-label{margin:0;font-size:11px;white-space:nowrap}
+.header-song-picker{width:100%;min-width:110px;margin:0!important;padding:7px 9px!important;font-size:12px;min-height:36px}
+.app-topbar .header-actions{display:flex;align-items:center;gap:5px;flex:0 0 auto;min-width:0}
+.icon-action{display:inline-flex!important;align-items:center;justify-content:center;min-width:36px;min-height:36px;padding:5px 8px!important;font-size:17px;line-height:1.1;white-space:nowrap;border:1px solid #40515f;border-radius:8px;cursor:pointer}
+.icon-action:focus-visible,.header-more>summary:focus-visible{outline:2px solid #e7bd81;outline-offset:2px}
+.header-import{color:#f2f4f6;background:#202a34;margin:0;position:relative}
+.header-import:hover{filter:brightness(1.13)}
+.header-more{position:relative;flex:0 0 auto}
+.header-more>summary{display:flex;list-style:none;background:#202a34;color:#f2f4f6;user-select:none}
+.header-more>summary::-webkit-details-marker{display:none}
+.header-more-panel{position:absolute;right:0;top:calc(100% + 8px);z-index:100;display:flex;flex-direction:column;gap:5px;width:245px;padding:10px;border:1px solid #526577;border-radius:10px;background:#1b2833;box-shadow:0 14px 38px #000a}
+.header-more-panel button{text-align:left;font-size:12px;padding:9px}
+.header-save-status{font-size:11px;color:#b7c5d1;line-height:1.5;padding:6px}
+.app-topbar .transport-bar{display:flex;align-items:center;flex:0 0 auto;gap:5px;position:static!important;z-index:auto;box-shadow:none;backdrop-filter:none;margin:0;padding:0;border:0;background:transparent;border-radius:0;flex-wrap:nowrap}
+.app-topbar .transport-play,.app-topbar .transport-stop{width:auto!important;min-width:38px!important;min-height:36px!important;font-size:15px;font-weight:650}
+.selected-play-measure{font-size:10px;margin-left:2px}
+.header-audio-indicator{font-size:10px;color:#a9b7c4;white-space:nowrap;max-width:50px;overflow:hidden;text-overflow:ellipsis}
+.header-audio-indicator[title]{cursor:help}
+.app-topbar .transport-stop:disabled{opacity:.45}
+.app-topbar .header-settings{font-size:19px}
+/* The map is the main workspace: editing settings follow the selected instrument above the grid. */
+.overview-workspace{display:block!important;grid-template-columns:none!important}
+.overview-map-pane{min-width:0}
+.overview-section .overview-edit{position:relative!important;top:auto!important;max-height:none!important;overflow:visible!important;margin:5px 0 10px!important;padding:9px 12px!important;background:#1c2934;border-color:#435465}
+.overview-section .overview-edit>.control-fold{margin:0;border:0;background:transparent;padding:0}
+.overview-section .overview-edit summary{font-size:12px;font-weight:700;padding:4px 0 8px}
+.overview-section .overview-edit .map-range-summary{display:inline-block;font-size:11px;color:#c8d2da;margin:0 0 8px}
+.overview-section .overview-edit .overview-controls{display:flex!important;flex-wrap:wrap;align-items:end;gap:8px;grid-template-columns:none!important}
+.overview-section .overview-edit .overview-controls label{flex:1 1 118px;min-width:98px;max-width:230px;margin:0;font-size:10px}
+.overview-section .overview-edit .overview-controls label:nth-child(-n+2){flex:0 0 92px;max-width:100px}
+.overview-section .overview-edit .overview-controls select,.overview-section .overview-edit .overview-controls input{margin:3px 0 0;padding:7px 8px;font-size:12px;min-height:35px}
+.overview-section .overview-edit .overview-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:8px 0 0}
+.overview-section .overview-edit .overview-actions button{flex:0 0 auto!important;width:auto!important;font-size:12px;padding:7px 10px}
+.overview-section .overview-edit .overview-actions .icon-action{min-height:35px;min-width:35px;font-size:16px}
+.overview-section .overview-edit .overview-piano-figure{margin:8px 0;padding:8px;display:flex;align-items:end;gap:8px;flex-wrap:wrap}
+.overview-section .overview-edit .overview-piano-figure label{margin:0;flex:1 1 180px}
+.overview-section .overview-edit .overview-piano-figure button{width:auto}
+.overview-section .overview-edit .overview-piano-figure p{flex-basis:100%;margin:0}
+.overview-section .overview-edit .overview-feedback{margin:7px 0 0}
+.map-context-toolbar{position:static;z-index:auto;margin:7px 0 4px;padding:6px 10px;box-shadow:none}
+.map-context-toolbar strong{font-size:13px}
+.map-context-toolbar span{margin-right:auto}
+.map-context-toolbar .icon-action{font-size:16px;padding:5px!important;min-width:33px;min-height:32px}
+@media(max-width:1100px){.app-topbar{gap:7px}.header-song{max-width:none}.app-topbar .header-actions{order:3}.app-topbar .transport-bar{order:4;margin-left:auto}.app-topbar .brand{order:1}.app-topbar .header-song{order:2}}
+@media(max-width:620px){.app-topbar{gap:6px;padding:7px 9px}.app-topbar .brand strong{font-size:14px}.app-topbar .brand small{display:none}.app-topbar .brand .logo{font-size:24px}.app-topbar .header-song{flex:1 1 130px;min-width:130px}.header-song-label{display:none}.app-topbar .header-actions{display:flex!important;grid-template-columns:none!important;width:auto;gap:4px}.app-topbar .header-actions button:first-child{grid-column:auto}.app-topbar .transport-bar{gap:4px}.app-topbar .header-audio-indicator{display:none}.icon-action{min-width:34px;min-height:34px;padding:5px!important}.overview-section .overview-edit .overview-controls label{flex:1 1 125px;max-width:none}.overview-section .overview-edit .overview-controls label:nth-child(-n+2){flex:1 1 80px}.map-context-toolbar{gap:4px}}
+
+.header-import-file{position:absolute!important;width:1px!important;height:1px!important;opacity:0;overflow:hidden;pointer-events:none;margin:0!important;padding:0!important}
+.header-import:focus-within{outline:2px solid #e7bd81;outline-offset:2px}
+/* Reduce unused heading space without hiding important status messages. */
+.layout>main .page-title{margin:4px 0 0;gap:8px}
+.layout>main .page-title h1{font-size:clamp(18px,1.5vw,23px);letter-spacing:-.35px}
+.layout>main .page-title p{display:none}
+.layout>main .tabs{margin-top:10px}
+.layout>main .notice{margin:9px 0;padding:7px 10px;font-size:12px}
+.overview-section>.section-heading h2{margin:10px 0;font-size:19px}
+
+
+/* v4.8: modal song settings, separate file round-trip, conventional vector icons */
+.app-icon{display:block;flex:none;width:19px;height:19px;stroke:currentColor}
+.icon-action .app-icon{width:19px;height:19px}
+.app-topbar .header-settings .app-icon{width:20px;height:20px}
+.app-modal-backdrop{position:fixed;inset:0;z-index:220;display:flex;align-items:center;justify-content:center;padding:20px;background:#070d14c9;backdrop-filter:blur(4px)}
+.app-modal{display:flex;flex-direction:column;width:min(560px,100%);max-height:min(88dvh,900px);overflow:hidden;border:1px solid #607185;border-radius:16px;background:#1b2732;box-shadow:0 22px 70px #000b;color:#edf2f5}
+.app-modal-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding:20px 22px 13px;border-bottom:1px solid #344654}
+.app-modal-heading h2{font-size:20px;margin:0}
+.app-modal-heading p{margin:6px 0 0;color:#b2bfca;font-size:12px}
+.app-modal-heading .modal-close{min-width:36px}
+.app-modal-content{padding:20px 22px;overflow-y:auto;min-height:0;overscroll-behavior:contain}
+.app-modal-content label{margin-bottom:13px}
+.app-modal-content input,.app-modal-content select{margin-top:5px}
+.app-modal-content .file-picker{display:block;text-align:center;background:#243542;cursor:pointer;padding:16px}
+.app-modal-content .file-picker input[type=file]{margin-top:12px;font-size:12px;max-width:100%}
+.app-modal-content .import-panel{margin:12px 0}
+.app-modal-actions{display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:12px 22px;border-top:1px solid #344654}
+.app-modal-actions .hint{margin-right:auto}
+.import-error{color:#ffb6ae;border:1px solid #bb5c53;background:#3b2627;padding:9px;border-radius:7px}
+/* Section structure is edited only in Structure & keys; measure-level roles belong in Orchestration. */
+.orchestration-section-settings{margin:18px 0;border:1px solid #425566;border-radius:12px;padding:12px;background:#19242f}
+.orchestration-section-settings>summary{cursor:pointer;font-size:14px;font-weight:700;padding:7px 5px}
+.orchestration-section-settings[open]>summary{border-bottom:1px solid #3b4e5e;margin-bottom:12px}
+.orchestration-section-settings .editor{margin-top:14px}
+.orchestration-section-settings>.section-heading{margin:8px 0}
+.app-topbar .header-actions .icon-action{padding:6px!important}
+@media(max-width:620px){.app-modal-backdrop{padding:8px}.app-modal{max-height:96dvh}.app-modal-heading,.app-modal-content,.app-modal-actions{padding-left:14px;padding-right:14px}.app-modal-content .two{grid-template-columns:1fr}}
+
+.header-more-panel button{display:flex;align-items:center;gap:10px}
+.header-more-panel button .app-icon{width:16px;height:16px}
+
+/* v4.9: task-based top bar; no second page heading or global ellipsis. */
+.app-topbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:7px clamp(10px,1.2vw,20px);min-height:54px}
+.app-topbar .brand{order:0;margin-right:5px}
+.topbar-group{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0;padding-right:8px;border-right:1px solid #3e4d5b}
+.topbar-group:last-child{border-right:0;padding-right:0}
+.topbar-playback{order:1}
+.topbar-song{order:2;flex:1 1 240px;max-width:470px}
+.topbar-arrange{order:3}
+.topbar-files{order:4}
+.topbar-options{order:5}
+.topbar-song .header-song-picker{flex:1 1 auto;min-width:125px;max-width:none;width:auto}
+.topbar-group .icon-action{min-width:35px;min-height:35px;padding:5px 7px!important}
+.topbar-group .transport-play,.topbar-group .transport-stop{min-width:35px!important;min-height:35px!important}
+.topbar-menu{position:relative;flex:0 0 auto}
+.topbar-menu>summary{display:flex;align-items:center;gap:4px;list-style:none;background:#202a34;color:#f2f4f6;cursor:pointer;user-select:none}
+.topbar-menu>summary::-webkit-details-marker{display:none}
+.topbar-menu>summary:focus-visible{outline:2px solid #e7bd81;outline-offset:2px}
+.topbar-menu[open]>summary{background:#31465a;border-color:#9eb4c7}
+.topbar-menu-panel{position:absolute;right:0;top:calc(100% + 7px);z-index:140;display:flex;flex-direction:column;gap:5px;width:max-content;min-width:220px;max-width:min(340px,calc(100vw - 18px));padding:9px;border:1px solid #53687b;border-radius:10px;background:#1b2833;box-shadow:0 14px 38px #000b}
+.topbar-menu-panel button{display:flex;align-items:center;gap:9px;text-align:left;font-size:12px;padding:9px 11px;white-space:nowrap;width:100%}
+.topbar-menu-panel button .app-icon{width:16px;height:16px}
+.topbar-menu .app-icon:last-child:not(:first-child){width:13px;height:13px;opacity:.8}
+.topbar-group .generate-action{display:flex;align-items:center;gap:6px;padding:6px 10px!important}
+.generate-label,.files-label{font-size:12px;font-weight:700}
+.topbar-files .files-summary{padding:6px 10px!important}
+.topbar-song .song-menu>summary{min-width:27px;padding:5px!important}
+.topbar-playback .playback-menu>summary{min-width:33px;padding:5px!important}
+.topbar-playback .selected-play-measure{font-size:10px}
+.layout>main .tabs{margin-top:4px}
+.layout>main .notice{margin-top:7px}
+@media(max-width:1120px){.app-topbar .brand,.app-topbar .topbar-playback,.app-topbar .topbar-song,.app-topbar .topbar-arrange,.app-topbar .topbar-files,.app-topbar .topbar-options{order:initial}.topbar-song{max-width:none}.app-topbar{gap:7px}}
+@media(max-width:720px){.app-topbar{gap:6px;padding:7px 8px}.topbar-group{padding-right:5px;gap:3px}.topbar-song{flex:1 1 175px;min-width:175px}.topbar-song .header-song-picker{min-width:95px}.topbar-group .icon-action{min-width:33px;min-height:33px;padding:4px 6px!important}.topbar-group .transport-play,.topbar-group .transport-stop{min-width:33px!important;min-height:33px!important}.topbar-files .files-label{display:none}.topbar-files .files-summary{padding:5px!important}.topbar-arrange .generate-label{display:none}.topbar-options .view-menu .app-icon:last-child{display:none}}
+@media(max-width:460px){.app-topbar .brand{flex:0 0 auto}.app-topbar .brand strong{font-size:13px}.app-topbar .brand .logo{font-size:22px}.topbar-song{order:2;flex:1 1 100%;max-width:none}.topbar-playback{order:1}.topbar-arrange{order:3}.topbar-files{order:4}.topbar-options{order:5}.topbar-menu-panel{right:0}}
+
+/* v5.0: contextual lead-sheet editing, section-header chord copying and inline note inspector. */
+.lead-section-heading{gap:10px}
+.lead-section-select{display:flex;align-items:center;gap:10px;text-align:left;background:transparent;border:1px solid transparent;padding:3px 6px;color:inherit}
+.lead-section-select.is-selected{border-color:#bd9865;background:#33424a}
+.lead-section-select:focus-visible,.lead-section-copy:focus-visible{outline:2px solid #e7c38e;outline-offset:2px}
+.lead-section-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.lead-section-copy{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;font-size:12px;white-space:nowrap}
+.lead-section-copy svg{width:15px;height:15px}
+.lead-section-heading.lead-copy-source{box-shadow:inset 4px 0 #d2ab70}
+.lead-copy-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0;padding:10px 12px;border:1px solid #a88b59;border-radius:8px;background:#373329;font-size:12px}
+.lead-copy-banner button{padding:6px 10px}
+.lead-measure-editor{grid-column:1/-1;min-width:0;padding:14px 16px;background:#26343f;border:1px solid #bd9865;border-radius:10px;box-shadow:0 8px 20px #0004}
+.lead-measure-editor-heading,.lead-measure-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.lead-measure-editor-heading h3{font-size:15px;margin:0}
+.lead-measure-editor-heading button{padding:5px 8px}
+.lead-measure-editor label{margin:10px 0}
+.lead-measure-editor textarea{margin:4px 0;min-height:75px}
+.lead-measure-editor-actions{justify-content:flex-start}
+.lead-measure-editor-actions button{display:inline-flex;align-items:center;gap:6px;padding:8px 10px}
+.lead-measure-editor-actions .hint{margin:0}
+.lead-add-measure{margin:4px 0 14px}
+.score-review-details{margin:18px 0 8px;border:1px solid #405262;border-radius:10px;padding:12px;background:#1a2631}
+.score-review-details>summary{cursor:pointer;font-weight:650;color:#e3c28d}
+.score-review-details .score-details-actions{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:10px;align-items:end;margin:12px 0}
+.score-review-details .score-details-actions label{margin:0}
+.score-review-details .score-details-actions .align-bottom{padding:0}
+.score-review-details .score-rows{margin:10px 0 0}
+/* The normal note inspector follows the grid instead of obscuring the piano roll. */
+.note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-editor-panel{padding-right:12px}
+.note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-properties:not(.note-properties-popup){position:static;inset:auto;width:100%;max-height:none;margin-top:12px;z-index:auto;background:#1a2631;border:1px solid #4b5e70;border-radius:12px;padding:14px;overflow:visible;box-shadow:none}
+.note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-properties:not(.note-properties-popup) .note-editor-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+@media(max-width:1050px){.note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-properties:not(.note-properties-popup){position:static;top:auto;bottom:auto;width:100%;max-height:none;margin-top:12px;z-index:auto;border-radius:12px}}
+@media(max-width:700px){.lead-section-actions{margin-left:0}.lead-section-heading{align-items:stretch}.lead-section-copy{min-height:36px}.score-review-details .score-details-actions{grid-template-columns:1fr}.lead-measure-editor{padding:11px}}

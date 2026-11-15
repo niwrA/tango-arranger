@@ -57,7 +57,7 @@ async function run(){
   assert.match(app,/watch\(project,scheduleAutosave,\{deep:true\}\)/);
   assert.match(app,/await flushAutosave\(\)/);
   assert.match(app,/onMounted\(\(\)=>\{void initializeLocalLibrary\(\)/);
-  assert.match(app,/\@change="openLocalSong/);
+  assert.match(app,/\@change="chooseSongFromPicker/);
   assert.match(app,/await adoptLocalSong\(fresh\)/);
   assert.match(app,/await adoptLocalSong\(imported\)/);
   console.log('PASS autosave, restore, new-song and imported-song flows are wired');

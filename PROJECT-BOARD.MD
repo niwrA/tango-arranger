@@ -1,3 +1,19 @@
+## v5.0.0 · Contextual Lead Sheet and score consolidation (2026-11-15)
+
+- Lead Sheet measure-heading selection opens a full-width inline melody editor immediately following the selected measure in the section grid; chord fields retain uninterrupted keyboard navigation and are not forced to open the melody editor.
+- Each section header is a selectable control with Copy chords; select the destination header's Paste into action to request confirmation. Copying retains the established harmony-only behavior and safeguards for different section lengths and overwrites.
+- The Score Review tab is removed; its per-instrument note events, protected-measure checkboxes and edit-note shortcuts are preserved in the collapsed Score details panel in Orchestration. MusicXML export remains in Files.
+- The Note Inspector now appears below the piano roll in regular mode; Focus mode and long-press note-property popup remain unchanged.
+- Existing three-document project convention and Vite port 8000 are retained.
+
+## v4.9.0 — grouped top bar and El Choclo example
+
+- Remove the redundant “Arrange your tango” heading; Generate now lives in the global toolbar.
+- Toolbar order: playback (beginning/selected/stop, audio-test menu), song picker and New/Save/duplicate/delete, Generate, Files (import/MusicXML export/.tango backup), selected-song Settings, View options. Topic-specific menus replace the generic ellipsis.
+- Song picker offers **El Choclo — orchestral study (new copy)** as a separate, editable local song. Selecting the example does not replace or modify an existing song.
+- The example is based on the **previously supplied John Chambers (2005) ABC transcription study**: 64 measures in 2/4, simplified A/B/A/B/C structure, chords and melody retained. Current arranging features are applied: section keys, roles, section-specific violin/bandoneon/bass techniques, piano figures, articulation, expression, dynamic ranges, melody ducking, and generated orchestral parts. The generated orchestration is modern application output, **not a historical transcription**; the source's pickups, repeats and final cadence remain simplified.
+- Provenance: https://abcnotation.com/tunePage?a=trillian.mit.edu%2F~jc%2Fmusic%2Fabc%2FFinland%2FOI20181020%2F0002 ; historical 1913 score: https://www.loc.gov/item/2016782583/ .
+
 ## v4.5.0 — Focus view navigation and range controls
 
 - Focus editor action is visible at the top-right of the ordinary Note Editor heading.
@@ -354,7 +370,7 @@ The Lead Sheet groups measures into labeled sections with key signatures and mea
 
 ## v1.4: Copy chords between sections
 
-The Lead Sheet now has a **Copy section chords** panel with source and destination selectors and an explicit overwrite confirmation. It copies the complete chord sequence (including multiple chords per measure and empty measures) by measure position, leaving melody, section keys, instrument roles, manually edited notes, and protection flags untouched. When section lengths differ, only the first `min(source measures, destination measures)` measures are copied; extra destination measures remain unchanged. Generated accompaniment is refreshed after a change while protected manual notes are retained. Source chord strings are validated before any change. The operation is reversible by re-entering harmony or loading an earlier `.tango` save; there is no general undo stack.
+Historically, the Lead Sheet used a **Copy section chords** panel with source and destination selectors and an explicit overwrite confirmation. In v5.0, this is replaced by source and destination section-header controls. It copies the complete chord sequence (including multiple chords per measure and empty measures) by measure position, leaving melody, section keys, instrument roles, manually edited notes, and protection flags untouched. When section lengths differ, only the first `min(source measures, destination measures)` measures are copied; extra destination measures remain unchanged. Generated accompaniment is refreshed after a change while protected manual notes are retained. Source chord strings are validated before any change. The operation is reversible by re-entering harmony or loading an earlier `.tango` save; there is no general undo stack.
 
 ## v1.5: local library and note audition
 
@@ -463,3 +479,24 @@ The Song orchestration map supports selecting an inclusive measure range for the
 ## v4.3.2 — Articulation-aware new-note duration (superseded in v4.3.3)
 
 In the Instrument Note Editor, **New note duration** defaults to **Auto (from articulation)**. Newly added staccato notes default to 0.25 beats, marcato-staccato notes to 0.5 beats and legato notes to 1 beat. Measure/section articulation is inherited, including the alternating marcato and staccato violin chord accents; explicit per-note articulation takes priority. A manually chosen fixed duration overrides Auto. These are *written* durations for newly created notes only; changing articulation on an existing note does not rewrite its rhythm. Playback sounding gates remain independently editable.
+
+
+## v4.6.0 — Workspace redesign
+The project settings and local library are available from a drawer rather than a permanent sidebar. The Note Editor has a sticky compact transport and measure selector, a larger piano roll, and a contextual note inspector (desktop side panel/mobile lower panel). The Song Overview exposes actions for selected instrument-measure ranges. The existing focused editor, keyboard shortcuts, rhythm editor and all music data/export behavior remain available.
+
+
+## v4.7.0 — Compact top toolbar and contextual map editing
+
+- The global top bar now provides local song selection, new song, save, file import, MusicXML and .tango export, selected-song settings, and playback from the beginning or selected measure. Controls use concise icons with native tooltips and accessible names. Duplicate/delete, regeneration, help visibility and test audio are in the overflow menu; deletion still requires confirmation.
+- The selected-song settings drawer holds tempo, meter, transpose, orchestra profile, difficulty and import options. Song selection and library actions no longer require opening this drawer. Local autosave and manual backup behavior are unchanged.
+- Song Overview places the selected instrument's From/To, role, articulation and technique controls horizontally above the orchestration map, without a redundant instrument selector. Clicking a cell chooses the instrument; Shift+click extends the range. Applying edits remains an explicit action. The selected-instrument label and note/rhythm actions remain visible above the controls.
+- Keyboard, mouse and touch accessibility: icon buttons have descriptive title tooltips and accessible labels. The layout wraps on narrower screens.
+
+
+## v4.8.0 — Consolidated orchestration and modal song workflows
+
+- Song settings are in a centered, dismissible dialog from the top-bar settings icon. Only current-song properties (title, tempo, meter, transposition, profile, difficulty) appear there. Changes remain autosaved. Escape and the close button dismiss the dialog.
+- Import and MusicXML/MIDI round-trip have a separate dialog from the top-bar Import icon. The workflow lets you select a file, choose melody-only or edited-score import, select a track when needed, and apply. Importing a .tango project continues to create a separate local song. MusicXML export and .tango backup remain separate top-bar actions.
+- Top-bar actions use consistent inline SVG line icons with tooltips and accessible names, not assorted Unicode glyphs.
+- The redundant Song Overview tab and section/key summary strip have been removed. The measure-level orchestration map, Shift+click range selection and edit controls now live at the top of the Orchestration tab. Section-level orchestration settings are in a collapsible panel below. Structure & keys remains the authoritative section form/key editor.
+- Main navigation uses descriptive labels without numeric prefixes. The app opens in Orchestration, and the Note Editor returns there.

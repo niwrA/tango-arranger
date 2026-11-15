@@ -9,7 +9,7 @@ let count=0;
 function check(name,fn){fn();count++;console.log('PASS',name);}
 const editor=vue.slice(vue.indexOf('<section v-else ref="noteEditorRegion"'),vue.indexOf('</main></div><footer>'));
 const idx=(s)=>editor.indexOf(s);
-check('release 4.3.3',()=>assert.equal(pkg.version,'4.5.0'));
+check('release 4.3.3',()=>assert.equal(pkg.version,'5.0.0'));
 check('all four note tabs exist',()=>{for(const tab of ['notes','capture','figures','expression'])assert.match(editor,new RegExp(`id="note-tab-${tab}"`));});
 check('tabs have selected state and aria controls',()=>{for(const tab of ['notes','capture','figures','expression']){assert.ok(editor.includes(`aria-controls="note-panel-${tab}"`));assert.ok(editor.includes(`:aria-selected="noteEditorTab==='${tab}'"`));assert.ok(editor.includes(`:tabindex="noteEditorTab==='${tab}'?0:-1"`));}});
 check('tab panels have visible state, labels and role',()=>{for(const tab of ['notes','capture','figures','expression'])assert.ok(editor.includes(`id="note-panel-${tab}" v-show="noteEditorTab==='${tab}'" role="tabpanel" aria-labelledby="note-tab-${tab}"`));});
@@ -22,7 +22,7 @@ check('expression controls in Expression panel',()=>assert.ok(idx('id="note-pane
 check('note entry controls and selected note properties fold',()=>{assert.match(editor,/summary>Note entry &amp; display controls/);assert.match(editor,/summary>Edit selected note/);});
 check('tab switching preserves data and closes floating properties',()=>{assert.match(vue,/function setNoteEditorTab\(tab:[^)]*\)\{noteEditorTab\.value=tab;noteDetailsPopup\.value=false;/);assert.doesNotMatch(vue.match(/function setNoteEditorTab\([^\n]+/)[0],/project\.value=/);});
 check('keyboard arrows switch tabs and suppress note shortcuts',()=>{assert.match(vue,/function handleNoteTabKey\(event:KeyboardEvent\)/);assert.match(vue,/event\.stopPropagation\(\)/);assert.match(vue,/noteEditorTab\.value!=='notes'/);});
-check('sidebar controls can be collapsed independently',()=>{for(const t of ['Project settings','Local song library','Import &amp; round trip'])assert.ok(vue.includes(`<summary>${t}</summary>`));});
+check('song settings and import are independent dialogs',()=>{for(const t of ['id="song-settings-modal"','id="import-workflow-modal"'])assert.ok(vue.includes(t));});
 check('orchestration and map control groups are collapsible',()=>{for(const t of ['Orchestration role and playing-style controls','Edit instrument measures','Piano accompaniment figure','Dynamics and phrase expression'])assert.ok(vue.includes(`<summary>${t}</summary>`));});
 check('rhythm pattern, live capture and instrument selection fold',()=>{for(const t of ['Rhythm pattern, loop and editing controls','Live tap recording · full arrangement','Instrument selection and apply controls'])assert.ok(vue.includes(`<summary>${t}</summary>`));});
 check('styles include keyboard focus and responsive tabs',()=>{assert.match(css,/\.control-fold>summary:focus-visible/);assert.match(css,/\.note-subtabs button\.selected/);assert.match(css,/\.note-subtabs\{display:grid/);});

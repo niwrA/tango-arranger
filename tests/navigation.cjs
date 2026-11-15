@@ -18,7 +18,7 @@ test('map cell single click selects; double click and Enter open the exact instr
   assert.match(cell,/:aria-label="`\$\{inst\}, measure \$\{i\+1\}/);
 });
 test('note editor can return to same instrument and measure in map',()=>{
-  assert.match(src,/function returnToMap\(\)\{[\s\S]*?focusOverview\(inst,i\);active\.value='overview'/);
+  assert.match(src,/function returnToMap\(\)\{[\s\S]*?focusOverview\(inst,i\);active\.value='arrange'/);
   assert.match(src,/data-map-measure="i" :data-map-instrument="inst"/);
   assert.match(src,/querySelector<HTMLButtonElement>\(`\.song-cell\[data-map-measure=/);
   assert.match(src,/@click="returnToMap"/);
@@ -86,27 +86,28 @@ test('note-editor shortcuts respect boundaries, modifiers and text-entry focus',
   e=ev('[',{ctrlKey:true});handler(e);assert.equal(e.prevented,undefined);assert.equal(actions.length,0);
   e=ev('Escape');handler(e);assert.equal(e.prevented,true);assert.equal(actions.pop(),'map');
 });
-test('structure and keys are isolated from the main orchestration map',()=>{
+test('section and key editing is separate from the orchestration map',()=>{
   const start=src.indexOf('<section v-if="active===\'structure\'"');
-  const map=src.indexOf('<section v-else-if="active===\'overview\'"');
   const lead=src.indexOf('<section v-else-if="active===\'lead\'"');
-  assert.ok(start>=0&&map>start&&lead>map);
-  const structure=src.slice(start,map),overview=src.slice(map,lead);
+  const arrange=src.indexOf('<section v-else-if="active===\'arrange\'"');
+  const rhythm=src.indexOf('<section v-else-if="active===\'rhythm\'"');
+  assert.ok(start>=0&&lead>start&&arrange>lead&&rhythm>arrange);
+  const structure=src.slice(start,lead),orchestration=src.slice(arrange,rhythm);
   assert.match(structure,/<h3>Song structure<\/h3>/);
   assert.match(structure,/<h3>Keys by section<\/h3>/);
-  assert.match(structure,/@click="active='overview'"/);
-  assert.doesNotMatch(overview,/<h3>Song structure<\/h3>/);
-  assert.doesNotMatch(overview,/<h3>Keys by section<\/h3>/);
-  assert.match(overview,/<div class="overview-workspace">/);
-  assert.match(overview,/<div class="song-map-scroll">/);
-  assert.match(overview,/<div class="editor overview-edit">/);
-  assert.match(overview,/@click="active='structure'"/);
+  assert.match(structure,/@click="active='arrange'"/);
+  assert.match(orchestration,/<div class="song-map-scroll">/);
+  assert.match(orchestration,/<div class="editor overview-edit">/);
+  assert.match(orchestration,/Section-level orchestration settings/);
+  assert.doesNotMatch(orchestration,/class="overview-section-strip"/);
 });
-test('map remains the default tab and tab navigation includes structure and keys',()=>{
-  assert.match(src,/ref<'overview'\|'structure'\|'lead'\|'arrange'\|'rhythm'\|'score'\|'notes'\|'about'>\('overview'\)/);
-  assert.match(src,/<nav class="tabs" aria-label="Main work areas">/);
-  assert.match(src,/2 · Structure & keys/);
-  assert.match(src,/7 · Note editor/);
-  assert.match(src,/<div class="overview-section-strip"/);
+test('Orchestration opens by default and tabs have descriptive labels without numbers',()=>{
+  assert.match(src,/ref<'structure'\|'lead'\|'arrange'\|'rhythm'\|'notes'\|'about'>\('arrange'\)/);
+  const nav=src.match(/<nav class="tabs" aria-label="Main work areas">[\s\S]*?<\/nav>/)?.[0];
+  assert.ok(nav);
+  assert.match(nav,/Structure &amp; keys/);
+  assert.match(nav,/Note editor/);
+  assert.doesNotMatch(nav,/\d+ ·/);
+  assert.doesNotMatch(nav,/Song overview/);
 });
 console.log(`${tests} navigation checks passed`);
