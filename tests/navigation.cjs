@@ -98,7 +98,7 @@ test('section and key editing is separate from the orchestration map',()=>{
   assert.match(structure,/@click="active='arrange'"/);
   assert.match(orchestration,/<div class="song-map-scroll">/);
   assert.match(orchestration,/<div class="editor overview-edit">/);
-  assert.match(orchestration,/Section-level orchestration settings/);
+  assert.match(orchestration,/Configure the selected A\/B\/C song part/);
   assert.doesNotMatch(orchestration,/class="overview-section-strip"/);
 });
 test('Orchestration opens by default and tabs have descriptive labels without numbers',()=>{

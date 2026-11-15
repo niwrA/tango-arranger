@@ -5,7 +5,7 @@ const css=fs.readFileSync('src/style.css','utf8');
 const icon=fs.readFileSync('src/AppIcon.vue','utf8');
 const pkg=require('../package.json');
 const checks=[
- ['version',()=>assert.equal(pkg.version,'5.2.0')],
+ ['version',()=>assert.equal(pkg.version,'5.4.1')],
  ['settings modal aria semantics',()=>assert.match(app,/id="song-settings-modal"[^>]*role="dialog" aria-modal="true"/)],
  ['settings close and escape',()=>{assert.match(app,/@click.self="closeSongSettings"/);assert.match(app,/@keydown.esc.stop.prevent="closeSongSettings"/)}],
  ['settings scoped to song',()=>{const block=app.split('id="song-settings-modal"')[1].split('id="import-workflow-modal"')[0];for(const x of ['project.title','project.bpm','project.beats','project.profile','project.difficulty'])assert.ok(block.includes(x));assert.ok(!block.includes('Apply import'))}],

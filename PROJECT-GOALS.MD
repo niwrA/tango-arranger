@@ -396,3 +396,18 @@ Explanatory help is hidden by default for new sessions. The top-bar question-mar
 
 ## v5.2 status banner
 The status message appears immediately below the top toolbar only after a new status event. It can be dismissed with the close icon and reappears when a different status message is emitted. The previous permanent green message in the workspace has been removed.
+
+
+## v5.3.0 — Orchestration scopes
+
+Orchestration now has Instrument, Section and All sub-tabs. Instrument contains the measure map and selected instrument-range controls; Section contains section-role and technique settings grouped into compact collapsible panels; All displays both. The redundant Edit Rhythm shortcut was removed from the orchestration map; the dedicated Rhythm Editor remains in the main navigation. Section keys remain managed in Structure & Keys.
+
+
+## v5.4.0 — Scope-filtered orchestration map
+
+The Instrument scope shows only the selected instrument across all song measures. Section shows every available instrument for the chosen section's measures, and All shows the complete instrument-by-measure map. Instrument and section selectors appear next to the scope tabs. The map retains original measure indices for editing, selection, chord changes and regeneration; section-level settings remain under Section and All.
+
+
+## v5.4.1 — Instrumental groups (terminology correction)
+
+The Orchestration sub-tab **Section** refers to a functional orchestral group (Rhythm, Melody, Harmony), not a formal song part such as A, B, or C. Group membership is customizable for each song, stored in `project.orchestralGroups`, and included in local saves and `.tango` backups. Default groups are Rhythm (Piano, Contrabass), Melody (Violin I, Bandoneon I, Voice), and Harmony (Violin II, Bandoneon II); they are editable organizational presets, not claims that an instrument always performs that musical role. An instrument can be included in multiple groups. Instrument and Section views show the entire song, filtered by one instrument or the selected instrumental group respectively; All shows every instrument and measure. The former A/B/C orchestration settings are retained as a collapsed **Song-part settings** panel in All. Existing measure selection and editing use absolute measure indices.

@@ -1,5 +1,18 @@
 export type Instrument = 'Piano'|'Contrabass'|'Violin I'|'Violin II'|'Bandoneon I'|'Bandoneon II'|'Voice';
 export const INSTRUMENTS: Instrument[] = ['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
+/** Functional orchestra groups are user-editable and independent of A/B/C song parts.
+ * Defaults are starting points, not assertions about an instrument's musical role. */
+export type InstrumentGroup = 'rhythm'|'melody'|'harmony';
+export const INSTRUMENT_GROUPS:Readonly<Record<InstrumentGroup,readonly Instrument[]>>={
+  rhythm:['Piano','Contrabass'],
+  melody:['Violin I','Bandoneon I','Voice'],
+  harmony:['Violin II','Bandoneon II']
+};
+export function instrumentsForGroup(project:Pick<Project,'orchestralGroups'>,group:InstrumentGroup,available:readonly Instrument[]=INSTRUMENTS):Instrument[]{
+  const configured=project.orchestralGroups?.[group]?.length?project.orchestralGroups[group]!:INSTRUMENT_GROUPS[group];
+  return available.filter(inst=>configured.includes(inst));
+}
+
 export type Role = 'melody'|'harmony'|'chords'|'bass'|'fill'|'variation'|'rest';
 export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
@@ -196,7 +209,7 @@ export function resizeSections(p:Project,lengths:number[]):Project {
 }
 export type Bar = { chord:string; melody:Note[]; section:string };
 export type Score = Record<Instrument,Note[]>;
-export type Project = { version:1; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
