@@ -1,3 +1,8 @@
+## v5.4.2 · Typed help icon build fix (2026-11-15)
+
+- Declare `circle-help` in the `AppIcon` TypeScript name union and supply its SVG path. Fixes the Vue build error from the compact-mode help button.
+- Add icon coverage regression checks for all `AppIcon` template names and their SVG paths. No musical behavior changes.
+
 ## v5.0.0 · Contextual Lead Sheet and score consolidation (2026-11-15)
 
 - Lead Sheet measure-heading selection opens a full-width inline melody editor immediately following the selected measure in the section grid; chord fields retain uninterrupted keyboard navigation and are not forced to open the melody editor.

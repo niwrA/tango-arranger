@@ -6,5 +6,5 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
 ['grouped settings',()=>{for(const heading of ['Roles &amp; playing styles','Instrument techniques','Activity &amp; expression','Articulation &amp; gestures'])assert.ok(vue.includes(`<summary>${heading}</summary>`))}],
 ['responsive section controls',()=>assert.match(css,/\.orchestration-settings-grid\{display:grid/)],
 ['section key belongs in structure',()=>{const section=vue.slice(vue.indexOf('<section v-else-if="active===\'arrange\'"'),vue.indexOf('<section v-else-if="active===\'rhythm\'"'));assert.doesNotMatch(section,/setSectionKey\(/)}],
-['version and docs',()=>{assert.equal(require('../package.json').version,'5.4.1');for(const name of ['README.MD','PROJECT-GOALS.MD','PROJECT-BOARD.MD'])assert.ok(fs.readFileSync(path.join(root,name),'utf8').includes('v5.3.0'))}]
+['version and docs',()=>{assert.equal(require('../package.json').version,'5.4.2');for(const name of ['README.MD','PROJECT-GOALS.MD','PROJECT-BOARD.MD'])assert.ok(fs.readFileSync(path.join(root,name),'utf8').includes('v5.3.0'))}]
 ];for(const [name,fn] of checks){fn();console.log('PASS',name)}console.log(checks.length,'orchestration scope checks passed');

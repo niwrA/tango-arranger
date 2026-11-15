@@ -7,7 +7,7 @@ const pkg=require(path.join(root,'package.json'));
 let checks=0;
 function test(name,fn){fn();checks++;console.log('PASS',name);}
 const editor=vue.slice(vue.indexOf('<section v-else ref="noteEditorRegion"'),vue.indexOf('</main></div><footer>'));
-test('version 4.7.0',()=>assert.equal(pkg.version,'5.4.1'));
+test('version 4.7.0',()=>assert.equal(pkg.version,'5.4.2'));
 test('focus mode is transient, not stored on project',()=>{assert.match(vue,/const noteFocusMode=ref\(false\)/);assert.doesNotMatch(vue,/project\.value\.noteFocusMode/);});
 test('enter focus selects notes tab and closes popup',()=>assert.match(vue,/function enterNoteFocusMode\(\)\{\s*noteEditorTab\.value='notes';noteDetailsPopup\.value=false;/));
 test('exit focus and escape restores regular note editing',()=>{assert.match(vue,/function exitNoteFocusMode\(/);assert.match(vue,/else if\(noteFocusMode\.value\)exitNoteFocusMode\(\)/);});
