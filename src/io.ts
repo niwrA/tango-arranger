@@ -56,7 +56,7 @@ const durationType=(ticks:number):[string,number]=>{
 const chunks=(ticks:number)=>{const values=[1920,1440,960,720,480,360,240,180,120,60,30];const out:number[]=[];let remaining=ticks;for(const v of values)while(remaining>=v){out.push(v);remaining-=v;}if(remaining)throw Error(`Duration not representable at 1/16 beat: ${ticks}`);return out;};
 // Derive MusicXML extender phases from the ordered sung note onsets, including
 // across barlines. A melisma flag marks the syllable that starts the span.
-function lyricExtensionPhase(notes:Note[], source:Note, verse:1|2):'start'|'continue'|'stop'|undefined {
+function lyricExtensionPhase(notes:Note[], source:Pick<Note,'start'>, verse:1|2):'start'|'continue'|'stop'|undefined {
   const lyricKey=verse===1?'lyric':'lyric2';
   const flagKey=verse===1?'melisma':'melisma2';
   const ordered=[...notes].sort((a,b)=>a.start-b.start||b.pitch-a.pitch);

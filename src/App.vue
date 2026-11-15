@@ -1595,7 +1595,7 @@ function applyLyricBatch(){
 function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'swellTo'|'subito',raw:string){
   if(!selectedEvent.value)return;
   const events=noteMeasure.value.map(n=>({...n}));const index=noteSelected.value;const old=events[index];
-  let value:number|string=raw;
+  let value:number|string|boolean=raw;
   if(['pitch','start','duration','velocity','gate','slideTo','swellTo'].includes(field)&&raw!=='inherit')value=Number(raw);
   if(field==='lyric'||field==='lyric2')value=raw.trim().slice(0,160);
   if(field==='melisma'||field==='melisma2')value=raw==='true';
