@@ -1,5 +1,29 @@
-export type Instrument = 'Piano'|'Contrabass'|'Violin I'|'Violin II'|'Bandoneon I'|'Bandoneon II'|'Voice';
-export const INSTRUMENTS: Instrument[] = ['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
+export type Instrument = string;
+export const FACTORY_INSTRUMENTS: readonly Instrument[] = ['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
+/** Reactive UI compatibility: mutate in place when switching projects. Engine functions use project roster. */
+export const INSTRUMENTS: Instrument[] = [...FACTORY_INSTRUMENTS];
+export type InstrumentFamily = 'Piano'|'Contrabass'|'Violin'|'Bandoneon'|'Voice';
+export function instrumentFamily(inst:Instrument):InstrumentFamily {
+  if(inst.startsWith('Violin'))return 'Violin';
+  if(inst.startsWith('Bandoneon'))return 'Bandoneon';
+  if(inst.startsWith('Voice'))return 'Voice';
+  if(inst.startsWith('Piano'))return 'Piano';
+  if(inst.startsWith('Contrabass'))return 'Contrabass';
+  throw Error(`Unsupported instrument family: ${inst}`);
+}
+export function projectInstruments(p:Pick<Project,'instruments'>):Instrument[]{return p.instruments?.length?[...p.instruments]:[...FACTORY_INSTRUMENTS];}
+export function syncActiveInstruments(p:Pick<Project,'instruments'>):void {INSTRUMENTS.splice(0,INSTRUMENTS.length,...projectInstruments(p));}
+export function validateRoster(roster:readonly string[]):Instrument[]{
+  if(!roster.length||roster.length>32||new Set(roster).size!==roster.length)throw Error('Roster must contain 1–32 unique parts');
+  for(const name of roster){if(!/^(Piano( [IVX]+)?|Contrabass( [IVX]+)?|Violin( [IVX]+)?|Bandoneon( [IVX]+)?|Voice( [IVX]+)?)$/.test(name))throw Error(`Unsupported part: ${name}`);}
+  return [...roster];
+}
+export function setProjectRoster(p:Project,roster:readonly string[]):Project{
+  const instruments=validateRoster(roster);
+  const next:Project={...p,instruments,roles:Object.fromEntries(Object.entries(p.roles).map(([section,roles])=>[section,Object.fromEntries(instruments.map(inst=>[inst,roles[inst]??(inst.startsWith('Voice')&&inst!=='Voice'?'harmony':'rest')]))]))};
+  next.generatedScore=undefined;
+  return next;
+}
 /** Functional orchestra groups are user-editable and independent of A/B/C song parts.
  * Defaults are starting points, not assertions about an instrument's musical role. */
 export type InstrumentGroup = 'rhythm'|'melody'|'harmony';
@@ -17,7 +41,7 @@ export type Role = 'melody'|'harmony'|'chords'|'bass'|'fill'|'variation'|'rest';
 export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
-export type Note = { articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark };
+export type Note = { lyric?:string; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark };
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
   staccato:0.28,marcato_staccato:0.58,legato:0.94
@@ -50,7 +74,7 @@ export function measureDynamicVelocity(p:Pick<Project,'measureDynamics'|'beats'>
  return Math.max(1,Math.min(127,Math.round(base+(start??end??88)-88)));
 }
 export function melodyDuckingFactor(p:Pick<Project,'melodyDucking'|'roles'|'measureRoles'|'bars'|'beats'>,inst:Instrument,absoluteBeat:number):number {
- if(inst==='Contrabass'||p.melodyDucking?.enabled===false)return 1;
+ if(inst.startsWith('Contrabass')||p.melodyDucking?.enabled===false)return 1;
  const b=Math.floor(absoluteBeat/p.beats),bar=p.bars[b];if(!bar)return 1;
  const lead=p.measureRoles?.[`${inst}:${b}`]??p.roles[bar.section]?.[inst];if(lead==='melody')return 1;
  const hasLead=INSTRUMENTS.some(i=>i!==inst&&(p.measureRoles?.[`${i}:${b}`]??p.roles[bar.section]?.[i])==='melody');
@@ -209,11 +233,11 @@ export function resizeSections(p:Project,lengths:number[]):Project {
 }
 export type Bar = { chord:string; melody:Note[]; section:string };
 export type Score = Record<Instrument,Note[]>;
-export type Project = { version:1; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
-  return Object.fromEntries(INSTRUMENTS.map(i=>[i,(score[i]??[]).map(n=>{const pitch=n.pitch+semitones;if(pitch<0||pitch>127||(n.slideTo!==undefined&&(n.slideTo+semitones<0||n.slideTo+semitones>127)))throw Error(`Transposition exceeds MIDI pitch limits for ${i}`);return {...n,pitch,slideTo:n.slideTo===undefined?undefined:n.slideTo+semitones};})])) as Score;
+  return Object.fromEntries(Object.keys(score).map(i=>[i,(score[i]??[]).map(n=>{const pitch=n.pitch+semitones;if(pitch<0||pitch>127||(n.slideTo!==undefined&&(n.slideTo+semitones<0||n.slideTo+semitones>127)))throw Error(`Transposition exceeds MIDI pitch limits for ${i}`);return {...n,pitch,slideTo:n.slideTo===undefined?undefined:n.slideTo+semitones};})])) as Score;
 }
 export function transposeChord(symbol:string,semitones:number):string {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Invalid transpose');
@@ -273,7 +297,7 @@ export function changeSectionKey(p:Project,section:string,toKey:string,mode:Sect
       if(pitch<lo||pitch>hi||(slideTo!==undefined&&(slideTo<lo||slideTo>hi)))throw Error(`Protected ${inst} note exceeds playable register; section key unchanged`);
       return {...n,pitch,slideTo};
     };
-    next.importedScore=Object.fromEntries(INSTRUMENTS.map(inst=>[inst,(p.importedScore?.[inst]??[]).map(n=>transposeProtected(inst,n))])) as Score;
+    next.importedScore=Object.fromEntries(projectInstruments(p).map(inst=>[inst,(p.importedScore?.[inst]??[]).map(n=>transposeProtected(inst,n))])) as Score;
   }
   // Rebuild non-protected measures from the new harmony and lead sheet.
   // Protected measures are merged from importedScore (transposed above when requested).
@@ -476,7 +500,7 @@ export function pianoStaffForPitch(pitch:number,splitPitch=60):1|2 {
   if(!Number.isFinite(pitch)||!Number.isInteger(splitPitch)||splitPitch<48||splitPitch>72)throw Error('Invalid piano staff split');
   return pitch>=splitPitch?1:2;
 }
-export function instrumentRange(inst:Instrument):[number,number]{return inst==='Contrabass'?[28,55]:inst==='Piano'?[43,85]:inst==='Voice'?[55,85]:inst.startsWith('Violin')?[55,96]:[48,88];}
+export function instrumentRange(inst:Instrument):[number,number]{return inst.startsWith('Contrabass')?[28,55]:inst.startsWith('Piano')?[43,85]:inst.startsWith('Voice')?[55,85]:inst.startsWith('Violin')?[55,96]:[48,88];}
 export function convertTwoFourToFour(p:Project):Project {
   if(p.beats!==2)throw Error('Only 2/4 projects can be converted to 4/4');
   if(p.bars.length%2)throw Error('An odd number of measures requires an explicit pickup/ending decision');
@@ -501,7 +525,7 @@ export function instrumentActivity(score:Score,inst:Instrument,barCount:number,b
  * register, starting chord tone and rhythmic placement deterministically.
  * Melody responses only occupy space after the lead phrase where possible. */
 export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:FigureKind,variation=0):Note[] {
-  if(!FIGURE_KINDS.includes(figure)||!INSTRUMENTS.includes(inst)||!p.bars[barIndex])throw Error('Invalid figure, instrument or measure');
+  if(!FIGURE_KINDS.includes(figure)||!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid figure, instrument or measure');
   if(!Number.isInteger(variation)||variation<0||variation>99)throw Error('Variation must be 0–99');
   const bar=p.bars[barIndex],range=instrumentRange(inst),offset=barIndex*p.beats;
   if(!bar.chord.trim())return [];
@@ -611,7 +635,8 @@ export function contrabassStyleNotes(p:Project,barIndex:number,technique:BassTec
  return result;
 }
 export function generate(p:Project):Score {
-  const score=Object.fromEntries(INSTRUMENTS.map(i=>[i,[]])) as unknown as Score;
+  const roster=projectInstruments(p);
+  const score=Object.fromEntries(roster.map(i=>[i,[]])) as unknown as Score;
   const profile=patterns[p.profile]??patterns.traditional;
   const settings=p.orchestration??defaultOrchestration();
   const expression=p.expression??defaultExpression();
@@ -621,21 +646,23 @@ export function generate(p:Project):Score {
     const harmony=(beat:number)=>chordTones(chordAt(bar.chord,p.beats,beat));
     const tones=harmony(0),root=tones[0];
     // Generate primary lines first so followers can copy the actual generated notes.
-    const order:Instrument[]=['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
+    const order:Instrument[]=[...roster].sort((left,right)=>{const aLead=left.startsWith('Voice')&&(p.measureRoles?.[`${left}:${b}`]??sectionRoles[left])==='melody';const bLead=right.startsWith('Voice')&&(p.measureRoles?.[`${right}:${b}`]??sectionRoles[right])==='melody';return Number(bLead)-Number(aLead);});
     for(const inst of order){
       const configuredRole=p.measureRoles?.[`${inst}:${b}`]??sectionRoles[inst]??'rest',notes=score[inst],range=instrumentRange(inst);
       if(!bar.chord.trim() && configuredRole!=='melody' && configuredRole!=='variation')continue; // No invented harmony before chord entry.
       const cfg=p.instrumentSettings?.[inst]; const difficulty=cfg?.difficulty??p.difficulty??'advanced';
-      const activity=Math.max(0,Math.min(1,cfg?.activity??(inst==='Voice'?0:0.9)));
+      const activity=Math.max(0,Math.min(1,cfg?.activity??(inst.startsWith('Voice')?0:0.9)));
       const intentionalRest=configuredRole==='rest';
       // Violin II harmony is a real second line to Violin I's melody, not an
       // independently sparse accompaniment. Respect explicit Rest/zero activity.
       const violinDuet=inst==='Violin II'&&configuredRole==='harmony'&&
         (p.measureRoles?.[`Violin I:${b}`]??sectionRoles['Violin I'])==='melody';
+      const voiceLead=roster.find(i=>i.startsWith('Voice')&&(p.measureRoles?.[`${i}:${b}`]??sectionRoles[i])==='melody');
+      const voiceDuet=inst.startsWith('Voice')&&inst!==voiceLead&&configuredRole==='harmony'&&!!voiceLead;
       const activeBar=!intentionalRest && activity>0 &&
-        (violinDuet||((b*7+INSTRUMENTS.indexOf(inst)*3)%100)<Math.round(activity*100));
+        (violinDuet||voiceDuet||((b*7+roster.indexOf(inst)*3)%100)<Math.round(activity*100));
       if(!activeBar)continue;
-      const role=(configuredRole==='fill' && inst.startsWith('Bandoneon'))?(bar.melody.length?'harmony':'chords'):(configuredRole==='harmony'&&!bar.melody.length&&!violinDuet?'chords':configuredRole);
+      const role=(configuredRole==='fill' && inst.startsWith('Bandoneon'))?(bar.melody.length?'harmony':'chords'):(configuredRole==='harmony'&&!bar.melody.length&&!violinDuet&&!voiceDuet?'chords':configuredRole);
       const sectionDyn=expression.sections[bar.section]??'mf';
       const dynamicScale=expression.enabled?(dynVelocity[sectionDyn]/88):1;
       const difficultyBoost=difficulty==='advanced'?1:difficulty==='intermediate'?0.84:0.65;
@@ -669,7 +696,11 @@ export function generate(p:Project):Score {
             .filter(n=>n.start>=offset-1e-7&&n.start<offset+p.beats-1e-7)
             .map(n=>({...n,start:n.start-offset}))
         : [];
-      const primary=violinDuet?violinSource:bar.melody;
+      const voiceSource=voiceDuet&&voiceLead
+        ? (p.protectedBars[`${voiceLead}:${b}`]&&p.importedScore?p.importedScore[voiceLead]:score[voiceLead])
+            .filter(n=>n.start>=offset-1e-7&&n.start<offset+p.beats-1e-7)
+            .map(n=>({...n,start:n.start-offset})) : [];
+      const primary=violinDuet?violinSource:voiceDuet?voiceSource:bar.melody;
       if(role==='melody'||role==='harmony'||role==='variation'){
         for(const n of primary){
           let pitch=n.pitch;
@@ -684,7 +715,7 @@ export function generate(p:Project):Score {
         continue;
       }
       if(role==='bass'){
-        if(inst==='Contrabass'){
+        if(inst.startsWith('Contrabass')){
           const bassStyle=bassTechniqueFor(p,b);
           if(bassStyle!=='traditional'){
             for(const event of contrabassStyleNotes(p,b,bassStyle)){
@@ -701,7 +732,7 @@ export function generate(p:Project):Score {
         }
         continue;
       }
-      if(inst==='Piano'&&role==='chords'){
+      if(inst.startsWith('Piano')&&role==='chords'){
         const figure=p.pianoFigures?.[bar.section]??'chords_up';
         const variation=p.pianoFigureVariation?.[bar.section]??0;
         for(const n of figureMeasure(p,inst,b,figure,variation))put(n.pitch,n.start-offset,n.duration,n.velocity,undefined,n.gate);
@@ -781,7 +812,7 @@ export function generate(p:Project):Score {
     }
   }
   // Apply phrasing after role generation so follower notes get consistent articulation.
-  for(const inst of INSTRUMENTS)for(const n of score[inst]){
+  for(const inst of roster)for(const n of score[inst]){
     const barIndex=Math.floor((n.start+1e-7)/p.beats);
     const mode=measureArticulation(p,inst,barIndex);
     const explicit=p.articulation?.overrides?.[`${inst}:${barIndex}`];
@@ -804,8 +835,8 @@ export function generate(p:Project):Score {
   }
   return score;
 }
-export function mergeScores(p:Project,fresh:Score):Score {const merged=Object.fromEntries(INSTRUMENTS.map(i=>[i,[]])) as unknown as Score;for(const inst of INSTRUMENTS){for(let b=0;b<p.bars.length;b++){const key=`${inst}:${b}`,from=p.protectedBars[key]&&p.importedScore?p.importedScore:fresh;merged[inst].push(...(from[inst]??[]).filter(n=>Math.floor((n.start+1e-7)/p.beats)===b).map(n=>({...n})));}}return merged;}
-export function scoreStats(score:Score):number {return INSTRUMENTS.reduce((s,i)=>s+(score[i]?.length??0),0);}
+export function mergeScores(p:Project,fresh:Score):Score {const roster=projectInstruments(p);const merged=Object.fromEntries(roster.map(i=>[i,[]])) as unknown as Score;for(const inst of roster){for(let b=0;b<p.bars.length;b++){const key=`${inst}:${b}`,from=p.protectedBars[key]&&p.importedScore?p.importedScore:fresh;merged[inst].push(...(from[inst]??[]).filter(n=>Math.floor((n.start+1e-7)/p.beats)===b).map(n=>({...n})));}}return merged;}
+export function scoreStats(score:Score):number {return Object.values(score).reduce((s,notes)=>s+(notes?.length??0),0);}
 
 
 /** Editing helpers operate on concert-pitch MIDI notes, before global transposition.
@@ -824,7 +855,7 @@ export function keyPitchClasses(key:string):number[] {
   return steps.map(n=>(tonic+n)%12);
 }
 export function noteEditorContext(p:Project,inst:Instrument,barIndex:number):NoteEditorContext {
-  if(!INSTRUMENTS.includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
+  if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const section=p.bars[barIndex].section;
   const key=sectionKey(p,section);
   const mode=parseKeySignature(key).mode;
@@ -833,7 +864,7 @@ export function noteEditorContext(p:Project,inst:Instrument,barIndex:number):Not
     key,mode,difficulty:p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'advanced',
     range:instrumentRange(inst),articulation:measureArticulation(p,inst,barIndex),
     technique:inst==='Contrabass'?bassTechniqueFor(p,barIndex):inst.startsWith('Violin')?(p.measureViolinTechniques?.[`${inst}:${barIndex}`]??p.orchestration?.violin[section]?.[inst as 'Violin I'|'Violin II']??'tango_staccato'):undefined,
-    activity:p.instrumentSettings?.[inst]?.activity??(inst==='Voice'?0:0.9),
+    activity:p.instrumentSettings?.[inst]?.activity??(inst.startsWith('Voice')?0:0.9),
     dynamic:p.expression?.sections[section]??'mf'
   };
 }
@@ -892,7 +923,7 @@ export function suggestedEditorNote(p:Project,inst:Instrument,barIndex:number,be
  * that store for protected measures. This also makes edits survive regeneration.
  */
 export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument,barIndex:number,notes:Note[]):Project {
-  if(!INSTRUMENTS.includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
+  if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const offset=barIndex*p.beats,hi=offset+p.beats,range=instrumentRange(inst);
   const edited=notes.map(n=>{
     if(n.gate!==undefined&&(!Number.isFinite(n.gate)||n.gate<=0||n.gate>1))throw Error('Note gate must be between 0 (exclusive) and 1');
@@ -903,7 +934,7 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
       throw Error(`Invalid ${inst} note: pitch, onset or duration outside measure`);
     return {...n,source:'manual' as const};
   }).sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
-  const replace=(score:Score):Score=>Object.fromEntries(INSTRUMENTS.map(part=>[part,part===inst?
+  const replace=(score:Score):Score=>Object.fromEntries(projectInstruments(p).map(part=>[part,part===inst?
     [...(score[part]??[]).filter(n=>n.start<offset-1e-8||n.start>=hi),...edited].sort((a,b)=>a.start-b.start||a.pitch-b.pitch):
     (score[part]??[]).map(n=>({...n}))])) as Score;
   const key=`${inst}:${barIndex}`;
@@ -911,7 +942,7 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
 }
 /** Remove manual protection and restore generator output for this measure only. */
 export function resetInstrumentMeasure(p:Project,inst:Instrument,barIndex:number):Project {
-  if(!INSTRUMENTS.includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
+  if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const protectedBars={...p.protectedBars};delete protectedBars[`${inst}:${barIndex}`];
   const next={...p,protectedBars};
   return {...next,generatedScore:mergeScores(next,generate(next))};

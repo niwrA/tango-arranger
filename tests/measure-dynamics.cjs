@@ -12,7 +12,7 @@ try{
  const xml=fs.readFileSync(path.join(root,'src/io.ts'),'utf8');
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  assert.match(music,/DYNAMIC_MARKS.*ppp.*fff/);
- assert.match(music,/inst==='Contrabass'.*return 1/);
+ assert.match(music,/inst\.startsWith\('Contrabass'\).*return 1/);
  assert.match(music,/measureDynamicVelocity/);
  assert.match(loop,/melodyDuckingFactor\(project,instrument,n.start\)/);
  assert.match(loop,/n\.subito\?DYNAMIC_VELOCITIES/);

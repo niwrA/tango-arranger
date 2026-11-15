@@ -1,7 +1,7 @@
 import source from './el-choclo-source.json';
 import {
   defaultArticulation,defaultExpression,defaultInstrumentSettings,defaultOrchestration,
-  generate, type Project
+  generate,convertTwoFourToFour, type Project
 } from '../music';
 
 /**
@@ -44,6 +44,16 @@ export function createElChocloStudy():Project {
     C:{'Bandoneon II':{target:'Piano',method:'rhythm'}}
   };
   p.expression!.sections={A1:'mp',B1:'mf',A2:'mp',B2:'f',C:'f'};
-  p.generatedScore=generate(p);
-  return p;
+  // Convert the original 64 x 2/4 transcription into 32 x 4/4 measures.
+  // The conversion preserves all onset times and note lengths in quarter-note beats.
+  // Remap measure-indexed expression cues to the new meter.
+  p.measureDynamics=Object.fromEntries(Object.entries(p.measureDynamics??{}).map(([key,value])=>{
+    const separator=key.lastIndexOf(':');
+    return [`${key.slice(0,separator)}:${Math.floor(Number(key.slice(separator+1))/2)}`,value];
+  }));
+  p.expressionRanges=p.expressionRanges?.map(r=>({...r,startMeasure:Math.floor(r.startMeasure/2),endMeasure:Math.ceil(r.endMeasure/2)}));
+  const fourFour=convertTwoFourToFour(p);
+  fourFour.title='El Choclo — 4/4 orchestral study';
+  fourFour.generatedScore=generate(fourFour);
+  return fourFour;
 }

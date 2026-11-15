@@ -12,5 +12,5 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
 ['all map rows use selected group',()=>assert.match(vue,/instrumentsForGroup\(project.value,selectedInstrumentGroup.value,overviewInstruments.value\)/)],
 ['A B C settings separate in All view',()=>assert.match(vue,/v-if="orchestrationScope==='all'" class="control-fold orchestration-song-part-settings"/)],
 ['mobile membership controls',()=>assert.match(css,/@media\(max-width:520px\)\{\.orchestration-group-checks/)],
-['version',()=>assert.equal(require('../package.json').version,'5.4.2')]
+['version',()=>assert.equal(require('../package.json').version,'5.5.0')]
 ];for(const [name,fn] of checks){fn();console.log('PASS',name)}console.log(checks.length,'instrumental section group checks passed');

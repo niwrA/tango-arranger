@@ -1,7 +1,11 @@
-## v5.4.2 · Typed help icon build fix (2026-11-15)
+## v5.5.0 — Dynamic orchestra roster and El Choclo in 4/4 (2026-11-15)
 
-- Declare `circle-help` in the `AppIcon` TypeScript name union and supply its SVG path. Fixes the Vue build error from the compact-mode help button.
-- Add icon coverage regression checks for all `AppIcon` template names and their SVG paths. No musical behavior changes.
+- The factory roster remains Piano, Contrabass, Violin I, Violin II, Bandoneon I, Bandoneon II and Voice. Songs may now store an optional custom `instruments` array; legacy `.tango` projects without this field continue to use the factory roster.
+- Orchestration → Orchestra roster supports adding numbered Violin, Bandoneon and Voice parts, reordering and removing parts. Roster presets can be named, saved, loaded and deleted in browser local storage; any current roster can be set as the default for newly created songs. Existing songs retain their own roster.
+- Additional Voice parts with the Harmony role follow the active Voice melody line in rhythm and receive chord-tone harmony pitches. Protected manually edited measures remain unchanged on regeneration. The original Voice remains silent by default until assigned an active role.
+- MusicXML now enumerates the project's active roster, including additional violin and vocal parts.
+- El Choclo now merges the source's 64 2/4 measures into 32 4/4 measures, retaining source melodic timing and harmony changes and regenerating the orchestration with the current engine. It remains a study from the supplied earlier ABC transcription, not an authenticated historical edition; pickups and repeats remain simplified.
+- Added dynamic-roster and 4/4 example tests. Full browser build and MuseScore visual validation remain pending where npm dependencies cannot be installed.
 
 ## v5.0.0 · Contextual Lead Sheet and score consolidation (2026-11-15)
 
@@ -468,3 +472,9 @@ The Instrument scope shows only the selected instrument across all song measures
 ## v5.4.1 — Instrumental groups (terminology correction)
 
 The Orchestration sub-tab **Section** refers to a functional orchestral group (Rhythm, Melody, Harmony), not a formal song part such as A, B, or C. Group membership is customizable for each song, stored in `project.orchestralGroups`, and included in local saves and `.tango` backups. Default groups are Rhythm (Piano, Contrabass), Melody (Violin I, Bandoneon I, Voice), and Harmony (Violin II, Bandoneon II); they are editable organizational presets, not claims that an instrument always performs that musical role. An instrument can be included in multiple groups. Instrument and Section views show the entire song, filtered by one instrument or the selected instrumental group respectively; All shows every instrument and measure. The former A/B/C orchestration settings are retained as a collapsed **Song-part settings** panel in All. Existing measure selection and editing use absolute measure indices.
+
+## v5.5.1 - Lyrics and roster templates
+
+For Voice parts, select a note in the Note Editor and enter a lyric syllable. Choose single, begin, middle or end to indicate its position within a word. The lyric is saved with the note and exported as a MusicXML lyric for MuseScore. Multi-note melismas and verse management remain future work.
+
+Built-in roster templates are Factory seven-part, Quartet, Sextet, Septet and Orquesta típica. They are configurable examples rather than fixed historical orchestrations. The factory seven-part roster remains the initial default.

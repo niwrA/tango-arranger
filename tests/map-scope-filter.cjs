@@ -8,5 +8,5 @@ const assert=require('node:assert/strict');const fs=require('node:fs');const pat
 ['instrument group picker beside scope tabs',()=>assert.match(vue,/aria-label="Orchestra group shown in orchestration map"/)],
 ['instrument picker beside scope tabs',()=>assert.match(vue,/aria-label="Instrument shown in orchestration map"/)],
 ['responsive selectors',()=>assert.match(css,/\.orchestration-map-filter/)],
-['version and docs',()=>{assert.equal(require('../package.json').version,'5.4.2');for(const name of ['README.MD','PROJECT-GOALS.MD','PROJECT-BOARD.MD'])assert.ok(fs.readFileSync(path.join(root,name),'utf8').includes('v5.4.0'))}]
+['version and docs',()=>{assert.equal(require('../package.json').version,'5.5.0');for(const name of ['README.MD','PROJECT-GOALS.MD','PROJECT-BOARD.MD'])assert.ok(fs.readFileSync(path.join(root,name),'utf8').includes('v5.4.0'))}]
 ];for(const [name,fn] of checks){fn();console.log('PASS',name)}console.log(checks.length,'map scope filter checks passed');

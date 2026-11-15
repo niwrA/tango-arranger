@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'circle-help'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'}>();
 const paths:Record<typeof props.name,string>={
   plus:'M12 5v14 M5 12h14',
   save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z M7 3v6h10V4 M7 21v-8h10v8',
@@ -20,7 +20,6 @@ const paths:Record<typeof props.name,string>={
   copy:'M8 4h12v15H8z M16 21H5a2 2 0 0 1-2-2V6',
   trash:'M3 6h18 M8 6V4h8v2 M5 6l1 15h12l1-15 M10 10v7 M14 10v7',
   info:'M12 17v-5 M12 8h.01 M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z',
-  'circle-help':'M12 17h.01 M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4 M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z',
   'chevron-down':'m6 9 6 6 6-6',
   'folder-open':'M3 19h16a2 2 0 0 0 2-2l1-9H11l-2-3H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2Z M3 19l2-9h17',
   'volume-2':'M11 5 6 9H2v6h4l5 4V5Z M15 9a4 4 0 0 1 0 6 M18 6a8 8 0 0 1 0 12',
