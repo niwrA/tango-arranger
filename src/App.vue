@@ -7,6 +7,7 @@ import {startAudioFromGesture} from './toneSession';
 let Tone:typeof import('tone');
 import {version as appVersion} from '../package.json';
 import {createElChocloStudy} from './presets/el-choclo';
+import pequenaStudy from './presets/pequena-2.json';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts} from './io';
@@ -84,6 +85,16 @@ async function adoptLocalSong(p:Project){
 async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
+  if(id==='__example_pequena_2__'){
+    select.value=localSongId.value;
+    try{
+      await flushAutosave();
+      await adoptLocalSong(snapshot(pequenaStudy as Project));
+      active.value='arrange';
+      message.value='Opened a new editable Pequeña 2 — Vals study (130 measures). Melody and lyric alignment remain provisional; review against the printed score.';
+    }catch(error){message.value=`Could not create Pequeña 2 study: ${String(error)}`;}
+    return;
+  }
   if(id==='__example_el_choclo__'){
     // Reset the native picker while the asynchronous copy is being created.
     select.value=localSongId.value;
@@ -1751,7 +1762,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span class="header-save-status" role="status">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
-    <label class="sr-only" for="header-song-picker">Song</label><select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option></optgroup></select>
+    <label class="sr-only" for="header-song-picker">Song</label><select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
     <button class="secondary icon-action" type="button" title="Create new blank song" aria-label="New blank song" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/></button>
     <button class="secondary icon-action" type="button" title="Save current song now" aria-label="Save song now" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/></button>
     <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span class="header-save-status" role="status">{{saveStatus}}</span></div></details>
