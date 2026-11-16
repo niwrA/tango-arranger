@@ -734,3 +734,21 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 /* Playback actions live alongside each instrument name in the orchestration grid. */
 .song-map .instrument-row-preview{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
 .song-map .instrument-row-preview button{font-size:11px;line-height:1.2;padding:4px 6px;white-space:nowrap;width:auto}
+
+/* Consolidated note-entry, context, view and range controls above the note grid. */
+.note-editor-panel .note-tools-bar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin-bottom:10px}
+.note-editor-panel .note-tools-bar>.control-fold{flex:1 1 225px;min-width:0;margin:0;padding:0 9px 7px}
+.note-editor-panel .note-tools-bar>.note-tools-entry{flex:2 1 340px}
+.note-editor-panel .note-tools-bar>.note-tools-actions{flex:1.5 1 280px}
+.note-editor-panel .note-tools-bar>.control-fold>summary{padding:7px 2px;font-size:12px}
+.note-editor-panel .note-tools-bar>.control-fold[open]>summary{margin-bottom:5px}
+.note-editor-panel .note-tools-bar .note-editor-controls{display:flex;flex-wrap:wrap;gap:6px 9px}
+.note-editor-panel .note-tools-bar .note-editor-controls label{flex:1 1 130px;min-width:0;margin:0;font-size:11px}
+.note-editor-panel .note-tools-bar select,.note-editor-panel .note-tools-bar input:not([type=checkbox]){padding:5px 7px;margin-top:3px;font-size:12px}
+.note-editor-panel .note-tools-bar button{padding:5px 8px;font-size:12px}
+.note-editor-panel .note-tools-bar .note-context{display:flex;flex-wrap:wrap;gap:5px 9px;font-size:11px}
+.note-editor-panel .note-tools-bar .note-editor-actions{display:flex;flex-wrap:wrap;gap:5px}
+.note-editor-panel .note-tools-bar .note-view-range-controls{display:flex;flex:1 1 230px;flex-wrap:wrap;gap:6px 9px;align-items:end;margin:0;padding:7px 9px;border:1px solid #425363;border-radius:10px}
+.note-editor-panel .note-tools-bar .note-view-range-controls label{flex:1 1 95px;min-width:0;margin:0;font-size:11px}
+.note-editor-panel .note-tools-bar .note-view-range-controls>.hint{flex-basis:100%;margin:0}
+@media(max-width:650px){.note-editor-panel .note-tools-bar{flex-direction:column}.note-editor-panel .note-tools-bar>.control-fold,.note-editor-panel .note-tools-bar>.note-view-range-controls{width:100%;flex:auto}}
