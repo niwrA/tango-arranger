@@ -2052,39 +2052,25 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
     <div class="note-tools-bar" aria-label="Note editor controls">
-    <details class="control-fold note-tools-entry" open>
-      <summary>Note entry &amp; display controls</summary>
-    <div class="note-editor-controls">
+  <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
       <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option></select></label>
       <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option></select></label>
-      <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label><span class="hint" role="status">Auto written length at beat 1: {{newNoteWrittenDuration(project,noteInst,selectedBar,0,newNoteArticulation)}} beat(s). Staccato and marcato keep their written note value (usually 1 beat); dot or &gt; affects articulation and playback gate, not the notation duration. Fixed duration overrides Auto.</span>
-      <label class="note-audition-toggle"><input type="checkbox" v-model="auditionEnabled"/> Hear notes when clicked</label>
+      <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
       <label>Pitch labels<select v-model="editorAccidentals"><option value="auto">Follow key signature</option><option value="sharp">Use sharps (♯)</option><option value="flat">Use flats (♭)</option></select></label>
     </div>
-    </details>
-    <details class="control-fold note-context-fold">
-      <summary>Instrument context &amp; generated settings</summary>
-    <div class="note-context">
-      <span><strong>Role</strong> {{noteCtx.role}}</span><span><strong>Difficulty</strong> {{noteCtx.difficulty}}</span>
-      <span><strong>Key</strong> {{noteCtx.key}} {{noteCtx.mode}}</span>
-      <span><strong>Range</strong> {{midiName(noteCtx.range[0])}}–{{midiName(noteCtx.range[1])}}</span>
-      <span><strong>Articulation</strong> {{noteCtx.articulation??'none'}}</span>
-      <span v-if="noteCtx.technique"><strong>Technique</strong> {{noteCtx.technique}}</span>
-      <span><strong>Dynamic</strong> {{noteCtx.dynamic}}</span><span><strong>Activity</strong> {{Math.round(noteCtx.activity*100)}}%</span>
-      <span v-if="project.protectedBars[`${noteInst}:${selectedBar}`]" class="manual-status">Manual · protected</span>
-    </div>
-    </details>
-    <details class="control-fold note-tools-actions" open><summary>View &amp; actions</summary>
-    <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
-    <div class="note-editor-actions"><template v-if="noteInst==='Piano'&&!noteViewCustom"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="shiftNoteView(-12)">↓ Lower octave</button><button class="secondary" @click="shiftNoteView(12)">↑ Higher octave</button></template><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div>
-    </details>
-    <div class="note-view-range-controls" aria-label="Note editor visible pitch range">
+</div>
+  <div class="note-tools-group note-tools-range-group" aria-label="Pitch range and octave"><div class="note-view-range-controls" aria-label="Visible pitch range">
       <label>Lowest note<select v-model.number="noteViewStart" @change="changeNoteViewStart"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
       <label>Highest note<select v-model.number="noteViewEnd" @change="changeNoteViewEnd"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
       <span class="hint">Visible pitch range · {{midiName(noteViewStart)}}–{{midiName(noteViewEnd)}}</span>
-    </div>
-    </div>
-    <div v-if="noteFocusMode" class="note-focus-view-tools" aria-label="Visible pitch range">
+
+  <div class="note-editor-actions"><template v-if="noteInst==='Piano'&&!noteViewCustom"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="shiftNoteView(-12)">↓ Lower octave</button><button class="secondary" @click="shiftNoteView(12)">↑ Higher octave</button></template></div>
+  <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
+    
+  </div>
+  <div class="note-tools-group note-tools-measure-group" aria-label="Measure actions"><div class="note-measure-actions"><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div></div>
+</div>
+<div v-if="noteFocusMode" class="note-focus-view-tools" aria-label="Visible pitch range">
       <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
       <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
     </div>
@@ -2097,6 +2083,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         </button>
       </div>
     </div>
+    <div class="note-context-panel" aria-label="Instrument context"><div class="note-context">
+      <span><strong>Role</strong> {{noteCtx.role}}</span><span><strong>Difficulty</strong> {{noteCtx.difficulty}}</span>
+      <span><strong>Key</strong> {{noteCtx.key}} {{noteCtx.mode}}</span>
+      <span><strong>Range</strong> {{midiName(noteCtx.range[0])}}–{{midiName(noteCtx.range[1])}}</span>
+      <span><strong>Articulation</strong> {{noteCtx.articulation??'none'}}</span>
+      <span v-if="noteCtx.technique"><strong>Technique</strong> {{noteCtx.technique}}</span>
+      <span><strong>Dynamic</strong> {{noteCtx.dynamic}}</span><span><strong>Activity</strong> {{Math.round(noteCtx.activity*100)}}%</span>
+      <span v-if="project.protectedBars[`${noteInst}:${selectedBar}`]" class="manual-status">Manual · protected</span>
+    </div>
+</div></div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
       <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
