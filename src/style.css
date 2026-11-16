@@ -863,3 +863,11 @@ button.performance-part.performance-part-selected{background:rgba(75,130,210,.19
 .performance-roll{height:260px;position:relative;overflow:hidden;border:1px solid var(--border,#677280);border-radius:8px;background:repeating-linear-gradient(to top,transparent 0,transparent calc(100% / 24 - 1px),rgba(128,128,128,.16) calc(100% / 24 - 1px),rgba(128,128,128,.16) calc(100% / 24)),repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),rgba(128,128,128,.4) calc(25% - 1px),rgba(128,128,128,.4) 25%)}
 .performance-roll-note{position:absolute;height:3.6%;min-height:5px;border-radius:3px;background:#3b82f6;border:1px solid #93c5fd;z-index:1}
 .performance-roll-playhead{position:absolute;top:0;bottom:0;width:2px;background:#f97316;box-shadow:0 0 4px #f97316;z-index:2;pointer-events:none}
+
+/* Keep the voice piano roll visible beneath its lyric overlay. */
+.performance-roll-with-lyrics .performance-roll-note{opacity:.26}
+.performance-lyrics-overlay{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:1rem 1.5rem;pointer-events:none;text-align:center;background:linear-gradient(to bottom,transparent,rgba(12,18,30,.14),transparent)}
+.performance-lyrics-overlay-header{display:flex;align-items:center;justify-content:center;gap:1rem;font-size:.85rem;font-weight:600;text-shadow:0 1px 5px #000}
+.performance-lyrics-overlay-header label,.performance-lyrics-overlay-header select{pointer-events:auto}
+.performance-lyrics-overlay .performance-lyric-line{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.6rem;font-size:clamp(1.2rem,2.6vw,2rem);font-weight:650;line-height:1.5;color:#e2e8f0;text-shadow:0 2px 6px #111827,0 0 12px #111827}
+.performance-lyrics-overlay .performance-lyric-active{color:#fff;background:rgba(37,99,235,.8);border-radius:.4rem;padding:.05rem .35rem}
