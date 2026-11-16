@@ -1114,7 +1114,7 @@ async function importFile(e:Event){
   const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;
   try{
     pending.value=[];pendingChords.value=[];pendingKeys.value=[];
-    if(/\\.tango(?:\\.json)?$/i.test(file.name)){
+    if(/\.tango(?:\.json)?$/i.test(file.name)){
       await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);
       structureOpen.value=false;message.value='Portable project imported as a separate local song.';closeImportDialog();
     }else if(/\.(mid|midi)$/i.test(file.name)){
