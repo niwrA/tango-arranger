@@ -713,3 +713,20 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .orchestration-song-part-settings>summary{cursor:pointer;font-weight:650}
 .orchestration-song-part-settings .orchestration-section-scope{margin-top:10px}
 @media(max-width:520px){.orchestration-group-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.orchestration-group-checks label{white-space:normal}}
+
+
+/* Compact, initially expanded roster in Structure, Keys & Ensemble. */
+.structure-tab .roster-management{padding:0 12px 10px}
+.structure-tab .roster-management[open]>summary{padding:8px 4px;margin-bottom:6px}
+.structure-tab .roster-management .roster-help{margin:4px 0 9px;line-height:1.4}
+.structure-tab .roster-management .two{gap:8px;align-items:end}
+.structure-tab .roster-management label{margin-bottom:8px}
+.structure-tab .roster-management input:not([type=checkbox]),
+.structure-tab .roster-management select{padding:6px 8px;margin-top:4px}
+.structure-tab .roster-management .align-bottom{padding-bottom:8px}
+.structure-tab .roster-management button{padding:6px 9px;font-size:12px}
+.structure-tab .roster-parts{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:5px;padding:6px;margin:2px 0 10px;overflow:visible}
+.structure-tab .roster-parts .role-row{display:flex;align-items:center;gap:5px;min-width:0;padding:5px 7px;border:1px solid #35414c;border-radius:7px}
+.structure-tab .roster-parts .role-row strong{flex:1;min-width:0;font-size:12px;overflow-wrap:anywhere}
+.structure-tab .roster-parts .role-row button{padding:4px 7px;flex:none}
+@media(max-width:520px){.structure-tab .roster-parts{grid-template-columns:1fr}.structure-tab .roster-management .two{grid-template-columns:1fr}}
