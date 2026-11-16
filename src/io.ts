@@ -219,8 +219,29 @@ export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUME
   }
   return problems;
 }
-export async function saveProject(p:Project){const zip=new JSZip();zip.file('project.json',JSON.stringify(p,null,2));if(p.generatedScore)zip.file('score/generated.musicxml',exportMusicXml(p,p.generatedScore));if(p.importedScore)zip.file('score/edited.musicxml',exportMusicXml(p,p.importedScore));download(await zip.generateAsync({type:'blob'}),p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()+'.tango');}
-export async function loadProject(file:File):Promise<Project>{const zip=await JSZip.loadAsync(file);const data=zip.file('project.json');if(!data)throw Error('No project.json in archive');const p=JSON.parse(await data.async('string')) as Project;if(p.version!==1||!Array.isArray(p.bars))throw Error('Unsupported project format');p.sectionKeys??=inferSectionKeys(p);return p;}
+export async function saveProject(p:Project){
+  // Native projects are JSON so mobile document pickers recognize the file type.
+  // The project object already includes its generated and imported scores.
+  download(JSON.stringify(p,null,2),p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()+'.tango.json','application/json');
+}
+export async function loadProject(file:File):Promise<Project>{
+  // Legacy .tango files were ZIP archives containing project.json.
+  const bytes=await file.arrayBuffer();
+  const view=new Uint8Array(bytes);
+  let raw:string;
+  if(view.length>=4&&view[0]===0x50&&view[1]===0x4b&&view[2]===0x03&&view[3]===0x04){
+    const zip=await JSZip.loadAsync(bytes);
+    const entry=zip.file('project.json');
+    if(!entry)throw Error('No project.json in archive');
+    raw=await entry.async('string');
+  }else{
+    raw=new TextDecoder().decode(bytes).replace(/^\\uFEFF/,'');
+  }
+  const p=JSON.parse(raw) as Project;
+  if(p.version!==1||!Array.isArray(p.bars))throw Error('Unsupported project format');
+  p.sectionKeys??=inferSectionKeys(p);
+  return p;
+}
 function nodeText(e:Element|null,tag:string){return e?.getElementsByTagName(tag)[0]?.textContent??'';}
 export function importMusicXml(text:string):{parts:{name:string;notes:Note[]}[];chords:string[];keys:string[]}{const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw Error('Invalid MusicXML');const names=Array.from(doc.getElementsByTagName('score-part')).map(e=>nodeText(e,'part-name'));const parts=Array.from(doc.getElementsByTagName('part')).map((part,i)=>{let cursor=0;const notes:Note[]=[];for(const measure of Array.from(part.getElementsByTagName('measure'))){let pos=cursor,lastStart=cursor;const divisions=Number(nodeText(measure,'divisions'))||480;for(const child of Array.from(measure.children)){if(child.tagName==='backup')pos-=Number(nodeText(child,'duration'))/divisions;if(child.tagName==='forward')pos+=Number(nodeText(child,'duration'))/divisions;if(child.tagName!=='note')continue;const dur=Number(nodeText(child,'duration'))/divisions||1;const chord=!!child.getElementsByTagName('chord').length;const start=chord?lastStart:pos;const pitch=child.getElementsByTagName('pitch')[0];if(pitch){const step=nodeText(pitch,'step'),alter=Number(nodeText(pitch,'alter'))||0,oct=nodeText(pitch,'octave');const name=step+(alter===1?'#':alter===-1?'b':'')+oct;const n=parsePitch(name);if(n!==null){const lyricElements=Array.from(child.getElementsByTagName('lyric'));const readVerse=(number:number)=>{const element=lyricElements.find(e=>(Number(e.getAttribute('number'))||1)===number);const text=element?nodeText(element,'text'):'';const raw=element?nodeText(element,'syllabic'):'';const syllabic=(['single','begin','middle','end'].includes(raw)?raw:'single') as NonNullable<Note['syllabic']>;return {text,syllabic,melisma:Array.from(element?.getElementsByTagName('extend')??[]).some(e=>e.getAttribute('type')==='start')};};const first=readVerse(1),second=readVerse(2);notes.push({pitch:n,start,duration:dur,source:'imported',...(first.text?{lyric:first.text,syllabic:first.syllabic}:{}),...(first.melisma?{melisma:true}:{}),...(second.text?{lyric2:second.text,syllabic2:second.syllabic}:{}),...(second.melisma?{melisma2:true}:{})});}}if(!chord){lastStart=pos;pos+=dur;}}cursor=Math.max(cursor,pos);}return {name:names[i]??`Part ${i+1}`,notes};});const firstPart=doc.getElementsByTagName('part')[0];
   let activeKey='C';const keys:string[]=[];const chords=Array.from(firstPart?.getElementsByTagName('measure')??[]).map(measure=>{
