@@ -59,6 +59,7 @@ async function flushAutosave(){
   await saveQueue;
 }
 function stopPlayback(){
+  if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
   const wasPlayingArrangement=playing.value;
   // Invalidate a pending Tone.start() before it can schedule anything.
   noteLoopSession++;rhythmLoopSession++;captureSession++;
@@ -230,7 +231,21 @@ function handleNoteTabKey(event:KeyboardEvent){
 }
 const noteDetailsPopup=ref(false);
 function scrollMapEditPanel(){document.querySelector('.overview-edit')?.scrollIntoView({behavior:'smooth',block:'center'});}
-const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteInspectorOpen=ref(true);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'about'>('arrange');const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'>('melody');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>project.value.generatedScore??(project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,generate(project.value)):generate(project.value)));const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
+const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteInspectorOpen=ref(true);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>('arrange');const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'>('melody');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>project.value.generatedScore??(project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,generate(project.value)):generate(project.value)));const performanceBeat=ref(0);
+const performanceVerse=ref<1|2>(1);
+const performanceFull=ref(false);
+const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
+const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.section??'A');
+const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
+const performanceSections=computed(()=>sectionSpans(project.value));
+const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
+const performanceLyricNotes=computed(()=>{const voices=projectInstruments(project.value).filter(inst=>inst.startsWith('Voice'));return voices.flatMap(inst=>(score.value[inst]??[]).filter(n=>Boolean(n.lyric||n.lyric2))).sort((a,b)=>a.start-b.start);});
+const performanceCurrentLyric=computed(()=>{const beat=performanceBeat.value,notes=performanceLyricNotes.value;let index=-1;for(let i=0;i<notes.length;i++){if(notes[i].start<=beat+0.0001)index=i;else break;}return {notes,index};});
+const performanceLyricWindow=computed(()=>{const {notes,index}=performanceCurrentLyric.value;return notes.slice(Math.max(0,index-4),Math.min(notes.length,Math.max(0,index)+9)).map((note,i)=>({note,active:Math.max(0,index-4)+i===index}));});
+function performanceSeek(bar:number){const next=Math.max(0,Math.min(project.value.bars.length-1,bar));selectedBar.value=next;if(playing.value&&playbackOrigin.value){void play('selected');}else performanceBeat.value=next*project.value.beats;}
+let performanceTicker:ReturnType<typeof setInterval>|undefined;
+watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}if(isPlaying&&Tone&&playbackOrigin.value){performanceTicker=setInterval(()=>{if(!playing.value||!Tone)return;const start=playbackOrigin.value==='beginning'?0:selectedBar.value;performanceBeat.value=Math.min(project.value.bars.length*project.value.beats-0.001,start*project.value.beats+Tone.getTransport().seconds*project.value.bpm/60);},50);}});
+const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 // Status is event-driven: dismissing a message keeps it hidden until the text changes.
 watch(message,(next,previous)=>{if(next!==previous){statusVisible.value=true;statusDismissed.value=false;}});
 watch(project,scheduleAutosave,{deep:true});
@@ -267,7 +282,7 @@ function makeRosterDefault(){try{setDefaultRoster(projectInstruments(project.val
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
 onMounted(()=>{void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
 function saveIfHidden(){if(document.visibilityState==='hidden')saveOnLeave();}
-onBeforeUnmount(()=>{document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
+onBeforeUnmount(()=>{if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
@@ -1185,6 +1200,7 @@ async function play(origin:PlaybackOrigin){
   stopPlayback();
   const session=noteLoopSession;
   const startMeasure=origin==='selected'?selectedBar.value:0;
+  performanceBeat.value=startMeasure*project.value.beats;
   const window=arrangementPlaybackWindow(project.value.bars.length,project.value.beats,project.value.bpm,startMeasure);
   try{
     Tone=await startAudioFromGesture();
@@ -1783,7 +1799,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4 — Tango</option><option :value="3">3/4 — Vals</option><option :value="2">2/4 — Milonga / historical notation</option></select></label><label>Tempo (quarter notes/min)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label></div>
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
-</div><nav class="tabs" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
+</div><nav class="tabs" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='performance'}" @click="active='performance'">Performance</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
     <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
@@ -1820,7 +1836,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Chord sequence<input v-model="chordDraft" spellcheck="false" @keydown.enter.prevent="applyChordEditor" placeholder="D,D,D,G"/></label><label>Beat-by-beat preview<div class="chord-beat-preview">{{chordBeatLabels(chordDraft)}}</div></label></div>
   <div class="overview-actions"><button class="primary" @click="applyChordEditor">Apply harmony</button><button class="secondary" @click="chordEditorOpen=false">Cancel</button></div>
 </div>
-<section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
+ <section v-if="active==='performance'" class="performance-workspace" :class="{'performance-expanded':performanceFull}">
+  <div class="section-heading"><h2>Live performance</h2><span>{{project.title}}</span><button type="button" class="secondary" @click="performanceFull=!performanceFull">{{performanceFull?'Exit expanded view':'Expand performance view'}}</button></div>
+  <div class="performance-status"><div><span class="muted">SECTION</span><strong>{{performanceSection}}</strong></div><div><span class="muted">MEASURE</span><strong>{{performanceBar+1}} / {{project.bars.length}}</strong></div><div><span class="muted">BEAT</span><strong>{{performanceMeasureBeat.toFixed(1)}} / {{project.beats}}</strong></div><div><span class="muted">TEMPO</span><strong>{{project.bpm}} BPM</strong></div></div>
+  <div class="performance-section-strip"><button v-for="(span,i) in performanceSections" :key="i" type="button" :class="{'performance-section-current':span.section===performanceSection}" :style="{flex:span.measures}" @click="performanceSeek(span.start)" :title="`Jump to section ${span.section}, measure ${span.start+1}`">{{span.section}}</button></div>
+  <label class="performance-seek">Measure {{performanceBar+1}} <input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))"/></label>
+  <div class="performance-controls"><button type="button" class="primary" @click="play('selected')">▶ Play from measure {{selectedBar+1}}</button><button type="button" class="secondary" @click="play('beginning')">↺ Play from beginning</button><button type="button" class="secondary" :disabled="!playing" @click="stopPlayback">■ Stop</button><span role="status">{{playing?'Playing':'Stopped'}}</span></div>
+  <div class="performance-lyrics"><div class="performance-lyrics-heading"><h3>Lyrics</h3><label>Verse <select v-model.number="performanceVerse"><option :value="1">1</option><option :value="2">2</option></select></label></div><div v-if="performanceLyricWindow.length" class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{(performanceVerse===1?item.note.lyric:item.note.lyric2)||'·'}}</span></div><p v-else class="muted">No note-aligned lyrics in this score. Add syllables in the Voice note editor.</p><p class="hint">Highlight follows the score's syllable onset. Voice synthesis is not included in arrangement playback.</p></div>
+  <div class="performance-ensemble"><h3>Orchestra · current roles and activity</h3><div class="performance-part" v-for="part in performanceParts" :key="part.inst"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span>{{part.role}}</span><span class="muted">{{part.sounding?'Sounding':'Silent'}}</span></div></div>
+ </section>
+ <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
   <div class="section-heading"><h1 id="about-title">About Tango Arranger</h1><button type="button" class="secondary" @click="active='arrange'">← Back to arranging</button></div>
   <p class="about-intro">Tango Arranger is a local-first workbench for creating Argentine tango orchestra arrangements from a lead sheet. Start with a melody and chord progression, choose an orchestration style, and refine the result instrument by instrument.</p>
   <div class="about-grid">
