@@ -723,7 +723,7 @@ function setBarArticulation(inst:Instrument,e:Event){project.value.articulation?
 function inferredArticulation(inst:Instrument):string{return measureArticulation(project.value,inst,selectedBar.value)??'not applicable';}
 function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24)project.value.transposeSemitones=n;}
 // Song overview: measure-level overrides are sparse and do not replace section defaults.
-const orchestrationScope=ref<'instrument'|'section'|'all'>('instrument');
+const orchestrationScope=ref<'instrument'|'section'|'all'>('all');
 const selectedInstrumentGroup=ref<InstrumentGroup>('rhythm');
 const instrumentGroupOptions:InstrumentGroup[]=['rhythm','melody','harmony'];
 function groupMembers(group:InstrumentGroup):Instrument[]{return instrumentsForGroup(project.value,group,INSTRUMENTS);}
@@ -1876,7 +1876,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <button class="secondary lead-add-measure" @click="addBar">+ Add measure to last section</button></section>
 <section v-else-if="active==='arrange'" class="overview-section"><div class="section-heading"><h2>Orchestration</h2><span>{{project.bars.length}} measures · {{activeRoster.length}} parts</span></div>
 <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
-<button v-for="scope in (['instrument','section','all'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
+<button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
 </div>
 <div class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
 <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{inst}}</option></select></label>
