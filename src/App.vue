@@ -1604,6 +1604,25 @@ watch(selectedEvent,event=>{if(event)writtenDurationDraft.value=String(event.dur
 function applyWrittenDurationDraft(){if(selectedEvent.value)updateSelectedNote('duration',writtenDurationDraft.value);}
 const noteDurationPercent=computed(()=>selectedEvent.value?Math.round(selectedEvent.value.duration/project.value.beats*100):0);
 const selectedDurationMax=computed(()=>selectedEvent.value?Number((project.value.beats-(selectedEvent.value.start-selectedBar.value*project.value.beats)).toFixed(3)):project.value.beats);
+// Drag either measure heading horizontally to scrub whole measures. Navigation
+// happens on release, keeping the note editor's active measure in sync.
+const measureHeaderDrag=ref<{pointerId:number;startX:number;startBar:number}|null>(null);
+function beginMeasureHeaderDrag(event:PointerEvent){
+  if(event.button!==0)return;
+  measureHeaderDrag.value={pointerId:event.pointerId,startX:event.clientX,startBar:selectedBar.value};
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+function finishMeasureHeaderDrag(event:PointerEvent){
+  const drag=measureHeaderDrag.value;
+  if(!drag||drag.pointerId!==event.pointerId)return;
+  measureHeaderDrag.value=null;
+  const delta=event.clientX-drag.startX;
+  // One measure per 48 pixels, with a small dead zone for ordinary clicks.
+  if(Math.abs(delta)<16)return;
+  const steps=Math.max(1,Math.round(Math.abs(delta)/48))*Math.sign(delta);
+  openNoteEditor(noteInst.value,drag.startBar+steps);
+}
+function cancelMeasureHeaderDrag(){measureHeaderDrag.value=null;}
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
   // Keep the phrase loop running while navigating measures of the same instrument in focus.
   const keepFocusLoop=noteFocusMode.value&&noteLoopPlaying.value&&inst===noteInst.value;
@@ -2111,7 +2130,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango.json backups. Presets are starting-point heuristics, not transcriptions.</p>
 </section>
 <section v-else ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
-  <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure">‹</button><span>Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure">›</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
+  <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure">›</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
   <div v-if="noteFocusMode" class="note-focus-toolbar" role="toolbar" aria-label="Focused note editor navigation">
     <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
     <strong class="note-focus-identity">{{noteInst}} · measure {{selectedBar+1}} / {{project.bars.length}}</strong>
@@ -2241,7 +2260,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
     <section v-if="noteInst.startsWith('Voice')" class="lyric-workspace" aria-label="Lyric alignment editor">
-      <div class="section-heading"><h3>Lyrics · note-aligned timeline</h3><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous lyrics measure">‹</button><span>Measure {{selectedBar+1}} · {{project.beats}} beats</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next lyrics measure">›</button></div>
+      <div class="section-heading"><h3>Lyrics · note-aligned timeline</h3><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous lyrics measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.beats}} beats</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next lyrics measure">›</button></div>
       <p class="hint">Each segment follows the written note onset and duration. The strip joins adjacent segments visually; rests remain visible as empty space. Editing lyrics never changes note timing, pitch or playback articulation.</p>
       <div class="lyric-timeline" role="group" aria-label="Select a sung note to edit its syllable">
         <div class="lyric-timeline-ruler"><span v-for="beat in project.beats" :key="beat" :style="{left:`${100*(beat-1)/project.beats}%`}">{{beat}}</span></div>
