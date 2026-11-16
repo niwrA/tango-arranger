@@ -805,3 +805,12 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .song-map .song-map-section-toggle span{color:#c0ccd5}
 .song-map .song-map-section-toggle:hover{background:#344653}
 .song-map .song-map-section-toggle:focus-visible{outline:2px solid #e7c38e;outline-offset:-2px}
+
+/* Keep orchestration measure columns at a constant width on wide screens.
+   Extra viewport width remains unused instead of stretching a collapsed section. */
+.song-map-scroll .song-map{width:max-content;min-width:0;table-layout:auto}
+.song-map-scroll .song-map thead tr:not(.song-map-section-row)>th:not(.sticky-instrument),
+.song-map-scroll .song-map tbody td{width:98px;min-width:98px;max-width:98px;box-sizing:border-box}
+.song-map-scroll .song-map .sticky-instrument{width:150px;min-width:150px;max-width:150px;box-sizing:border-box}
+.song-map-scroll .song-map .song-map-section-heading{padding:0;max-width:none}
+.song-map-scroll .song-map .song-map-section-toggle{min-width:0;overflow:hidden}
