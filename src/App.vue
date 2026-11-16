@@ -1737,21 +1737,53 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
 }
 function rippleLyricSyllable(action:'insert'|'delete'){
   if(!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
-  const events=noteMeasure.value.map(n=>({...n}));
-  const onsets=[...new Set(events.map(n=>n.start))].sort((a,b)=>a-b);
-  const selected=events[noteSelected.value];
+  const selected=noteMeasure.value[noteSelected.value];
   if(!selected)return;
-  const start=onsets.findIndex(t=>Math.abs(t-selected.start)<1e-7);
+  const beats=project.value.beats;
+  const currentBar=selectedBar.value;
+  const all=score.value[noteInst.value]??[];
+  // A lyric slot is a distinct note onset. Continue across every later measure.
+  const byBar=new Map<number,Note[]>();
+  const slots:{bar:number;index:number}[]=[];
+  for(let bar=currentBar;bar<project.value.bars.length;bar++){
+    const events=all.filter(n=>n.start>=bar*beats-1e-7&&n.start<(bar+1)*beats-1e-7).map(n=>({...n}));
+    byBar.set(bar,events);
+    const onsets=[...new Set(events.map(n=>n.start))].sort((a,b)=>a-b);
+    for(const onset of onsets){
+      const index=events.findIndex(n=>Math.abs(n.start-onset)<1e-7);
+      if(index>=0)slots.push({bar,index});
+    }
+  }
+  const start=slots.findIndex(slot=>slot.bar===currentBar&&Math.abs((byBar.get(slot.bar)??[])[slot.index].start-selected.start)<1e-7);
   if(start<0)return;
   const fields=lyricVerse.value===1?['lyric','syllabic','melisma']:['lyric2','syllabic2','melisma2'];
-  const indices=onsets.map(t=>events.findIndex(n=>Math.abs(n.start-t)<1e-7));
-  const read=(i:number)=>fields.map(k=>(events[indices[i]] as unknown as Record<string,unknown>)[k]);
-  const write=(i:number,values:unknown[])=>{const note=events[indices[i]] as unknown as Record<string,unknown>;fields.forEach((k,j)=>{if(values[j]===undefined)delete note[k];else note[k]=values[j];});};
-  const previous=indices.map((_,i)=>read(i));
-  if(action==='delete'){for(let i=start;i<indices.length-1;i++)write(i,previous[i+1]);write(indices.length-1,[undefined,undefined,undefined]);}
-  else {for(let i=indices.length-1;i>start;i--)write(i,previous[i-1]);write(start,[undefined,undefined,undefined]);}
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
-  message.value=action==='delete'?'Deleted syllable and shifted following lyrics left.':'Inserted empty slot and shifted following lyrics right.';
+  const read=(slot:{bar:number;index:number})=>fields.map(k=>(byBar.get(slot.bar)![slot.index] as unknown as Record<string,unknown>)[k]);
+  const write=(slot:{bar:number;index:number},values:unknown[])=>{
+    const note=byBar.get(slot.bar)![slot.index] as unknown as Record<string,unknown>;
+    fields.forEach((k,j)=>{if(values[j]===undefined)delete note[k];else note[k]=values[j];});
+  };
+  const previous=slots.map(read);
+  // Do not silently discard the last syllable when there is no spare onset.
+  if(action==='insert'&&previous.length&&previous[previous.length-1].some(value=>value!==undefined)){
+    message.value='Cannot insert: the final note onset already has lyrics. Add another note onset or free the last lyric slot first.';
+    return;
+  }
+  if(action==='delete'){
+    for(let i=start;i<slots.length-1;i++)write(slots[i],previous[i+1]);
+    write(slots[slots.length-1],[undefined,undefined,undefined]);
+  }else{
+    for(let i=slots.length-1;i>start;i--)write(slots[i],previous[i-1]);
+    write(slots[start],[undefined,undefined,undefined]);
+  }
+  // Preserve all earlier measures, other verses, pitches and durations.
+  // Rebuild each affected measure against the latest project score.
+  let next=project.value;
+  for(let bar=currentBar;bar<project.value.bars.length;bar++){
+    if(!slots.some((slot,i)=>i>=start&&slot.bar===bar))continue;
+    next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),noteInst.value,bar,byBar.get(bar)??[]);
+  }
+  project.value=next;
+  message.value=action==='delete'?'Deleted syllable; following lyrics shifted left across measures.':'Inserted empty slot; following lyrics shifted right across measures.';
 }
 function loopLyricPhrase(){
   if(noteLoopPlaying.value){stopNoteLoop();return;}
