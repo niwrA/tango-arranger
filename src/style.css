@@ -796,3 +796,12 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .note-editor-panel .note-context-panel .note-context span{padding:4px 6px;border-radius:5px;font-size:10px;line-height:1.2}
 @media(max-width:1400px){.note-editor-panel .note-tools-bar{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}.note-editor-panel .note-tools-measure-group{grid-column:1/-1;border-right:0;border-top:1px solid #425363;margin-top:6px;padding:6px 2px 0}.note-editor-panel .note-tools-measure-group .note-measure-actions{justify-content:flex-end}}
 @media(max-width:900px){.note-editor-panel .note-tools-bar{grid-template-columns:minmax(0,1fr)}.note-editor-panel .note-tools-group{width:100%;border-right:0;border-bottom:1px solid #425363;padding:7px 2px}.note-editor-panel .note-tools-group:last-child{border-bottom:0;margin:0}.note-editor-panel .note-tools-measure-group{grid-column:auto;border-top:0;margin:0}.note-editor-panel .note-tools-entry-group .note-editor-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Section bands collapse/expand orchestration measures without changing their indices. */
+.song-map .song-map-section-row th{height:auto;min-width:0;padding:0;background:#25323e;border-bottom:1px solid #536575}
+.song-map .song-map-section-row .sticky-instrument{padding:6px 10px;font-size:11px;text-align:left}
+.song-map .song-map-section-heading{border-left:2px solid #63798b}
+.song-map .song-map-section-toggle{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:29px;padding:4px 7px;border:0;border-radius:0;background:transparent;color:#e7c38e;font-size:11px;white-space:nowrap}
+.song-map .song-map-section-toggle span{color:#c0ccd5}
+.song-map .song-map-section-toggle:hover{background:#344653}
+.song-map .song-map-section-toggle:focus-visible{outline:2px solid #e7c38e;outline-offset:-2px}
