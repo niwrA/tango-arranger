@@ -1211,9 +1211,35 @@ function instrumentSynth(inst:string):PolySynth{
   const attack=name.includes('violin')?0.08:name.includes('bandoneon')?0.035:name.includes('voice')?0.09:0.008;
   const release=name.includes('violin')?0.32:name.includes('bandoneon')?0.17:name.includes('bass')?0.18:0.12;
   const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:0.12,sustain:0.65,release}}).toDestination();
-  voice.volume.value=-7;
+  voice.volume.value=-7+instrumentGainDb(inst);
   instrumentSynths.set(inst,voice);
   return voice;
+}
+// Playback mix is a device preference, not a change to written note velocities.
+const mixStorageKey='tango-arranger-instrument-mix-v1';
+function readInstrumentMix():Record<string,number>{
+ try{
+  const saved=JSON.parse(localStorage.getItem(mixStorageKey)||'{}') as Record<string,unknown>;
+  return Object.fromEntries(Object.entries(saved).filter(([,v])=>typeof v==='number'&&Number.isFinite(v)&&v>=-18&&v<=12)) as Record<string,number>;
+ }catch{return {};}
+}
+const instrumentMix=ref<Record<string,number>>(readInstrumentMix());
+function instrumentGainDb(inst:string):number{
+ return instrumentMix.value[inst]??(inst.toLowerCase().includes('violin')?5:0);
+}
+function updateInstrumentGain(inst:string,event:Event){
+ const value=Number((event.target as HTMLInputElement).value);
+ if(!Number.isFinite(value))return;
+ instrumentMix.value={...instrumentMix.value,[inst]:Math.max(-18,Math.min(12,value))};
+ try{localStorage.setItem(mixStorageKey,JSON.stringify(instrumentMix.value));}catch{/* Private browsing may deny storage. */}
+ const sampler=samplePlayers.get(inst);if(sampler)sampler.volume.value=-5+instrumentGainDb(inst);
+ const voice=instrumentSynths.get(inst);if(voice)voice.volume.value=-7+instrumentGainDb(inst);
+}
+function resetInstrumentMix(){
+ instrumentMix.value={};
+ try{localStorage.removeItem(mixStorageKey);}catch{/* Storage unavailable. */}
+ for(const [inst,sampler] of samplePlayers)sampler.volume.value=-5+instrumentGainDb(inst);
+ for(const [inst,voice] of instrumentSynths)voice.volume.value=-7+instrumentGainDb(inst);
 }
 const audioEngine=ref<'samples'|'synth'>('samples');
 const sampleStatus=ref('Samples load when playback starts');
@@ -1233,7 +1259,7 @@ function loadSamples(inst:string):Promise<boolean>{
   const timeout=setTimeout(()=>finish(false),7000);
   try{
    player=new Tone.Sampler({urls:sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:sampleName(inst)==='harmonium'?{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'},baseUrl:'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
-   player.volume.value=-5;
+   player.volume.value=-5+instrumentGainDb(inst);
   }catch{finish(false);}
  });
  samplePending.set(inst,promise);void promise.then(ok=>{if(!ok)samplePending.delete(inst);});return promise;
@@ -1947,7 +1973,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
     <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button><button type="button" class="secondary performance-topbar-button" :aria-pressed="performanceMode" @click="performanceMode=!performanceMode" :title="performanceMode?'Return to editor':'Show live performance'" :aria-label="performanceMode?'Return to editor':'Show live performance'"><AppIcon :name="performanceMode?'arrow-left':'presentation'"/><span>{{performanceMode?'Editor':'Performance'}}</span></button>
-    <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span class="header-save-status" role="status">{{audioEngine==='samples'?sampleStatus:'Original synthesizer selected'}}</span><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span class="header-save-status" role="status">{{audioStatus}}</span></div></details>
+    <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span class="header-save-status" role="status">{{audioEngine==='samples'?sampleStatus:'Original synthesizer selected'}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{inst}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span class="header-save-status" role="status">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
     <label class="sr-only" for="header-song-picker">Song</label><select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
