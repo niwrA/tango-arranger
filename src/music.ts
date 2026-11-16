@@ -668,7 +668,7 @@ export function generate(p:Project):Score {
       const difficultyBoost=difficulty==='advanced'?1:difficulty==='intermediate'?0.84:0.65;
       const put=(pitch:number,start:number,duration:number,velocity=80,technique?:Note['technique'],gate?:number)=>{
         if(pitch>=0&&pitch<=127&&duration>0&&start>=0&&start<p.beats)
-          notes.push({pitch,start:offset+start,duration:Math.min(duration,p.beats-start),velocity:Math.max(35,Math.min(127,Math.round(velocity*dynamicScale+(cfg?.dynamicsOffset??0)))),accent:Math.abs(start-Math.round(start))<0.001&&(profile.strongBeats?Math.round(start)%2===0:true),technique,source:'generated',...(gate===undefined?{}:{gate})});
+          notes.push({pitch,start:offset+start,duration:Math.min(duration,p.beats-start),velocity:Math.max(35,Math.min(127,Math.round(velocity*dynamicScale+(cfg?.dynamicsOffset??0)))),accent:Math.abs(start-Math.round(start))<0.001&&(p.beats===3?Math.round(start)===0:(profile.strongBeats?Math.round(start)%2===0:true)),technique,source:'generated',...(gate===undefined?{}:{gate})});
       };
       if(inst.startsWith('Bandoneon')){
         const follower=settings.bandoneon[bar.section]?.[inst as 'Bandoneon I'|'Bandoneon II']??(inst==='Bandoneon I'?{target:'Violin II' as FollowTarget,method:'adapt' as FollowMethod}:undefined);
@@ -725,6 +725,13 @@ export function generate(p:Project):Score {
             continue;
           }
         }
+        if(p.beats===3){
+          // Vals: grounded bass on beat 1; light fifth/approach on beat 3.
+          const first=harmony(0),last=harmony(2);
+          put(closest(first[0],40,28,55),0,1,98,undefined,0.82);
+          put(closest(last[2]??last[0],42,28,55),2,0.85,68,undefined,0.58);
+          continue;
+        }
         for(let beat=0;beat<p.beats;beat+=2){
           const t0=harmony(beat),r0=t0[0];
           put(closest(beat===0?r0:t0[2]??r0,40,28,55),beat,Math.min(1,p.beats-beat),95,undefined,0.68);
@@ -733,13 +740,23 @@ export function generate(p:Project):Score {
         continue;
       }
       if(inst.startsWith('Piano')&&role==='chords'){
+        if(p.beats===3){
+          // Traditional vals: bass on beat 1 (contrabass), light chord replies
+          // on beats 2 and 3. Do not squeeze a four-beat tango figure into 3/4.
+          for(const beat of [1,2]){
+            const pcs=harmony(beat);
+            for(const pc of pcs.slice(0,difficulty==='easy'?2:3))
+              put(closest(pc,beat===1?65:68,range[0],range[1]),beat,0.8,beat===1?65:62,undefined,0.55);
+          }
+          continue;
+        }
         const figure=p.pianoFigures?.[bar.section]??'chords_up';
         const variation=p.pianoFigureVariation?.[bar.section]??0;
         for(const n of figureMeasure(p,inst,b,figure,variation))put(n.pitch,n.start-offset,n.duration,n.velocity,undefined,n.gate);
         continue;
       }
       if(role==='chords'){
-        const beats=difficulty==='easy'?[0,2]:profile.density>=0.85?[0,1,2,3]:[0,2];
+        const beats=p.beats===3?[1,2]:difficulty==='easy'?[0,2]:profile.density>=0.85?[0,1,2,3]:[0,2];
         if(inst.startsWith('Violin')){
           const violin=inst as ViolinPart;
           const technique=p.measureViolinTechniques?.[`${inst}:${b}`]??settings.violin[bar.section]?.[violin]??'tango_staccato';
