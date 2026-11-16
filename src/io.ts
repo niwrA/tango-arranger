@@ -196,7 +196,7 @@ export function exportMusicXml(p:Project,score:Score){
  * One ABC unit is a sixteenth note (L:1/16); event boundaries are quantized
  * to that unit and overlapping notes at the same onset form chords.
  */
-const abcSafe=(value:string)=>value.replace(/[\\r\\n]+/g,' ').replace(/["\\\\]/g,'').trim();
+const abcSafe=(value:string)=>value.replace(/[\r\n]+/g,' ').replace(/["\\\\]/g,'').trim();
 const abcFileName=(value:string)=>value.replace(/[^a-z0-9-]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase()||'tango';
 function abcKey(key:string):string {
   const minor=key.endsWith('m');
@@ -254,14 +254,14 @@ export function exportAbc(p:Project,score:Score,part:'lead'|Instrument='lead'):s
     lines.push(abcMeasure(notes,bar,p.beats,chords)+' |');
     previousKey=key;previousSection=current.section;
   }
-  return lines.join('\\n')+'\\n';
+  return lines.join('\n')+'\n';
 }
 /** ZIP distribution bundle: unzip and import the individual .abc files in MobileSheets. */
 export async function exportMobileSheetsBundle(p:Project,score:Score):Promise<Blob>{
   const zip=new JSZip();
   zip.file('00-lead-sheet.abc',exportAbc(p,score,'lead'));
   projectInstruments(p).forEach((inst,index)=>zip.file(String(index+1).padStart(2,'0')+'-'+abcFileName(inst)+'.abc',exportAbc(p,score,inst)));
-  zip.file('README.txt','MobileSheets ABC bundle from Tango Arranger.\\nExtract the ZIP first, then import the individual .abc files into MobileSheets.\\nLead sheet: 00-lead-sheet.abc\\nEach remaining file contains one instrument part.\\n');
+  zip.file('README.txt','MobileSheets ABC bundle from Tango Arranger.\nExtract the ZIP first, then import the individual .abc files into MobileSheets.\nLead sheet: 00-lead-sheet.abc\nEach remaining file contains one instrument part.\n');
   return zip.generateAsync({type:'blob'});
 }
 
