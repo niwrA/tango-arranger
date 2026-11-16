@@ -191,6 +191,80 @@ export function exportMusicXml(p:Project,score:Score){
   const body=projectInstruments(p).map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="no" number="${b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${inst.startsWith('Piano')?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&(b===0||bar.section!==p.bars[b-1].section)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?parseChordSequence(bar.chord,p.beats).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${inst.startsWith('Piano')?writePianoMeasure(p,transposed[inst]??[],b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0))}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
   return head+body+'</score-partwise>';
 }
+
+/** ABC 2.1 export for portable lead sheets and individual parts.
+ * One ABC unit is a sixteenth note (L:1/16); event boundaries are quantized
+ * to that unit and overlapping notes at the same onset form chords.
+ */
+const abcSafe=(value:string)=>value.replace(/[\\r\\n]+/g,' ').replace(/["\\\\]/g,'').trim();
+const abcFileName=(value:string)=>value.replace(/[^a-z0-9-]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase()||'tango';
+function abcKey(key:string):string {
+  const minor=key.endsWith('m');
+  return key.replace(/m$/,'')+(minor?'min':'');
+}
+function abcPitch(midi:number):string {
+  const names=['C','^C','D','^D','E','F','^F','G','^G','A','^A','B'];
+  const pc=((midi%12)+12)%12,octave=Math.floor(midi/12)-1;
+  const letter=names[pc];
+  if(octave>=5)return letter.toLowerCase()+"'".repeat(octave-5);
+  return letter+','.repeat(Math.max(0,4-octave));
+}
+function abcMeasure(notes:Note[],bar:number,beats:number,chords:ChordChange[]=[]):string {
+  const units=beats*4,starts=new Map<number,{pitch:number;duration:number;articulation?:Note['articulation']}[]>();
+  for(const n of notes){
+    const begin=Math.max(0,Math.round((n.start-bar*beats)*4));
+    const end=Math.min(units,Math.round((n.start+n.duration-bar*beats)*4));
+    if(begin>=units||end<=begin)continue;
+    const group=starts.get(begin)??[];
+    group.push({pitch:n.pitch,duration:end-begin,articulation:n.articulation});
+    starts.set(begin,group);
+  }
+  const harmony=new Map<number,string>();
+  for(const change of chords)if(change.chord.trim())harmony.set(Math.max(0,Math.min(units-1,Math.round(change.beat*4))),abcSafe(change.chord));
+  const boundaries=new Set<number>([0,units,...starts.keys(),...harmony.keys()]);
+  for(const [begin,group] of starts)for(const n of group)boundaries.add(Math.min(units,begin+n.duration));
+  const points=[...boundaries].sort((a,b)=>a-b);
+  const tokens:string[]=[];
+  for(let i=0;i<points.length-1;i++){
+    const at=points[i],next=points[i+1],length=next-at;
+    if(length<=0)continue;
+    const sounding=[...starts].flatMap(([begin,group])=>group.filter(n=>begin<=at&&begin+n.duration>at).map(n=>n.pitch));
+    const pitches=[...new Set(sounding)].sort((a,b)=>a-b);
+    const chord=harmony.get(at);
+    const prefix=chord?'"'+chord+'"':'';
+    const symbol=pitches.length>1?'['+pitches.map(abcPitch).join('')+']':pitches.length===1?abcPitch(pitches[0]):'z';
+    tokens.push(prefix+symbol+(length===1?'':length));
+  }
+  return tokens.join(' ')||'z'+units;
+}
+export function exportAbc(p:Project,score:Score,part:'lead'|Instrument='lead'):string {
+  if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter for ABC');
+  const transpose=p.transposeSemitones??0;
+  const title=abcSafe(p.title)+(part==='lead'?' — Lead Sheet':' — '+abcSafe(part));
+  const lines=['% Generated by Tango Arranger','X:1','T:'+title,'M:'+p.beats+'/4','L:1/16','Q:1/4='+Math.round(p.bpm)];
+  let previousKey='',previousSection='';
+  for(let bar=0;bar<p.bars.length;bar++){
+    const current=p.bars[bar],key=transposeKeySignature(sectionKey(p,current.section),transpose);
+    if(bar===0){lines.push('K:'+abcKey(key));}
+    else if(key!==previousKey)lines.push('[K:'+abcKey(key)+']');
+    if(current.section!==previousSection)lines.push('% Section '+abcSafe(current.section));
+    const notes=part==='lead'?current.melody.map(n=>({...n,start:n.start+bar*p.beats,pitch:n.pitch+transpose})):
+      (score[part]??[]).filter(n=>n.start<(bar+1)*p.beats&&n.start+n.duration>bar*p.beats).map(n=>({...n,pitch:n.pitch+transpose}));
+    const chords=part==='lead'?parseChordSequence(current.chord,p.beats).map(change=>({...change,chord:transposeChord(change.chord,transpose)})):[];
+    lines.push(abcMeasure(notes,bar,p.beats,chords)+' |');
+    previousKey=key;previousSection=current.section;
+  }
+  return lines.join('\\n')+'\\n';
+}
+/** ZIP distribution bundle: unzip and import the individual .abc files in MobileSheets. */
+export async function exportMobileSheetsBundle(p:Project,score:Score):Promise<Blob>{
+  const zip=new JSZip();
+  zip.file('00-lead-sheet.abc',exportAbc(p,score,'lead'));
+  projectInstruments(p).forEach((inst,index)=>zip.file(String(index+1).padStart(2,'0')+'-'+abcFileName(inst)+'.abc',exportAbc(p,score,inst)));
+  zip.file('README.txt','MobileSheets ABC bundle from Tango Arranger.\\nExtract the ZIP first, then import the individual .abc files into MobileSheets.\\nLead sheet: 00-lead-sheet.abc\\nEach remaining file contains one instrument part.\\n');
+  return zip.generateAsync({type:'blob'});
+}
+
 export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUMENTS.length):string[]{
   const problems:string[]=[];
   const partBlocks=[...xml.matchAll(/<part id="P(\d+)">([\s\S]*?)<\/part>/g)];
