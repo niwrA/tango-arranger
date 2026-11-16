@@ -559,8 +559,8 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
       add(closest(pc,base+(i%2?3:0),upperFloor,range[1]),beat,(p.beats-start)/count*0.85,74);
     }
   }else{
-    // Four positions span the complete measure, including 2/4 and 3/4.
-    const count=inst==='Piano'&&(p.instrumentSettings?.Piano?.difficulty??p.difficulty)==='easy'?2:4,step=p.beats/count;
+    // Three evenly spaced gestures for vals; preserve four-part tango figures otherwise.
+    const count=p.beats===3?3:inst==='Piano'&&(p.instrumentSettings?.Piano?.difficulty??p.difficulty)==='easy'?2:4,step=p.beats/count;
     for(let i=0;i<count;i++){
       const beat=i*step,tones=harmony(beat),index=down?3-i:i;
       const shift=(variation%3-1)*3;
@@ -591,7 +591,7 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
     // and the selected figure exclusively in the G clef. Arrastre/fist attacks
     // are optional gestures, never default multi-note left-hand chords.
     const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
-    for(let beat=0;beat<p.beats;beat+=2){
+    for(let beat=0;beat<p.beats;beat+=p.beats===3?3:2){
       const tones=harmony(beat),pc=beat===0?tones[0]:(tones[2]??tones[0]);
       add(closest(pc,43,range[0],bassCeiling),beat,Math.min(1,p.beats-beat),90,0.65);
     }
@@ -615,13 +615,13 @@ export function contrabassStyleNotes(p:Project,barIndex:number,technique:BassTec
    result.push({pitch:closest(pc,40+Math.min(2,toneIndex)*2,28,55),start:barIndex*p.beats+beat,duration:Math.min(duration,p.beats-beat),velocity,articulation,technique:bow,gate,accent:articulation==='marcato_staccato',source:'generated'});
  };
  if(technique==='pizzicato'){
-   for(let beat=0;beat<p.beats;beat+=2)put(beat,Math.min(1,p.beats-beat),beat===0?0:2,94,'staccato','pizzicato',0.32);
+   for(let beat=0;beat<p.beats;beat+=p.beats===3?3:2)put(beat,Math.min(1,p.beats-beat),beat===0?0:2,94,'staccato','pizzicato',0.32);
  }else if(technique==='arco_legato'){
-   for(let beat=0;beat<p.beats;beat+=2)put(beat,2,beat===0?0:2,81,'legato','arco',0.96);
+   for(let beat=0;beat<p.beats;beat+=p.beats===3?3:2)put(beat,2,beat===0?0:2,81,'legato','arco',0.96);
  }else if(technique==='marcato'){
-   for(let beat=0;beat<p.beats;beat++)put(beat,1,beat%2===0?0:2,beat%2===0?99:75,'marcato_staccato','arco',0.55);
+   for(let beat=0;beat<p.beats;beat++)put(beat,1,beat===0?0:2,beat===0?99:75,'marcato_staccato','arco',0.55);
  }else if(technique==='walking'){
-   for(let beat=0;beat<p.beats;beat++)put(beat,1,beat%4===0?0:beat%4===2?2:1,beat%2===0?89:77,'staccato','pizzicato',0.73);
+   for(let beat=0;beat<p.beats;beat++)put(beat,1,beat===0?0:beat===2?2:1,beat%2===0?89:77,'staccato','pizzicato',0.73);
  }else if(technique==='habanera'){
    // A dotted-eighth/sixteenth-derived syncopated pulse in 4/4;
    // shortened gracefully for shorter measures.
@@ -638,6 +638,7 @@ export function generate(p:Project):Score {
   const roster=projectInstruments(p);
   const score=Object.fromEntries(roster.map(i=>[i,[]])) as unknown as Score;
   const profile=patterns[p.profile]??patterns.traditional;
+  const milonga=p.profile==='milonga'&&p.beats===2;
   const settings=p.orchestration??defaultOrchestration();
   const expression=p.expression??defaultExpression();
   for(let b=0;b<p.bars.length;b++){
@@ -725,6 +726,15 @@ export function generate(p:Project):Score {
             continue;
           }
         }
+        if(milonga){
+          // Milonga 2/4: habanera-derived 3+1+2+2 eighth subdivisions.
+          const pulse:[number,number,number,number][]=[[0,0.75,0,96],[0.75,0.25,2,69],[1,0.5,0,83],[1.5,0.5,2,76]];
+          for(const [beat,duration,tone,velocity] of pulse){
+            const pcs=harmony(beat);
+            put(closest(pcs[tone]??pcs[0],40,28,55),beat,duration,velocity,undefined,0.67);
+          }
+          continue;
+        }
         if(p.beats===3){
           // Vals: grounded bass on beat 1; light fifth/approach on beat 3.
           const first=harmony(0),last=harmony(2);
@@ -740,6 +750,15 @@ export function generate(p:Project):Score {
         continue;
       }
       if(inst.startsWith('Piano')&&role==='chords'){
+        if(milonga){
+          // Complement the bass habanera: light offbeat chord stabs.
+          for(const beat of [0.5,1.5]){
+            const pcs=harmony(beat);
+            for(const pc of pcs.slice(0,difficulty==='easy'?2:3))
+              put(closest(pc,68,range[0],range[1]),beat,0.45,beat===0.5?70:64,undefined,0.54);
+          }
+          continue;
+        }
         if(p.beats===3){
           // Traditional vals: bass on beat 1 (contrabass), light chord replies
           // on beats 2 and 3. Do not squeeze a four-beat tango figure into 3/4.
@@ -756,7 +775,7 @@ export function generate(p:Project):Score {
         continue;
       }
       if(role==='chords'){
-        const beats=p.beats===3?[1,2]:difficulty==='easy'?[0,2]:profile.density>=0.85?[0,1,2,3]:[0,2];
+        const beats=milonga?[0.5,1.5]:p.beats===3?[1,2]:difficulty==='easy'?[0,2]:profile.density>=0.85?[0,1,2,3]:[0,2];
         if(inst.startsWith('Violin')){
           const violin=inst as ViolinPart;
           const technique=p.measureViolinTechniques?.[`${inst}:${b}`]??settings.violin[bar.section]?.[violin]??'tango_staccato';
@@ -821,7 +840,7 @@ export function generate(p:Project):Score {
       // Tango texture continuity: a bandoneon with sparse assigned material
       // receives an accompaniment figure rather than arbitrary full-measure rests.
       if(inst.startsWith('Bandoneon') && !notes.some(n=>n.start>=offset&&n.start<offset+p.beats)){
-        for(const beat of (difficulty==='easy'?[0,2]:[0,1,2,3]).filter(x=>x<p.beats)){
+        for(const beat of (milonga?[0,0.75,1.5]:p.beats===3?[0,1,2]:difficulty==='easy'?[0,2]:[0,1,2,3]).filter(x=>x<p.beats)){
           const beatTones=harmony(beat);const pc=beatTones[(beat+(inst==='Bandoneon II'?1:0))%beatTones.length];
           put(closest(pc,inst==='Bandoneon II'?61:67,range[0],range[1]),beat,1,72,undefined,0.36);
         }
