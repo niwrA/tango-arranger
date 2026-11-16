@@ -65,7 +65,7 @@ function stopPlayback(){
   // Invalidate a pending Tone.start() before it can schedule anything.
   noteLoopSession++;rhythmLoopSession++;captureSession++;
   if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value){Tone.getTransport().stop();Tone.getTransport().cancel();}
-  synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
+  synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
   capturePlaying.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;
@@ -1215,6 +1215,40 @@ function instrumentSynth(inst:string):PolySynth{
   instrumentSynths.set(inst,voice);
   return voice;
 }
+const audioEngine=ref<'samples'|'synth'>('samples');
+const sampleStatus=ref('Samples load when playback starts');
+const samplePlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
+const samplePending=new Map<string,Promise<boolean>>();
+function sampleName(inst:string):string{
+ const n=inst.toLowerCase();
+ return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'accordion':n.includes('voice')?'choir':'piano';
+}
+function loadSamples(inst:string):Promise<boolean>{
+ if(samplePlayers.has(inst))return Promise.resolve(true);
+ if(samplePending.has(inst))return samplePending.get(inst)!;
+ const promise=new Promise<boolean>(resolve=>{
+  let finished=false;
+  let player:InstanceType<typeof Tone.Sampler>|undefined;
+  const finish=(ok:boolean)=>{if(finished)return;finished=true;clearTimeout(timeout);if(ok&&player)samplePlayers.set(inst,player);else player?.dispose();resolve(ok);};
+  const timeout=setTimeout(()=>finish(false),7000);
+  try{
+   player=new Tone.Sampler({urls:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'},baseUrl:'https://nbrosowsky.github.io/tonejs-instruments/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
+   player.volume.value=-5;
+  }catch{finish(false);}
+ });
+ samplePending.set(inst,promise);return promise;
+}
+async function prepareSamples(instruments:string[]){
+ if(audioEngine.value!=='samples')return;
+ sampleStatus.value='Loading samples…';
+ const results=await Promise.all(instruments.map(loadSamples));
+ sampleStatus.value=results.every(Boolean)?'Sampled instruments ready':results.some(Boolean)?'Some samples unavailable; using synth fallback':'Samples unavailable; using synth fallback';
+}
+function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number){
+ const sampler=audioEngine.value==='samples'?samplePlayers.get(inst):undefined;
+ if(sampler)sampler.triggerAttackRelease(Tone.Frequency(pitch,'midi').toNote(),duration,time,velocity);
+ else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
+}
 let synth:PolySynth|null=null;
 async function testAudio(){
   try{
@@ -1236,6 +1270,8 @@ async function play(origin:PlaybackOrigin){
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession)return;
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    await prepareSamples(projectInstruments(project.value));
+    if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
     let noteCount=0;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
@@ -1254,7 +1290,7 @@ async function play(origin:PlaybackOrigin){
         if(!event)return;
         if(event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
-        else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
+        else triggerInstrument(inst,event.pitch,event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
       },seconds);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
@@ -1275,6 +1311,8 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession)return;
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    await prepareSamples(kind==='lead'?['Piano']:[instrument??overviewInstrument.value]);
+    if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
     const beatSeconds=60/project.value.bpm;
     let count=0;
@@ -1299,7 +1337,7 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
         const time=(n.start-from*beats)*beatSeconds;
         const duration=Math.max(0.04,noteSoundingDuration(n)*beatSeconds);
         const pitch=n.pitch+(project.value.transposeSemitones??0);
-        transport.schedule(t=>instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,t,noteSoundingVelocity(n)/127),time);
+        transport.schedule(t=>triggerInstrument(inst,pitch,duration,t,noteSoundingVelocity(n)/127),time);
         count++;
       }
     }
@@ -2072,6 +2110,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>
 </details></div>
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
+<div class="overview-actions" role="group" aria-label="Audio engine"><label>Playback engine <select v-model="audioEngine" @change="stopPlayback"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span class="hint" role="status">{{audioEngine==='samples'?sampleStatus:'Original synthesizer selected'}}</span></div>
 <section v-else-if="active==='lead'"><div class="section-heading"><h2>Melody & harmony</h2><span>{{project.bars.length}} measures</span></div><div class="overview-actions" role="group" aria-label="Lead sheet piano preview"><button type="button" class="secondary" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button><button type="button" class="secondary" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button><button type="button" class="secondary" :disabled="!playing" @click="stopPlayback">■ Stop</button></div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
 <div v-if="copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
 <div class="lead-sections">
