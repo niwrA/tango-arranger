@@ -702,7 +702,7 @@ function applyRhythmSelection(){
     message.value=rhythmFeedback.value;
   }catch(error){rhythmFeedback.value=`Rhythm application failed: ${String(error)}`;}
 }
-const roles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];const profiles=[['traditional','Traditional'],['darienzo',"D’Arienzo"],['disarli','Di Sarli'],['fresedo','Fresedo'],['troilo','Troilo'],['canaro','Canaro'],['pugliese','Pugliese']];
+const roles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];const profiles=[['traditional','Traditional'],['darienzo',"D’Arienzo"],['disarli','Di Sarli'],['fresedo','Fresedo'],['troilo','Troilo'],['canaro','Canaro'],['pugliese','Pugliese'],['milonga','Milonga (2/4)']];
 const difficulties:Difficulty[]=['easy','intermediate','advanced'];
 const dynamicMarks:DynamicMark[]=DYNAMIC_MARKS;
 function ensureInstrumentSettings(){project.value.instrumentSettings??=defaultInstrumentSettings();}
