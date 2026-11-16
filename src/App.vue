@@ -2068,6 +2068,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
     
   </div>
+  </div>
   <div class="note-tools-group note-tools-measure-group" aria-label="Measure actions"><div class="note-measure-actions"><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div></div>
 </div>
 <div v-if="noteFocusMode" class="note-focus-view-tools" aria-label="Visible pitch range">
