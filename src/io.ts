@@ -235,7 +235,7 @@ export async function loadProject(file:File):Promise<Project>{
     if(!entry)throw Error('No project.json in archive');
     raw=await entry.async('string');
   }else{
-    raw=new TextDecoder().decode(bytes).replace(/^\\uFEFF/,'');
+    raw=new TextDecoder().decode(bytes).replace(/^\uFEFF/,'');
   }
   const p=JSON.parse(raw) as Project;
   if(p.version!==1||!Array.isArray(p.bars))throw Error('Unsupported project format');
