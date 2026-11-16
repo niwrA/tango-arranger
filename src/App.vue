@@ -114,7 +114,7 @@ async function duplicateLocalSong(){
 }
 async function deleteCurrentLocalSong(){
   if(!libraryReady.value)return;
-  if(!window.confirm(`Permanently delete "${project.value.title||'Untitled Tango'}" from this browser? Export a .tango backup first if needed.`))return;
+  if(!window.confirm(`Permanently delete "${project.value.title||'Untitled Tango'}" from this browser? Export a .tango.json backup first if needed.`))return;
   try{
     await flushAutosave();const id=localSongId.value;
     await deleteLocalSong(id);await refreshLocalSongs();
@@ -133,7 +133,7 @@ async function initializeLocalLibrary(){
     if(id){const saved=await readLocalSong(id);if(saved){localSongId.value=id;selectProjectInEditor(saved);message.value=`Restored ${saved.title} from this browser's local library.`;}}
     if(!localSongId.value){const fresh=newLocalSongId();await saveLocalSong(fresh,project.value);localSongId.value=fresh;await refreshLocalSongs();}
     rememberOpenedSongId(localSongId.value);libraryReady.value=true;saveStatus.value='Autosave on · stored in this browser';
-  }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango to keep a backup.';}
+  }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';}
 }
 // Keep topical menus mutually exclusive and close them after an action or outside click.
 function onTopbarMenuToggle(event:Event){
@@ -771,7 +771,7 @@ async function createBlankSong(){
   try{
     if(newSongLengths.value.length!==newSongSections.value)throw Error('Choose 1–26 sections');
     const fresh=setProjectRoster(blankProject({title:newSongTitle.value,sections:newSongSections.value,measuresPerSection:[...newSongLengths.value],beats:newSongBeats.value,bpm:newSongBpm.value}),getDefaultRoster());
-    if(!window.confirm('Create a new blank song? Your current song will remain in the local library. You can also export a .tango backup.'))return;
+    if(!window.confirm('Create a new blank song? Your current song will remain in the local library. You can also export a .tango.json backup.'))return;
     await flushAutosave();
     stopPlayback();
     await adoptLocalSong(fresh);
@@ -1114,7 +1114,7 @@ async function importFile(e:Event){
   const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;
   try{
     pending.value=[];pendingChords.value=[];pendingKeys.value=[];
-    if(file.name.toLowerCase().endsWith('.tango')){
+    if(/\\.tango(?:\\.json)?$/i.test(file.name)){
       await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);
       structureOpen.value=false;message.value='Portable project imported as a separate local song.';closeImportDialog();
     }else if(/\.(mid|midi)$/i.test(file.name)){
@@ -1661,7 +1661,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
   <div class="topbar-group topbar-files" role="group" aria-label="Import and export">
-    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import / MuseScore round-trip</button><button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> Export MusicXML</button><button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Export .tango backup</button></div></details>
+    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import / MuseScore round-trip</button><button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> Export MusicXML</button><button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Export .tango.json backup</button></div></details>
   </div>
   <div class="topbar-group topbar-options" role="group" aria-label="Song settings and view">
     <button class="secondary icon-action header-settings" type="button" :aria-expanded="projectDrawerOpen" aria-controls="song-settings-modal" title="Settings for selected song" aria-label="Song settings" @click="projectDrawerOpen=!projectDrawerOpen"><AppIcon name="settings"/></button>
@@ -1686,7 +1686,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <section id="import-workflow-modal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="import-workflow-title">
     <div class="app-modal-heading"><div><h2 id="import-workflow-title">Import &amp; MuseScore round-trip</h2><p>Open a portable song, a melody, or an edited score.</p></div><button class="secondary icon-action modal-close" type="button" title="Close import" aria-label="Close import" @click="closeImportDialog"><AppIcon name="x"/></button></div>
     <div class="app-modal-content">
-      <label class="file-picker">Choose .tango, MusicXML or MIDI file<input type="file" accept=".tango,.xml,.musicxml,.mid,.midi" @change="importFile"/></label>
+      <label class="file-picker">Choose .tango.json, legacy .tango, MusicXML or MIDI file<input type="file" accept=".tango,.json,.xml,.musicxml,.mid,.midi" @change="importFile"/></label>
       <div v-if="pending.length" class="import-panel" aria-label="Import track selection">
         <p class="hint">{{pending.length}} part(s) detected. Choose how to apply them.</p>
         <label>Import as<select v-model="importMode"><option value="melody">Melody only</option><option value="score">Edited full score (round-trip)</option></select></label>
@@ -1754,7 +1754,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Start with your song</h2><p>Enter a melody and chords in the Lead Sheet, or import MIDI or MusicXML. Define sections, measure counts, and keys in Structure &amp; Keys.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
     <article class="editor"><h2>Arrange the orchestra</h2><p>Generate parts for piano, contrabass, violins and bandoneons. Assign roles, styles, figures and articulations by section or measure in Orchestration.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
     <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, written durations, velocities, articulations and expressive gestures. Audition notes or loop a measure while you work.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
-    <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
+    <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango.json backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Current version: v{{appVersion}}. Highlights from recent releases.</p>
     <div class="release-entry"><h3>v5.4.1 · Instrumental section groups</h3><p>Section now means an instrumental group (rhythm, melody or harmony), not a song part. Group membership is editable and saved with the song. All three map scopes show the full song; A/B/C song-part settings live in All.</p></div>
@@ -1789,7 +1789,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="release-entry"><h3>v2.4.0 · Violin arpeggios</h3><p>Four-note arpeggio figures spanning a full measure, with ascending, descending and alternating directions.</p></div>
     <div class="release-entry"><h3>v2.3.0 · Song structure workspace</h3><p>Dedicated Structure &amp; Keys tab and a measure-focused Orchestration.</p></div>
   </div>
-  <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango backup to transfer them between devices.</p>
+  <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango.json backup to transfer them between devices.</p>
 </section>
 <section v-if="active==='structure'" class="structure-tab"><div class="section-heading"><h2>Song structure &amp; section keys</h2><button type="button" class="secondary" @click="active='arrange'">← Back to orchestration</button></div><p class="muted">Define the form of your tango here: the number of sections, their measure lengths, and the concert-pitch key of each section. The Orchestration remains the main workspace for measure-level roles, articulation and note editing.</p>
 <div class="editor"><details class="control-fold" open><summary>Song structure</summary><div class="section-heading"><h3>Song structure</h3><button class="secondary" type="button" @click="structureOpen?structureOpen=false:editStructure()">{{structureOpen?'Cancel structure edit':'Edit sections & measures'}}</button></div>
@@ -1924,7 +1924,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <p v-if="rhythmFeedback" class="rhythm-feedback" role="status">{{rhythmFeedback}}</p>
     </details></div>
   </div>
-  <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango backups. Presets are starting-point heuristics, not transcriptions.</p>
+  <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango.json backups. Presets are starting-point heuristics, not transcriptions.</p>
 </section>
 <section v-else ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
   <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><span>Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
@@ -2096,5 +2096,5 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <span v-else class="hint">Select a note in the grid to edit its timing, articulation and duration here.</span>
   </div>
 </section>
-</main></div><footer>Local-first prototype · IndexedDB autosave and multiple local songs · Export .tango backups · MusicXML for MuseScore</footer></div>
+</main></div><footer>Local-first prototype · IndexedDB autosave and multiple local songs · Export .tango.json backups · MusicXML for MuseScore</footer></div>
 </template>
