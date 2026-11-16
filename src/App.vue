@@ -1735,6 +1735,24 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
     message.value=`Moved verse ${lyricVerse.value} ${throughPhrase?'phrase':'syllable'} ${direction<0?'left':'right'} by one note onset. Pitches and timing unchanged.`;
   }catch(error){message.value=`Lyric shift failed: ${String(error)}`;}
 }
+// Read-only, chord-aware overview of the Voice lyric alignment.
+const leadLyricOverview=computed(()=>{
+  const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
+  if(!voice)return new Map<number,{beat:number;text:string;chord:string}[]>();
+  const result=new Map<number,{beat:number;text:string;chord:string}[]>();
+  for(let bar=0;bar<project.value.bars.length;bar++){
+    const beats=project.value.beats;
+    const notes=(score.value[voice]??[]).filter(n=>n.start>=bar*beats&&n.start<(bar+1)*beats).sort((a,b)=>a.start-b.start);
+    const changes=parseChordSequence(project.value.bars[bar].chord,beats);
+    const entries=notes.filter(n=>!!n.lyric?.trim()).map(n=>{
+      const beat=n.start-bar*beats;
+      const chord=[...changes].reverse().find(change=>change.beat<=beat+1e-7)?.chord??'';
+      return {beat,text:n.lyric!.trim(),chord};
+    });
+    result.set(bar,entries);
+  }
+  return result;
+});
 function rippleLyricSyllable(action:'insert'|'delete'){
   if(!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
   const selected=noteMeasure.value[noteSelected.value];
@@ -2052,6 +2070,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="lead-measure-grid">
       <template v-for="offset in span.measures" :key="span.start+offset-1"><div :class="['lead-measure',{selected:selectedBar===span.start+offset-1}]">
         <button type="button" class="lead-measure-select" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; double-click to edit its lead melody`" @click="toggleLeadMeasureEditor(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
+        <div v-if="leadLyricOverview.get(span.start+offset-1)?.length" class="lead-lyric-overview" :aria-label="`Lyrics in measure ${span.start+offset}`" style="margin:.4rem 0;padding:.45rem;border-top:1px solid #607080">
+          <small style="display:block;margin-bottom:.3rem">Voice lyrics · onset / chord</small>
+          <div style="display:flex;gap:.35rem;flex-wrap:wrap">
+            <span v-for="(item,i) in leadLyricOverview.get(span.start+offset-1)" :key="i" :title="`Beat ${(item.beat+1).toFixed(2)} · chord ${item.chord||'none'}`" style="border:1px solid #63798b;border-radius:.3rem;padding:.2rem .35rem;font-size:.8rem">
+              <strong>{{item.text}}</strong> <small>{{Number((item.beat+1).toFixed(2))}} · {{item.chord||'—'}}</small>
+            </span>
+          </div>
+        </div>
         <div class="lead-chord-editor"><label class="lead-chord-label" :for="`lead-chord-${span.start+offset-1}`">Chords</label><input :id="`lead-chord-${span.start+offset-1}`" type="text" :data-lead-chord="span.start+offset-1" :value="leadChordText(span.start+offset-1)" :aria-label="`Chords in measure ${span.start+offset}`" :aria-expanded="leadCompletion.measure===span.start+offset-1&&leadCompletion.visible&&leadSuggestions.length>0" aria-autocomplete="list" placeholder="e.g. Dm,A7" spellcheck="false" autocomplete="off" @focus="focusLeadChord(span.start+offset-1,$event)" @input="updateLeadChord(span.start+offset-1,$event)" @click="updateLeadChord(span.start+offset-1,$event)" @blur="finishLeadChord(span.start+offset-1,$event)" @keydown="handleLeadChordKey(span.start+offset-1,$event)"/><button type="button" class="chord-suggestion-toggle secondary" :aria-expanded="leadCompletion.measure===span.start+offset-1&&leadCompletion.visible" :aria-label="`Show optional chord suggestions for measure ${span.start+offset}`" @pointerdown.prevent @click="toggleLeadSuggestions(span.start+offset-1)">⌄ Suggestions</button>
           <div v-if="leadCompletion.measure===span.start+offset-1&&leadCompletion.visible&&leadSuggestions.length" class="chord-suggestions" role="listbox" :aria-label="`Chord completions for measure ${span.start+offset}`"><button v-for="(suggestion,idx) in leadSuggestions" :key="suggestion" type="button" role="option" tabindex="-1" :aria-selected="leadCompletion.highlight===idx" :class="{'is-highlighted':leadCompletion.highlight===idx}" @mousedown.prevent @click="chooseLeadChord(span.start+offset-1,suggestion)">{{suggestion}}</button></div>
         </div>
