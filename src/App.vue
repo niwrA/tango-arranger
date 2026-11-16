@@ -1675,6 +1675,55 @@ function toggleNote(pitch:number,beat:number){
 }
 const lyricTimeline= computed(()=>noteMeasure.value.map((note,index)=>({note,index,start:note.start-selectedBar.value*project.value.beats,end:Math.min(project.value.beats,note.start-selectedBar.value*project.value.beats+note.duration)})).filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start));
 function selectLyricSlot(index:number){noteSelected.value=index;}
+function lyricSlotShift(direction:-1|1,throughPhrase=false){
+  if(!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
+  const ordered=[...new Set(noteMeasure.value.map(n=>n.start))].sort((a,b)=>a-b);
+  const current=noteMeasure.value[noteSelected.value];
+  if(!current)return;
+  const source=ordered.findIndex(t=>Math.abs(t-current.start)<1e-7);
+  const destination=source+direction;
+  if(destination<0||destination>=ordered.length){message.value='No adjacent note onset in this measure. Navigate to the next measure to continue.';return;}
+  const field=lyricVerse.value===1?'lyric':'lyric2';
+  const syll=lyricVerse.value===1?'syllabic':'syllabic2';
+  const ext=lyricVerse.value===1?'melisma':'melisma2';
+  const keys=[field,syll,ext] as const;
+  const events=noteMeasure.value.map(n=>({...n}));
+  const firstAt=(time:number)=>events.findIndex(n=>Math.abs(n.start-time)<1e-7);
+  const sourceIndex=firstAt(ordered[source]);
+  const targetIndex=firstAt(ordered[destination]);
+  if(sourceIndex<0||targetIndex<0)return;
+  const get=(index:number)=>keys.map(key=>(events[index] as unknown as Record<string,unknown>)[key]);
+  const set=(index:number,values:unknown[])=>{const note=events[index] as unknown as Record<string,unknown>;keys.forEach((key,i)=>{if(values[i]===undefined)delete note[key];else note[key]=values[i];});};
+  if(throughPhrase){
+    const indices=ordered.map(firstAt);
+    const start=Math.min(source,destination);
+    const stop=direction===1?indices.length-1:0;
+    if(direction===1){
+      const values=indices.slice(source).map(get);
+      for(let i=source;i<indices.length;i++)set(indices[i],i===source?[undefined,undefined,undefined]:values[i-source-1]);
+    }else{
+      const values=indices.slice(0,source+1).map(get);
+      for(let i=0;i<=source;i++)set(indices[i],i===source?[undefined,undefined,undefined]:values[i+1]);
+    }
+    void start;void stop;
+  }else{
+    const before=get(sourceIndex),after=get(targetIndex);
+    set(sourceIndex,after);set(targetIndex,before);
+  }
+  try{
+    project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
+    noteSelected.value=noteMeasure.value.findIndex(n=>Math.abs(n.start-ordered[destination])<1e-7);
+    message.value=`Moved verse ${lyricVerse.value} ${throughPhrase?'phrase':'syllable'} ${direction<0?'left':'right'} by one note onset. Pitches and timing unchanged.`;
+  }catch(error){message.value=`Lyric shift failed: ${String(error)}`;}
+}
+function loopLyricPhrase(){
+  if(noteLoopPlaying.value){stopNoteLoop();return;}
+  noteFocusMode.value=true;
+  noteLoopFrom.value=selectedBar.value+1;
+  noteLoopTo.value=Math.min(project.value.bars.length,selectedBar.value+2);
+  void toggleNoteLoop();
+}
+
 const lyricBatch=ref('');
 const lyricVerse=ref<1|2>(1);
 const lyricAcrossMeasures=ref(false);
@@ -2182,6 +2231,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <button v-for="slot in lyricTimeline" :key="`${slot.index}:${slot.start}`" type="button" class="lyric-timeline-slot" :class="{'selected':noteSelected===slot.index}" :style="{left:`${100*slot.start/project.beats}%`,width:`${100*(slot.end-slot.start)/project.beats}%`}" :title="`${displayPitch(slot.note.pitch)} · beat ${slot.start+1} · ${slot.note.duration} beats`" @click="selectLyricSlot(slot.index)">{{(lyricVerse===1?slot.note.lyric:slot.note.lyric2)||'·'}}</button>
         </div>
       </div>
+      <div class="lyric-align-actions"><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(-1)">← Syllable</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(1)">Syllable →</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(-1,true)">← Phrase</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(1,true)">Phrase →</button><button type="button" class="secondary" @click="loopLyricPhrase">{{noteLoopPlaying?'■ Stop loop':'▶ Loop 2 measures'}}</button></div>
       <div v-if="selectedEvent" class="lyric-selected-editor"><label>Selected syllable · {{displayPitch(selectedEvent.pitch)}} · beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}}<input type="text" maxlength="160" :value="(lyricVerse===1?selectedEvent.lyric:selectedEvent.lyric2)??''" placeholder="Type a syllable" @change="updateSelectedNote(lyricVerse===1?'lyric':'lyric2',($event.target as HTMLInputElement).value)"/></label><label>Syllable position<select :value="(lyricVerse===1?selectedEvent.syllabic:selectedEvent.syllabic2)??'single'" @change="updateSelectedNote(lyricVerse===1?'syllabic':'syllabic2',($event.target as HTMLSelectElement).value)"><option value="single">Single</option><option value="begin">Beginning</option><option value="middle">Middle</option><option value="end">End</option></select></label><label><input type="checkbox" :checked="(lyricVerse===1?selectedEvent.melisma:selectedEvent.melisma2)??false" @change="updateSelectedNote(lyricVerse===1?'melisma':'melisma2',String(($event.target as HTMLInputElement).checked))"/> Extend syllable across following untexted notes</label></div>
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
