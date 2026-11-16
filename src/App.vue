@@ -1808,7 +1808,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
 </div>
  <section v-if="performanceMode" class="performance-workspace performance-expanded">
-  <div class="section-heading"><h2>Live performance</h2><span>{{project.title}}</span></div>
+  <div class="section-heading"><h2>{{project.title||'Untitled tango'}}</h2></div>
   <div class="performance-status"><div><span class="muted">SECTION</span><strong>{{performanceSection}}</strong></div><div><span class="muted">MEASURE</span><strong>{{performanceBar+1}} / {{project.bars.length}}</strong></div><div><span class="muted">BEAT</span><strong>{{performanceMeasureBeat.toFixed(1)}} / {{project.beats}}</strong></div><div><span class="muted">TEMPO</span><strong>{{project.bpm}} BPM</strong></div></div>
   <div class="performance-section-strip"><button v-for="(span,i) in performanceSections" :key="i" type="button" :class="{'performance-section-current':span.label===performanceSection}" :style="{flex:span.measures}" @click="performanceSeek(span.start)" :title="`Jump to section ${span.label}, measure ${span.start+1}`">{{span.label}}</button></div>
   <label class="performance-seek">Measure {{performanceBar+1}} <input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))"/></label>
