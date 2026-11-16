@@ -2092,7 +2092,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span><strong>Dynamic</strong> {{noteCtx.dynamic}}</span><span><strong>Activity</strong> {{Math.round(noteCtx.activity*100)}}%</span>
       <span v-if="project.protectedBars[`${noteInst}:${selectedBar}`]" class="manual-status">Manual · protected</span>
     </div>
-</div></div>
+</div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
       <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
