@@ -853,3 +853,13 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .performance-topbar-button{display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap}
 .performance-workspace.performance-expanded{width:min(100%,1400px);max-width:1400px;min-height:calc(100vh - 6rem);margin:0 auto;padding:clamp(.75rem,2vw,2rem)}
 @media(max-width:650px){.performance-topbar-button span{display:none}}
+
+/* Performance instrument focus and piano roll */
+button.performance-part{width:100%;color:inherit;background:transparent;text-align:left;border-top:0;border-left:0;border-right:0;border-radius:6px;cursor:pointer;font:inherit}
+button.performance-part:hover,button.performance-part:focus-visible{background:rgba(75,130,210,.12)}
+button.performance-part.performance-part-selected{background:rgba(75,130,210,.19);outline:2px solid #3b82f6;outline-offset:-2px}
+.performance-roll-panel{border:1px solid var(--border,#677280);border-radius:12px;padding:1rem;min-width:0}
+.performance-roll-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem}
+.performance-roll{height:260px;position:relative;overflow:hidden;border:1px solid var(--border,#677280);border-radius:8px;background:repeating-linear-gradient(to top,transparent 0,transparent calc(100% / 24 - 1px),rgba(128,128,128,.16) calc(100% / 24 - 1px),rgba(128,128,128,.16) calc(100% / 24)),repeating-linear-gradient(to right,transparent 0,transparent calc(25% - 1px),rgba(128,128,128,.4) calc(25% - 1px),rgba(128,128,128,.4) 25%)}
+.performance-roll-note{position:absolute;height:3.6%;min-height:5px;border-radius:3px;background:#3b82f6;border:1px solid #93c5fd;z-index:1}
+.performance-roll-playhead{position:absolute;top:0;bottom:0;width:2px;background:#f97316;box-shadow:0 0 4px #f97316;z-index:2;pointer-events:none}
