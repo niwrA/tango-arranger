@@ -1221,7 +1221,7 @@ const samplePlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
 const samplePending=new Map<string,Promise<boolean>>();
 function sampleName(inst:string):string{
  const n=inst.toLowerCase();
- return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'accordion':n.includes('voice')?'choir':'piano';
+ return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'harmonium':n.includes('voice')?'harmonium':'piano';
 }
 function loadSamples(inst:string):Promise<boolean>{
  if(samplePlayers.has(inst))return Promise.resolve(true);
@@ -1232,11 +1232,11 @@ function loadSamples(inst:string):Promise<boolean>{
   const finish=(ok:boolean)=>{if(finished)return;finished=true;clearTimeout(timeout);if(ok&&player)samplePlayers.set(inst,player);else player?.dispose();resolve(ok);};
   const timeout=setTimeout(()=>finish(false),7000);
   try{
-   player=new Tone.Sampler({urls:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'},baseUrl:'https://nbrosowsky.github.io/tonejs-instruments/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
+   player=new Tone.Sampler({urls:sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:sampleName(inst)==='harmonium'?{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'},baseUrl:'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
    player.volume.value=-5;
   }catch{finish(false);}
  });
- samplePending.set(inst,promise);return promise;
+ samplePending.set(inst,promise);void promise.then(ok=>{if(!ok)samplePending.delete(inst);});return promise;
 }
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
