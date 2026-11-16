@@ -65,7 +65,7 @@ function stopPlayback(){
   // Invalidate a pending Tone.start() before it can schedule anything.
   noteLoopSession++;rhythmLoopSession++;captureSession++;
   if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value){Tone.getTransport().stop();Tone.getTransport().cancel();}
-  synth?.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
+  synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
   capturePlaying.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;
@@ -1201,6 +1201,20 @@ function trapModalTab(event:KeyboardEvent){
 watch(projectDrawerOpen,opened=>{if(opened){importDialogOpen.value=false;void nextTick(()=>document.querySelector<HTMLElement>('#song-settings-modal .modal-close')?.focus());}});
 watch(importDialogOpen,opened=>{if(opened){projectDrawerOpen.value=false;void nextTick(()=>document.querySelector<HTMLElement>('#import-workflow-modal .modal-close')?.focus());}});
 
+// Separate browser synthesizers give each orchestra part an individual timbre.
+// These are lightweight synthesized patches, not General MIDI sample banks.
+const instrumentSynths=new Map<string,PolySynth>();
+function instrumentSynth(inst:string):PolySynth{
+  const existing=instrumentSynths.get(inst);if(existing)return existing;
+  const name=inst.toLowerCase();
+  const oscillator=name.includes('violin')||name.includes('voice')?'sawtooth':name.includes('bandoneon')?'square':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
+  const attack=name.includes('violin')?0.08:name.includes('bandoneon')?0.035:name.includes('voice')?0.09:0.008;
+  const release=name.includes('violin')?0.32:name.includes('bandoneon')?0.17:name.includes('bass')?0.18:0.12;
+  const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:0.12,sustain:0.65,release}}).toDestination();
+  voice.volume.value=-7;
+  instrumentSynths.set(inst,voice);
+  return voice;
+}
 let synth:PolySynth|null=null;
 async function testAudio(){
   try{
@@ -1240,7 +1254,7 @@ async function play(origin:PlaybackOrigin){
         if(!event)return;
         if(event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
-        else synth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
+        else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
       },seconds);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
@@ -1285,7 +1299,7 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
         const time=(n.start-from*beats)*beatSeconds;
         const duration=Math.max(0.04,noteSoundingDuration(n)*beatSeconds);
         const pitch=n.pitch+(project.value.transposeSemitones??0);
-        transport.schedule(t=>synth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,t,noteSoundingVelocity(n)/127),time);
+        transport.schedule(t=>instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,t,noteSoundingVelocity(n)/127),time);
         count++;
       }
     }
