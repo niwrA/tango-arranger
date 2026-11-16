@@ -1213,7 +1213,9 @@ async function play(origin:PlaybackOrigin){
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
     let noteCount=0;
-    for(const inst of INSTRUMENTS){if(inst==='Voice')continue;for(const n of score.value[inst]??[]){
+    // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
+    // This is a guide tone, not sung or synthesized speech.
+    for(const inst of projectInstruments(project.value)){for(const n of score.value[inst]??[]){
       const seconds=arrangementEventTime(n.start,window);
       // The requested measure is a hard start: earlier attacks are not replayed.
       if(seconds===null)continue;
