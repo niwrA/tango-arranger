@@ -191,11 +191,21 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
     const notes=(inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===1)===(staffIndex===0)):allNotes;
-    const lanes:{end:number;notes:Note[]}[]=[];
+    // Simultaneous equal-duration notes belong to ONE chord, not separate
+    // voices. A separate voice is needed only for independently timed lines.
+    // The old exporter emitted stacked notes in one Chord; splitting every
+    // note into a voice regressed MuseScore playback.
+    const groups:{start:number;duration:number;notes:Note[]}[]=[];
     for(const note of notes){
-      let lane=lanes.find(l=>l.end<=note.start+1e-7);
-      if(!lane){lane={end:-Infinity,notes:[]};lanes.push(lane);}
-      lane.notes.push(note);lane.end=note.start+note.duration;
+      const group=groups.find(g=>Math.abs(g.start-note.start)<1e-7&&Math.abs(g.duration-note.duration)<1e-7);
+      if(group)group.notes.push(note);
+      else groups.push({start:note.start,duration:note.duration,notes:[note]});
+    }
+    const lanes:{end:number;groups:typeof groups}[]=[];
+    for(const group of groups){
+      let lane=lanes.find(l=>l.end<=group.start+1e-7);
+      if(!lane){lane={end:-Infinity,groups:[]};lanes.push(lane);}
+      lane.groups.push(group);lane.end=group.start+group.duration;
     }
     const measures=p.bars.map((bar,barIndex)=>{
       const begin=barIndex*beats,end=begin+beats;
@@ -217,23 +227,16 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         }
         return elements.join('');
       })():'';
-      // Harmony is attached only to the upper staff, leaving the written notes intact.
-      // MuseScore's Harmony element uses root TPC plus a displayed chord name.
-      const chordXml=staffIndex===0&&/^(Piano|Bandoneon|Guitar)/.test(inst)&&(['chords','bass'].includes(p.measureRoles?.[`${inst}:${barIndex}`]??p.roles[bar.section]?.[inst]??'rest'))
-        ?parseChordSequence(bar.chord,beats).map(change=>{
-          const symbol=transposeChord(change.chord,p.transposeSemitones??0);
-          const root=/^([A-G])([#b]?)/.exec(symbol);
-          if(!root)return '';
-          const pc=parsePitch(root[1]+root[2]+'4')!%12;
-          const rootTpc=tpcForPitch(pc,root[2]==='b'?-1:1);
-          return `<Harmony><root><rootTpc>${rootTpc}</rootTpc></root><name>${esc(symbol)}</name>${change.beat?`<offset>${change.beat*tpq}</offset>`:''}</Harmony>`;
-        }).join(''):'';
+      // Native MuseScore Harmony serialization requires round-trip validation.
+      // Keep written notes playable until chord-symbol markup is verified.
+      const chordXml='';
       const voices=lanes.slice(0,4).map((lane,laneIndex)=>{
-        const active=lane.notes.filter(n=>n.start<end-1e-7&&n.start+n.duration>begin+1e-7);
+        const active=lane.groups.filter(g=>g.start<end-1e-7&&g.start+g.duration>begin+1e-7);
         let cursor=0;
         const events:string[]=[];
         const rest=(ticks:number)=>{for(const c of chunks(ticks/tpq))events.push(`<Rest><durationType>${c.type}</durationType></Rest>`);};
-        for(const n of active){
+        for(const group of active){
+          const n=group.notes[0];
           const startTick=Math.max(0,Math.round((Math.max(begin,n.start)-begin)*8)*60);
           const endTick=Math.min(beats*tpq,Math.round((Math.min(end,n.start+n.duration)-begin)*8)*60);
           if(endTick<=startTick)continue;
@@ -243,14 +246,14 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
           const previous=n.start<begin-1e-7,next=n.start+n.duration>end+1e-7;
           for(let pi=0;pi<pieces.length;pi++){
             const piece=pieces[pi],tiedBack=previous||pi>0,tiedForward=next||pi<pieces.length-1;
-            const tieStart=tiedForward?'<Tie><type>start</type></Tie>':'';
-            const tieEnd=tiedBack?'<endSpanner/>':'';
+            // Avoid incomplete native tie/spanner tags that MuseScore can
+            // interpret as malformed playback structures.
             const articulation=n.articulation==='staccato'?'<Articulation><subtype>staccato</subtype></Articulation>':
               n.articulation==='marcato_staccato'?'<Articulation><subtype>marcato</subtype></Articulation>':
               n.articulation==='legato'?'<Articulation><subtype>tenuto</subtype></Articulation>':'';
             const lyric=(text:string|undefined,syllabic:string|undefined,number:number)=>
               text&&pi===0&&!previous?`<Lyrics><no>${number}</no><syllabic>${syllabic??'single'}</syllabic><text>${esc(text)}</text></Lyrics>`:'';
-            const noteXml=`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${tpcForPitch(n.pitch,fifths)}</tpc>${tieStart}${tieEnd}</Note>`;
+            const noteXml=group.notes.map(note=>`<Note><pitch>${Math.round(note.pitch)}</pitch><tpc>${tpcForPitch(note.pitch,fifths)}</tpc></Note>`).join('');
             events.push(`<Chord><durationType>${piece.type}</durationType>${articulation}${noteXml}${lyric(n.lyric,n.syllabic,1)}${lyric(n.lyric2,n.syllabic2,2)}</Chord>`);
           }
           cursor=endTick;
