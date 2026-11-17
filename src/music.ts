@@ -685,6 +685,19 @@ export function generate(p:Project):Score {
         if(pitch>=0&&pitch<=127&&duration>0&&start>=0&&start<p.beats)
           notes.push({pitch,start:offset+start,duration:Math.min(duration,p.beats-start),velocity:Math.max(35,Math.min(127,Math.round(velocity*dynamicScale+(cfg?.dynamicsOffset??0)))),accent:Math.abs(start-Math.round(start))<0.001&&(p.beats===3?Math.round(start)===0:(profile.strongBeats?Math.round(start)%2===0:true)),technique,source:'generated',...(gate===undefined?{}:{gate})});
       };
+      // Bandoneon chordal playing: limited compact voicings rather than unrestricted piano chords.
+      // A 'fill' part may combine a melodic response with short accompaniment chords.
+      if(inst.startsWith('Bandoneon')&&(role==='chords'||configuredRole==='fill')){
+        const chordBeats=p.beats===3?[1,2]:milonga?[0.5,1.5]:[0,2].filter(beat=>beat<p.beats);
+        const maxNotes=difficulty==='easy'?2:3;
+        for(const beat of chordBeats){
+          const pcs=harmony(beat);
+          const voicing=[...new Set(pcs.slice(0,maxNotes).map((pc,j)=>closest(pc,58+j*5,range[0],Math.min(range[1],79))))];
+          for(const pitch of voicing)put(pitch,beat,Math.min(0.7,p.beats-beat),68,undefined,0.72);
+        }
+        if(role==='chords')continue;
+        // In fill mode, continue generating the melody line on top of these chord events.
+      }
       if(inst.startsWith('Bandoneon')){
         const follower=settings.bandoneon[bar.section]?.[inst as 'Bandoneon I'|'Bandoneon II']??(inst==='Bandoneon I'?{target:'Violin II' as FollowTarget,method:'adapt' as FollowMethod}:undefined);
         if(follower&&follower.target!=='independent'&&follower.target!==inst){
