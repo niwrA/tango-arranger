@@ -823,37 +823,74 @@ function beginSectionCopy(i:number){if(!copySpans.value[i])return;copySourceInde
 function cancelSectionCopy(){copySectionMode.value=false;}
 function duplicateLeadSection(i:number){
   try{
-    const spans=sectionSpans(project.value),source=spans[i];
+    const current=project.value,spans=sectionSpans(current),source=spans[i];
     if(!source)throw Error('Source section not found');
-    if(spans.length>=26||project.value.bars.length+source.measures>512)
+    if(spans.length>=26||current.bars.length+source.measures>512)
       throw Error('Cannot copy: maximum 26 sections and 512 measures');
-    const hasScores=Boolean(project.value.generatedScore||project.value.importedScore||project.value.baseScore||Object.values(project.value.protectedBars??{}).some(Boolean));
-    if(hasScores&&!window.confirm('Copy section '+sectionLetter(i)+' to the end as section '+sectionLetter(spans.length)+'? This structural change clears generated/imported scores and protected edits. The lead-sheet chords and melody will be retained.'))return;
-    const next=resizeSections(project.value,[...spans.map(span=>span.measures),source.measures]);
-    const destination=next.bars.length-source.measures;
-    for(let offset=0;offset<source.measures;offset++){
-      const original=project.value.bars[source.start+offset];
-      next.bars[destination+offset]={...original,section:sectionLetter(spans.length),melody:original.melody.map(n=>({...n}))};
-    }
     const label=sectionLetter(spans.length),sourceLabel=source.label;
-    next.sectionKeys={...next.sectionKeys,[label]:sectionKey(project.value,sourceLabel)};
-    next.roles[label]={...project.value.roles[sourceLabel]};
-    if(next.orchestration){
-      next.orchestration.violin[label]={...project.value.orchestration?.violin?.[sourceLabel]};
-      next.orchestration.bandoneon[label]={...project.value.orchestration?.bandoneon?.[sourceLabel]};
-      next.orchestration.contrabass[label]=project.value.orchestration?.contrabass?.[sourceLabel]??'traditional';
-    }
-    next.pianoFigures={...next.pianoFigures,[label]:project.value.pianoFigures?.[sourceLabel]??'chords_up'};
-    next.pianoFigureVariation={...next.pianoFigureVariation,[label]:project.value.pianoFigureVariation?.[sourceLabel]??0};
-    if(next.expression)next.expression.sections[label]=project.value.expression?.sections[sourceLabel]??'mf';
+    const destination=current.bars.length,beatOffset=(destination-source.start)*current.beats;
+    const bars=[...current.bars,...current.bars.slice(source.start,source.start+source.measures).map(bar=>({
+      ...bar,section:label,melody:bar.melody.map(note=>({...note}))
+    }))];
+    const cloneScore=(score:Project['generatedScore']):Project['generatedScore']=>{
+      if(!score)return undefined;
+      const from=source.start*current.beats,to=(source.start+source.measures)*current.beats;
+      return Object.fromEntries(Object.entries(score).map(([inst,notes])=>[
+        inst,[...notes,...notes.filter(note=>note.start>=from&&note.start<to).map(note=>({...note,start:note.start+beatOffset}))]
+      ])) as Project['generatedScore'];
+    };
+    const copyMeasureMap=<T,>(map:Record<string,T>|undefined):Record<string,T>=>{
+      const result={...map};
+      for(const [key,value] of Object.entries(map??{})){
+        const match=key.match(/^(.*):(\\d+)$/);
+        if(!match)continue;
+        const index=Number(match[2]);
+        if(index>=source.start&&index<source.start+source.measures)
+          result[match[1]+':'+(destination+index-source.start)]=structuredClone(value);
+      }
+      return result;
+    };
+    const copySectionMap=<T,>(map:Record<string,T>|undefined):Record<string,T>=>{
+      const result={...map};
+      if(map&&Object.prototype.hasOwnProperty.call(map,sourceLabel))result[label]=structuredClone(map[sourceLabel]);
+      return result;
+    };
+    const next:Project={...current,bars,
+      sectionKeys:{...current.sectionKeys,[label]:sectionKey(current,sourceLabel)},
+      roles:copySectionMap(current.roles),
+      generatedScore:cloneScore(current.generatedScore),
+      importedScore:cloneScore(current.importedScore),
+      baseScore:cloneScore(current.baseScore),
+      protectedBars:copyMeasureMap(current.protectedBars),
+      measureRoles:copyMeasureMap(current.measureRoles),
+      measureViolinTechniques:copyMeasureMap(current.measureViolinTechniques),
+      measureBassTechniques:copyMeasureMap(current.measureBassTechniques),
+      violinMarcatoBeats:copySectionMap(current.violinMarcatoBeats),
+      violinArpeggioDirections:copySectionMap(current.violinArpeggioDirections),
+      pianoFigures:copySectionMap(current.pianoFigures),
+      pianoFigureVariation:copySectionMap(current.pianoFigureVariation),
+      measureDynamics:copyMeasureMap(current.measureDynamics),
+      orchestration:current.orchestration?{
+        ...current.orchestration,
+        violin:copySectionMap(current.orchestration.violin),
+        bandoneon:copySectionMap(current.orchestration.bandoneon),
+        contrabass:copySectionMap(current.orchestration.contrabass)
+      }:undefined,
+      expression:current.expression?{
+        ...current.expression,sections:copySectionMap(current.expression.sections)
+      }:undefined,
+      articulation:current.articulation?{
+        ...current.articulation,overrides:copyMeasureMap(current.articulation.overrides)
+      }:undefined,
+      expressionRanges:current.expressionRanges?.map(range=>structuredClone(range))
+    };
     project.value=next;
     selectedBar.value=destination;overviewFocus.value=destination;chosenSection.value=label;
     overviewStart.value=destination+1;overviewEnd.value=next.bars.length;mapRangeAnchor.value=null;
     collapsedLeadSections.value=collapsedLeadSections.value.filter(section=>section!==label);
-    message.value='Copied section '+sourceLabel+' to new section '+label+' ('+source.measures+' measures).'+(hasScores?' Regenerate orchestra before exporting.':'');
+    message.value='Copied section '+sourceLabel+' to new section '+label+' ('+source.measures+' measures), including orchestral scores and protected edits.';
   }catch(error){message.value='Section copy failed: '+String(error);}
 }
-
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
 const collapsedLeadSections=ref<string[]>([]);
 function toggleLeadSectionCollapsed(label:string){
