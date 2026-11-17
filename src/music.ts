@@ -999,10 +999,12 @@ export function newNoteWrittenDuration(p:Project,inst:Instrument,barIndex:number
     inst==='Contrabass'&&ctx.technique==='arco_legato'?'legato':undefined;
   const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`];
   const effective=articulation!=='inherit'?articulation:(measureOverride??violinChordStyle?.articulation??ctx.articulation??bassArticulation);
-  // All articulated attacks default to a quarter note in notation. A staccato
-  // dot or marcato accent shortens/emphasizes playback, not the written value.
-  // For unmarked material, retain role-specific rhythmic defaults.
-  const length=effective==='staccato'||effective==='marcato_staccato'||effective==='legato'?1:
+  // Tango marcato/staccato attacks are normally written as eighth notes;
+  // their much shorter audible release is handled by the playback gate.
+  // Legato retains its quarter-note default. Explicit note-length choices
+  // in the editor always take precedence over this automatic suggestion.
+  const length=effective==='staccato'||effective==='marcato_staccato'?0.5:
+    effective==='legato'?1:
     ctx.role==='bass'?0.75:ctx.role==='chords'&&inst.startsWith('Violin')&&['arpeggio','pizzicato_arpeggio'].includes(ctx.technique??'')?p.beats/4:
     ctx.role==='chords'&&!inst.startsWith('Violin')?0.5:ctx.role==='fill'?0.5:1;
   return Math.max(0.25,Math.min(length,p.beats-beat));
