@@ -2,20 +2,34 @@ export type Instrument = string;
 export const FACTORY_INSTRUMENTS: readonly Instrument[] = ['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
 /** Reactive UI compatibility: mutate in place when switching projects. Engine functions use project roster. */
 export const INSTRUMENTS: Instrument[] = [...FACTORY_INSTRUMENTS];
-export type InstrumentFamily = 'Piano'|'Contrabass'|'Violin'|'Bandoneon'|'Voice';
+export type InstrumentFamily = 'Piano'|'Contrabass'|'Violin'|'Bandoneon'|'Voice'|'Guitar'|'Clarinet'|'Flute'|'Trumpet'|'Trombone';
+export const INSTRUMENT_FAMILIES:readonly InstrumentFamily[]=['Violin','Voice','Bandoneon','Piano','Contrabass','Guitar','Clarinet','Flute','Trumpet','Trombone'];
+export const INSTRUMENT_CAPABILITIES:Record<InstrumentFamily,{clef:'G'|'F';staves:1|2;transposition:number;range:[number,number];polyphonic:boolean;program:number}>={
+  Piano:{clef:'G',staves:2,transposition:0,range:[43,85],polyphonic:true,program:0},
+  Contrabass:{clef:'F',staves:1,transposition:-12,range:[28,55],polyphonic:false,program:43},
+  Violin:{clef:'G',staves:1,transposition:0,range:[55,96],polyphonic:false,program:40},
+  Bandoneon:{clef:'G',staves:1,transposition:0,range:[48,88],polyphonic:true,program:21},
+  Voice:{clef:'G',staves:1,transposition:0,range:[55,85],polyphonic:false,program:52},
+  Guitar:{clef:'G',staves:1,transposition:-12,range:[40,88],polyphonic:true,program:24},
+  Clarinet:{clef:'G',staves:1,transposition:-2,range:[50,94],polyphonic:false,program:71},
+  Flute:{clef:'G',staves:1,transposition:0,range:[60,96],polyphonic:false,program:73},
+  Trumpet:{clef:'G',staves:1,transposition:-2,range:[54,82],polyphonic:false,program:56},
+  Trombone:{clef:'F',staves:1,transposition:0,range:[40,77],polyphonic:false,program:57}
+};
 export function instrumentFamily(inst:Instrument):InstrumentFamily {
   if(inst.startsWith('Violin'))return 'Violin';
   if(inst.startsWith('Bandoneon'))return 'Bandoneon';
   if(inst.startsWith('Voice'))return 'Voice';
   if(inst.startsWith('Piano'))return 'Piano';
   if(inst.startsWith('Contrabass'))return 'Contrabass';
+  for(const family of INSTRUMENT_FAMILIES)if(inst===family||inst.startsWith(family+' '))return family;
   throw Error(`Unsupported instrument family: ${inst}`);
 }
 export function projectInstruments(p:Pick<Project,'instruments'>):Instrument[]{return p.instruments?.length?[...p.instruments]:[...FACTORY_INSTRUMENTS];}
 export function syncActiveInstruments(p:Pick<Project,'instruments'>):void {INSTRUMENTS.splice(0,INSTRUMENTS.length,...projectInstruments(p));}
 export function validateRoster(roster:readonly string[]):Instrument[]{
   if(!roster.length||roster.length>32||new Set(roster).size!==roster.length)throw Error('Roster must contain 1–32 unique parts');
-  for(const name of roster){if(!/^(Piano( [IVX]+)?|Contrabass( [IVX]+)?|Violin( [IVX]+)?|Bandoneon( [IVX]+)?|Voice( [IVX]+)?)$/.test(name))throw Error(`Unsupported part: ${name}`);}
+  for(const name of roster){if(!/^(Piano( [IVX]+)?|Contrabass( [IVX]+)?|Violin( [IVX]+)?|Bandoneon( [IVX]+)?|Voice( [IVX]+)?|Guitar( [IVX]+)?|Clarinet( [IVX]+)?|Flute( [IVX]+)?|Trumpet( [IVX]+)?|Trombone( [IVX]+)?)$/.test(name))throw Error(`Unsupported part: ${name}`);}
   return [...roster];
 }
 export function setProjectRoster(p:Project,roster:readonly string[]):Project{
@@ -500,7 +514,7 @@ export function pianoStaffForPitch(pitch:number,splitPitch=60):1|2 {
   if(!Number.isFinite(pitch)||!Number.isInteger(splitPitch)||splitPitch<48||splitPitch>72)throw Error('Invalid piano staff split');
   return pitch>=splitPitch?1:2;
 }
-export function instrumentRange(inst:Instrument):[number,number]{return inst.startsWith('Contrabass')?[28,55]:inst.startsWith('Piano')?[43,85]:inst.startsWith('Voice')?[55,85]:inst.startsWith('Violin')?[55,96]:[48,88];}
+export function instrumentRange(inst:Instrument):[number,number]{return INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].range;}
 export function convertTwoFourToFour(p:Project):Project {
   if(p.beats!==2)throw Error('Only 2/4 projects can be converted to 4/4');
   if(p.bars.length%2)throw Error('An odd number of measures requires an explicit pickup/ending decision');
