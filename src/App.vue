@@ -287,6 +287,16 @@ function applyRoster(roster:string[]){
   try{stopPlayback();project.value=setProjectRoster(project.value,roster);syncActiveInstruments(project.value);message.value=`Roster updated: ${roster.length} parts. Regenerate to apply the changes.`;}
   catch(e){message.value=String(e);}
 }
+function rosterDisplayName(inst:string){return project.value.instrumentNames?.[inst]??inst;}
+function renameRosterPart(inst:string,event:Event){
+  const input=event.target as HTMLInputElement;
+  const name=input.value.trim().replace(/\\s+/g,' ');
+  if(!name||name.length>80){input.value=rosterDisplayName(inst);message.value='Instrument name must be 1–80 characters.';return;}
+  const duplicate=activeRoster.value.some(other=>other!==inst&&rosterDisplayName(other).toLocaleLowerCase()===name.toLocaleLowerCase());
+  if(duplicate){input.value=rosterDisplayName(inst);message.value='Instrument names must be unique.';return;}
+  project.value={...project.value,instrumentNames:{...project.value.instrumentNames,[inst]:name}};
+  message.value='Renamed '+inst+' to '+name+'. Instrument family and existing notes are unchanged.';
+}
 function removeRosterPart(inst:string){applyRoster(projectInstruments(project.value).filter(i=>i!==inst));}
 function moveRosterPart(inst:string,delta:number){const roster=projectInstruments(project.value),index=roster.indexOf(inst),target=index+delta;if(target<0||target>=roster.length)return;[roster[index],roster[target]]=[roster[target],roster[index]];applyRoster(roster);}
 function saveCurrentRoster(){try{rosterPresets.value=saveRosterPreset(rosterPresetName.value,projectInstruments(project.value));rosterPresetSelection.value=rosterPresetName.value;message.value='Roster preset saved locally.';}catch(e){message.value=String(e);}}
@@ -2308,7 +2318,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="editor"><details class="control-fold roster-management" open><summary>Orchestra roster · {{ activeRoster.length }} parts</summary>
   <p class="hint roster-help">Choose a built-in or saved roster, then add, reorder or remove instruments. Changing the roster clears generated parts but retains manual edits for instruments that remain.</p>
   <div class="two"><label>Instrument family<select v-model="newPartFamily"><option>Violin</option><option>Voice</option><option>Bandoneon</option><option>Piano</option><option>Contrabass</option></select></label><div class="align-bottom"><button type="button" @click="addRosterPart">+ Add instrument</button></div></div>
-  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><strong>{{ inst }}</strong><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
   <div class="two"><label>Preset name<input v-model="rosterPresetName" placeholder="My tango orchestra"/></label><div class="align-bottom"><button type="button" @click="saveCurrentRoster">Save roster preset</button></div></div>
   <div class="two"><label>Saved rosters<select v-model="rosterPresetSelection"><option value="">Select a preset</option><option v-for="preset in rosterPresets" :key="preset.name" :value="preset.name">{{preset.name}}</option></select></label><div class="align-bottom"><button type="button" :disabled="!rosterPresetSelection" @click="loadSelectedRoster">Load</button><button type="button" class="secondary" :disabled="!rosterPresetSelection || ['Factory seven-part','Quartet','Sextet','Septet','Orquesta típica'].includes(rosterPresetSelection)" @click="deleteSelectedRoster">Delete</button></div></div>
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>
