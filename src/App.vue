@@ -823,32 +823,29 @@ function onLeadSectionHeaderClick(i:number){if(copySectionMode.value&&i!==copySo
 function beginSectionCopy(i:number){if(!copySpans.value[i])return;copySourceIndex.value=i;copySectionMode.value=true;copyHarmonyFeedback.value='';}
 function cancelSectionCopy(){copySectionMode.value=false;}
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
-function shiftVoiceFromLeadMeasure(measure:number){
-  const beats=project.value.beats;
-  const input=window.prompt('Shift Voice notes and their attached lyrics to the right by how many beats? Notes from this measure onward move together; other instruments stay in place.','1');
-  if(input===null)return;
-  const amount=Number(input);
-  if(!Number.isFinite(amount)||amount<=0||amount>beats*8){message.value='Enter a positive shift of at most 8 measures.';return;}
-  const start=measure*beats,end=project.value.bars.length*beats;
-  const source=score.value.Voice??[];
-  const moved=source.filter(n=>n.start>=start);
-  if(!moved.length){message.value='No Voice notes start at or after this measure.';return;}
-  const overflow=moved.filter(n=>n.start+amount>=end);
-  const confirmation=`Shift ${moved.length} Voice notes and their lyrics from measure ${measure+1} right by ${amount} beat(s)?${overflow.length?' '+overflow.length+' notes would start beyond the end of the song and be removed.':''} The operation will protect the edited Voice measures.`;
-  if(!window.confirm(confirmation))return;
-  const next=snapshot(project.value);
-  const shifted=source.flatMap(n=>{
-    if(n.start<start)return [{...n}];
-    const shiftedStart=Number((n.start+amount).toFixed(6));
-    if(shiftedStart>=end)return [];
-    return [{...n,start:shiftedStart,duration:Math.min(n.duration,Number((end-shiftedStart).toFixed(6)))}];
-  });
-  next.importedScore={...(next.importedScore??{}),Voice:shifted};
-  next.generatedScore={...(next.generatedScore??score.value),Voice:shifted};
-  next.protectedBars={...(next.protectedBars??{})};
-  for(let i=measure;i<next.bars.length;i++)next.protectedBars[`Voice:${i}`]=true;
-  project.value=next;
-  message.value=`Shifted ${moved.length-overflow.length} Voice notes with lyrics by ${amount} beats; ${overflow.length} overflow notes removed.`;
+const collapsedLeadSections=ref<string[]>([]);
+function toggleLeadSectionCollapsed(label:string){
+  collapsedLeadSections.value=collapsedLeadSections.value.includes(label)
+    ?collapsedLeadSections.value.filter(x=>x!==label)
+    :[...collapsedLeadSections.value,label];
+}
+const leadMeasureContext=ref<number|null>(null);
+let leadContextTimer:ReturnType<typeof setTimeout>|null=null;
+function cancelLeadContextTimer(){if(leadContextTimer!==null){clearTimeout(leadContextTimer);leadContextTimer=null;}}
+function showLeadMeasureContext(measure:number,event?:MouseEvent){
+  event?.preventDefault();cancelLeadContextTimer();leadMeasureContext.value=measure;
+}
+function startLeadMeasureLongPress(measure:number){
+  cancelLeadContextTimer();
+  leadContextTimer=setTimeout(()=>{leadMeasureContext.value=measure;leadContextTimer=null;},550);
+}
+function openLeadVoiceLyrics(measure:number){
+  leadMeasureContext.value=null;
+  const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
+  if(!voice){message.value='This song has no Voice part.';return;}
+  openNoteEditor(voice,measure);
+  noteSelected.value=noteMeasure.value.findIndex(n=>Boolean(n.lyric||n.lyric2));
+  if(noteSelected.value<0)noteSelected.value=0;
 }
 function toggleLeadMeasureEditor(i:number){if(i===selectedBar.value)leadMeasureEditorOpen.value=!leadMeasureEditorOpen.value;else{selectLeadMeasure(i);leadMeasureEditorOpen.value=true;}}
 
@@ -2206,14 +2203,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="lead-sections">
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
     <div :class="['lead-section-heading',{'lead-copy-source':copySectionMode&&copySourceIndex===si}]">
-      <div class="lead-section-title"><button type="button" :class="['lead-section-select',{'is-selected':project.bars[selectedBar]?.section===span.label}]" :aria-pressed="project.bars[selectedBar]?.section===span.label" :aria-label="copySectionMode&&copySourceIndex!==si?`Paste copied chords into section ${sectionLetter(si)}`:`Select section ${sectionLetter(si)}, measures ${span.start+1} to ${span.start+span.measures}`" @click="onLeadSectionHeaderClick(si)"><strong class="lead-section-letter">{{sectionLetter(si)}}</strong><span><strong>Section {{span.label}}</strong><small>Measures {{span.start+1}}–{{span.start+span.measures}} · {{span.measures}} measures</small></span></button></div>
+      <div class="lead-section-title"><button type="button" class="lead-section-collapse" :aria-expanded="!collapsedLeadSections.includes(span.label)" :title="collapsedLeadSections.includes(span.label)?'Expand section':'Collapse section'" @click="toggleLeadSectionCollapsed(span.label)">{{collapsedLeadSections.includes(span.label)?'▸':'▾'}}</button><button type="button" :class="['lead-section-select',{'is-selected':project.bars[selectedBar]?.section===span.label}]" :aria-pressed="project.bars[selectedBar]?.section===span.label" :aria-label="copySectionMode&&copySourceIndex!==si?`Paste copied chords into section ${sectionLetter(si)}`:`Select section ${sectionLetter(si)}, measures ${span.start+1} to ${span.start+span.measures}`" @click="onLeadSectionHeaderClick(si)"><strong class="lead-section-letter">{{sectionLetter(si)}}</strong><span><strong>Section {{span.label}}</strong><small>Measures {{span.start+1}}–{{span.start+span.measures}} · {{span.measures}} measures</small></span></button></div>
       <div class="lead-section-actions"><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button></div>
       <label class="lead-key-label">Key signature<select :value="keyForSection(span.label)" :aria-label="`Key for section ${span.label}`" @change="setSectionKey(span.label,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label>
     </div>
-    <div class="lead-measure-grid">
+    <div v-if="!collapsedLeadSections.includes(span.label)" class="lead-measure-grid">
       <template v-for="offset in span.measures" :key="span.start+offset-1"><div :class="['lead-measure',{selected:selectedBar===span.start+offset-1}]">
-        <button type="button" class="lead-measure-select" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; double-click to edit its lead melody`" @click="toggleLeadMeasureEditor(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
-        <button type="button" class="secondary lead-voice-shift" title="Insert time before the Voice phrase in this measure, moving subsequent Voice notes and attached lyrics together" @click="shiftVoiceFromLeadMeasure(span.start+offset-1)">Shift Voice + lyrics →</button>
+        <button type="button" class="lead-measure-select" @contextmenu="showLeadMeasureContext(span.start+offset-1,$event)" @touchstart.passive="startLeadMeasureLongPress(span.start+offset-1)" @touchend="cancelLeadContextTimer" @touchcancel="cancelLeadContextTimer" @touchmove="cancelLeadContextTimer" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; double-click to edit its lead melody`" @click="toggleLeadMeasureEditor(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
+        <div v-if="leadMeasureContext===span.start+offset-1" class="lead-measure-context" role="menu"><strong>Measure {{span.start+offset}} · Lyrics</strong><button type="button" role="menuitem" @click="openLeadVoiceLyrics(span.start+offset-1)">Open Voice note / lyric alignment</button><button type="button" role="menuitem" @click="leadMeasureContext=null">Close</button></div>
         <div v-if="leadLyricOverview.get(span.start+offset-1)?.length" class="lead-lyric-overview" :aria-label="`Lyrics in measure ${span.start+offset}`" style="margin:.4rem 0;padding:.45rem;border-top:1px solid #607080">
           <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.12rem .25rem;line-height:1.3">
             <span v-for="(item,i) in leadLyricOverview.get(span.start+offset-1)" :key="i" :title="`Beat ${(item.beat+1).toFixed(2)}`" style="display:inline-flex;flex-direction:column;align-items:flex-start;min-width:1.4rem;white-space:nowrap">
