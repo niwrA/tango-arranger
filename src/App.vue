@@ -1842,18 +1842,24 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
 }
 // Read-only, chord-aware overview of the Voice lyric alignment.
 const leadLyricOverview=computed(()=>{
+  type LyricCell={beat:number;text:string;chord:string;chordStart:boolean;joinNext:boolean};
   const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
-  if(!voice)return new Map<number,{beat:number;text:string;chord:string;chordStart:boolean}[]>();
-  const result=new Map<number,{beat:number;text:string;chord:string;chordStart:boolean}[]>();
+  const result=new Map<number,LyricCell[]>();
+  if(!voice)return result;
   for(let bar=0;bar<project.value.bars.length;bar++){
     const beats=project.value.beats;
     const notes=(score.value[voice]??[]).filter(n=>n.start>=bar*beats&&n.start<(bar+1)*beats).sort((a,b)=>a.start-b.start);
-    const changes=parseChordSequence(project.value.bars[bar].chord,beats);
-    const entries=notes.filter(n=>!!n.lyric?.trim()).map(n=>{
-      const beat=n.start-bar*beats;
-      const chord=[...changes].reverse().find(change=>change.beat<=beat+1e-7)?.chord??'';
-      return {beat,text:n.lyric!.trim(),chord,chordStart:changes.some(change=>Math.abs(change.beat-beat)<1e-7)};
-    });
+    const changes=parseChordSequence(project.value.bars[bar].chord,beats).filter(c=>c.chord.trim());
+    const entries:LyricCell[]=notes.filter(n=>!!n.lyric?.trim()).map(n=>({
+      beat:n.start-bar*beats,text:n.lyric!.trim(),chord:'',chordStart:false,
+      joinNext:n.syllabic==='begin'||n.syllabic==='middle'
+    }));
+    for(const change of changes){
+      const matching=entries.find(item=>Math.abs(item.beat-change.beat)<1e-7);
+      if(matching){matching.chord=change.chord;matching.chordStart=true;}
+      else entries.push({beat:change.beat,text:'',chord:change.chord,chordStart:true,joinNext:false});
+    }
+    entries.sort((a,b)=>a.beat-b.beat||Number(b.chordStart)-Number(a.chordStart));
     result.set(bar,entries);
   }
   return result;
@@ -1866,7 +1872,7 @@ const currentLyricOverflow=computed(()=>project.value.lyricOverflow?.[noteInst.v
 function setLyricOverflow(key:string,items:OverflowSyllable[]){
  lyricOverflow.value={...lyricOverflow.value,[key]:items};
  const part=noteInst.value+'|'+lyricVerse.value;
- project.value={...project.value,lyricOverflow:{...(project.value.lyricOverflow??{}),[part]:items}};
+ project.value=storeLyricSequence({...project.value,lyricOverflow:{...(project.value.lyricOverflow??{}),[part]:items}},noteInst.value,lyricVerse.value,items);
 }
 function getLyricOverflow(key:string):OverflowSyllable[]{
  const part=noteInst.value+'|'+lyricVerse.value;
@@ -1878,6 +1884,16 @@ function getLyricOverflow(key:string):OverflowSyllable[]{
   if(Array.isArray(raw))return [...raw];
  }catch{/* Ignore malformed legacy data. */}
  return [];
+}
+function storeLyricSequence(next:Project,inst:string,verse:1|2,overflow:OverflowSyllable[]):Project{
+ const field=verse===1?'lyric':'lyric2',syll=verse===1?'syllabic':'syllabic2',ext=verse===1?'melisma':'melisma2';
+ const notes=(next.generatedScore?.[inst]??score.value[inst]??[]).slice().sort((a,b)=>a.start-b.start);
+ const sequence=notes.filter(n=>Boolean((n as unknown as Record<string,unknown>)[field])).map(n=>{
+  const fields=n as unknown as Record<string,unknown>;
+  return {text:String(fields[field]),syllabic:typeof fields[syll]==='string'?String(fields[syll]):undefined,melisma:fields[ext]===true};
+ });
+ for(const item of overflow){if(item[0])sequence.push({text:String(item[0]),syllabic:typeof item[1]==='string'?String(item[1]):undefined,melisma:item[2]===true});}
+ return {...next,lyricSequences:{...(next.lyricSequences??{}),[inst+'|'+verse]:sequence}};
 }
 function rippleLyricSyllable(action:'insert'|'delete'){
   if(!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
@@ -2202,7 +2218,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.12rem .25rem;line-height:1.3">
             <span v-for="(item,i) in leadLyricOverview.get(span.start+offset-1)" :key="i" :title="`Beat ${(item.beat+1).toFixed(2)}`" style="display:inline-flex;flex-direction:column;align-items:flex-start;min-width:1.4rem;white-space:nowrap">
               <strong style="font-size:.78rem;min-height:1.1rem;color:var(--accent,#b98a45)">{{item.chordStart?item.chord:''}}</strong>
-              <span style="font-size:1rem">{{item.text}}</span>
+              <span style="font-size:1rem">{{item.text}}{{item.joinNext?'-':''}}</span>
             </span>
           </div>
         </div>
