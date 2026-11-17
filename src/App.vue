@@ -68,7 +68,7 @@ function stopPlayback(){
   synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureKeySynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
-  capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();
+  capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureRecordedPass=-1;
 }
 function selectProjectInEditor(p:Project){
   stopPlayback();syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
@@ -601,6 +601,16 @@ const captureCountingIn=ref(false);
 const captureSpeed=ref<0.5|0.75|1>(1);
 const captureQuantize=ref<'auto'|'1'|'0.5'|'0.25'|'0.125'>('auto');
 const captureTakeMode=ref<'replace'|'overdub'>('replace');
+let captureRecordedPass=-1;
+function beginMelodyPassOnNote(elapsedBeats:number){
+  if(captureTakeMode.value!=='replace'||captureKind.value!=='melody'||elapsedBeats<0)return;
+  const length=(captureLast.value-captureFirst.value+1)*project.value.beats;
+  const pass=Math.floor(elapsedBeats/length);
+  if(pass===captureRecordedPass)return;
+  // Keep the previous take until the performer actually starts the next one.
+  melodyCaptureTaps.value=[];
+  captureRecordedPass=pass;
+}
 type HeldCapture=CapturedTap&{duration?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number}>();
 function captureGrid(bar:number):number{
@@ -705,8 +715,6 @@ async function toggleCaptureLoop(){
     let beatCount=0;
     transport.scheduleRepeat(time=>{
       const countIn=beatCount<countInBeats;
-      const loopBeats=(last-first+1)*project.value.beats;
-      const firstBeatOfPass=!countIn&&(beatCount-countInBeats)%loopBeats===0;
       const beat=beatCount%project.value.beats;
       const recordedBeat=Math.max(0,beatCount-countInBeats);
       const bar=first+Math.floor(recordedBeat/project.value.beats)%(last-first+1);
@@ -714,12 +722,6 @@ async function toggleCaptureLoop(){
       if(captureMetronome.value)captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
       Tone.getDraw().schedule(()=>{
         if(session!==captureSession||!capturePlaying.value)return;
-        if(firstBeatOfPass&&captureKind.value==='melody'&&captureTakeMode.value==='replace'){
-          // A new pass is a fresh take; overdub is opt-in. This also clears any
-          // notes from an earlier recording session when the first pass begins.
-          melodyCaptureTaps.value=[];
-          heldCaptureKeys.clear();
-        }
         captureCountingIn.value=countIn;capturePlayBar.value=countIn?-1:bar;capturePlayBeat.value=beat;
       },time);
     },'4n',0);
@@ -738,6 +740,7 @@ function captureTap(pitch?:number){
     const pos=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,
       captureFirst.value,captureLast.value,captureGrid(captureFirst.value),captureLatency.value);
     const adjusted=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,captureFirst.value,captureLast.value,captureGrid(pos.bar),captureLatency.value);
+    if(captureKind.value==='melody')beginMelodyPassOnNote(captureElapsedBeats());
     const chosenPitch=pitch??capturePitch.value;
     const tap:CapturedTap=captureKind.value==='melody'?{...adjusted,pitch:chosenPitch}:adjusted;
     captureTaps.value=addCapturedTap(captureTaps.value,tap,captureKind.value);
@@ -752,8 +755,10 @@ function capturePianoKey(event:PointerEvent,pitch:number){
   if(event.button!==0)return;
   capturePitch.value=pitch;
   if(!capturePlaying.value){void auditionPitch(pitch);return;}
-  if(captureElapsedBeats()<0)return;
-  heldCaptureKeys.set(event.pointerId,{pitch,started:captureElapsedBeats()});
+  const started=captureElapsedBeats();
+  if(started<0)return;
+  beginMelodyPassOnNote(started);
+  heldCaptureKeys.set(event.pointerId,{pitch,started});
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   // Live key monitoring must follow pointer down/up, not a fixed-length audition.
   const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
