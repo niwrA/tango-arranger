@@ -65,7 +65,7 @@ function stopPlayback(){
   // Invalidate a pending Tone.start() before it can schedule anything.
   noteLoopSession++;rhythmLoopSession++;captureSession++;
   if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value){Tone.getTransport().stop();Tone.getTransport().cancel();}
-  synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
+  synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureKeySynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
   capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();
@@ -630,6 +630,7 @@ const captureEditedRhythms=ref<Record<number,RhythmSlot[]>>({});
 const captureEditBar=ref(1);
 let captureSession=0;
 let captureSynth:PolySynth|null=null;
+let captureKeySynth:PolySynth|null=null;
 let captureClickSynth:Synth|null=null;
 const captureKind=computed((): 'rhythm'|'melody'=>active.value==='notes'?'melody':'rhythm');
 const captureFirst=computed(()=>Math.max(0,Math.min(project.value.bars.length-1,Math.floor(Number(captureFrom.value)||1)-1)));
@@ -675,6 +676,8 @@ async function toggleCaptureLoop(){
     if(session!==captureSession||active.value!==editor)return;
     captureSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
     captureSynth.volume.value=-13;
+    captureKeySynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    captureKeySynth.volume.value=-11;
     captureClickSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.04,sustain:0,release:0.04}}).toDestination();
     captureClickSynth.volume.value=-18;
     const transport=Tone.getTransport();
@@ -752,12 +755,16 @@ function capturePianoKey(event:PointerEvent,pitch:number){
   if(captureElapsedBeats()<0)return;
   heldCaptureKeys.set(event.pointerId,{pitch,started:captureElapsedBeats()});
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  void auditionPitch(pitch,90,0.15);
+  // Live key monitoring must follow pointer down/up, not a fixed-length audition.
+  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+  captureKeySynth?.triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.7);
 }
 function releaseCapturePianoKey(event:PointerEvent){
   const held=heldCaptureKeys.get(event.pointerId);
   if(!held)return;
   heldCaptureKeys.delete(event.pointerId);
+  const transposed=Math.max(0,Math.min(127,held.pitch+(project.value.transposeSemitones??0)));
+  captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
   if(!capturePlaying.value)return;
   const total=(captureLast.value-captureFirst.value+1)*project.value.beats;
   const start=Math.max(0,held.started);
