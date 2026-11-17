@@ -218,7 +218,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
       })():'';
       // Harmony is attached only to the upper staff, leaving the written notes intact.
       // MuseScore's Harmony element uses root TPC plus a displayed chord name.
-      const chordXml=staffIndex===0&&/^(Piano|Bandoneon|Guitar)/.test(inst)
+      const chordXml=staffIndex===0&&/^(Piano|Bandoneon|Guitar)/.test(inst)&&(['chords','bass'].includes(p.measureRoles?.[`${inst}:${barIndex}`]??p.roles[bar.section]?.[inst]??'rest'))
         ?parseChordSequence(bar.chord,beats).map(change=>{
           const symbol=transposeChord(change.chord,p.transposeSemitones??0);
           const root=/^([A-G])([#b]?)/.exec(symbol);
