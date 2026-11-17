@@ -216,6 +216,17 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
         }
         return elements.join('');
       })():'';
+      // Harmony is attached only to the upper staff, leaving the written notes intact.
+      // MuseScore's Harmony element uses root TPC plus a displayed chord name.
+      const chordXml=staffIndex===0&&/^(Piano|Bandoneon|Guitar)/.test(inst)
+        ?parseChordSequence(bar.chord,beats).map(change=>{
+          const symbol=transposeChord(change.chord,p.transposeSemitones??0);
+          const root=/^([A-G])([#b]?)/.exec(symbol);
+          if(!root)return '';
+          const pc=parsePitch(root[1]+root[2]+'4')!%12;
+          const rootTpc=tpcForPitch(pc,root[2]==='b'?-1:1);
+          return `<Harmony><root><rootTpc>${rootTpc}</rootTpc></root><name>${esc(symbol)}</name>${change.beat?`<offset>${change.beat*tpq}</offset>`:''}</Harmony>`;
+        }).join(''):'';
       const voices=lanes.slice(0,4).map((lane,laneIndex)=>{
         const active=lane.notes.filter(n=>n.start<end-1e-7&&n.start+n.duration>begin+1e-7);
         let cursor=0;
@@ -244,9 +255,9 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
           cursor=endTick;
         }
         if(cursor<beats*tpq)rest(beats*tpq-cursor);
-        return `<voice>${laneIndex===0?signature+dynamicsXml:''}${events.join('')}</voice>`;
+        return `<voice>${laneIndex===0?signature+dynamicsXml+chordXml:''}${events.join('')}</voice>`;
       });
-      if(!voices.length)voices.push(`<voice>${signature+dynamicsXml}${chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`).join('')}</voice>`);
+      if(!voices.length)voices.push(`<voice>${signature+dynamicsXml+chordXml}${chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`).join('')}</voice>`);
       return `<Measure>${voices.join('')}</Measure>`;
     }).join('');
     return `<Staff id="${staffIds[index]+staffIndex}">${measures}</Staff>`;
