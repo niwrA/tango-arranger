@@ -182,6 +182,7 @@ const noteEditorTab=ref<'notes'|'capture'|'figures'|'expression'>('notes');
 // Focused note editing is a temporary, full-viewport UI state; it is not stored in the song.
 const noteFocusMode=ref(false);
 const noteFocusMore=ref(false);
+const noteSettingsOpen=ref(false);
 const noteLoopFrom=ref(1);
 const noteLoopTo=ref(1);
 const noteLoopMeasure=ref(-1);
@@ -2767,7 +2768,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button><button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure">›</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
   <div v-if="noteFocusMode" class="note-focus-toolbar" role="toolbar" aria-label="Focused note editor navigation">
     <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
-    <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · measure {{selectedBar+1}} / {{project.bars.length}}</strong>
+    <strong class="note-focus-identity measure-drag-header" title="Swipe horizontally to change measure" style="touch-action:pan-y;user-select:none;cursor:ew-resize" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">{{rosterDisplayName(noteInst)}} · measure {{selectedBar+1}} / {{project.bars.length}} ↔</strong>
     <button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous</button>
     <button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next →</button>
     <button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop instrument'}}</button>
@@ -2863,9 +2864,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </details></div>
   </section>
   <section id="note-panel-notes" v-show="noteEditorTab==='notes'" role="tabpanel" aria-labelledby="note-tab-notes" :class="{'inspector-open':noteInspectorOpen}">
-  <p class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
+  <p v-if="false" class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
-    <div class="note-tools-bar" aria-label="Note editor controls">
+    <div class="note-settings-launch"><button type="button" class="secondary" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup">⚙ Settings</button></div><div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
   <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
       <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option></select></label>
       <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option></select></label>
@@ -2885,11 +2886,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div class="note-tools-group note-tools-measure-group" aria-label="Measure actions"><div class="note-measure-actions"><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div></div>
 </div>
-<div v-if="noteFocusMode" class="note-focus-view-tools" aria-label="Visible pitch range">
+</div></div><div v-if="false" class="note-focus-view-tools" aria-label="Visible pitch range">
       <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
       <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
     </div>
-    <div v-if="noteFocusMode" class="note-focus-phrase" aria-label="Visible measure range and note overview">
+    <div v-if="false" class="note-focus-phrase" aria-label="Visible measure range and note overview">
       <div class="note-focus-phrase-heading"><strong>Visible measures {{noteLoopFrom}}–{{noteLoopTo}} ({{focusVisibleMeasures.length}})</strong><span class="hint">Select a measure to edit its notes below. The same range is used for loop playback.</span></div>
       <div class="note-focus-phrase-scroll">
         <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" :class="['note-focus-measure',{'current':barIndex===selectedBar,'playing':noteLoopPlaying&&noteLoopMeasure===barIndex}]" :aria-label="`Edit measure ${barIndex+1}, ${focusMeasureNotes(barIndex).length} notes`" :aria-current="barIndex===selectedBar?'true':undefined" @click="selectFocusMeasure(barIndex)">
@@ -2908,11 +2909,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span v-if="project.protectedBars[`${noteInst}:${selectedBar}`]" class="manual-status">Manual · protected</span>
     </div>
 </div>
-    <div class="note-grid-measure-navigation" role="toolbar" aria-label="Navigate measures beside note grid" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:.75rem 0">
-      <button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure beside note grid">‹ Previous</button>
-      <strong title="Drag left or right to change active measure" style="cursor:ew-resize;touch-action:pan-y;user-select:none;padding:.5rem .8rem;border:1px solid currentColor;border-radius:.4rem" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} / {{project.bars.length}} ↔</strong>
-      <button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure beside note grid">Next ›</button>
-    </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
       <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
