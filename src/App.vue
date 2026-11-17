@@ -89,7 +89,12 @@ async function chooseSongFromPicker(event:Event){
     select.value=localSongId.value;
     try{
       await flushAutosave();
-      await adoptLocalSong(snapshot(pequenaStudy as Project));
+      // Refresh the factory study's piano part with the current generator.
+      // The bundled generatedScore predates left-hand bass support; keep
+      // the remaining preset parts and all protected transcription edits.
+      const study=snapshot(pequenaStudy as Project);
+      study.generatedScore={...(study.generatedScore??generate(study)),Piano:generate(study).Piano};
+      await adoptLocalSong(study);
       active.value='arrange';
       message.value='Opened a new editable Pequeña 2 — Vals study (130 measures). Melody and lyric alignment remain provisional; review against the printed score.';
     }catch(error){message.value=`Could not create Pequeña 2 study: ${String(error)}`;}
