@@ -1801,6 +1801,77 @@ function pianoFigureForSection(){return project.value.pianoFigures?.[chosenSecti
 function setPianoFigure(e:Event){project.value.pianoFigures??={};project.value.pianoFigures[chosenSection.value]=(e.target as HTMLSelectElement).value as FigureKind;project.value.generatedScore=mergeScores(project.value,generate(project.value));}
 function nextPianoFigureVariation(){project.value.pianoFigureVariation??={};project.value.pianoFigureVariation[chosenSection.value]=((project.value.pianoFigureVariation[chosenSection.value]??0)+1)%100;project.value.generatedScore=mergeScores(project.value,generate(project.value));}
 const expressionStart=ref(1),expressionEnd=ref(1),expressionStartBeat=ref(1),expressionEndBeat=ref(4),expressionFrom=ref(55),expressionTo=ref(105);
+const dynamicsScope=ref<'instrument'|'role'|'all'>('role');
+const dynamicsRole=ref<Role>('melody');
+const dynamicsMark=ref<DynamicMark>('mf');
+const dynamicsPreviewBars=computed(()=>Array.from({length:Math.min(12,project.value.bars.length)},(_,i)=>Math.max(0,Math.min(project.value.bars.length-1,selectedBar.value-2))+i).filter(b=>b<project.value.bars.length));
+function dynamicsTargets(barIndex:number):Instrument[]{
+  const roster=projectInstruments(project.value);
+  if(dynamicsScope.value==='all')return roster;
+  if(dynamicsScope.value==='instrument')return roster.includes(noteInst.value)?[noteInst.value]:[];
+  const section=project.value.bars[barIndex]?.section;
+  return roster.filter(inst=>project.value.roles?.[section]?.[inst]===dynamicsRole.value);
+}
+function dynamicsAt(inst:Instrument,barIndex:number):string{
+  return project.value.measureDynamics?.[`${inst}:${barIndex}`]?.start??'';
+}
+function applyDynamicsMarkToBar(barIndex:number,mark:string){
+  const targets=dynamicsTargets(barIndex);
+  if(!targets.length){message.value='No instruments assigned to this role in this section.';return;}
+  project.value.measureDynamics??={};
+  for(const inst of targets){
+    const key=`${inst}:${barIndex}`;
+    const existing={...(project.value.measureDynamics[key]??{})};
+    if(mark)existing.start=mark as DynamicMark;else delete existing.start;
+    if(!existing.start&&!existing.end)delete project.value.measureDynamics[key];else project.value.measureDynamics[key]=existing;
+  }
+  selectedBar.value=barIndex;
+  message.value=`Updated dynamics in measure ${barIndex+1} for ${targets.length} instrument(s).`;
+}
+function applyDynamicsGesture(shape:'crescendo'|'diminuendo'|'swell'|'constant'){
+  const first=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(expressionStart.value)-1));
+  const last=Math.max(first,Math.min(project.value.bars.length-1,Math.floor(expressionEnd.value)-1));
+  const velocity:Record<DynamicMark,number>={ppp:24,pp:36,p:48,mp:64,mf:80,f:96,ff:112,fff:124};
+  const base=velocity[dynamicsMark.value];
+  const start=shape==='crescendo'?Math.max(1,base-35):shape==='diminuendo'?Math.min(127,base+30):shape==='swell'?Math.max(1,base-25):base;
+  const end=shape==='crescendo'?Math.min(127,base+30):shape==='diminuendo'?Math.max(1,base-35):shape==='swell'?Math.max(1,base-25):base;
+  const targets=new Set<Instrument>();
+  project.value.expressionRanges??=[];
+  project.value.measureDynamics??={};
+  for(let bar=first;bar<=last;bar++){
+    const active=dynamicsTargets(bar);
+    for(const inst of active)targets.add(inst);
+    const ratio=last===first?1:(bar-first)/(last-first);
+    const level=shape==='swell'?start+(Math.min(1,ratio*2,2-ratio*2))*(Math.min(127,base+25)-start):start+(end-start)*ratio;
+    const mark=DYNAMIC_MARKS.reduce((best,candidate)=>Math.abs(velocity[candidate]-level)<Math.abs(velocity[best]-level)?candidate:best,dynamicsMark.value);
+    for(const inst of active){
+      const key=`${inst}:${bar}`;
+      project.value.measureDynamics[key]={...(project.value.measureDynamics[key]??{}),start:mark};
+    }
+  }
+  if(shape!=='constant'){
+    // Split by consecutive role membership, so changing roles between sections
+    // never extends a gesture onto instruments outside the chosen role.
+    for(const inst of targets){
+      let segmentStart=-1;
+      for(let bar=first;bar<=last+1;bar++){
+        const active=bar<=last&&dynamicsTargets(bar).includes(inst);
+        if(active&&segmentStart<0)segmentStart=bar;
+        if(!active&&segmentStart>=0){
+          const segmentEnd=bar-1;
+          if(segmentEnd>segmentStart){
+            const relative=(b:number)=>last===first?1:(b-first)/(last-first);
+            const level=(b:number)=>shape==='swell'?start+Math.min(1,relative(b)*2,2-relative(b)*2)*(Math.min(127,base+25)-start):start+(end-start)*relative(b);
+            project.value.expressionRanges.push({instrument:inst,startMeasure:segmentStart,endMeasure:segmentEnd,startBeat:0,endBeat:project.value.beats,from:Math.round(level(segmentStart)),to:Math.round(level(segmentEnd))});
+          }
+          segmentStart=-1;
+        }
+      }
+    }
+  }
+  message.value=`Applied ${shape} across measures ${first+1}–${last+1} to ${targets.size} instrument(s).`;
+}
+
 function addExpressionRange(){
   const start=expressionStart.value-1,end=expressionEnd.value-1,startBeat=expressionStartBeat.value-1,endBeat=expressionEndBeat.value;
   if(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<start||end>=project.value.bars.length||!Number.isFinite(startBeat)||!Number.isFinite(endBeat)||startBeat<0||startBeat>=project.value.beats||endBeat<=0||endBeat>project.value.beats||Math.abs(startBeat*4-Math.round(startBeat*4))>1e-7||Math.abs(endBeat*4-Math.round(endBeat*4))>1e-7||(end*project.value.beats+endBeat<=start*project.value.beats+startBeat)||
@@ -2749,6 +2820,30 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </details></div>
   </section>
   <section id="note-panel-expression" v-show="noteEditorTab==='expression'" role="tabpanel" aria-labelledby="note-tab-expression">
+    <div class="figure-workbench" aria-label="Visual dynamics editor">
+      <h3>Dynamics timeline</h3>
+      <p class="hint">Edit by current musical role, individual instrument or whole orchestra. Role membership follows each section; instrument markings remain individually editable.</p>
+      <div class="figure-controls">
+        <label>Apply to<select v-model="dynamicsScope"><option value="role">Musical role</option><option value="instrument">Selected instrument</option><option value="all">Entire orchestra</option></select></label>
+        <label v-if="dynamicsScope==='role'">Role<select v-model="dynamicsRole"><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></label>
+        <label v-if="dynamicsScope==='instrument'">Instrument <strong>{{noteInst}}</strong></label>
+        <label>Dynamic<select v-model="dynamicsMark"><option v-for="mark in dynamicMarks" :key="mark" :value="mark">{{mark}}</option></select></label>
+      </div>
+      <div class="expression-range-row" style="display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">
+        <span>Tap a measure to set</span><button class="secondary" @click="applyDynamicsGesture('constant')">Level across range</button>
+        <button class="secondary" @click="applyDynamicsGesture('crescendo')">〈 Crescendo</button>
+        <button class="secondary" @click="applyDynamicsGesture('diminuendo')">〉 Diminuendo</button>
+        <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:.4rem;margin:.75rem 0">
+        <button v-for="barIndex in dynamicsPreviewBars" :key="barIndex" type="button" class="secondary" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" @click="applyDynamicsMarkToBar(barIndex,dynamicsMark)">
+          <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
+          <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
+          <small>{{dynamicsTargets(barIndex).length}} parts</small>
+        </button>
+      </div>
+      <p class="hint">The gesture buttons use the From/Through measure fields below. Individual measure tiles set the selected dynamic immediately. Existing expression controls remain available for precise beat-level editing.</p>
+    </div>
     <div class="figure-workbench" aria-label="Expression ranges"><details class="control-fold" open><summary>Dynamics and expression controls</summary>
       <h3>Expression across measures</h3><div class="two"><label>Start of this measure<select :value="currentMeasureDynamic('start')" @change="setMeasureDynamic('start',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label>End of this measure<select :value="currentMeasureDynamic('end')" @change="setMeasureDynamic('end',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label></div><p class="hint">Set both endpoints for a crescendo or diminuendo hairpin. A single endpoint sets an immediate dynamic marking.</p><p class="hint">Set an instrument-specific crescendo or decrescendo, including across section boundaries. Intensity offsets are applied relative to a neutral value of 80, preserving note accents; written durations do not change. MusicXML exports hairpin wedges.</p>
       <div class="figure-controls"><label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressionStart"/></label>
