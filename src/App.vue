@@ -851,8 +851,12 @@ function shiftVoicePhraseFromLead(measure:number,fromSelectedNote=false){
   const source=score.value[voice]??[],moving=source.filter(n=>n.start>=start),stationary=source.filter(n=>n.start<start);
   if(!moving.length){message.value='No Voice notes start in this measure or later.';return;}
   const moved=moving.map(n=>({...n,start:Number((n.start+delta).toFixed(6))}));
-  if(moved.some(n=>n.start<0||n.start+n.duration>end+1e-7)){message.value='Shift would move notes outside the song. No changes made.';return;}
-  if(moved.some(n=>stationary.some(other=>n.start<other.start+other.duration-1e-7&&other.start<n.start+n.duration-1e-7))){message.value='Shift would overlap earlier Voice notes. No changes made.';return;}
+  if(moved.some(n=>n.start<0||n.start+n.duration>end+1e-7)){
+    const last=moving[moving.length-1];
+    window.alert(`Cannot shift: a later Voice note at beat ${last.start+1} would extend past the end of the song. No changes were made. Try shifting only the phrase, not every subsequent note.`);
+    return;
+  }
+  if(moved.some(n=>stationary.some(other=>n.start<other.start+other.duration-1e-7&&other.start<n.start+n.duration-1e-7))){window.alert('Shift would overlap an earlier Voice note. No changes made.');return;}
   if(!window.confirm(`Move ${moving.length} Voice notes and attached lyrics by ${delta} beats, starting at ${fromSelectedNote?'selected note':'measure '+(measure+1)}? This can cross section boundaries; other parts remain unchanged.`))return;
   const shifted=[...stationary.map(n=>({...n})),...moved].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
   const next=snapshot(project.value);
