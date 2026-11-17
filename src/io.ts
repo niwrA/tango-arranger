@@ -191,12 +191,25 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
     const notes=(inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===1)===(staffIndex===0)):allNotes;
+    // Staccato changes the sounding gate, not the notated rhythmic value.
+    // Some legacy/generated passages contain a 16th note followed by a 16th
+    // silence on the same half-beat slot. Restore the written eighth when
+    // the short note is explicitly staccato and no later onset overlaps it.
+    // Leave genuine consecutive sixteenths and unmarked short notes intact.
+    const writtenNotes=notes.map(n=>{
+      if(n.duration<0.249999||n.duration>0.250001||
+         (n.articulation!=='staccato'&&n.articulation!=='marcato_staccato'))return n;
+      const nextOnset=notes.reduce((min,other)=>other.start>n.start+1e-7?Math.min(min,other.start):min,Infinity);
+      const measureEnd=(Math.floor((n.start+1e-7)/beats)+1)*beats;
+      return Math.min(nextOnset,measureEnd)-n.start>=0.5-1e-7
+        ?{...n,duration:0.5}:n;
+    });
     // Simultaneous equal-duration notes belong to ONE chord, not separate
     // voices. A separate voice is needed only for independently timed lines.
     // The old exporter emitted stacked notes in one Chord; splitting every
     // note into a voice regressed MuseScore playback.
     const groups:{start:number;duration:number;notes:Note[]}[]=[];
-    for(const note of notes){
+    for(const note of writtenNotes){
       const group=groups.find(g=>Math.abs(g.start-note.start)<1e-7&&Math.abs(g.duration-note.duration)<1e-7);
       if(group)group.notes.push(note);
       else groups.push({start:note.start,duration:note.duration,notes:[note]});
