@@ -607,7 +607,13 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
     const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
     for(let beat=0;beat<p.beats;beat+=p.beats===3?3:2){
       const tones=harmony(beat),pc=beat===0?tones[0]:(tones[2]??tones[0]);
-      add(closest(pc,43,range[0],bassCeiling),beat,Math.min(1,p.beats-beat),90,0.65);
+      const pitch=closest(pc,beat===0?43:45,range[0],bassCeiling);
+      // Argentine tango piano: a clear, percussive left-hand attack reinforces
+      // (but does not duplicate the octave of) the contrabass. Beat 1 carries
+      // the strongest weight; beat 3 answers with a firm fifth/root pulse.
+      // These are separate bass-clef notes, not extra right-hand chord tones.
+      result.push({pitch,start:offset+beat,duration:Math.min(1,p.beats-beat),
+        velocity:beat===0?114:105,accent:true,gate:0.74,source:'generated'});
     }
   }
   return result.sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
