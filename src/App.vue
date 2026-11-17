@@ -813,21 +813,26 @@ function applyCapturedRhythm(){
 }
 function applyCapturedMelody(){
   if(capturePlaying.value){captureFeedback.value='Stop recording before applying the take.';return;}
-  const bars=captureBarNumbers.value.filter(b=>capturedMelodyForBar(b).length);
-  if(!bars.length){captureFeedback.value='Record some pitched taps before applying.';return;}
+  const bars=captureBarNumbers.value;
+  const recordedCount=bars.reduce((sum,b)=>sum+capturedMelodyForBar(b).length,0);
+  if(!recordedCount){captureFeedback.value='Record some pitched notes before applying.';return;}
   const protectedBars=bars.filter(b=>project.value.protectedBars[`${noteInst.value}:${b}`]);
-  if(!window.confirm(`Replace ${noteInst.value} notes in ${bars.length} recorded measures with the captured melody? ${protectedBars.length} measure(s) already have protected edits. The lead sheet is unchanged.`))return;
+  const emptyBars=bars.filter(b=>!capturedMelodyForBar(b).length);
+  if(!window.confirm(`Replace ALL existing ${noteInst.value} notes in measures ${bars[0]+1}–${bars.at(-1)!+1} with this take? ${emptyBars.length} unrecorded measure(s) will be cleared. ${protectedBars.length} measure(s) contain protected edits. The lead sheet and other instruments are unchanged.`))return;
   try{
+    // Every measure in the recording range is replaced, including measures with no
+    // captured notes. Never append to the previous generated/imported score.
     let next=project.value,source=score.value,count=0;
     for(const b of bars){
       const notes=capturedMelodyForBar(b).map(t=>
         suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration));
       next=replaceInstrumentMeasure(next,source,noteInst.value,b,notes);
-      source=next.generatedScore??source;count+=notes.length;
+      source=next.generatedScore??source;
+      count+=notes.length;
     }
     project.value=next;
     noteSelected.value=-1;noteStep.value=0.25;
-    captureFeedback.value=`Applied ${count} captured notes to ${bars.length} ${noteInst.value} measures; all are protected for further editing.`;
+    captureFeedback.value=`Replaced ${noteInst.value} notes in ${bars.length} measures with ${count} recorded notes (${emptyBars.length} cleared measures).`;
     message.value=captureFeedback.value;
   }catch(error){captureFeedback.value=`Could not apply melody: ${String(error)}`;}
 }
