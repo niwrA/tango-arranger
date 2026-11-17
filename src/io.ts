@@ -167,6 +167,14 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
     // Quantized durations are representable by the note types above.
     return result;
   };
+  // MuseScore TPC values follow the circle of fifths, not chromatic pitch classes.
+  // For example C=14, G=15, D=16, F=13, Bb=12.
+  const tpcForPitch=(pitch:number,fifths:number)=>{
+    const pc=((Math.round(pitch)%12)+12)%12;
+    const sharp=[14,21,16,23,18,13,20,15,22,17,24,19];
+    const flat=[14,9,16,11,18,13,8,15,10,17,12,19];
+    return (fifths<0?flat:sharp)[pc];
+  };
   const partXml=instruments.map((inst,index)=>{
     const family=inst.startsWith('Piano')?'Piano':inst.startsWith('Contrabass')?'Contrabass':inst.startsWith('Voice')?'Voice':inst.startsWith('Bandoneon')?'Accordion':'Violin';
     const program=family==='Piano'?0:family==='Contrabass'?43:family==='Violin'?40:family==='Voice'?52:21;
@@ -178,6 +186,8 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
     const notes=(scoreNotes[inst]??[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
     const measures=p.bars.map((bar,barIndex)=>{
       const begin=barIndex*beats,end=begin+beats;
+      const key=transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0);
+      const fifths=parseKeySignature(key).fifths;
       const active=notes.filter(n=>n.start>=begin-1e-7&&n.start<end-1e-7);
       let cursor=0;
       const events:string[]=[];
@@ -191,13 +201,15 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
         const available=Math.max(0,Math.min(...simultaneous.map(n=>n.duration),beats-onset/tpq));
         const pieces=chunks(available);
         for(const [pi,piece] of pieces.entries()){
-          const pitches=simultaneous.map(n=>`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${((Math.round(n.pitch)%12)+12)%12+14}</tpc>${n.lyric&&pi===0?`<Lyrics><syllabic>single</syllabic><text>${esc(n.lyric)}</text></Lyrics>`:''}</Note>`).join('');
+          const pitches=simultaneous.map(n=>`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${tpcForPitch(n.pitch,fifths)}</tpc>${n.lyric&&pi===0?`<Lyrics><syllabic>single</syllabic><text>${esc(n.lyric)}</text></Lyrics>`:''}</Note>`).join('');
           events.push(`<Chord><durationType>${piece.type}</durationType>${pitches}</Chord>`);
         }
         cursor=onset+pieces.reduce((sum,piece)=>sum+piece.ticks,0);
       }
       if(cursor<beats*tpq)appendRest((beats*tpq-cursor)/tpq);
-      const signature=barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${inst.startsWith('Contrabass')?'F':'G'}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'';
+      const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
+      const keySignature=barIndex===0||key!==previousKey?`<KeySig><accidental>${fifths}</accidental></KeySig>`:'';
+      const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${inst.startsWith('Contrabass')?'F':'G'}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
       return `<Measure><voice>${signature}${events.join('')}</voice></Measure>`;
     }).join('');
     return `<Staff id="${index+1}">${measures}</Staff>`;
