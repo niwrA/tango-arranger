@@ -844,7 +844,7 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .performance-lyrics{border:1px solid var(--border,#677280);border-radius:12px;padding:1.5rem;text-align:center;min-height:10rem}
 .performance-lyrics-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;text-align:left}
 .performance-lyric-line{display:flex;justify-content:center;flex-wrap:wrap;gap:.25rem .6rem;align-items:center;min-height:5rem;font-size:clamp(1.2rem,3vw,2.4rem);line-height:1.5}
-.performance-lyric-line span{opacity:.55;transition:opacity .1s}
+.performance-lyric-line span{opacity:1;transition:opacity .1s}
 .performance-lyric-line .performance-lyric-active{opacity:1;color:var(--accent,#3b82f6);font-weight:800;text-decoration:underline;text-underline-offset:.25em}
 .performance-ensemble{display:grid;gap:.5rem}.performance-part{display:grid;grid-template-columns:1rem minmax(8rem,1fr) minmax(5rem,.6fr) 5rem;gap:.7rem;align-items:center;padding:.45rem .7rem;border-bottom:1px solid var(--border,#677280)}
 .performance-activity{height:.7rem;width:.7rem;border-radius:50%;background:#737b85}.performance-activity-on{background:#27a86a;box-shadow:0 0 0 3px #27a86a22}
