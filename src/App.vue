@@ -1763,7 +1763,7 @@ function endNoteDrag(event:PointerEvent){
   if(noteDrag.moved){
     suppressNoteClick=true;
     const note=noteMeasure.value[noteDrag.index];
-    if(note)message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-selectedBar.value*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;
+    if(note){auditionEvent(note);message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-selectedBar.value*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;}
   }
   noteDrag=null;
   setTimeout(()=>{suppressNoteClick=false;},80);
@@ -1797,7 +1797,7 @@ function noteCellClick(pitch:number,beat:number){
 function noteBarClick(pitch:number,beat:number){
   if(suppressNoteClick){suppressNoteClick=false;return;}
   const index=noteAt(pitch,beat);
-  if(index>=0)noteSelected.value=index;
+  if(index>=0)selectNoteEvent(index);
 }
 
 const noteCtx=computed(()=>noteEditorContext(project.value,noteInst.value,selectedBar.value));
@@ -2178,7 +2178,7 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
     const id=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-8);
     noteSelected.value=id;
     if(field==='duration')message.value=`${noteInst.value} · measure ${selectedBar.value+1}: written duration set to ${next.duration} beats (saved as a protected edit).`;
-    if(['pitch','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(next);
+    if(['pitch','start','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(next);
   }catch(error){message.value=`Note edit rejected: ${String(error)}`;}
 }
 function deleteSelectedNote(){
