@@ -71,7 +71,7 @@ function stopPlayback(){
   capturePlaying.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;
 }
 function selectProjectInEditor(p:Project){
-  stopPlayback();syncActiveInstruments(p);project.value=p;selectedBar.value=0;overviewFocus.value=0;
+  stopPlayback();syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
   overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
@@ -263,6 +263,54 @@ watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicke
 const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 // Status is event-driven: dismissing a message keeps it hidden until the text changes.
 watch(message,(next,previous)=>{if(next!==previous){statusVisible.value=true;statusDismissed.value=false;}});
+// Full project snapshots preserve protected measures, lyrics, roles and score edits.
+const undoHistory=ref<Project[]>([]);
+const redoHistory=ref<Project[]>([]);
+const historyLimit=50;
+let historyBaseline:Project=structuredClone(project.value);
+let restoringHistory=false;
+let dragHistoryStart:Project|null=null;
+function restoreHistory(direction:'undo'|'redo'){
+  const source=direction==='undo'?undoHistory.value:redoHistory.value;
+  const destination=direction==='undo'?redoHistory.value:undoHistory.value;
+  const previous=source.pop();
+  if(!previous)return;
+  destination.push(structuredClone(project.value));
+  if(destination.length>historyLimit)destination.shift();
+  restoringHistory=true;
+  project.value=structuredClone(previous);
+  historyBaseline=structuredClone(previous);
+  restoringHistory=false;
+  noteSelected.value=-1;
+  noteDetailsPopup.value=false;
+  message.value=direction==='undo'?'Undid last edit.':'Redid last edit.';
+}
+function resetProjectHistory(){
+  undoHistory.value=[];redoHistory.value=[];
+  historyBaseline=structuredClone(project.value);
+  dragHistoryStart=null;
+}
+function handleHistoryShortcut(event:KeyboardEvent){
+  if(!(event.ctrlKey||event.metaKey)||event.altKey||event.key.toLowerCase()!=='z')return;
+  const target=event.target as HTMLElement|null;
+  // Let native undo work while typing in text fields.
+  if(target?.closest('input,textarea,[contenteditable="true"]'))return;
+  event.preventDefault();
+  restoreHistory(event.shiftKey?'redo':'undo');
+}
+watch(project,()=>{
+  if(restoringHistory)return;
+  const current=structuredClone(project.value);
+  if(dragHistoryStart){
+    historyBaseline=current;
+    return;
+  }
+  if(JSON.stringify(current)===JSON.stringify(historyBaseline))return;
+  undoHistory.value.push(historyBaseline);
+  if(undoHistory.value.length>historyLimit)undoHistory.value.shift();
+  redoHistory.value=[];
+  historyBaseline=current;
+},{deep:true,flush:'sync'});
 watch(project,scheduleAutosave,{deep:true});
 watch(()=>project.value.instruments,()=>syncActiveInstruments(project.value),{immediate:true,deep:true});
 const activeRoster=computed(()=>projectInstruments(project.value));
@@ -306,9 +354,9 @@ function deleteSelectedRoster(){try{rosterPresets.value=removeRosterPreset(roste
 function makeRosterDefault(){try{setDefaultRoster(projectInstruments(project.value));message.value='Current roster is now the default for new songs.';}catch(e){message.value=String(e);}}
 
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
-onMounted(()=>{void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
+onMounted(()=>{window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
 function saveIfHidden(){if(document.visibilityState==='hidden')saveOnLeave();}
-onBeforeUnmount(()=>{if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
+onBeforeUnmount(()=>{window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
@@ -1719,6 +1767,7 @@ function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
   const note=noteMeasure.value[index];noteSelected.value=index;
   const gridRect=grid.getBoundingClientRect();
   const cellWidth=gridRect.width/noteBeats.value.length;
+  dragHistoryStart=structuredClone(project.value);
   noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
     startPitch:note.pitch,startLocal:note.start-selectedBar.value*project.value.beats,
     startDuration:note.duration,cellWidth,rowHeight:gridRect.height,moved:false,longPress:null};
@@ -1764,6 +1813,16 @@ function endNoteDrag(event:PointerEvent){
     suppressNoteClick=true;
     const note=noteMeasure.value[noteDrag.index];
     if(note){auditionEvent(note);message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-selectedBar.value*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;}
+  }
+  if(dragHistoryStart){
+    const before=dragHistoryStart;
+    dragHistoryStart=null;
+    if(JSON.stringify(before)!==JSON.stringify(project.value)){
+      undoHistory.value.push(before);
+      if(undoHistory.value.length>historyLimit)undoHistory.value.shift();
+      redoHistory.value=[];
+      historyBaseline=structuredClone(project.value);
+    }
   }
   noteDrag=null;
   setTimeout(()=>{suppressNoteClick=false;},80);
@@ -2375,7 +2434,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </details></div>
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
 <section v-else-if="active==='lead'">
-<div class="section-heading"><h2>Melody & harmony</h2><span>{{project.bars.length}} measures</span></div><div class="overview-actions" role="group" aria-label="Lead sheet piano preview"><button type="button" class="secondary" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button><button type="button" class="secondary" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button><button type="button" class="secondary" :disabled="!playing" @click="stopPlayback">■ Stop</button></div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
+<div class="section-heading"><h2>Melody & harmony</h2><button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')">↶ Undo</button><button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')">↷ Redo</button><span>{{project.bars.length}} measures</span></div><div class="overview-actions" role="group" aria-label="Lead sheet piano preview"><button type="button" class="secondary" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button><button type="button" class="secondary" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button><button type="button" class="secondary" :disabled="!playing" @click="stopPlayback">■ Stop</button></div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
 <div v-if="copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
 <div class="lead-sections">
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
@@ -2506,7 +2565,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango.json backups. Presets are starting-point heuristics, not transcriptions.</p>
 </section>
 <section v-else ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
-  <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure">›</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
+  <div class="section-heading note-editor-heading"><h2>Instrument note editor</h2><button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button><button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}} · {{noteCtx.key}} {{noteCtx.mode}}</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure">›</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
   <div v-if="noteFocusMode" class="note-focus-toolbar" role="toolbar" aria-label="Focused note editor navigation">
     <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
     <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · measure {{selectedBar+1}} / {{project.bars.length}}</strong>
