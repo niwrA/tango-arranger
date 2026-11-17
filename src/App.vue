@@ -594,6 +594,9 @@ const captureFrom=ref(1);
 const captureTo=ref(1);
 const captureLatency=ref(0);
 const captureMetronome=ref(true);
+// Recording tempo changes transport speed, never the project's written timing.
+const captureSpeed=ref<0.5|0.75|1>(1);
+
 const capturePlayBar=ref(-1);
 const capturePlayBeat=ref(-1);
 const captureFeedback=ref('');
@@ -653,7 +656,7 @@ async function toggleCaptureLoop(){
     captureClickSynth.volume.value=-18;
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
-    transport.timeSignature=project.value.beats;transport.bpm.value=project.value.bpm;
+    transport.timeSignature=project.value.beats;transport.bpm.value=project.value.bpm*captureSpeed.value;
     let measure=0;
     transport.scheduleRepeat(time=>{
       const b=first+measure%(last-first+1);measure++;
@@ -662,10 +665,12 @@ async function toggleCaptureLoop(){
         const events=measureLoopEvents(currentScore[inst]??[],b,project.value.beats,project.value.bpm,
           project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value);
         for(const event of events){
+          const onset=time+event.onsetSeconds/captureSpeed.value;
+          const duration=event.durationSeconds/captureSpeed.value;
           if(event.slideTo!==undefined||event.endVelocity!==undefined)
-            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,event,time+event.onsetSeconds);
+            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,onsetSeconds:0,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
-            event.durationSeconds,time+event.onsetSeconds,Math.max(0.05,event.velocity/127*0.8));
+            duration,onset,Math.max(0.05,event.velocity/127*0.8));
         }
       }
     },'1m',0);
@@ -687,7 +692,7 @@ async function toggleCaptureLoop(){
 function captureTap(pitch?:number){
   if(!capturePlaying.value){captureFeedback.value='Start the arrangement loop before tapping.';return;}
   try{
-    const pos=capturePosition(Tone.getTransport().seconds,project.value.bpm,project.value.beats,
+    const pos=capturePosition(Tone.getTransport().seconds,project.value.bpm*captureSpeed.value,project.value.beats,
       captureFirst.value,captureLast.value,0.25,captureLatency.value);
     const chosenPitch=pitch??capturePitch.value;
     const tap:CapturedTap=captureKind.value==='melody'?{...pos,pitch:chosenPitch}:pos;
@@ -2628,7 +2633,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
     <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
     <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Current measure</button>
-    <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+    <label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying" aria-label="Recording playback speed"><option :value="1">Normal (100%)</option><option :value="0.75">Three-quarter speed (75%)</option><option :value="0.5">Half speed (50%)</option></select></label><label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
     <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label>
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
