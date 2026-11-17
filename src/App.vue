@@ -848,16 +848,21 @@ function shiftVoicePhraseFromLead(measure:number,fromSelectedNote=false){
   const start=fromSelectedNote&&noteMeasure.value[noteSelected.value]?noteMeasure.value[noteSelected.value].start:measure*beats,end=project.value.bars.length*beats;
   const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
   if(!voice){message.value='No Voice part is available.';return;}
-  const source=score.value[voice]??[],moving=source.filter(n=>n.start>=start),stationary=source.filter(n=>n.start<start);
+  const endInput=window.prompt('Last measure to move (inclusive). Only notes starting in this range will shift; notes afterward stay in place.',String(Math.min(project.value.bars.length,measure+2)));
+  if(endInput===null)return;
+  const lastMeasure=Number(endInput);
+  if(!Number.isInteger(lastMeasure)||lastMeasure<measure+1||lastMeasure>project.value.bars.length){window.alert('Enter a valid ending measure at or after the current measure.');return;}
+  const shiftUntil=lastMeasure*beats;
+  const source=score.value[voice]??[],moving=source.filter(n=>n.start>=start&&n.start<shiftUntil),stationary=source.filter(n=>n.start<start||n.start>=shiftUntil);
   if(!moving.length){message.value='No Voice notes start in this measure or later.';return;}
   const moved=moving.map(n=>({...n,start:Number((n.start+delta).toFixed(6))}));
   if(moved.some(n=>n.start<0||n.start+n.duration>end+1e-7)){
     const last=moving[moving.length-1];
-    window.alert(`Cannot shift: a later Voice note at beat ${last.start+1} would extend past the end of the song. No changes were made. Try shifting only the phrase, not every subsequent note.`);
+    window.alert(`Cannot shift: a later Voice note at beat ${last.start+1} would extend past the end of the song. No changes were made. Reduce the selected measure range or the shift amount.`);
     return;
   }
   if(moved.some(n=>stationary.some(other=>n.start<other.start+other.duration-1e-7&&other.start<n.start+n.duration-1e-7))){window.alert('Shift would overlap an earlier Voice note. No changes made.');return;}
-  if(!window.confirm(`Move ${moving.length} Voice notes and attached lyrics by ${delta} beats, starting at ${fromSelectedNote?'selected note':'measure '+(measure+1)}? This can cross section boundaries; other parts remain unchanged.`))return;
+  if(!window.confirm(`Move ${moving.length} Voice notes and attached lyrics by ${delta} beats, from ${fromSelectedNote?'selected note':'measure '+(measure+1)} through measure ${lastMeasure}? This can cross section boundaries; other parts remain unchanged.`))return;
   const shifted=[...stationary.map(n=>({...n})),...moved].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
   const next=snapshot(project.value);
   next.importedScore={...(next.importedScore??{}),[voice]:shifted};
@@ -866,7 +871,7 @@ function shiftVoicePhraseFromLead(measure:number,fromSelectedNote=false){
   const first=Math.max(0,Math.floor(Math.min(start,start+delta)/beats));
   for(let i=first;i<next.bars.length;i++)next.protectedBars[`${voice}:${i}`]=true;
   project.value=next;
-  message.value=`Moved ${moving.length} Voice notes with their lyrics by ${delta} beats across measure and section boundaries.`;
+  message.value=`Moved ${moving.length} Voice notes with their lyrics by ${delta} beats (through measure ${lastMeasure}).`;
 }
 function openLeadVoiceLyrics(measure:number){
   leadMeasureContext.value=null;
