@@ -687,6 +687,52 @@ export function generate(p:Project):Score {
       };
       // Bandoneon chordal playing: limited compact voicings rather than unrestricted piano chords.
       // A 'fill' part may combine a melodic response with short accompaniment chords.
+      // Optional guitar, woodwinds and brass use instrument-aware arranging rather
+      // than the generic polyphonic accompaniment fallback. Notes remain concert pitch.
+      const family=instrumentFamily(inst);
+      if(['Guitar','Clarinet','Flute','Trumpet','Trombone'].includes(family)){
+        const mono=family!=='Guitar';
+        const target=family==='Guitar'?60:family==='Clarinet'?72:family==='Flute'?81:family==='Trumpet'?72:57;
+        const playable=(pc:number,near=target)=>closest(pc,near,range[0],range[1]);
+        if(role==='bass'){
+          const at=p.beats===3?[0,2]:milonga?[0,1]:[0,2].filter(x=>x<p.beats);
+          for(const beat of at){
+            const pcs=harmony(beat);
+            put(playable(pcs[beat===0?0:2]??pcs[0],family==='Trombone'?48:family==='Guitar'?48:target-8),beat,Math.min(0.9,p.beats-beat),76);
+          }
+          continue;
+        }
+        if(role==='melody'||role==='variation'||role==='harmony'){
+          for(const n of bar.melody){
+            const pcs=harmony(n.start);
+            let pitch=role==='harmony'?playable(pcs[1]??pcs[0],n.pitch-4):Math.max(range[0],Math.min(range[1],n.pitch));
+            if(role==='variation'&&n.duration>=1.5){
+              put(pitch,n.start,n.duration/2,78);
+              put(playable(pcs[(b+1)%pcs.length],pitch),n.start+n.duration/2,n.duration/2,75);
+            }else put(pitch,n.start,n.duration,82);
+          }
+          continue;
+        }
+        if(role==='chords'||role==='fill'){
+          const rhythm=p.beats===3?[1,2]:milonga?[0.5,1.5]:[0,2].filter(x=>x<p.beats);
+          for(const beat of rhythm){
+            const pcs=harmony(beat);
+            if(mono){
+              // A single playable tone per event, never brass/woodwind block chords.
+              const index=family==='Trombone'?0:family==='Flute'?2:1;
+              put(playable(pcs[index%pcs.length],target),beat,Math.min(family==='Flute'?0.75:0.65,p.beats-beat),72);
+            }else{
+              // Guitar: compact upper-string voicings, no arbitrary piano clusters.
+              const candidates=pcs.slice(0,difficulty==='easy'?2:3).map((pc,j)=>playable(pc,55+j*5));
+              const voicing=[...new Set(candidates)].sort((a,b)=>a-b);
+              // Keep a modest span; detailed fingering depends on tuning/capo.
+              for(const pitch of voicing.filter(pitch=>pitch-voicing[0]<=12))
+                put(pitch,beat,Math.min(0.75,p.beats-beat),74,undefined,0.7);
+            }
+          }
+          continue;
+        }
+      }
       if(inst.startsWith('Bandoneon')&&(role==='chords'||configuredRole==='fill')){
         const chordBeats=p.beats===3?[1,2]:milonga?[0.5,1.5]:[0,2].filter(beat=>beat<p.beats);
         const maxNotes=difficulty==='easy'?2:3;
