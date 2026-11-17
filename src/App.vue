@@ -2120,7 +2120,18 @@ function finishMeasureHeaderDrag(event:PointerEvent){
   if(Math.abs(delta)<16)return;
   // Swipe left advances; swipe right returns to the preceding measure.
   const steps=-Math.max(1,Math.round(Math.abs(delta)/48))*Math.sign(delta);
-  openNoteEditor(noteInst.value,drag.startBar+steps);
+  const max=project.value.bars.length;
+  const destination=Math.max(0,Math.min(max-1,drag.startBar+steps));
+  const actualShift=destination-drag.startBar;
+  if(!actualShift)return;
+  const oldFrom=noteLoopFrom.value;
+  const oldTo=noteLoopTo.value;
+  openNoteEditor(noteInst.value,destination);
+  // Keep the playback window attached to the edited measure when swiping.
+  const span=oldTo-oldFrom;
+  const from=Math.max(1,Math.min(max-span,oldFrom+actualShift));
+  noteLoopFrom.value=from;
+  noteLoopTo.value=from+span;
 }
 function cancelMeasureHeaderDrag(){measureHeaderDrag.value=null;}
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
@@ -2911,7 +2922,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
 </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
-    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr><th class="note-pitch-label">Pitch</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
+    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr class="note-beat-swipe-header" title="Swipe left or right here to change measures and move the loop range" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag"><th class="note-pitch-label">Pitch ↔</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[selectedBar].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
       <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
         <button v-for="beat in noteBeats" :key="beat" type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}]" :title="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :aria-label="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :data-note-pitch="pitch" :data-note-beat="beat" @click="noteCellClick(pitch,beat)"></button>
         <button v-for="(n,i) in noteMeasure.filter(n=>n.pitch===pitch)" :key="`${n.start}:${n.pitch}:${n.duration}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-selectedBar*project.beats)/project.beats*100}%`,width:`${n.duration/project.beats*100}%`}" :data-note-pitch="pitch" :title="`${displayPitch(n.pitch)} · beat ${Number((n.start-selectedBar*project.beats+1).toFixed(2))} · ${n.duration} beats. Drag center to move; drag either edge to resize.`" :aria-label="`Select ${displayPitch(n.pitch)}, ${n.duration} beats. Drag middle to move, left or right edge to resize.`" @pointerdown="beginNoteDrag($event,pitch,n.start-selectedBar*project.beats)" @click.stop="noteBarClick(pitch,n.start-selectedBar*project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true" title="Resize from start (keep note end fixed)">◂</span><span class="note-bar-label">{{n.duration}}<span class="note-bar-unit"> beat{{n.duration===1?'':'s'}}</span></span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true" title="Resize from end (keep note start fixed)">▸</span></button>
