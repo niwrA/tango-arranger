@@ -1521,9 +1521,12 @@ async function toggleNoteLoop(){
     transport.timeSignature=project.value.beats;
     transport.bpm.value=project.value.bpm;
     // In focus mode the user can loop a phrase; ordinary mode still loops one measure.
-    const range=noteFocusMode.value?noteFocusLoopRange():{from:selectedBar.value,to:selectedBar.value};
     let loopPass=0;
+    let lastRangeKey='';
     transport.scheduleRepeat(time=>{
+      const range=noteFocusMode.value?noteFocusLoopRange():{from:selectedBar.value,to:selectedBar.value};
+      const rangeKey=range.from+':'+range.to;
+      if(rangeKey!==lastRangeKey){loopPass=0;lastRangeKey=rangeKey;}
       const bar=range.from+(loopPass++%(range.to-range.from+1));
       Tone.getDraw().schedule(()=>{if(session===noteLoopSession&&noteLoopPlaying.value)noteLoopMeasure.value=bar;},time);
       // Read the current score at the start of every pass, including manual edits.
@@ -1829,15 +1832,20 @@ function finishMeasureHeaderDrag(event:PointerEvent){
 }
 function cancelMeasureHeaderDrag(){measureHeaderDrag.value=null;}
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
-  // Keep the phrase loop running while navigating measures of the same instrument in focus.
-  const keepFocusLoop=noteFocusMode.value&&noteLoopPlaying.value&&inst===noteInst.value;
+  // Navigation updates the active loop without interrupting playback for the same instrument.
+  const keepFocusLoop=noteLoopPlaying.value&&inst===noteInst.value;
   if(!keepFocusLoop)stopNoteLoop();
   if(capturePlaying.value)stopPlayback();
   const arrivingFromAnotherView=active.value!=='notes';
   if(arrivingFromAnotherView){noteFocusMode.value=false;noteFocusMore.value=false;}
+  const previousBar=selectedBar.value;
+  const previousLoopLength=Math.max(1,noteLoopTo.value-noteLoopFrom.value+1);
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
   overviewFocus.value=selectedBar.value;
-  if(!noteFocusMode.value){noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;}
+  if(noteFocusMode.value&&previousBar!==selectedBar.value){
+    noteLoopFrom.value=selectedBar.value+1;
+    noteLoopTo.value=Math.min(project.value.bars.length,noteLoopFrom.value+previousLoopLength-1);
+  }else if(!noteFocusMode.value){noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;}
   const range=instrumentRange(inst);
   const existing=(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value);
   const typical=inst==='Contrabass'?43:inst==='Piano'?61:inst==='Violin I'?76:inst==='Violin II'?69:inst.startsWith('Bandoneon')?67:72;
