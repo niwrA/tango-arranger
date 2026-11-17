@@ -158,12 +158,13 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
   const durationTypes:[number,string][]=[[4,'whole'],[2,'half'],[1,'quarter'],[0.5,'eighth'],[0.25,'16th'],[0.125,'32nd']];
   const chunks=(duration:number)=>{
     const result:{ticks:number;type:string}[]=[];
-    let left=Math.max(0,Math.round(duration*tpq));
+    // Quantize free-form timing to 1/32-beat notation without changing the project.
+    let left=Math.max(0,Math.round(duration*8)*60);
     for(const [beats,type] of durationTypes){
       const ticks=Math.round(beats*tpq);
       while(left>=ticks){result.push({ticks,type});left-=ticks;}
     }
-    if(left)throw Error('MSCZ export requires note durations in 1/32-beat increments');
+    // Quantized durations are representable by the note types above.
     return result;
   };
   const partXml=instruments.map((inst,index)=>{
@@ -182,18 +183,18 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
       const events:string[]=[];
       const appendRest=(duration:number)=>{for(const c of chunks(duration))events.push(`<Rest><durationType>${c.type}</durationType></Rest>`);};
       for(let ni=0;ni<active.length;){
-        const onset=Math.max(0,Math.round((active[ni].start-begin)*tpq));
+        const onset=Math.max(0,Math.round((active[ni].start-begin)*8)*60);
         if(onset<cursor){ni++;continue;}
         if(onset>cursor)appendRest((onset-cursor)/tpq);
         const simultaneous=[active[ni++]];
         while(ni<active.length&&Math.abs(active[ni].start-simultaneous[0].start)<1e-7)simultaneous.push(active[ni++]);
-        const available=Math.min(...simultaneous.map(n=>n.duration),beats-onset/tpq);
+        const available=Math.max(0,Math.min(...simultaneous.map(n=>n.duration),beats-onset/tpq));
         const pieces=chunks(available);
         for(const [pi,piece] of pieces.entries()){
           const pitches=simultaneous.map(n=>`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${((Math.round(n.pitch)%12)+12)%12+14}</tpc>${n.lyric&&pi===0?`<Lyrics><syllabic>single</syllabic><text>${esc(n.lyric)}</text></Lyrics>`:''}</Note>`).join('');
           events.push(`<Chord><durationType>${piece.type}</durationType>${pitches}</Chord>`);
         }
-        cursor=onset+Math.round(available*tpq);
+        cursor=onset+pieces.reduce((sum,piece)=>sum+piece.ticks,0);
       }
       if(cursor<beats*tpq)appendRest((beats*tpq-cursor)/tpq);
       const signature=barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${inst.startsWith('Contrabass')?'F':'G'}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'';
