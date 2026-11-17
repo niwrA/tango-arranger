@@ -176,21 +176,21 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
     const flat=[14,9,16,11,18,13,8,15,10,17,12,19];
     return (fifths<0?flat:sharp)[pc];
   };
-  const staffIds=instruments.map((_,i)=>1+instruments.slice(0,i).reduce((sum,inst)=>sum+(inst.startsWith('Piano')?2:1),0));
+  const staffIds=instruments.map((_,i)=>1+instruments.slice(0,i).reduce((sum,inst)=>sum+((inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?2:1),0));
   const partXml=instruments.map((inst,index)=>{
     const family=instrumentFamily(inst);
     const program=INSTRUMENT_CAPABILITIES[family].program;
     const clef=INSTRUMENT_CAPABILITIES[family].clef;
     const staffId=staffIds[index];
     const name=esc(p.instrumentNames?.[inst]||inst);
-    return `<Part><Staff id="${staffId}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>${family==='Piano'?`<Staff id="${staffId+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>`:''}<trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
+    return `<Part><Staff id="${staffId}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>${(family==='Piano'||(family==='Bandoneon'&&p.bandoneonGrandStaff?.[inst]))?`<Staff id="${staffId+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>`:''}<trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
   }).join('');
   const staffs=instruments.map((inst,index)=>{
     const allNotes=(scoreNotes[inst]??[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>0)
       .slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
-    const notes=inst.startsWith('Piano')?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===1)===(staffIndex===0)):allNotes;
+    const notes=(inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===1)===(staffIndex===0)):allNotes;
     const lanes:{end:number;notes:Note[]}[]=[];
     for(const note of notes){
       let lane=lanes.find(l=>l.end<=note.start+1e-7);
@@ -203,7 +203,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       const fifths=parseKeySignature(key).fifths;
       const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
       const keySignature=barIndex===0||key!==previousKey?`<KeySig><accidental>${fifths}</accidental></KeySig>`:'';
-      const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${(staffIndex===1&&inst.startsWith('Piano'))?'F':INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].clef}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
+      const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${(staffIndex===1&&(inst.startsWith('Piano')||inst.startsWith('Bandoneon')))?'F':INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].clef}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
       const dynamicsXml=staffIndex===0?(()=>{
         const elements:string[]=[];
         const mark=(value:string)=>/^(ppp|pp|p|mp|mf|f|ff|fff)$/.test(value)?`<Dynamic><subtype>${value}</subtype></Dynamic>`:'';
@@ -263,7 +263,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
     }).join('');
     return `<Staff id="${staffIds[index]+staffIndex}">${measures}</Staff>`;
     };
-    return inst.startsWith('Piano')?renderStaff(0)+renderStaff(1):renderStaff(0);
+    return (inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?renderStaff(0)+renderStaff(1):renderStaff(0);
   }).join('');
   const mscx=`<?xml version="1.0" encoding="utf-8"?><museScore version="3.6"><programVersion>3.6.2</programVersion><Score><Division>480</Division><Style><concertPitch>1</concertPitch></Style><metaTag name="workTitle">${esc(p.title)}</metaTag><metaTag name="movementTitle">${esc(p.title)}</metaTag><metaTag name="title">${esc(p.title)}</metaTag>${partXml}${staffs}</Score></museScore>`;
   const zip=new JSZip();
