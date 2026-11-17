@@ -600,6 +600,7 @@ const captureCountingIn=ref(false);
 // Recording tempo changes transport speed, never the project's written timing.
 const captureSpeed=ref<0.5|0.75|1>(1);
 const captureQuantize=ref<'auto'|'1'|'0.5'|'0.25'|'0.125'>('auto');
+const captureTakeMode=ref<'replace'|'overdub'>('replace');
 type HeldCapture=CapturedTap&{duration?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number}>();
 function captureGrid(bar:number):number{
@@ -701,13 +702,22 @@ async function toggleCaptureLoop(){
     let beatCount=0;
     transport.scheduleRepeat(time=>{
       const countIn=beatCount<countInBeats;
+      const loopBeats=(last-first+1)*project.value.beats;
+      const firstBeatOfPass=!countIn&&(beatCount-countInBeats)%loopBeats===0;
       const beat=beatCount%project.value.beats;
       const recordedBeat=Math.max(0,beatCount-countInBeats);
       const bar=first+Math.floor(recordedBeat/project.value.beats)%(last-first+1);
       beatCount++;
       if(captureMetronome.value)captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
       Tone.getDraw().schedule(()=>{
-        if(session===captureSession&&capturePlaying.value){captureCountingIn.value=countIn;capturePlayBar.value=countIn?-1:bar;capturePlayBeat.value=beat;}
+        if(session!==captureSession||!capturePlaying.value)return;
+        if(firstBeatOfPass&&captureKind.value==='melody'&&captureTakeMode.value==='replace'){
+          // A new pass is a fresh take; overdub is opt-in. This also clears any
+          // notes from an earlier recording session when the first pass begins.
+          melodyCaptureTaps.value=[];
+          heldCaptureKeys.clear();
+        }
+        captureCountingIn.value=countIn;capturePlayBar.value=countIn?-1:bar;capturePlayBeat.value=beat;
       },time);
     },'4n',0);
     capturePlaying.value=true;
@@ -2694,12 +2704,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="editor live-capture" aria-label="Tap melody recording">
   <div class="section-heading"><h3>Live melody and rhythm input</h3><span>Full orchestra loop · draft take</span></div>
   <details class="control-fold" open><summary>Recording controls, keyboard &amp; draft take</summary>
-  <p class="hint">Loop a measure or phrase and tap the pitch keys below at the right moment. Each key tap records both pitch and rhythmic onset, quantized to a sixteenth note. Alternatively, select a pitch and tap the large rhythm pad. Nothing replaces the existing notes until you press Apply captured notes.</p>
+  <p class="hint">Loop a measure or phrase and tap the pitch keys below at the right moment. By default, each new loop pass replaces the previous recorded take; select Overdub to layer notes. Each key tap records both pitch and rhythmic onset, quantized to a sixteenth note. Alternatively, select a pitch and tap the large rhythm pad. Nothing replaces the existing notes until you press Apply captured notes.</p>
   <div class="live-capture-controls">
     <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
     <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
     <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Current measure</button>
-    <label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label><label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying" aria-label="Recording playback speed"><option :value="1">Normal (100%)</option><option :value="0.75">Three-quarter speed (75%)</option><option :value="0.5">Half speed (50%)</option></select></label><label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+    <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label><label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label><label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying" aria-label="Recording playback speed"><option :value="1">Normal (100%)</option><option :value="0.75">Three-quarter speed (75%)</option><option :value="0.5">Half speed (50%)</option></select></label><label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
     <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label><label class="capture-check"><input type="checkbox" v-model="captureCountIn" :disabled="capturePlaying"/> One-measure count-in</label>
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
