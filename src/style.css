@@ -903,4 +903,8 @@ button.performance-ensemble .performance-part{width:auto}
 .lyric-align-actions button{flex:1 1 auto;min-height:40px;padding:.4rem .65rem;white-space:nowrap}
 @media(max-width:650px){.lyric-align-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.lyric-align-actions button:last-child{grid-column:1/-1}.lyric-align-actions button{font-size:.78rem;min-width:0}}
 
-.lead-voice-shift{display:block;width:100%;margin:.3rem 0;padding:.3rem .45rem;font-size:.75rem;white-space:normal}
+
+.lead-section-collapse{border:0;background:transparent;color:inherit;font-size:1.25rem;padding:.2rem .55rem;cursor:pointer;align-self:center}
+.lead-measure{position:relative}
+.lead-measure-context{position:relative;z-index:8;display:flex;flex-direction:column;gap:.35rem;padding:.5rem;border:1px solid var(--border,#64748b);border-radius:.4rem;background:var(--surface,#1e293b);box-shadow:0 4px 14px #0003}
+.lead-measure-context button{text-align:left;white-space:normal}
