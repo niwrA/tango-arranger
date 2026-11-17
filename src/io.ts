@@ -151,9 +151,10 @@ export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Bl
   return zip.generateAsync({type:'blob',mimeType:'application/vnd.recordare.musicxml'});
 }
 /** Experimental native MuseScore 3-style MSCX/MSCZ writer. Not a MusicXML archive. */
-export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
+export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:Instrument):Promise<Blob>{
   const tpq=480,beats=p.beats;
-  const instruments=projectInstruments(p);
+  const instruments=onlyInstrument?[onlyInstrument]:projectInstruments(p);
+  if(onlyInstrument&&!projectInstruments(p).includes(onlyInstrument))throw Error('Instrument is not in the current ensemble');
   const scoreNotes=transposeScore(score,p.transposeSemitones??0);
   const durationTypes:[number,string][]=[[4,'whole'],[2,'half'],[1,'quarter'],[0.5,'eighth'],[0.25,'16th'],[0.125,'32nd']];
   const chunks=(duration:number)=>{
