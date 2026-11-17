@@ -142,10 +142,18 @@ export function writePianoMeasure(p:Project,notes:Note[],bar:number,key:string):
   // Both voices fill the measure, including rests, so the backup is exact.
   return writeVoice(upper,bar,p.beats,key,1,1)+`<backup><duration>${p.beats*DIV}</duration></backup>`+writeVoice(lower,bar,p.beats,key,2,2);
 }
+/** Compressed MusicXML (MXL), not MuseScore's proprietary MSCZ format. */
+export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Blob>{
+  const zip=new JSZip();
+  zip.file('mimetype','application/vnd.recordare.musicxml',{compression:'STORE'});
+  zip.file('META-INF/container.xml','<?xml version="1.0" encoding="utf-8"?><container><rootfiles><rootfile full-path="score.musicxml" media-type="application/vnd.recordare.musicxml+xml"/></rootfiles></container>');
+  zip.file('score.musicxml',exportMusicXml(p,score));
+  return zip.generateAsync({type:'blob',mimeType:'application/vnd.recordare.musicxml'});
+}
 export function exportMusicXml(p:Project,score:Score){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
-  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${esc(p.title)}</work-title></work><movement-title>${esc(p.title)}</movement-title><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${projectInstruments(p).map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(inst)}</part-name><part-abbreviation>${esc(inst)}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(inst)}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
+  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${esc(p.title)}</work-title></work><movement-title>${esc(p.title)}</movement-title><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${projectInstruments(p).map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(p.instrumentNames?.[inst]||inst)}</part-name><part-abbreviation>${esc(p.instrumentNames?.[inst]||inst)}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(p.instrumentNames?.[inst]||inst)}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
   const dynamics=p.expression?.enabled!==false?(p.expression?.sections??{A1:'mp',B1:'mf',A2:'mp',B2:'f',C:'f'}):null;
   const dynamicDirection=(inst:Instrument,b:number)=>{
     if(!dynamics)return '';
