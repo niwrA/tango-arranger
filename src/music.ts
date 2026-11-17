@@ -839,8 +839,13 @@ export function generate(p:Project):Score {
           continue;
         }
         if(p.beats===3){
-          // Traditional vals: bass on beat 1 (contrabass), light chord replies
-          // on beats 2 and 3. Do not squeeze a four-beat tango figure into 3/4.
+          // Argentine vals: piano reinforces the contrabass with a decisive
+          // independent left-hand root on beat 1; right-hand chord replies on
+          // beats 2 and 3. Keep the bass in the F clef, not in chord voicings.
+          const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
+          const bassRoot=harmony(0)[0];
+          put(closest(bassRoot,43,range[0],bassCeiling),0,0.95,114,undefined,0.74);
+          if(notes.length)notes[notes.length-1].accent=true;
           for(const beat of [1,2]){
             const pcs=harmony(beat);
             for(const pc of pcs.slice(0,difficulty==='easy'?2:3))
