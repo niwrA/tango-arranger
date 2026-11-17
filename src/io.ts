@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { Midi } from '@tonejs/midi';
-import {INSTRUMENTS,projectInstruments,pianoStaffForPitch,parsePitch,midiName,transposeScore,transposeChord,parseChordSequence,chordSequenceFromBeats,parseKeySignature,sectionKey,transposeKeySignature,inferSectionKeys,KEY_SIGNATURES,sectionLetter,type ChordChange,type Project,type Score,type Note,type Instrument} from './music';
+import {INSTRUMENTS,projectInstruments,pianoStaffForPitch,parsePitch,midiName,transposeScore,transposeChord,parseChordSequence,chordSequenceFromBeats,parseKeySignature,sectionKey,transposeKeySignature,inferSectionKeys,KEY_SIGNATURES,sectionLetter,type ChordChange,type Project,type Score,type Note,type Instrument,instrumentFamily,INSTRUMENT_CAPABILITIES} from './music';
 export function download(content: Blob | string, filename: string, mimeType = 'application/octet-stream'): void {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -177,9 +177,9 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
   };
   const staffIds=instruments.map((_,i)=>1+instruments.slice(0,i).reduce((sum,inst)=>sum+(inst.startsWith('Piano')?2:1),0));
   const partXml=instruments.map((inst,index)=>{
-    const family=inst.startsWith('Piano')?'Piano':inst.startsWith('Contrabass')?'Contrabass':inst.startsWith('Voice')?'Voice':inst.startsWith('Bandoneon')?'Accordion':'Violin';
-    const program=family==='Piano'?0:family==='Contrabass'?43:family==='Violin'?40:family==='Voice'?52:21;
-    const clef=family==='Contrabass'?'F':'G';
+    const family=instrumentFamily(inst);
+    const program=INSTRUMENT_CAPABILITIES[family].program;
+    const clef=INSTRUMENT_CAPABILITIES[family].clef;
     const staffId=staffIds[index];
     const name=esc(p.instrumentNames?.[inst]||inst);
     return `<Part><Staff id="${staffId}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>${family==='Piano'?`<Staff id="${staffId+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>`:''}<trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
@@ -202,7 +202,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
       const fifths=parseKeySignature(key).fifths;
       const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
       const keySignature=barIndex===0||key!==previousKey?`<KeySig><accidental>${fifths}</accidental></KeySig>`:'';
-      const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${inst.startsWith('Contrabass')?'F':'G'}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
+      const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${(staffIndex===1&&inst.startsWith('Piano'))?'F':INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].clef}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
       const dynamicsXml=staffIndex===0?(()=>{
         const elements:string[]=[];
         const mark=(value:string)=>/^(ppp|pp|p|mp|mf|f|ff|fff)$/.test(value)?`<Dynamic><subtype>${value}</subtype></Dynamic>`:'';
