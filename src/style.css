@@ -929,3 +929,7 @@ button.performance-ensemble .performance-part{width:auto}
 .note-editor-heading .measure-drag-header,.note-focus-identity.measure-drag-header{padding:.5rem;border:1px solid #657487;border-radius:7px;touch-action:pan-y;white-space:normal}
 .note-editor-panel{min-height:55dvh}
 .note-grid-scroll{max-height:70dvh;overflow:auto}
+
+/* The beat/pitch heading itself is a touch swipe target, not the note cells. */
+.note-beat-swipe-header,.note-beat-swipe-header th{touch-action:none;user-select:none;-webkit-user-select:none;cursor:ew-resize}
+.note-beat-swipe-header th{background-color:#34475b}
