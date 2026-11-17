@@ -839,6 +839,31 @@ function startLeadMeasureLongPress(measure:number){
   cancelLeadContextTimer();
   leadContextTimer=setTimeout(()=>{leadMeasureContext.value=measure;leadContextTimer=null;},550);
 }
+function shiftVoicePhraseFromLead(measure:number){
+  leadMeasureContext.value=null;
+  const input=window.prompt('Shift Voice notes and attached lyrics from this measure onward by how many beats? Use a negative value to move earlier (for example -0.5).','-0.5');
+  if(input===null)return;
+  const delta=Number(input),beats=project.value.beats;
+  if(!Number.isFinite(delta)||delta===0||Math.abs(delta)>beats*8){message.value='Enter a nonzero beat shift of at most eight measures.';return;}
+  const start=measure*beats,end=project.value.bars.length*beats;
+  const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
+  if(!voice){message.value='No Voice part is available.';return;}
+  const source=score.value[voice]??[],moving=source.filter(n=>n.start>=start),stationary=source.filter(n=>n.start<start);
+  if(!moving.length){message.value='No Voice notes start in this measure or later.';return;}
+  const moved=moving.map(n=>({...n,start:Number((n.start+delta).toFixed(6))}));
+  if(moved.some(n=>n.start<0||n.start+n.duration>end+1e-7)){message.value='Shift would move notes outside the song. No changes made.';return;}
+  if(moved.some(n=>stationary.some(other=>n.start<other.start+other.duration-1e-7&&other.start<n.start+n.duration-1e-7))){message.value='Shift would overlap earlier Voice notes. No changes made.';return;}
+  if(!window.confirm(`Move ${moving.length} Voice notes and attached lyrics by ${delta} beats, starting at measure ${measure+1}? This can cross section boundaries; other parts remain unchanged.`))return;
+  const shifted=[...stationary.map(n=>({...n})),...moved].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+  const next=snapshot(project.value);
+  next.importedScore={...(next.importedScore??{}),[voice]:shifted};
+  next.generatedScore={...(next.generatedScore??score.value),[voice]:shifted};
+  next.protectedBars={...(next.protectedBars??{})};
+  const first=Math.max(0,Math.floor(Math.min(start,start+delta)/beats));
+  for(let i=first;i<next.bars.length;i++)next.protectedBars[`${voice}:${i}`]=true;
+  project.value=next;
+  message.value=`Moved ${moving.length} Voice notes with their lyrics by ${delta} beats across measure and section boundaries.`;
+}
 function openLeadVoiceLyrics(measure:number){
   leadMeasureContext.value=null;
   const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
@@ -2210,7 +2235,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div v-if="!collapsedLeadSections.includes(span.label)" class="lead-measure-grid">
       <template v-for="offset in span.measures" :key="span.start+offset-1"><div :class="['lead-measure',{selected:selectedBar===span.start+offset-1}]">
         <button type="button" class="lead-measure-select" @contextmenu="showLeadMeasureContext(span.start+offset-1,$event)" @touchstart.passive="startLeadMeasureLongPress(span.start+offset-1)" @touchend="cancelLeadContextTimer" @touchcancel="cancelLeadContextTimer" @touchmove="cancelLeadContextTimer" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; double-click to edit its lead melody`" @click="toggleLeadMeasureEditor(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
-        <div v-if="leadMeasureContext===span.start+offset-1" class="lead-measure-context" role="menu"><strong>Measure {{span.start+offset}} · Lyrics</strong><button type="button" role="menuitem" @click="openLeadVoiceLyrics(span.start+offset-1)">Open Voice note / lyric alignment</button><button type="button" role="menuitem" @click="leadMeasureContext=null">Close</button></div>
+        <div v-if="leadMeasureContext===span.start+offset-1" class="lead-measure-context" role="menu"><strong>Measure {{span.start+offset}} · Lyrics</strong><button type="button" role="menuitem" @click="openLeadVoiceLyrics(span.start+offset-1)">Open Voice note / lyric alignment</button><button type="button" role="menuitem" @click="shiftVoicePhraseFromLead(span.start+offset-1)">Shift Voice notes + lyrics in time…</button><button type="button" role="menuitem" @click="leadMeasureContext=null">Close</button></div>
         <div v-if="leadLyricOverview.get(span.start+offset-1)?.length" class="lead-lyric-overview" :aria-label="`Lyrics in measure ${span.start+offset}`" style="margin:.4rem 0;padding:.45rem;border-top:1px solid #607080">
           <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.12rem .25rem;line-height:1.3">
             <span v-for="(item,i) in leadLyricOverview.get(span.start+offset-1)" :key="i" :title="`Beat ${(item.beat+1).toFixed(2)}`" style="display:inline-flex;flex-direction:column;align-items:flex-start;min-width:1.4rem;white-space:nowrap">
