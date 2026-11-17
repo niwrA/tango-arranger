@@ -183,34 +183,54 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
     return `<Part><Staff id="${index+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff><trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
   }).join('');
   const staffs=instruments.map((inst,index)=>{
-    const notes=(scoreNotes[inst]??[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+    const notes=(scoreNotes[inst]??[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>0)
+      .slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+    // Allocate overlapping notes to independent voices rather than silently discarding them.
+    const lanes:{end:number;notes:Note[]}[]=[];
+    for(const note of notes){
+      let lane=lanes.find(l=>l.end<=note.start+1e-7);
+      if(!lane){lane={end:-Infinity,notes:[]};lanes.push(lane);}
+      lane.notes.push(note);lane.end=note.start+note.duration;
+    }
     const measures=p.bars.map((bar,barIndex)=>{
       const begin=barIndex*beats,end=begin+beats;
       const key=transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0);
       const fifths=parseKeySignature(key).fifths;
-      const active=notes.filter(n=>n.start>=begin-1e-7&&n.start<end-1e-7);
-      let cursor=0;
-      const events:string[]=[];
-      const appendRest=(duration:number)=>{for(const c of chunks(duration))events.push(`<Rest><durationType>${c.type}</durationType></Rest>`);};
-      for(let ni=0;ni<active.length;){
-        const onset=Math.max(0,Math.round((active[ni].start-begin)*8)*60);
-        if(onset<cursor){ni++;continue;}
-        if(onset>cursor)appendRest((onset-cursor)/tpq);
-        const simultaneous=[active[ni++]];
-        while(ni<active.length&&Math.abs(active[ni].start-simultaneous[0].start)<1e-7)simultaneous.push(active[ni++]);
-        const available=Math.max(0,Math.min(...simultaneous.map(n=>n.duration),beats-onset/tpq));
-        const pieces=chunks(available);
-        for(const [pi,piece] of pieces.entries()){
-          const pitches=simultaneous.map(n=>`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${tpcForPitch(n.pitch,fifths)}</tpc>${n.lyric&&pi===0?`<Lyrics><syllabic>single</syllabic><text>${esc(n.lyric)}</text></Lyrics>`:''}</Note>`).join('');
-          events.push(`<Chord><durationType>${piece.type}</durationType>${pitches}</Chord>`);
-        }
-        cursor=onset+pieces.reduce((sum,piece)=>sum+piece.ticks,0);
-      }
-      if(cursor<beats*tpq)appendRest((beats*tpq-cursor)/tpq);
       const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
       const keySignature=barIndex===0||key!==previousKey?`<KeySig><accidental>${fifths}</accidental></KeySig>`:'';
       const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${inst.startsWith('Contrabass')?'F':'G'}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
-      return `<Measure><voice>${signature}${events.join('')}</voice></Measure>`;
+      const voices=lanes.slice(0,4).map((lane,laneIndex)=>{
+        const active=lane.notes.filter(n=>n.start<end-1e-7&&n.start+n.duration>begin+1e-7);
+        let cursor=0;
+        const events:string[]=[];
+        const rest=(ticks:number)=>{for(const c of chunks(ticks/tpq))events.push(`<Rest><durationType>${c.type}</durationType></Rest>`);};
+        for(const n of active){
+          const startTick=Math.max(0,Math.round((Math.max(begin,n.start)-begin)*8)*60);
+          const endTick=Math.min(beats*tpq,Math.round((Math.min(end,n.start+n.duration)-begin)*8)*60);
+          if(endTick<=startTick)continue;
+          if(startTick>cursor)rest(startTick-cursor);
+          if(startTick<cursor)continue;
+          const pieces=chunks((endTick-startTick)/tpq);
+          const previous=n.start<begin-1e-7,next=n.start+n.duration>end+1e-7;
+          for(let pi=0;pi<pieces.length;pi++){
+            const piece=pieces[pi],tiedBack=previous||pi>0,tiedForward=next||pi<pieces.length-1;
+            const tieStart=tiedForward?'<Tie><type>start</type></Tie>':'';
+            const tieEnd=tiedBack?'<endSpanner/>':'';
+            const articulation=n.articulation==='staccato'?'<Articulation><subtype>staccato</subtype></Articulation>':
+              n.articulation==='marcato_staccato'?'<Articulation><subtype>marcato</subtype></Articulation>':
+              n.articulation==='legato'?'<Articulation><subtype>tenuto</subtype></Articulation>':'';
+            const lyric=(text:string|undefined,syllabic:string|undefined,number:number)=>
+              text&&pi===0&&!previous?`<Lyrics><no>${number}</no><syllabic>${syllabic??'single'}</syllabic><text>${esc(text)}</text></Lyrics>`:'';
+            const noteXml=`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${tpcForPitch(n.pitch,fifths)}</tpc>${tieStart}${tieEnd}</Note>`;
+            events.push(`<Chord><durationType>${piece.type}</durationType>${articulation}${noteXml}${lyric(n.lyric,n.syllabic,1)}${lyric(n.lyric2,n.syllabic2,2)}</Chord>`);
+          }
+          cursor=endTick;
+        }
+        if(cursor<beats*tpq)rest(beats*tpq-cursor);
+        return `<voice>${laneIndex===0?signature:''}${events.join('')}</voice>`;
+      });
+      if(!voices.length)voices.push(`<voice>${signature}<Rest><durationType>${beats===4?'whole':'quarter'}</durationType></Rest></voice>`);
+      return `<Measure>${voices.join('')}</Measure>`;
     }).join('');
     return `<Staff id="${index+1}">${measures}</Staff>`;
   }).join('');
