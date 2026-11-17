@@ -189,7 +189,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
       .slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
-    const notes=inst.startsWith('Piano')?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)==='upper')===(staffIndex===0)):allNotes;
+    const notes=inst.startsWith('Piano')?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===1)===(staffIndex===0)):allNotes;
     const lanes:{end:number;notes:Note[]}[]=[];
     for(const note of notes){
       let lane=lanes.find(l=>l.end<=note.start+1e-7);
