@@ -150,6 +150,63 @@ export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Bl
   zip.file('score.musicxml',exportMusicXml(p,score));
   return zip.generateAsync({type:'blob',mimeType:'application/vnd.recordare.musicxml'});
 }
+/** Experimental native MuseScore 3-style MSCX/MSCZ writer. Not a MusicXML archive. */
+export async function exportMuseScoreMscz(p:Project,score:Score):Promise<Blob>{
+  const tpq=480,beats=p.beats;
+  const instruments=projectInstruments(p);
+  const scoreNotes=transposeScore(score,p.transposeSemitones??0);
+  const durationTypes:[number,string][]=[[4,'whole'],[2,'half'],[1,'quarter'],[0.5,'eighth'],[0.25,'16th'],[0.125,'32nd']];
+  const chunks=(duration:number)=>{
+    const result:{ticks:number;type:string}[]=[];
+    let left=Math.max(0,Math.round(duration*tpq));
+    for(const [beats,type] of durationTypes){
+      const ticks=Math.round(beats*tpq);
+      while(left>=ticks){result.push({ticks,type});left-=ticks;}
+    }
+    if(left)throw Error('MSCZ export requires note durations in 1/32-beat increments');
+    return result;
+  };
+  const partXml=instruments.map((inst,index)=>{
+    const family=inst.startsWith('Piano')?'Piano':inst.startsWith('Contrabass')?'Contrabass':inst.startsWith('Voice')?'Voice':inst.startsWith('Bandoneon')?'Accordion':'Violin';
+    const program=family==='Piano'?0:family==='Contrabass'?43:family==='Violin'?40:family==='Voice'?52:21;
+    const clef=family==='Contrabass'?'F':'G';
+    const name=esc(p.instrumentNames?.[inst]||inst);
+    return `<Part><Staff id="${index+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff><trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
+  }).join('');
+  const staffs=instruments.map((inst,index)=>{
+    const notes=(scoreNotes[inst]??[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+    const measures=p.bars.map((bar,barIndex)=>{
+      const begin=barIndex*beats,end=begin+beats;
+      const active=notes.filter(n=>n.start>=begin-1e-7&&n.start<end-1e-7);
+      let cursor=0;
+      const events:string[]=[];
+      const appendRest=(duration:number)=>{for(const c of chunks(duration))events.push(`<Rest><durationType>${c.type}</durationType></Rest>`);};
+      for(let ni=0;ni<active.length;){
+        const onset=Math.max(0,Math.round((active[ni].start-begin)*tpq));
+        if(onset<cursor){ni++;continue;}
+        if(onset>cursor)appendRest((onset-cursor)/tpq);
+        const simultaneous=[active[ni++]];
+        while(ni<active.length&&Math.abs(active[ni].start-simultaneous[0].start)<1e-7)simultaneous.push(active[ni++]);
+        const available=Math.min(...simultaneous.map(n=>n.duration),beats-onset/tpq);
+        const pieces=chunks(available);
+        for(const [pi,piece] of pieces.entries()){
+          const pitches=simultaneous.map(n=>`<Note><pitch>${Math.round(n.pitch)}</pitch><tpc>${((Math.round(n.pitch)%12)+12)%12+14}</tpc>${n.lyric&&pi===0?`<Lyrics><syllabic>single</syllabic><text>${esc(n.lyric)}</text></Lyrics>`:''}</Note>`).join('');
+          events.push(`<Chord><durationType>${piece.type}</durationType>${pitches}</Chord>`);
+        }
+        cursor=onset+Math.round(available*tpq);
+      }
+      if(cursor<beats*tpq)appendRest((beats*tpq-cursor)/tpq);
+      const signature=barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${inst.startsWith('Contrabass')?'F':'G'}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'';
+      return `<Measure><voice>${signature}${events.join('')}</voice></Measure>`;
+    }).join('');
+    return `<Staff id="${index+1}">${measures}</Staff>`;
+  }).join('');
+  const mscx=`<?xml version="1.0" encoding="utf-8"?><museScore version="3.6"><programVersion>3.6.2</programVersion><Score><Division>480</Division><Style><concertPitch>1</concertPitch></Style><metaTag name="workTitle">${esc(p.title)}</metaTag><metaTag name="movementTitle">${esc(p.title)}</metaTag><metaTag name="title">${esc(p.title)}</metaTag>${partXml}${staffs}</Score></museScore>`;
+  const zip=new JSZip();
+  zip.file('META-INF/container.xml','<?xml version="1.0" encoding="utf-8"?><container><rootfiles><rootfile full-path="score.mscx"/></rootfiles></container>');
+  zip.file('score.mscx',mscx);
+  return zip.generateAsync({type:'blob',mimeType:'application/vnd.musescore.mscz'});
+}
 export function exportMusicXml(p:Project,score:Score){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
