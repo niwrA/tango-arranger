@@ -821,6 +821,39 @@ function selectLeadSection(i:number){const span=copySpans.value[i];if(span)selec
 function onLeadSectionHeaderClick(i:number){if(copySectionMode.value&&i!==copySourceIndex.value)copyChordsToSection(i);else selectLeadSection(i);}
 function beginSectionCopy(i:number){if(!copySpans.value[i])return;copySourceIndex.value=i;copySectionMode.value=true;copyHarmonyFeedback.value='';}
 function cancelSectionCopy(){copySectionMode.value=false;}
+function duplicateLeadSection(i:number){
+  try{
+    const spans=sectionSpans(project.value),source=spans[i];
+    if(!source)throw Error('Source section not found');
+    if(spans.length>=26||project.value.bars.length+source.measures>512)
+      throw Error('Cannot copy: maximum 26 sections and 512 measures');
+    const hasScores=Boolean(project.value.generatedScore||project.value.importedScore||project.value.baseScore||Object.values(project.value.protectedBars??{}).some(Boolean));
+    if(hasScores&&!window.confirm('Copy section '+sectionLetter(i)+' to the end as section '+sectionLetter(spans.length)+'? This structural change clears generated/imported scores and protected edits. The lead-sheet chords and melody will be retained.'))return;
+    const next=resizeSections(project.value,[...spans.map(span=>span.measures),source.measures]);
+    const destination=next.bars.length-source.measures;
+    for(let offset=0;offset<source.measures;offset++){
+      const original=project.value.bars[source.start+offset];
+      next.bars[destination+offset]={...original,section:sectionLetter(spans.length),melody:original.melody.map(n=>({...n}))};
+    }
+    const label=sectionLetter(spans.length),sourceLabel=source.label;
+    next.sectionKeys={...next.sectionKeys,[label]:sectionKey(project.value,sourceLabel)};
+    next.roles[label]={...project.value.roles[sourceLabel]};
+    if(next.orchestration){
+      next.orchestration.violin[label]={...project.value.orchestration?.violin?.[sourceLabel]};
+      next.orchestration.bandoneon[label]={...project.value.orchestration?.bandoneon?.[sourceLabel]};
+      next.orchestration.contrabass[label]=project.value.orchestration?.contrabass?.[sourceLabel]??'traditional';
+    }
+    next.pianoFigures={...next.pianoFigures,[label]:project.value.pianoFigures?.[sourceLabel]??'chords_up'};
+    next.pianoFigureVariation={...next.pianoFigureVariation,[label]:project.value.pianoFigureVariation?.[sourceLabel]??0};
+    if(next.expression)next.expression.sections[label]=project.value.expression?.sections[sourceLabel]??'mf';
+    project.value=next;
+    selectedBar.value=destination;overviewFocus.value=destination;chosenSection.value=label;
+    overviewStart.value=destination+1;overviewEnd.value=next.bars.length;mapRangeAnchor.value=null;
+    collapsedLeadSections.value=collapsedLeadSections.value.filter(section=>section!==label);
+    message.value='Copied section '+sourceLabel+' to new section '+label+' ('+source.measures+' measures).'+(hasScores?' Regenerate orchestra before exporting.':'');
+  }catch(error){message.value='Section copy failed: '+String(error);}
+}
+
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
 const collapsedLeadSections=ref<string[]>([]);
 function toggleLeadSectionCollapsed(label:string){
@@ -2243,7 +2276,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
     <div :class="['lead-section-heading',{'lead-copy-source':copySectionMode&&copySourceIndex===si}]">
       <div class="lead-section-title"><button type="button" class="lead-section-collapse" :aria-expanded="!collapsedLeadSections.includes(span.label)" :title="collapsedLeadSections.includes(span.label)?'Expand section':'Collapse section'" @click="toggleLeadSectionCollapsed(span.label)">{{collapsedLeadSections.includes(span.label)?'▸':'▾'}}</button><button type="button" :class="['lead-section-select',{'is-selected':project.bars[selectedBar]?.section===span.label}]" :aria-pressed="project.bars[selectedBar]?.section===span.label" :aria-label="copySectionMode&&copySourceIndex!==si?`Paste copied chords into section ${sectionLetter(si)}`:`Select section ${sectionLetter(si)}, measures ${span.start+1} to ${span.start+span.measures}`" @click="onLeadSectionHeaderClick(si)"><strong class="lead-section-letter">{{sectionLetter(si)}}</strong><span><strong>Section {{span.label}}</strong><small>Measures {{span.start+1}}–{{span.start+span.measures}} · {{span.measures}} measures</small></span></button></div>
-      <div class="lead-section-actions"><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button></div>
+      <div class="lead-section-actions"><button type="button" class="secondary lead-section-copy" :disabled="sectionSpans(project).length>=26||project.bars.length+span.measures>512" :title="`Duplicate section ${sectionLetter(si)} at the end of the song`" @click="duplicateLeadSection(si)"><AppIcon name="copy"/> Copy section</button><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button></div>
       <label class="lead-key-label">Key signature<select :value="keyForSection(span.label)" :aria-label="`Key for section ${span.label}`" @change="setSectionKey(span.label,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label>
     </div>
     <div v-if="!collapsedLeadSections.includes(span.label)" class="lead-measure-grid">
