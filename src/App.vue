@@ -2155,7 +2155,8 @@ function deleteSelectedNote(){
   const removed=noteSelected.value;
   const events=noteMeasure.value.filter((_,i)=>i!==removed);
   project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
-  noteSelected.value=events.length?Math.min(removed,events.length-1):-1;
+  noteSelected.value=-1;
+  noteDetailsPopup.value=false;
   message.value=`Deleted note from ${noteInst.value}, measure ${selectedBar.value+1}. Manual measure protected.`;
   focusSelectedNoteButton();
 }
