@@ -1843,8 +1843,8 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
 // Read-only, chord-aware overview of the Voice lyric alignment.
 const leadLyricOverview=computed(()=>{
   const voice=projectInstruments(project.value).find(inst=>inst.startsWith('Voice'));
-  if(!voice)return new Map<number,{beat:number;text:string;chord:string}[]>();
-  const result=new Map<number,{beat:number;text:string;chord:string}[]>();
+  if(!voice)return new Map<number,{beat:number;text:string;chord:string;chordStart:boolean}[]>();
+  const result=new Map<number,{beat:number;text:string;chord:string;chordStart:boolean}[]>();
   for(let bar=0;bar<project.value.bars.length;bar++){
     const beats=project.value.beats;
     const notes=(score.value[voice]??[]).filter(n=>n.start>=bar*beats&&n.start<(bar+1)*beats).sort((a,b)=>a.start-b.start);
@@ -1852,7 +1852,7 @@ const leadLyricOverview=computed(()=>{
     const entries=notes.filter(n=>!!n.lyric?.trim()).map(n=>{
       const beat=n.start-bar*beats;
       const chord=[...changes].reverse().find(change=>change.beat<=beat+1e-7)?.chord??'';
-      return {beat,text:n.lyric!.trim(),chord};
+      return {beat,text:n.lyric!.trim(),chord,chordStart:changes.some(change=>Math.abs(change.beat-beat)<1e-7)};
     });
     result.set(bar,entries);
   }
@@ -2195,10 +2195,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <button type="button" class="lead-measure-select" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; double-click to edit its lead melody`" @click="toggleLeadMeasureEditor(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
         <button type="button" class="secondary lead-voice-shift" title="Insert time before the Voice phrase in this measure, moving subsequent Voice notes and attached lyrics together" @click="shiftVoiceFromLeadMeasure(span.start+offset-1)">Shift Voice + lyrics →</button>
         <div v-if="leadLyricOverview.get(span.start+offset-1)?.length" class="lead-lyric-overview" :aria-label="`Lyrics in measure ${span.start+offset}`" style="margin:.4rem 0;padding:.45rem;border-top:1px solid #607080">
-          <small style="display:block;margin-bottom:.3rem">Voice lyrics · onset / chord</small>
-          <div style="display:flex;gap:.35rem;flex-wrap:wrap">
-            <span v-for="(item,i) in leadLyricOverview.get(span.start+offset-1)" :key="i" :title="`Beat ${(item.beat+1).toFixed(2)} · chord ${item.chord||'none'}`" style="border:1px solid #63798b;border-radius:.3rem;padding:.2rem .35rem;font-size:.8rem">
-              <strong>{{item.text}}</strong> <small>{{Number((item.beat+1).toFixed(2))}} · {{item.chord||'—'}}</small>
+          <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.12rem .25rem;line-height:1.3">
+            <span v-for="(item,i) in leadLyricOverview.get(span.start+offset-1)" :key="i" :title="`Beat ${(item.beat+1).toFixed(2)}`" style="display:inline-flex;flex-direction:column;align-items:flex-start;min-width:1.4rem;white-space:nowrap">
+              <strong style="font-size:.78rem;min-height:1.1rem;color:var(--accent,#b98a45)">{{item.chordStart?item.chord:''}}</strong>
+              <span style="font-size:1rem">{{item.text}}</span>
             </span>
           </div>
         </div>
