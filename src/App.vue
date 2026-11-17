@@ -1858,6 +1858,23 @@ const leadLyricOverview=computed(()=>{
   }
   return result;
 });
+// Keep displaced lyric syllables outside the finite note timeline instead of dropping them.
+type OverflowSyllable=[unknown,unknown,unknown];
+const lyricOverflow=ref<Record<string,OverflowSyllable[]>>({});
+const lyricOverflowKey=computed(()=>String(localSongId.value)+'|'+noteInst.value+'|'+lyricVerse.value);
+const currentLyricOverflow=computed(()=>lyricOverflow.value[lyricOverflowKey.value]??[]);
+function setLyricOverflow(key:string,items:OverflowSyllable[]){
+ lyricOverflow.value={...lyricOverflow.value,[key]:items};
+ try{localStorage.setItem('tango-arranger-lyric-overflow-'+key,JSON.stringify(items));}catch{/* Storage may be unavailable. */}
+}
+function getLyricOverflow(key:string):OverflowSyllable[]{
+ if(lyricOverflow.value[key])return [...lyricOverflow.value[key]];
+ try{
+  const raw=JSON.parse(localStorage.getItem('tango-arranger-lyric-overflow-'+key)||'[]');
+  if(Array.isArray(raw)){lyricOverflow.value={...lyricOverflow.value,[key]:raw};return [...raw];}
+ }catch{/* Ignore malformed saved data. */}
+ return [];
+}
 function rippleLyricSyllable(action:'insert'|'delete'){
   if(!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
   const selected=noteMeasure.value[noteSelected.value];
@@ -1886,14 +1903,13 @@ function rippleLyricSyllable(action:'insert'|'delete'){
     fields.forEach((k,j)=>{if(values[j]===undefined)delete note[k];else note[k]=values[j];});
   };
   const previous=slots.map(read);
-  // Do not silently discard the last syllable when there is no spare onset.
-  if(action==='insert'&&previous.length&&previous[previous.length-1].some(value=>value!==undefined)){
-    message.value='Cannot insert: the final note onset already has lyrics. Add another note onset or free the last lyric slot first.';
-    return;
-  }
+  const overflowKey=lyricOverflowKey.value;
+  const overflow=getLyricOverflow(overflowKey);
+  const hasSyllable=(values:unknown[])=>values.some(value=>value!==undefined&&value!==null&&value!=='');
+  if(action==='insert'&&previous.length&&hasSyllable(previous[previous.length-1]))overflow.unshift(previous[previous.length-1] as OverflowSyllable);
   if(action==='delete'){
     for(let i=start;i<slots.length-1;i++)write(slots[i],previous[i+1]);
-    write(slots[slots.length-1],[undefined,undefined,undefined]);
+    write(slots[slots.length-1],overflow.shift()??[undefined,undefined,undefined]);
   }else{
     for(let i=slots.length-1;i>start;i--)write(slots[i],previous[i-1]);
     write(slots[start],[undefined,undefined,undefined]);
@@ -1906,6 +1922,7 @@ function rippleLyricSyllable(action:'insert'|'delete'){
     next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),noteInst.value,bar,byBar.get(bar)??[]);
   }
   project.value=next;
+  setLyricOverflow(overflowKey,overflow);
   message.value=action==='delete'?'Deleted syllable; following lyrics shifted left across measures.':'Inserted empty slot; following lyrics shifted right across measures.';
 }
 function loopLyricPhrase(){
@@ -2438,7 +2455,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <button v-for="slot in lyricTimeline" :key="`${slot.index}:${slot.start}`" type="button" class="lyric-timeline-slot" :class="{'selected':noteSelected===slot.index}" :style="{left:`${100*slot.start/project.beats}%`,width:`${100*(slot.end-slot.start)/project.beats}%`}" :title="`${displayPitch(slot.note.pitch)} · beat ${slot.start+1} · ${slot.note.duration} beats`" @click="selectLyricSlot(slot.index)">{{(lyricVerse===1?slot.note.lyric:slot.note.lyric2)||'·'}}</button>
         </div>
       </div>
-      <div class="lyric-align-actions"><button type="button" class="secondary" :disabled="noteSelected<0" @click="rippleLyricSyllable('delete')">Delete &amp; shift left</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="rippleLyricSyllable('insert')">Insert &amp; shift right</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(-1)">← Syllable</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(1)">Syllable →</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(-1,true)">← Phrase</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(1,true)">Phrase →</button><button type="button" class="secondary" @click="loopLyricPhrase">{{noteLoopPlaying?'■ Stop loop':'▶ Loop 2 measures'}}</button></div>
+      <div v-if="currentLyricOverflow.length" role="alert" class="hint" style="padding:.6rem;border:1px solid #c58b37;border-radius:.4rem;margin:.5rem 0">⚠ {{currentLyricOverflow.length}} lyric syllable(s) extend beyond the last available Voice note. They are retained on this device and will return to the score when you delete and shift left. Add Voice note onsets or resolve the mismatch before exporting.</div><div class="lyric-align-actions"><button type="button" class="secondary" :disabled="noteSelected<0" @click="rippleLyricSyllable('delete')">Delete &amp; shift left</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="rippleLyricSyllable('insert')">Insert &amp; shift right</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(-1)">← Syllable</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(1)">Syllable →</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(-1,true)">← Phrase</button><button type="button" class="secondary" :disabled="noteSelected<0" @click="lyricSlotShift(1,true)">Phrase →</button><button type="button" class="secondary" @click="loopLyricPhrase">{{noteLoopPlaying?'■ Stop loop':'▶ Loop 2 measures'}}</button></div>
       <div v-if="selectedEvent" class="lyric-selected-editor"><label>Selected syllable · {{displayPitch(selectedEvent.pitch)}} · beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}}<input type="text" maxlength="160" :value="(lyricVerse===1?selectedEvent.lyric:selectedEvent.lyric2)??''" placeholder="Type a syllable" @change="updateSelectedNote(lyricVerse===1?'lyric':'lyric2',($event.target as HTMLInputElement).value)"/></label><label>Syllable position<select :value="(lyricVerse===1?selectedEvent.syllabic:selectedEvent.syllabic2)??'single'" @change="updateSelectedNote(lyricVerse===1?'syllabic':'syllabic2',($event.target as HTMLSelectElement).value)"><option value="single">Single</option><option value="begin">Beginning</option><option value="middle">Middle</option><option value="end">End</option></select></label><label><input type="checkbox" :checked="(lyricVerse===1?selectedEvent.melisma:selectedEvent.melisma2)??false" @change="updateSelectedNote(lyricVerse===1?'melisma':'melisma2',String(($event.target as HTMLInputElement).checked))"/> Extend syllable across following untexted notes</label></div>
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
