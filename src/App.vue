@@ -823,6 +823,33 @@ function onLeadSectionHeaderClick(i:number){if(copySectionMode.value&&i!==copySo
 function beginSectionCopy(i:number){if(!copySpans.value[i])return;copySourceIndex.value=i;copySectionMode.value=true;copyHarmonyFeedback.value='';}
 function cancelSectionCopy(){copySectionMode.value=false;}
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
+function shiftVoiceFromLeadMeasure(measure:number){
+  const beats=project.value.beats;
+  const input=window.prompt('Shift Voice notes and their attached lyrics to the right by how many beats? Notes from this measure onward move together; other instruments stay in place.','1');
+  if(input===null)return;
+  const amount=Number(input);
+  if(!Number.isFinite(amount)||amount<=0||amount>beats*8){message.value='Enter a positive shift of at most 8 measures.';return;}
+  const start=measure*beats,end=project.value.bars.length*beats;
+  const source=score.value.Voice??[];
+  const moved=source.filter(n=>n.start>=start);
+  if(!moved.length){message.value='No Voice notes start at or after this measure.';return;}
+  const overflow=moved.filter(n=>n.start+amount>=end);
+  const confirmation=`Shift ${moved.length} Voice notes and their lyrics from measure ${measure+1} right by ${amount} beat(s)?${overflow.length?' '+overflow.length+' notes would start beyond the end of the song and be removed.':''} The operation will protect the edited Voice measures.`;
+  if(!window.confirm(confirmation))return;
+  const next=snapshot(project.value);
+  const shifted=source.flatMap(n=>{
+    if(n.start<start)return [{...n}];
+    const shiftedStart=Number((n.start+amount).toFixed(6));
+    if(shiftedStart>=end)return [];
+    return [{...n,start:shiftedStart,duration:Math.min(n.duration,Number((end-shiftedStart).toFixed(6)))}];
+  });
+  next.importedScore={...(next.importedScore??{}),Voice:shifted};
+  next.generatedScore={...(next.generatedScore??score.value),Voice:shifted};
+  next.protectedBars={...(next.protectedBars??{})};
+  for(let i=measure;i<next.bars.length;i++)next.protectedBars[`Voice:${i}`]=true;
+  project.value=next;
+  message.value=`Shifted ${moved.length-overflow.length} Voice notes with lyrics by ${amount} beats; ${overflow.length} overflow notes removed.`;
+}
 function toggleLeadMeasureEditor(i:number){if(i===selectedBar.value)leadMeasureEditorOpen.value=!leadMeasureEditorOpen.value;else{selectLeadMeasure(i);leadMeasureEditorOpen.value=true;}}
 
 const copySpans=computed(()=>sectionSpans(project.value));
@@ -2149,6 +2176,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="lead-measure-grid">
       <template v-for="offset in span.measures" :key="span.start+offset-1"><div :class="['lead-measure',{selected:selectedBar===span.start+offset-1}]">
         <button type="button" class="lead-measure-select" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; double-click to edit its lead melody`" @click="toggleLeadMeasureEditor(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
+        <button type="button" class="secondary lead-voice-shift" title="Insert time before the Voice phrase in this measure, moving subsequent Voice notes and attached lyrics together" @click="shiftVoiceFromLeadMeasure(span.start+offset-1)">Shift Voice + lyrics →</button>
         <div v-if="leadLyricOverview.get(span.start+offset-1)?.length" class="lead-lyric-overview" :aria-label="`Lyrics in measure ${span.start+offset}`" style="margin:.4rem 0;padding:.45rem;border-top:1px solid #607080">
           <small style="display:block;margin-bottom:.3rem">Voice lyrics · onset / chord</small>
           <div style="display:flex;gap:.35rem;flex-wrap:wrap">
