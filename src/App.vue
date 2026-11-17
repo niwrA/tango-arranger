@@ -692,7 +692,7 @@ async function toggleCaptureLoop(){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
           if(event.slideTo!==undefined||event.endVelocity!==undefined)
-            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,onsetSeconds:0,durationSeconds:duration},onset);
+            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
         }
