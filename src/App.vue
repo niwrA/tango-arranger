@@ -1891,6 +1891,11 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
     pianoBassCenter.value=bass.length?Math.round(bass.reduce((sum,n)=>sum+n.pitch,0)/bass.length):49;
   }
   noteSelected.value=-1;noteDetailsPopup.value=false;figurePreviewKey.value='';
+  // Lyrics navigation is sequential: select the first note in the new measure.
+  if(inst.startsWith('Voice')&&existing.length&&noteEditorTab.value==='notes'){
+    noteSelected.value=0;
+    focusSelectedLyricText();
+  }
   captureFrom.value=selectedBar.value+1;captureTo.value=selectedBar.value+1;captureEditBar.value=selectedBar.value+1;
   capturePitch.value=existing[0]?.pitch??Math.max(range[0],Math.min(range[1],typical));
   const keyboard=defaultKeyboardRange(capturePitch.value,range);
@@ -1934,7 +1939,24 @@ function toggleNote(pitch:number,beat:number){
   message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${index>=0?'removed':'added'} ${displayPitch(pitch)} at beat ${beat+1}. Manual measure protected.`;
 }
 const lyricTimeline= computed(()=>noteMeasure.value.map((note,index)=>({note,index,start:note.start-selectedBar.value*project.value.beats,end:Math.min(project.value.beats,note.start-selectedBar.value*project.value.beats+note.duration)})).filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start));
-function selectLyricSlot(index:number){noteSelected.value=index;}
+function focusSelectedLyricText(){
+  if(active.value!=='notes'||noteEditorTab.value!=='notes'||!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
+  void nextTick(()=>{
+    const input=noteEditorRegion.value?.querySelector<HTMLInputElement>('.lyric-selected-editor input[type="text"]');
+    if(input){
+      input.focus({preventScroll:true});
+      input.select();
+    }
+  });
+}
+function selectLyricSlot(index:number){
+  noteSelected.value=index;
+  focusSelectedLyricText();
+}
+// Selecting a sung note, including a newly inserted note, places the caret
+// in the lyric field. Never refocus on lyric text edits themselves.
+watch(noteSelected,(index)=>{if(index>=0)focusSelectedLyricText();});
+
 function lyricSlotShift(direction:-1|1,throughPhrase=false){
   if(!noteInst.value.startsWith('Voice')||noteSelected.value<0)return;
   const ordered=[...new Set(noteMeasure.value.map(n=>n.start))].sort((a,b)=>a-b);
