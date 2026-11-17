@@ -229,9 +229,19 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         }
         return elements.join('');
       })():'';
-      // Native MuseScore Harmony serialization requires round-trip validation.
-      // Keep written notes playable until chord-symbol markup is verified.
-      const chordXml='';
+      // StaffText is intentionally used instead of native Harmony: this encoding
+      // has been confirmed to display correctly in MuseScore on iPad.
+      // Only the top staff carries labels, so grand staves do not duplicate them.
+      const chordChanges=staffIndex===0&&index===0
+        ?parseChordSequence(bar.chord,p.beats).filter((change,i,all)=>i===0||change.chord!==all[i-1].chord)
+        :[];
+      const chordXml=chordChanges.map(change=>{
+        const symbol=transposeChord(change.chord,p.transposeSemitones??0);
+        const tick=Math.round((barIndex*beats+change.beat)*tpq);
+        return `<tick>${tick}</tick><StaffText><text>${esc(symbol)}</text></StaffText>`;
+      }).join('');
+      // Return to the measure start before writing the unchanged musical voices.
+      const chordPrefix=chordXml?`${chordXml}<tick>${barIndex*beats*tpq}</tick>`:'';
       const voices=lanes.slice(0,4).map((lane,laneIndex)=>{
         const active=lane.groups.filter(g=>g.start<end-1e-7&&g.start+g.duration>begin+1e-7);
         let cursor=0;
@@ -261,9 +271,9 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
           cursor=endTick;
         }
         if(cursor<beats*tpq)rest(beats*tpq-cursor);
-        return `<voice>${laneIndex===0?signature+dynamicsXml+chordXml:''}${events.join('')}</voice>`;
+        return `<voice>${laneIndex===0?signature+dynamicsXml+chordPrefix:''}${events.join('')}</voice>`;
       });
-      if(!voices.length)voices.push(`<voice>${signature+dynamicsXml+chordXml}${chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`).join('')}</voice>`);
+      if(!voices.length)voices.push(`<voice>${signature+dynamicsXml+chordPrefix}${chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`).join('')}</voice>`);
       return `<Measure>${voices.join('')}</Measure>`;
     }).join('');
     return `<Staff id="${staffIds[index]+staffIndex}">${measures}</Staff>`;
