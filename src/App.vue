@@ -68,7 +68,7 @@ function stopPlayback(){
   synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
-  capturePlaying.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;
+  capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;
 }
 function selectProjectInEditor(p:Project){
   stopPlayback();syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
@@ -594,6 +594,9 @@ const captureFrom=ref(1);
 const captureTo=ref(1);
 const captureLatency=ref(0);
 const captureMetronome=ref(true);
+const captureCountIn=ref(true);
+const captureCountingIn=ref(false);
+
 // Recording tempo changes transport speed, never the project's written timing.
 const captureSpeed=ref<0.5|0.75|1>(1);
 
@@ -657,6 +660,8 @@ async function toggleCaptureLoop(){
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;transport.bpm.value=project.value.bpm*captureSpeed.value;
+    const countInBeats=captureCountIn.value?project.value.beats:0;
+    const countInSeconds=countInBeats*60/(project.value.bpm*captureSpeed.value);
     let measure=0;
     transport.scheduleRepeat(time=>{
       const b=first+measure%(last-first+1);measure++;
@@ -673,18 +678,21 @@ async function toggleCaptureLoop(){
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
         }
       }
-    },'1m',0);
+    },'1m',captureCountIn.value?'1m':0);
     let beatCount=0;
     transport.scheduleRepeat(time=>{
+      const countIn=beatCount<countInBeats;
       const beat=beatCount%project.value.beats;
-      const bar=first+Math.floor(beatCount/project.value.beats)%(last-first+1);
+      const recordedBeat=Math.max(0,beatCount-countInBeats);
+      const bar=first+Math.floor(recordedBeat/project.value.beats)%(last-first+1);
       beatCount++;
       if(captureMetronome.value)captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
       Tone.getDraw().schedule(()=>{
-        if(session===captureSession&&capturePlaying.value){capturePlayBar.value=bar;capturePlayBeat.value=beat;}
+        if(session===captureSession&&capturePlaying.value){captureCountingIn.value=countIn;capturePlayBar.value=countIn?-1:bar;capturePlayBeat.value=beat;}
       },time);
     },'4n',0);
     capturePlaying.value=true;
+    captureCountingIn.value=captureCountIn.value;
     captureFeedback.value=`Recording draft taps against full arrangement, measures ${first+1}–${last+1}. Tap the pad or pitch keys; stop to review.`;
     transport.start();
   }catch(error){captureFeedback.value=`Could not start arrangement loop: ${String(error)}`;stopPlayback();}
@@ -692,7 +700,10 @@ async function toggleCaptureLoop(){
 function captureTap(pitch?:number){
   if(!capturePlaying.value){captureFeedback.value='Start the arrangement loop before tapping.';return;}
   try{
-    const pos=capturePosition(Tone.getTransport().seconds,project.value.bpm*captureSpeed.value,project.value.beats,
+    const elapsed=Tone.getTransport().seconds;
+    const countInSeconds=(captureCountIn.value?project.value.beats:0)*60/(project.value.bpm*captureSpeed.value);
+    if(elapsed<countInSeconds){captureFeedback.value='Count-in: recording begins after the introductory measure.';return;}
+    const pos=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,
       captureFirst.value,captureLast.value,0.25,captureLatency.value);
     const chosenPitch=pitch??capturePitch.value;
     const tap:CapturedTap=captureKind.value==='melody'?{...pos,pitch:chosenPitch}:pos;
@@ -2551,10 +2562,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
     <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Use selected measure</button>
     <label>Tap latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
-    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label>
+    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label><label class="capture-check"><input type="checkbox" v-model="captureCountIn" :disabled="capturePlaying"/> One-measure count-in</label>
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
-  <div class="live-capture-status" role="status">{{capturePlaying?`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`:'Stopped'}} · {{captureTaps.length}} taps in draft</div>
+  <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} taps in draft</div>
   <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter on this pad</span></button>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button></div>
   <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`rhythm-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div></div>
@@ -2634,10 +2645,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
     <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Current measure</button>
     <label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying" aria-label="Recording playback speed"><option :value="1">Normal (100%)</option><option :value="0.75">Three-quarter speed (75%)</option><option :value="0.5">Half speed (50%)</option></select></label><label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
-    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label>
+    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label><label class="capture-check"><input type="checkbox" v-model="captureCountIn" :disabled="capturePlaying"/> One-measure count-in</label>
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
-  <div class="live-capture-status" role="status">{{capturePlaying?`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`:'Stopped'}} · {{captureTaps.length}} pitched taps</div>
+  <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} pitched taps</div>
   <div class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in captureKeyboardPitches" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
   <p class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
   <div class="capture-piano" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
