@@ -902,3 +902,5 @@ button.performance-ensemble .performance-part{width:auto}
 .lyric-align-actions{display:flex;flex-wrap:wrap;gap:.4rem;margin:.55rem 0}
 .lyric-align-actions button{flex:1 1 auto;min-height:40px;padding:.4rem .65rem;white-space:nowrap}
 @media(max-width:650px){.lyric-align-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.lyric-align-actions button:last-child{grid-column:1/-1}.lyric-align-actions button{font-size:.78rem;min-width:0}}
+
+.lead-voice-shift{display:block;width:100%;margin:.3rem 0;padding:.3rem .45rem;font-size:.75rem;white-space:normal}
