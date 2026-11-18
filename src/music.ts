@@ -1052,15 +1052,22 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
     if(n.slideTo!==undefined&&(!Number.isInteger(n.slideTo)||n.slideTo<range[0]||n.slideTo>range[1]||inst==='Piano'||n.technique==='pizzicato'))throw Error('Slide unsupported for this instrument, technique or pitch range');
     if(n.swellTo!==undefined&&(!Number.isInteger(n.swellTo)||n.swellTo<1||n.swellTo>127||inst==='Piano'||n.technique==='pizzicato'))throw Error('Swell unsupported for this instrument, technique or velocity');
     if(n.articulation!==undefined&&!['staccato','marcato_staccato','legato'].includes(n.articulation))throw Error('Unsupported note articulation');
-    if(!Number.isInteger(n.pitch)||n.pitch<range[0]||n.pitch>range[1]||!Number.isFinite(n.start)||!Number.isFinite(n.duration)||n.duration<=0||n.start<offset-1e-8||n.start>=hi||n.start+n.duration>hi+1e-8)
+    if(!Number.isInteger(n.pitch)||n.pitch<range[0]||n.pitch>range[1]||!Number.isFinite(n.start)||!Number.isFinite(n.duration)||n.duration<=0||n.start<offset-1e-8||n.start>=hi||n.start+n.duration>p.bars.length*p.beats+1e-8)
       throw Error(`Invalid ${inst} note: pitch, onset or duration outside measure`);
     return {...n,source:'manual' as const};
   }).sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
   const replace=(score:Score):Score=>Object.fromEntries(projectInstruments(p).map(part=>[part,part===inst?
     [...(score[part]??[]).filter(n=>n.start<offset-1e-8||n.start>=hi),...edited].sort((a,b)=>a.start-b.start||a.pitch-b.pitch):
     (score[part]??[]).map(n=>({...n}))])) as Score;
-  const key=`${inst}:${barIndex}`;
-  return {...p,generatedScore:replace(current),importedScore:replace(p.importedScore??current),protectedBars:{...p.protectedBars,[key]:true}};
+  const protectedBars={...p.protectedBars};
+  // Protect every measure touched by the edited notes. The note is stored once,
+  // at its onset, and its duration may extend into subsequent measures.
+  protectedBars[`${inst}:${barIndex}`]=true;
+  for(const note of edited){
+    const last=Math.min(p.bars.length-1,Math.floor((note.start+note.duration-1e-8)/p.beats));
+    for(let b=barIndex+1;b<=last;b++)protectedBars[`${inst}:${b}`]=true;
+  }
+  return {...p,generatedScore:replace(current),importedScore:replace(p.importedScore??current),protectedBars};
 }
 /** Remove manual protection and restore generator output for this measure only. */
 export function resetInstrumentMeasure(p:Project,inst:Instrument,barIndex:number):Project {
