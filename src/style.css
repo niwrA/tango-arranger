@@ -811,7 +811,7 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .song-map-scroll .song-map{width:max-content;min-width:0;table-layout:auto}
 .song-map-scroll .song-map thead tr:not(.song-map-section-row)>th:not(.sticky-instrument),
 .song-map-scroll .song-map tbody td{width:98px;min-width:98px;max-width:98px;box-sizing:border-box}
-.song-map-scroll .song-map .sticky-instrument{width:150px;min-width:150px;max-width:150px;box-sizing:border-box}
+.song-map-scroll .song-map .sticky-instrument{width:340px;min-width:340px;max-width:340px;box-sizing:border-box}
 .song-map-scroll .song-map .song-map-section-heading{padding:0;max-width:none}
 .song-map-scroll .song-map .song-map-section-toggle{min-width:0;overflow:hidden}
 
@@ -1186,4 +1186,40 @@ label{line-height:1.35}
 @media(max-width:650px){
   .song-map tbody th.sticky-instrument{min-width:310px;max-width:310px;width:310px}
   .song-map tbody th.sticky-instrument .instrument-heading-button{width:calc(100% - 114px)}
+}
+
+/* Orchestration row: the table's original 150px sticky-column rule was
+   overriding later, less-specific widths and squeezing the instrument label. */
+.song-map-scroll .song-map tbody th.sticky-instrument{
+  width:340px;
+  min-width:340px;
+  max-width:340px;
+  box-sizing:border-box;
+  padding:5px 8px;
+  text-align:left;
+}
+.song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-button{
+  display:inline-flex;
+  width:210px;
+  max-width:210px;
+  min-width:210px;
+  height:34px;
+  vertical-align:middle;
+  justify-content:flex-start;
+  align-items:center;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  box-shadow:none;
+}
+.song-map-scroll .song-map tbody th.sticky-instrument .instrument-row-preview{
+  display:inline-flex;
+  width:108px;
+  margin:0 0 0 3px;
+  vertical-align:middle;
+  flex-wrap:nowrap;
+}
+@media(max-width:650px){
+  .song-map-scroll .song-map .sticky-instrument,
+  .song-map-scroll .song-map tbody th.sticky-instrument{width:340px;min-width:340px;max-width:340px}
 }
