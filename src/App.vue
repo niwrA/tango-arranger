@@ -2620,7 +2620,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" class="secondary icon-action help-icon-toggle" :aria-pressed="!compactHelp" :title="compactHelp?'Show explanations':'Hide explanations'" :aria-label="compactHelp?'Show explanations':'Hide explanations'" @click="compactHelp=!compactHelp"><AppIcon name="circle-help"/></button>
   </div>
 </header>
-<div v-if="statusVisible && !statusDismissed && active!=='about' && !performanceMode" class="topbar-status" :style="/\b(failed|error|invalid|cannot|could not)\b/i.test(message)?{background:'#fff0f0',color:'#9b1c1c',borderColor:'#e9a2a2'}:undefined" role="status" aria-live="polite"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
+<div v-if="statusVisible && !statusDismissed && !performanceMode" class="topbar-status" :style="/\b(failed|error|invalid|cannot|could not)\b/i.test(message)?{background:'#fff0f0',color:'#9b1c1c',borderColor:'#e9a2a2'}:undefined" role="status" aria-live="polite"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
 <div v-if="projectDrawerOpen" class="app-modal-backdrop" @click.self="closeSongSettings" @keydown.esc.stop.prevent="closeSongSettings" @keydown.tab="trapModalTab">
   <section id="song-settings-modal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="song-settings-title">
     <div class="app-modal-heading"><div><h2 id="song-settings-title">Song settings</h2><p>{{project.title||'Untitled tango'}}</p></div><button class="secondary icon-action modal-close" type="button" title="Close song settings" aria-label="Close song settings" @click="closeSongSettings"><AppIcon name="x"/></button></div>
@@ -2714,13 +2714,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 
  <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
-  <div class="section-heading"><h1 id="about-title">About Tango Arranger</h1><button type="button" class="secondary" @click="active='arrange'">← Back to arranging</button></div>
-  <p class="about-intro">Tango Arranger is a local-first workbench for creating Argentine tango orchestra arrangements from a lead sheet. Start with a melody and chord progression, choose an orchestration style, and refine the result instrument by instrument.</p>
+  <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
+  <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
   <div class="about-grid">
     <article class="editor"><h2>Start with your song</h2><p>Enter a melody and chords in the Lead Sheet, or import MIDI or MusicXML. Define sections, measure counts, keys and your ensemble in Structure, Keys &amp; Ensemble.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
     <article class="editor"><h2>Arrange the orchestra</h2><p>Generate parts for piano, contrabass, violins and bandoneons. Assign roles, styles, figures and articulations by section or measure in Orchestration.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
     <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, written durations, velocities, articulations and expressive gestures. Audition notes or loop a measure while you work.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
-    <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango.json backups, and export MusicXML for further editing in MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
+    <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango.json backups, and export native .mscz scores for MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Current version: v{{appVersion}}. Highlights from recent releases.</p>
     <div class="release-entry"><h3>v5.4.1 · Instrumental section groups</h3><p>Section now means an instrumental group (rhythm, melody or harmony), not a song part. Group membership is editable and saved with the song. All three map scopes show the full song; A/B/C song-part settings live in All.</p></div>
@@ -3141,3 +3141,36 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </section>
 </main></div><footer v-if="!performanceMode">Local-first prototype · IndexedDB autosave and multiple local songs · Export .tango.json backups · MusicXML for MuseScore</footer></div>
 </template>
+
+<style>
+/* About and release notes: responsive editorial layout, aligned with the DAW shell. */
+.about-page{width:100%;max-width:1180px;margin:0 auto;padding:clamp(8px,1.5vw,20px) 0 32px;min-width:0}
+.about-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,3.5vw,42px);border:1px solid #3b4d5b;border-radius:16px;background:radial-gradient(ellipse at 90% 0%,rgba(202,166,111,.13),transparent 58%),linear-gradient(125deg,#263645,#192630);box-shadow:0 10px 28px rgba(0,0,0,.13)}
+.about-hero h1{margin:4px 0 8px;font-size:clamp(28px,4.5vw,48px);line-height:1.1;letter-spacing:-.035em;color:#f2f3f5}
+.about-eyebrow{margin:0;color:#d4ad77;font-size:11px;font-weight:750;letter-spacing:.15em}
+.about-version{margin:0;color:#b5c4ce;font-size:13px}
+.about-hero-mark{font-size:clamp(62px,10vw,116px);line-height:1;color:#d0a970;opacity:.75;flex:0 0 auto}
+.about-page .about-intro{max-width:760px;margin:20px 0 24px;font-size:clamp(15px,1.5vw,18px);line-height:1.65;color:#c6d1da}
+.about-page .about-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.about-page .about-grid .editor{display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-width:0;margin:0;padding:clamp(16px,2vw,23px);border:1px solid #354654;border-radius:12px;background:linear-gradient(155deg,#23313e,#1b2833);box-shadow:inset 0 1px rgba(255,255,255,.035);transition:border-color .16s ease,transform .16s ease,box-shadow .16s ease}
+.about-page .about-grid .editor:hover{border-color:#5b6b77;box-shadow:0 6px 20px rgba(0,0,0,.12);transform:translateY(-2px)}
+.about-page .about-grid .editor h2{font-size:17px;line-height:1.3;margin:0;color:#e8edf1}
+.about-page .about-grid .editor p{flex:1;margin:0;color:#b6c5cf;line-height:1.55;font-size:13px}
+.about-page .about-grid .editor button{margin-top:6px;min-height:36px;padding:7px 12px;border-radius:8px;font-size:12px}
+.about-page .about-releases{margin:20px 0 0;padding:clamp(17px,2.5vw,28px);border:1px solid #354654;border-radius:13px;background:#1b2833}
+.about-page .about-releases>h2{margin:0 0 5px;font-size:21px}
+.about-page .about-releases>.muted{margin:0 0 14px}
+.about-page .release-entry{padding:15px 0;border-top:1px solid #344452}
+.about-page .release-entry h3{font-size:14px;line-height:1.45;color:#e4c18d;margin:0 0 5px}
+.about-page .release-entry p{font-size:13px;line-height:1.65;margin:0;color:#bac7d0}
+@media(max-width:700px){
+ .about-page{padding:4px 0 24px}
+ .about-hero{padding:20px;gap:12px;border-radius:12px}
+ .about-hero-mark{font-size:60px}
+ .about-page .about-grid{grid-template-columns:1fr;gap:10px}
+ .about-page .about-grid .editor{padding:17px}
+ .about-page .about-intro{margin:16px 0 20px}
+}
+@media(max-width:380px){.about-hero-mark{display:none}}
+@media(prefers-reduced-motion:reduce){.about-page .about-grid .editor{transition:none}.about-page .about-grid .editor:hover{transform:none}}
+</style>
