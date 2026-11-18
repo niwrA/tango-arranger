@@ -2900,12 +2900,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:.4rem;margin:.75rem 0">
-        <button v-for="barIndex in dynamicsPreviewBars" :key="barIndex" type="button" class="secondary" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" @click="openDynamicPopup(barIndex)">
+        <div v-for="barIndex in dynamicsPreviewBars" :key="barIndex">
+        <button type="button" class="secondary" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" @click="openDynamicPopup(barIndex)">
           <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
           <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
           <small>{{dynamicsTargets(barIndex).length}} parts</small>
         </button>
         <div v-for="edge in dynamicsRangeEndpoints(barIndex)" :key="`${edge.index}-${edge.endpoint}`"><button type="button" class="secondary" style="width:100%;font-size:.75rem" @click="openDynamicPopup(barIndex,edge.index,edge.endpoint)">{{edge.label}}</button></div>
+        </div>
       </div>
       <div v-if="dynamicsPopupBar!==null" class="note-settings-backdrop" @click.self="dynamicsPopupBar=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Edit dynamic or hairpin endpoint">
         <div class="note-settings-title"><strong>{{dynamicsPopupRange===null?'Edit dynamic':'Edit hairpin '+dynamicsPopupEndpoint}} · measure {{dynamicsPopupBar+1}}</strong><button type="button" class="secondary" @click="dynamicsPopupBar=null">✕ Close</button></div>
