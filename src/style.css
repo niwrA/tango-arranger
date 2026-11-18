@@ -933,3 +933,86 @@ button.performance-ensemble .performance-part{width:auto}
 /* The beat/pitch heading itself is a touch swipe target, not the note cells. */
 .note-beat-swipe-header,.note-beat-swipe-header th{touch-action:none;user-select:none;-webkit-user-select:none;cursor:ew-resize}
 .note-beat-swipe-header th{background-color:#34475b}
+
+
+/* 2026 visual refinement: restrained depth, responsive feedback and accessible motion. */
+:root{
+  color-scheme:dark;
+  --ui-ease:cubic-bezier(.22,1,.36,1);
+  --ui-border:rgba(158,179,198,.19);
+  --ui-glow:rgba(197,160,106,.16);
+}
+body{
+  background:radial-gradient(ellipse 90% 55% at 85% -15%,rgba(79,114,143,.13),transparent 75%),#10151b;
+  -webkit-font-smoothing:antialiased;
+}
+header{
+  background:linear-gradient(115deg,rgba(28,39,50,.98),rgba(21,29,38,.98));
+  box-shadow:0 5px 24px rgba(0,0,0,.12);
+}
+aside{background:linear-gradient(180deg,#19232e,#151e27)}
+main{min-width:0}
+button{
+  transition:background-color .2s var(--ui-ease),border-color .2s var(--ui-ease),color .2s var(--ui-ease),box-shadow .2s var(--ui-ease),transform .18s var(--ui-ease);
+  -webkit-tap-highlight-color:transparent;
+}
+button:not(:disabled):hover{filter:brightness(1.08);border-color:rgba(210,188,150,.56)}
+button:not(:disabled):active{transform:scale(.985)}
+button:disabled{cursor:not-allowed;opacity:.53}
+button.primary{
+  background:linear-gradient(145deg,#e0bd87,#bc945d);
+  border-color:#d3ad78;
+  box-shadow:0 2px 12px rgba(197,160,106,.13);
+}
+button.primary:not(:disabled):hover{box-shadow:0 4px 19px rgba(197,160,106,.26)}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid #e5bb7d;
+  outline-offset:3px;
+}
+input:not([type=checkbox]),select,textarea{
+  transition:border-color .2s ease,box-shadow .2s ease,background-color .2s ease;
+}
+input:not([type=checkbox]):focus,select:focus,textarea:focus{
+  border-color:#d7ad75;
+  box-shadow:0 0 0 3px var(--ui-glow);
+}
+input[type=range],input[type=checkbox]{accent-color:#d1aa74}
+.tabs{gap:.3rem}
+.tabs button{transition:color .2s ease,background-color .2s ease,box-shadow .2s ease}
+.tabs button:hover{background:rgba(196,160,107,.09)}
+.tabs button.active{box-shadow:inset 0 -2px 0 #d2ab70}
+.figure-workbench,.note-editor-panel,.performance-roll-panel{
+  border-radius:14px;
+  transition:border-color .24s ease,box-shadow .24s ease;
+}
+.figure-workbench:focus-within,.note-editor-panel:focus-within{
+  border-color:rgba(197,160,106,.36);
+  box-shadow:0 0 0 1px rgba(197,160,106,.07);
+}
+.note-settings-backdrop{
+  background:rgba(6,11,17,.7);
+  -webkit-backdrop-filter:blur(7px);
+  backdrop-filter:blur(7px);
+  animation:ui-overlay-enter .22s ease-out both;
+}
+.note-settings-dialog{
+  background:linear-gradient(155deg,#263544,#1b2733);
+  border:1px solid rgba(176,194,209,.29);
+  border-radius:18px;
+  box-shadow:0 24px 70px rgba(0,0,0,.48),0 1px 0 rgba(255,255,255,.05) inset;
+  animation:ui-dialog-enter .3s var(--ui-ease) both;
+}
+.note-settings-title{padding-bottom:.6rem;border-bottom:1px solid var(--ui-border)}
+.file-picker{transition:border-color .2s ease,background-color .2s ease,transform .2s var(--ui-ease)}
+.file-picker:hover{border-color:#d2ab70;background:rgba(197,160,106,.07)}
+.performance-section-jump{transition:background-color .2s ease,border-color .2s ease,transform .18s var(--ui-ease)}
+.performance-section-jump:hover{border-color:#d2ab70}
+@keyframes ui-overlay-enter{from{opacity:0}to{opacity:1}}
+@keyframes ui-dialog-enter{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(hover:none){
+  button:hover{filter:none}
+  button:not(:disabled):active{filter:brightness(1.1)}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
