@@ -249,6 +249,12 @@ function activateGridMeasure(bar:number){
  overviewFocus.value=bar;
  noteSelected.value=-1;
 }
+function continuousVisibleNotes(pitch:number){
+ const first=focusVisibleMeasures.value[0]??selectedBar.value;
+ const last=focusVisibleMeasures.value.at(-1)??first;
+ const beats=project.value.beats;
+ return (score.value[noteInst.value]??[]).filter(n=>n.pitch===pitch&&n.start>=first*beats-1e-7&&n.start<(last+1)*beats-1e-7);
+}
 function focusMeasureOnsets(bar:number){
  return focusMeasureNotes(bar).filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===bar);
 }
@@ -2160,7 +2166,7 @@ function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
   const mode:NoteDrag['mode']=handle?.classList.contains('note-resize-handle-left')?'resize-left':handle?'resize-right':'move';
   const note=noteMeasure.value[index];noteSelected.value=index;
   const gridRect=grid.getBoundingClientRect();
-  const cellWidth=gridRect.width/noteBeats.value.length;
+  const cellWidth=gridRect.width/(noteBeats.value.length*focusVisibleMeasures.value.length);
   dragHistoryStart=snapshotProject(project.value);
   noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
     startPitch:note.pitch,startLocal:note.start-selectedBar.value*project.value.beats,
@@ -3112,12 +3118,21 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
 </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
-    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)"><div class="note-multibar-grid" :style="{'--visible-measures':focusVisibleMeasures.length}"><div v-for="barIndex in focusVisibleMeasures" :key="barIndex" class="note-multibar-measure" :class="{'note-multibar-active':selectedBar===barIndex}"><button type="button" class="note-multibar-title" @click="activateGridMeasure(barIndex)">Measure {{barIndex+1}} · {{project.bars[barIndex].chord||'—'}}</button><table class="note-grid" :style="{'--grid-steps':noteBeats.length}"><thead><tr class="note-beat-swipe-header" title="Swipe left or right here to change measures and move the loop range" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag"><th class="note-pitch-label">Pitch ↔</th><th v-for="beat in noteBeats" :key="beat" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></th></tr></thead><tbody>
-      <tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length"><div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length}">
-        <button v-for="beat in noteBeats" :key="beat" type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)}]" :title="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :aria-label="`Add ${displayPitch(pitch)} at beat ${beat+1}`" :data-note-pitch="pitch" :data-note-beat="beat" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
-        <button v-for="(n,i) in focusMeasureOnsets(barIndex).filter(n=>n.pitch===pitch)" :key="`${n.start}:${n.pitch}:${n.duration}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-barIndex*project.beats)/project.beats*100}%`,width:`${n.duration/project.beats*100}%`}" :data-note-pitch="pitch" :title="`${displayPitch(n.pitch)} · beat ${Number((n.start-barIndex*project.beats+1).toFixed(2))} · ${n.duration} beats. Drag center to move; drag either edge to resize.`" :aria-label="`Select ${displayPitch(n.pitch)}, ${n.duration} beats. Drag middle to move, left or right edge to resize.`" @pointerdown="activateGridMeasure(barIndex);beginNoteDrag($event,pitch,n.start-barIndex*project.beats)" @click.stop="activateGridMeasure(barIndex);noteBarClick(pitch,n.start-barIndex*project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true" title="Resize from start (keep note end fixed)">◂</span><span class="note-bar-label">{{n.duration}}<span class="note-bar-unit"> beat{{n.duration===1?'':'s'}}</span></span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true" title="Resize from end (keep note start fixed)">▸</span></button>
-      </div></td></tr>
-    </tbody></table></div></div></div>
+    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)">
+      <div class="note-continuous-grid">
+        <table class="note-grid note-continuous-table" :style="{'--grid-steps':noteBeats.length*focusVisibleMeasures.length}">
+          <thead>
+            <tr><th class="note-pitch-label">Pitch</th><th v-for="barIndex in focusVisibleMeasures" :key="barIndex" :colspan="noteBeats.length"><button type="button" class="note-multibar-title" @click="activateGridMeasure(barIndex)">Measure {{barIndex+1}} · {{project.bars[barIndex].chord||'—'}}</button></th></tr>
+            <tr class="note-beat-swipe-header"><th class="note-pitch-label">Pitch ↔</th><template v-for="barIndex in focusVisibleMeasures" :key="barIndex"><th v-for="beat in noteBeats" :key="`${barIndex}-${beat}`" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></th></template></tr>
+          </thead>
+          <tbody><tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length*focusVisibleMeasures.length">
+            <div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length*focusVisibleMeasures.length}">
+              <template v-for="barIndex in focusVisibleMeasures" :key="barIndex"><button v-for="beat in noteBeats" :key="`${barIndex}-${beat}`" type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}]" :title="`Add ${displayPitch(pitch)} in measure ${barIndex+1}, beat ${beat+1}`" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button></template>
+              <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="`${n.start}:${n.pitch}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100}%`,width:`${Math.min(n.duration,focusVisibleMeasures.length*project.beats-(n.start-focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats. Drag either edge to resize across measures.`" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span class="note-bar-label">{{n.duration}} beats</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
+            </div>
+          </td></tr></tbody>
+        </table>
+      </div>
     </div>
     </div>
     <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
@@ -3236,4 +3251,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-multibar-measure .note-grid thead th:not(.note-pitch-label){width:auto;min-width:0;padding-left:0;padding-right:0;font-size:10px}
 .note-multibar-measure .note-grid .note-beat-swipe-header small{font-size:9px}
 @media(max-width:740px){.note-multibar-grid{grid-template-columns:repeat(var(--visible-measures,1),minmax(320px,1fr))}}
+
+/* One continuous time axis: note bars extend naturally across measure boundaries. */
+.note-continuous-grid{width:100%;min-width:max-content}
+.note-continuous-table{min-width:calc(58px + var(--grid-steps)*22px);width:100%;table-layout:fixed}
+.note-continuous-table .note-pitch-label{width:58px;min-width:58px}
+.note-continuous-table thead th:not(.note-pitch-label){min-width:0;width:auto;padding:2px 0;font-size:10px}
+.note-continuous-table .note-multibar-title{width:100%;min-height:30px}
 </style>
