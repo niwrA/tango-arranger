@@ -1851,6 +1851,31 @@ function saveDynamicsHairpin(){
  dynamicsCreateShape.value=null;
  message.value=`Added ${dynamicsCreateFrom.value<dynamicsCreateTo.value?'crescendo':'diminuendo'} for ${inst}.`;
 }
+const dynamicsEditRange=ref<number|null>(null);
+const dynamicsEditStart=ref('');
+const dynamicsEditEnd=ref('');
+function openHairpinEditor(index:number){
+ const range=project.value.expressionRanges?.[index];if(!range)return;
+ dynamicsEditRange.value=index;
+ dynamicsEditStart.value=String(range.startMeasure*project.value.beats+(range.startBeat??0));
+ dynamicsEditEnd.value=String(range.endMeasure*project.value.beats+(range.endBeat??project.value.beats));
+}
+function saveHairpinEditor(){
+ const index=dynamicsEditRange.value;if(index===null)return;
+ const range=project.value.expressionRanges?.[index];if(!range)return;
+ const beats=project.value.beats,start=Number(dynamicsEditStart.value),end=Number(dynamicsEditEnd.value);
+ if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end>project.value.bars.length*beats){message.value='Select an end note after the start note.';return;}
+ const endBar=Math.min(project.value.bars.length-1,Math.floor(end/beats));
+ range.startMeasure=Math.floor(start/beats);range.startBeat=start%beats;
+ range.endMeasure=endBar;range.endBeat=end-endBar*beats;
+ dynamicsEditRange.value=null;
+}
+const visibleHairpins=computed(()=> (project.value.expressionRanges??[]).map((range,index)=>{
+ const start=range.startMeasure*project.value.beats+(range.startBeat??0);
+ const end=range.endMeasure*project.value.beats+(range.endBeat??project.value.beats);
+ const first=dynamicsPreviewBars.value[0]??0,last=(dynamicsPreviewBars.value.at(-1)??first)+1;
+ return {index,range,start,end,from:Math.max(0,(start-first*project.value.beats)/((last-first)*project.value.beats)*100),to:Math.min(100,(end-first*project.value.beats)/((last-first)*project.value.beats)*100),visible:end>first*project.value.beats&&start<last*project.value.beats&&dynamicsTargets(range.startMeasure).includes(range.instrument)};
+}).filter(item=>item.visible&&item.to>item.from));
 const dynamicsPopupBar=ref<number|null>(null);
 const dynamicsPopupRange=ref<number|null>(null);
 const dynamicsPopupEndpoint=ref<'start'|'end'>('start');
@@ -2946,9 +2971,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
           <small>{{dynamicsTargets(barIndex).length}} parts</small>
         </button>
-        <div v-for="edge in dynamicsRangeEndpoints(barIndex)" :key="`${edge.index}-${edge.endpoint}`"><button type="button" class="secondary" style="width:100%;font-size:.75rem" @click="openDynamicPopup(barIndex,edge.index,edge.endpoint)">{{edge.label}}</button></div>
+ 
         </div>
       </div>
+      <div v-if="visibleHairpins.length" style="position:relative;min-height:70px;margin:.65rem 0;border-top:1px solid var(--border, #888);border-bottom:1px solid var(--border, #888)">
+        <button v-for="item in visibleHairpins" :key="item.index" type="button" class="secondary" :style="{position:'absolute',left:item.from+'%',width:(item.to-item.from)+'%',top:(item.index%2)*34+'px',height:'30px',padding:'2px',overflow:'hidden',whiteSpace:'nowrap'}" @click="openHairpinEditor(item.index)">{{item.range.to>=item.range.from?'〈 Crescendo':'〉 Diminuendo'}} · {{item.range.instrument}}</button>
+      </div>
+      <div v-if="dynamicsEditRange!==null" class="note-settings-backdrop" @click.self="dynamicsEditRange=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Edit hairpin">
+        <div class="note-settings-title"><strong>Edit hairpin · {{project.expressionRanges?.[dynamicsEditRange]?.instrument}}</strong><button type="button" class="secondary" @click="dynamicsEditRange=null">✕ Close</button></div>
+        <template v-if="project.expressionRanges?.[dynamicsEditRange]">
+          <label>Start note<select v-model="dynamicsEditStart"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="n.start" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option></select></label>
+          <label>End note<select v-model="dynamicsEditEnd"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="n.start" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option><option :value="String(project.bars.length*project.beats)">End of score</option></select></label>
+        </template>
+        <div class="expression-range-row"><button class="primary" @click="saveHairpinEditor">Save endpoints</button><button class="secondary" @click="project.expressionRanges?.splice(dynamicsEditRange,1);dynamicsEditRange=null">Delete hairpin</button></div>
+      </div></div>
       <div v-if="dynamicsCreateShape!==null" class="note-settings-backdrop" @click.self="dynamicsCreateShape=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Create hairpin">
         <div class="note-settings-title"><strong>{{dynamicsCreateShape==='crescendo'?'Create crescendo':'Create diminuendo'}}</strong><button type="button" class="secondary" @click="dynamicsCreateShape=null">✕ Close</button></div>
         <label>Instrument<select v-model="dynamicsCreateInstrument"><option v-for="inst in projectInstruments(project)" :key="inst" :value="inst">{{inst}}</option></select></label>
