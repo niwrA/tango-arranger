@@ -1821,9 +1821,22 @@ const dynamicsCreateShape=ref<'crescendo'|'diminuendo'|null>(null);
 const dynamicsCreateInstrument=ref<Instrument|null>(null);
 const dynamicsCreateStart=ref('');
 const dynamicsCreateEnd=ref('');
+const dynamicsCreateEndMeasure=ref(0);
+const dynamicsEditEndMeasure=ref(0);
+const dynamicsMeasureChoices=computed(()=>Array.from({length:project.value.bars.length},(_,i)=>i));
+function hairpinNotesInMeasure(inst:string|null,measure:number){
+ if(!inst)return [];
+ const beats=project.value.beats;
+ return (score.value[inst]??[]).filter(n=>Number.isFinite(n.start)&&n.start>=measure*beats&&n.start<(measure+1)*beats)
+  .slice().sort((a,b)=>a.start-b.start).map(n=>({position:Number(n.start.toFixed(6)),label:`Beat ${Number((n.start%beats+1).toFixed(3))} · ${midiName(n.pitch)}`}));
+}
+const dynamicsCreateEndNotes=computed(()=>hairpinNotesInMeasure(dynamicsCreateInstrument.value,dynamicsCreateEndMeasure.value));
+const dynamicsEditEndNotes=computed(()=>{const i=dynamicsEditRange.value;return i===null?[]:hairpinNotesInMeasure(project.value.expressionRanges?.[i]?.instrument??null,dynamicsEditEndMeasure.value)});
+function changeCreateEndMeasure(measure:number){dynamicsCreateEndMeasure.value=measure;dynamicsCreateEnd.value=String((measure+1)*project.value.beats);}
+function changeEditEndMeasure(measure:number){dynamicsEditEndMeasure.value=measure;dynamicsEditEnd.value=String((measure+1)*project.value.beats);}
+
 const dynamicsCreateFrom=ref(55);
 const dynamicsCreateTo=ref(105);
-const dynamicsMeasureEndpoints=computed(()=>Array.from({length:project.value.bars.length},(_,i)=>({position:(i+1)*project.value.beats,label:`End of measure ${i+1}`})));
 const dynamicsCreateNotes=computed(()=>{
  const inst=dynamicsCreateInstrument.value;
  if(!inst)return [];
@@ -1839,6 +1852,7 @@ function beginDynamicsHairpin(shape:'crescendo'|'diminuendo'){
  const next=notes.find(n=>first&&n.start>first.start);
  dynamicsCreateStart.value=String(first?.start??selectedBar.value*project.value.beats);
  dynamicsCreateEnd.value=String(next?.start??((selectedBar.value+1)*project.value.beats));
+ dynamicsCreateEndMeasure.value=Math.max(0,Math.min(project.value.bars.length-1,Math.floor((Number(dynamicsCreateEnd.value)-0.000001)/project.value.beats)));
  dynamicsCreateFrom.value=shape==='crescendo'?55:105;
  dynamicsCreateTo.value=shape==='crescendo'?105:55;
 }
@@ -1860,6 +1874,7 @@ function openHairpinEditor(index:number){
  dynamicsEditRange.value=index;
  dynamicsEditStart.value=String(range.startMeasure*project.value.beats+(range.startBeat??0));
  dynamicsEditEnd.value=String(range.endMeasure*project.value.beats+(range.endBeat??project.value.beats));
+ dynamicsEditEndMeasure.value=Math.max(0,Math.min(project.value.bars.length-1,range.endMeasure));
 }
 function saveHairpinEditor(){
  const index=dynamicsEditRange.value;if(index===null)return;
@@ -2982,7 +2997,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <div class="note-settings-title"><strong>Edit hairpin · {{project.expressionRanges?.[dynamicsEditRange]?.instrument}}</strong><button type="button" class="secondary" @click="dynamicsEditRange=null">✕ Close</button></div>
         <template v-if="project.expressionRanges?.[dynamicsEditRange]">
           <label>Start note<select v-model="dynamicsEditStart"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="n.start" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option></select></label>
-          <label>End position<select v-model="dynamicsEditEnd"><optgroup label="Measure boundaries"><option v-for="m in dynamicsMeasureEndpoints" :key="`measure-${m.position}`" :value="String(m.position)">{{m.label}}</option></optgroup><optgroup label="Note onsets"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="`note-${n.start}`" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option></optgroup></select></label>
+          <label>End measure<select :value="dynamicsEditEndMeasure" @change="changeEditEndMeasure(Number(($event.target as HTMLSelectElement).value))"><option v-for="m in dynamicsMeasureChoices" :key="m" :value="m">Measure {{m+1}}</option></select></label>
+          <label>End at<select v-model="dynamicsEditEnd"><option :value="String((dynamicsEditEndMeasure+1)*project.beats)">End of measure {{dynamicsEditEndMeasure+1}}</option><option v-for="n in dynamicsEditEndNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option></select></label>
         </template>
         <div class="expression-range-row"><button class="primary" @click="saveHairpinEditor">Save endpoints</button><button class="secondary" @click="project.expressionRanges?.splice(dynamicsEditRange,1);dynamicsEditRange=null">Delete hairpin</button></div>
       </div></div>
@@ -2990,7 +3006,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <div class="note-settings-title"><strong>{{dynamicsCreateShape==='crescendo'?'Create crescendo':'Create diminuendo'}}</strong><button type="button" class="secondary" @click="dynamicsCreateShape=null">✕ Close</button></div>
         <label>Instrument<select v-model="dynamicsCreateInstrument"><option v-for="inst in projectInstruments(project)" :key="inst" :value="inst">{{inst}}</option></select></label>
         <label>Start note<select v-model="dynamicsCreateStart"><option v-for="n in dynamicsCreateNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option></select></label>
-        <label>End position<select v-model="dynamicsCreateEnd"><optgroup label="Measure boundaries"><option v-for="m in dynamicsMeasureEndpoints" :key="`measure-${m.position}`" :value="String(m.position)">{{m.label}}</option></optgroup><optgroup label="Note onsets"><option v-for="n in dynamicsCreateNotes" :key="`note-${n.position}`" :value="String(n.position)">{{n.label}}</option></optgroup></select></label>
+        <label>End measure<select :value="dynamicsCreateEndMeasure" @change="changeCreateEndMeasure(Number(($event.target as HTMLSelectElement).value))"><option v-for="m in dynamicsMeasureChoices" :key="m" :value="m">Measure {{m+1}}</option></select></label>
+        <label>End at<select v-model="dynamicsCreateEnd"><option :value="String((dynamicsCreateEndMeasure+1)*project.beats)">End of measure {{dynamicsCreateEndMeasure+1}}</option><option v-for="n in dynamicsCreateEndNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option></select></label>
         <div class="two"><label>Start intensity<input type="number" min="1" max="127" v-model.number="dynamicsCreateFrom"/></label><label>End intensity<input type="number" min="1" max="127" v-model.number="dynamicsCreateTo"/></label></div>
         <p class="hint">Creates one hairpin between the chosen notes without overwriting dynamic markings in other measures.</p>
         <button type="button" class="primary" @click="saveDynamicsHairpin">Create hairpin</button>
