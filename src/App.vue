@@ -1764,6 +1764,12 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
   if(!auditionEnabled.value)return;
   try{
     Tone=await startAudioFromGesture();
+    if(audioEngine.value==='samples'){
+      await prepareSamples([noteInst.value]);
+      const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+      triggerInstrument(noteInst.value,transposed,Math.max(0.025,durationSeconds),Tone.now(),Math.max(0.1,Math.min(1,velocity/127)));
+      return;
+    }
     if(!auditionSynth){
       auditionSynth=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.008,decay:0.09,sustain:0.22,release:0.16}}).toDestination();
       auditionSynth.volume.value=-11;
@@ -1811,6 +1817,40 @@ const dynamicsScope=ref<'instrument'|'role'|'all'>('role');
 const dynamicsRole=ref<Role>('melody');
 const dynamicsRoles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];
 const dynamicsMark=ref<DynamicMark>('mf');
+const dynamicsCreateShape=ref<'crescendo'|'diminuendo'|null>(null);
+const dynamicsCreateInstrument=ref<Instrument|null>(null);
+const dynamicsCreateStart=ref('');
+const dynamicsCreateEnd=ref('');
+const dynamicsCreateFrom=ref(55);
+const dynamicsCreateTo=ref(105);
+const dynamicsCreateNotes=computed(()=>{
+ const inst=dynamicsCreateInstrument.value;
+ if(!inst)return [];
+ return (score.value[inst]??[]).filter(n=>Number.isFinite(n.start)).slice().sort((a,b)=>a.start-b.start).map(n=>({position:Number(n.start.toFixed(6)),label:`M${Math.floor(n.start/project.value.beats)+1} · beat ${Number((n.start%project.value.beats+1).toFixed(3))} · ${midiName(n.pitch)}`}));
+});
+function beginDynamicsHairpin(shape:'crescendo'|'diminuendo'){
+ const inst=dynamicsScope.value==='instrument'?noteInst.value:dynamicsTargets(selectedBar.value)[0];
+ if(!inst){message.value='Choose an instrument with notes first.';return;}
+ dynamicsCreateInstrument.value=inst;
+ dynamicsCreateShape.value=shape;
+ const notes=(score.value[inst]??[]).filter(n=>Number.isFinite(n.start)).sort((a,b)=>a.start-b.start);
+ const first=notes.find(n=>n.start>=selectedBar.value*project.value.beats)??notes[0];
+ const next=notes.find(n=>first&&n.start>first.start);
+ dynamicsCreateStart.value=String(first?.start??selectedBar.value*project.value.beats);
+ dynamicsCreateEnd.value=String(next?.start??((selectedBar.value+1)*project.value.beats));
+ dynamicsCreateFrom.value=shape==='crescendo'?55:105;
+ dynamicsCreateTo.value=shape==='crescendo'?105:55;
+}
+function saveDynamicsHairpin(){
+ const inst=dynamicsCreateInstrument.value;
+ const start=Number(dynamicsCreateStart.value),end=Number(dynamicsCreateEnd.value),beats=project.value.beats;
+ if(!inst||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end>project.value.bars.length*beats){message.value='Choose an end note after the start note.';return;}
+ project.value.expressionRanges??=[];
+ const endMeasure=Math.min(project.value.bars.length-1,Math.floor(end/beats));
+ project.value.expressionRanges.push({instrument:inst,startMeasure:Math.floor(start/beats),startBeat:start%beats,endMeasure,endBeat:end-endMeasure*beats,from:dynamicsCreateFrom.value,to:dynamicsCreateTo.value});
+ dynamicsCreateShape.value=null;
+ message.value=`Added ${dynamicsCreateFrom.value<dynamicsCreateTo.value?'crescendo':'diminuendo'} for ${inst}.`;
+}
 const dynamicsPopupBar=ref<number|null>(null);
 const dynamicsPopupRange=ref<number|null>(null);
 const dynamicsPopupEndpoint=ref<'start'|'end'>('start');
@@ -2895,8 +2935,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
       <div class="expression-range-row" style="display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">
         <span>Tap a measure to set</span><button class="secondary" @click="applyDynamicsGesture('constant')">Level across range</button>
-        <button class="secondary" @click="applyDynamicsGesture('crescendo')">〈 Crescendo</button>
-        <button class="secondary" @click="applyDynamicsGesture('diminuendo')">〉 Diminuendo</button>
+        <button class="secondary" @click="beginDynamicsHairpin('crescendo')">〈 Crescendo</button>
+        <button class="secondary" @click="beginDynamicsHairpin('diminuendo')">〉 Diminuendo</button>
         <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:.4rem;margin:.75rem 0">
@@ -2909,6 +2949,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <div v-for="edge in dynamicsRangeEndpoints(barIndex)" :key="`${edge.index}-${edge.endpoint}`"><button type="button" class="secondary" style="width:100%;font-size:.75rem" @click="openDynamicPopup(barIndex,edge.index,edge.endpoint)">{{edge.label}}</button></div>
         </div>
       </div>
+      <div v-if="dynamicsCreateShape!==null" class="note-settings-backdrop" @click.self="dynamicsCreateShape=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Create hairpin">
+        <div class="note-settings-title"><strong>{{dynamicsCreateShape==='crescendo'?'Create crescendo':'Create diminuendo'}}</strong><button type="button" class="secondary" @click="dynamicsCreateShape=null">✕ Close</button></div>
+        <label>Instrument<select v-model="dynamicsCreateInstrument"><option v-for="inst in projectInstruments(project)" :key="inst" :value="inst">{{inst}}</option></select></label>
+        <label>Start note<select v-model="dynamicsCreateStart"><option v-for="n in dynamicsCreateNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option></select></label>
+        <label>End note<select v-model="dynamicsCreateEnd"><option v-for="n in dynamicsCreateNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option><option :value="String(project.bars.length*project.beats)">End of score</option></select></label>
+        <div class="two"><label>Start intensity<input type="number" min="1" max="127" v-model.number="dynamicsCreateFrom"/></label><label>End intensity<input type="number" min="1" max="127" v-model.number="dynamicsCreateTo"/></label></div>
+        <p class="hint">Creates one hairpin between the chosen notes without overwriting dynamic markings in other measures.</p>
+        <button type="button" class="primary" @click="saveDynamicsHairpin">Create hairpin</button>
+      </div></div>
       <div v-if="dynamicsPopupBar!==null" class="note-settings-backdrop" @click.self="dynamicsPopupBar=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Edit dynamic or hairpin endpoint">
         <div class="note-settings-title"><strong>{{dynamicsPopupRange===null?'Edit dynamic':'Edit hairpin '+dynamicsPopupEndpoint}} · measure {{dynamicsPopupBar+1}}</strong><button type="button" class="secondary" @click="dynamicsPopupBar=null">✕ Close</button></div>
         <template v-if="dynamicsPopupRange===null"><label>Dynamic<select v-model="dynamicsPopupMark"><option value="">Clear / inherit</option><option v-for="mark in dynamicMarks" :key="mark" :value="mark">{{mark}}</option></select></label></template>
