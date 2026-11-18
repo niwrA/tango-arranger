@@ -216,6 +216,12 @@ function changeFocusLoopTo(){
 }
 
 // The visible phrase and playback loop intentionally use the same bounds.
+const noteOverviewZoom=ref(110);
+function setNoteOverviewCount(count:number){
+  const from=selectedBar.value+1;
+  noteLoopFrom.value=from;
+  noteLoopTo.value=Math.min(project.value.bars.length,from+count-1);
+}
 const focusVisibleMeasures=computed(()=>{
   const max=project.value.bars.length;
   const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
@@ -2214,9 +2220,10 @@ function nudgeSelectedNote(delta:number){
 function changeNoteDuration(delta:number){
   if(!selectedEvent.value)return;
   const localStart=selectedEvent.value.start-selectedBar.value*project.value.beats;
-  const next=clampWrittenDuration(localStart,Math.round((selectedEvent.value.duration+delta)*4)/4,project.value.beats);
+  const maxDuration=project.value.bars.length*project.value.beats-selectedEvent.value.start;
+  const next=Math.max(0.25,Math.min(maxDuration,Math.round((selectedEvent.value.duration+delta)*4)/4));
   if(Math.abs(next-selectedEvent.value.duration)<0.0001){
-    message.value=delta>0?'This note already reaches the end of the measure.':'Minimum written duration is 0.25 beats.';
+    message.value=delta>0?'This note already reaches the end of the song.':'Minimum written duration is 0.25 beats.';
     return;
   }
   updateSelectedNote('duration',String(next));
@@ -2598,9 +2605,8 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   if(field==='gate')value=(value as number)/100;
   if(field==='duration'){
     if(!Number.isFinite(value)||Number(value)<0.25){message.value='Duration must be at least 0.25 beats';return;}
-    const localStart=old.start-selectedBar.value*project.value.beats;
-    const limited=clampWrittenDuration(localStart,Number(value),project.value.beats);
-    if(limited!==value)message.value=`Duration limited to ${limited} beats: the note must end within this measure.`;
+    const limited=Math.min(Number(value),project.value.bars.length*project.value.beats-old.start);
+    if(limited!==value)message.value=`Duration limited to ${limited} beats: the note must end within the song.`;
     value=limited;
   }
   if(field==='start')value=selectedBar.value*project.value.beats+(value as number);
@@ -3079,9 +3085,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
       <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
     </div>
-    <div v-if="false" class="note-focus-phrase" aria-label="Visible measure range and note overview">
-      <div class="note-focus-phrase-heading"><strong>Visible measures {{noteLoopFrom}}–{{noteLoopTo}} ({{focusVisibleMeasures.length}})</strong><span class="hint">Select a measure to edit its notes below. The same range is used for loop playback.</span></div>
-      <div class="note-focus-phrase-scroll">
+    <div class="note-focus-phrase" aria-label="Visible measure range and note overview">
+      <div class="note-focus-phrase-heading"><strong>Visible measures {{noteLoopFrom}}–{{noteLoopTo}} ({{focusVisibleMeasures.length}})</strong><span class="note-overview-controls"><button type="button" class="secondary" @click="setNoteOverviewCount(2)">2 bars</button><button type="button" class="secondary" @click="setNoteOverviewCount(4)">4 bars</button><button type="button" class="secondary" @click="setNoteOverviewCount(8)">8 bars</button><label>Zoom <input type="range" min="65" max="200" step="5" v-model.number="noteOverviewZoom" /></label></span><span class="hint">Select a measure to edit its notes below. The same range is used for loop playback.</span></div>
+      <div class="note-focus-phrase-scroll" :style="{'--overview-measure-width':noteOverviewZoom+'px'}">
         <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" :class="['note-focus-measure',{'current':barIndex===selectedBar,'playing':noteLoopPlaying&&noteLoopMeasure===barIndex}]" :aria-label="`Edit measure ${barIndex+1}, ${focusMeasureNotes(barIndex).length} notes`" :aria-current="barIndex===selectedBar?'true':undefined" @click="selectFocusMeasure(barIndex)">
           <span class="note-focus-measure-heading">{{barIndex+1}} · {{project.bars[barIndex].section}} <small>{{project.bars[barIndex].chord||'—'}}</small></span>
           <span class="note-focus-measure-lanes"><span v-for="(n,i) in focusMeasureNotes(barIndex)" :key="`${i}-${n.start}-${n.pitch}`" class="note-focus-measure-note" :style="{left:`${(n.start-barIndex*project.beats)/project.beats*100}%`,width:`${Math.max(1,n.duration/project.beats*100)}%`,top:`${focusNoteTop(n.pitch)}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats`"></span></span>
