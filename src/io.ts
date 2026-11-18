@@ -292,7 +292,19 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
               n.articulation==='legato'?'<Articulation><subtype>tenuto</subtype></Articulation>':'';
             const lyric=(text:string|undefined,syllabic:string|undefined,number:number)=>
               text&&pi===0&&!previous?`<Lyrics><no>${number}</no><syllabic>${syllabic??'single'}</syllabic><text>${esc(text)}</text></Lyrics>`:'';
-            const noteXml=group.notes.map(note=>`<Note><pitch>${Math.round(note.pitch)}</pitch><tpc>${tpcForPitch(note.pitch,fifths)}</tpc></Note>`).join('');
+            const noteXml=group.notes.map(note=>{
+              // MuseScore represents a sustained pitch as tied Note elements.
+              // Each boundary between notation chunks gets a paired Tie spanner.
+              const spanTicks=piece.ticks;
+              const location=(ticks:number)=>{
+                const gcd=(a:number,b:number):number=>b?gcd(b,a%b):a;
+                const denominator=tpq*4,divisor=gcd(Math.abs(ticks),denominator)||1;
+                return `<location><fractions>${ticks/divisor}/${denominator/divisor}</fractions></location>`;
+              };
+              const backward=tiedBack?`<Spanner type="Tie"><prev>${location(-spanTicks)}</prev></Spanner>`:'';
+              const forward=tiedForward?`<Spanner type="Tie"><Tie/><next>${location(spanTicks)}</next></Spanner>`:'';
+              return `<Note><pitch>${Math.round(note.pitch)}</pitch><tpc>${tpcForPitch(note.pitch,fifths)}</tpc>${backward}${forward}</Note>`;
+            }).join('');
             events.push(`<Chord><durationType>${piece.type}</durationType>${articulation}${noteXml}${lyric(n.lyric,n.syllabic,1)}${lyric(n.lyric2,n.syllabic2,2)}</Chord>`);
           }
           cursor=endTick;
