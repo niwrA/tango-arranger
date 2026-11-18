@@ -1340,3 +1340,13 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .lead-measure:focus-within{z-index:10}
 .lead-chord-editor:has(.chord-suggestions){z-index:12}
 .chord-suggestions{z-index:30;max-height:min(225px,45vh);overscroll-behavior:contain}
+
+
+/* Multi-measure Note Editor overview: scroll horizontally, scale measure widths. */
+.note-focus-phrase{display:block;min-width:0}
+.note-focus-phrase-scroll{display:flex;overflow-x:auto;gap:6px;padding:5px 2px 10px;scrollbar-width:thin}
+.note-focus-phrase-scroll .note-focus-measure{flex:0 0 var(--overview-measure-width,110px);min-width:var(--overview-measure-width,110px);box-sizing:border-box}
+.note-overview-controls{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.note-overview-controls button{min-height:30px;padding:4px 9px;font-size:11px}
+.note-overview-controls label{display:inline-flex;align-items:center;gap:6px;font-size:11px}
+.note-overview-controls input[type=range]{width:95px}
