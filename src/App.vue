@@ -2804,7 +2804,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 <p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 <button class="secondary lead-add-measure" @click="addBar">+ Add measure to last section</button></section>
-<section v-else-if="active==='arrange'" class="overview-section"><div class="tab-action-strip tab-meta-strip"><span>{{project.bars.length}} measures · {{activeRoster.length}} parts</span></div>
+<section v-else-if="active==='arrange'" class="overview-section">
 <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
 <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
 </div>
