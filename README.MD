@@ -1,3 +1,15 @@
+# Current application guide (v5.5.3, updated 2026-11-18)
+
+Tango Arranger is a local-first Vue/TypeScript workbench for arranging Argentine tango. The current navigation starts at **Structure, Keys & Ensemble** when no tab preference is saved, and restores the last workspace tab on refresh or reopening in the same browser. The Orchestration workspace offers **All**, **Section** (instrumental group), and **Instrument** views.
+
+**Current export paths:** Files includes native MuseScore **.mscz** export as well as MusicXML and portable song backups. Native .mscz crescendo/decrescendo hairpins have been tested in MuseScore on iPad; this does not constitute full validation of every exported score or notation feature.
+
+**Current features beyond v5.5.3:** Dynamics Timeline hairpins have selectable measure and optional note-onset endpoints, with a unified editor. The toolbar, editing controls, status banner and full-width responsive About page have received interface refinements. The About page shows the latest improvements before the historical versioned releases.
+
+**Documentation scope:** Entries below are a chronological development record, not all descriptions of the current interface. In particular, older statements about starting in Song Overview or Orchestration, fixed seven-part rosters, MusicXML-only export, and outstanding melisma support have been superseded by later changes. Build and device verification claims in historical entries apply only to the time of those entries.
+
+---
+
 ## v5.5.3 - Lyrics export and alignment follow-up
 
 - Multi-measure lyric alignment option in the Note Editor, beginning at the selected measure; syllables and underscore-reserved melisma notes follow chronological note onsets.
@@ -164,7 +176,7 @@ In **Orchestration → Violin chord accompaniment**, each violin has a **directi
 
 ## Dedicated structure and keys workspace (v2.3)
 
-The application now opens in **1 · Song overview**, the primary measure-level orchestration workspace. **2 · Structure & keys** is a separate tab for changing section count, measure lengths, and concert-pitch major/minor key signatures. The structure tab preserves the existing confirmation and reset behavior when resizing measures, and the same MusicXML rehearsal marks and section key changes continue to export. Changing a key does not transpose existing pitches or chords.
+At the time of v2.3 the application opened in **1 · Song overview**, the primary measure-level orchestration workspace (superseded by later navigation changes). **2 · Structure & keys** is a separate tab for changing section count, measure lengths, and concert-pitch major/minor key signatures. The structure tab preserves the existing confirmation and reset behavior when resizing measures, and the same MusicXML rehearsal marks and section key changes continue to export. Changing a key does not transpose existing pitches or chords.
 
 The Song Overview no longer contains the two large structure/key editors. Instead it displays a compact read-only section strip with **letter, key, and measure range**, plus **Edit structure & keys** to jump to the dedicated tab. The instrument-by-measure map and range editor are placed together in a responsive workspace: on wider screens, the range editor stays in a right-hand panel beside the horizontally scrollable map; on narrower screens, it stacks below the map. Double-click/Enter-to-edit notes, inline chords, section/whole-song role overrides, and local autosave are unchanged. The Lead Sheet still displays editable section keys for convenience when composing harmony.
 
@@ -454,7 +466,7 @@ The project settings and local library are available from a drawer rather than a
 - Import and MusicXML/MIDI round-trip have a separate dialog from the top-bar Import icon. The workflow lets you select a file, choose melody-only or edited-score import, select a track when needed, and apply. Importing a .tango project continues to create a separate local song. MusicXML export and .tango backup remain separate top-bar actions.
 - Top-bar actions use consistent inline SVG line icons with tooltips and accessible names, not assorted Unicode glyphs.
 - The redundant Song Overview tab and section/key summary strip have been removed. The measure-level orchestration map, Shift+click range selection and edit controls now live at the top of the Orchestration tab. Section-level orchestration settings are in a collapsible panel below. Structure & keys remains the authoritative section form/key editor.
-- Main navigation uses descriptive labels without numeric prefixes. The app opens in Orchestration, and the Note Editor returns there.
+- Main navigation uses descriptive labels without numeric prefixes. At the time of v4.8 the app opened in Orchestration; current builds restore the last workspace tab and otherwise open Structure, Keys & Ensemble.
 
 
 ## v5.1.0 — Compact workspace and mobile improvements
