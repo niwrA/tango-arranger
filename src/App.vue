@@ -1811,6 +1811,57 @@ const dynamicsScope=ref<'instrument'|'role'|'all'>('role');
 const dynamicsRole=ref<Role>('melody');
 const dynamicsRoles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];
 const dynamicsMark=ref<DynamicMark>('mf');
+const dynamicsPopupBar=ref<number|null>(null);
+const dynamicsPopupRange=ref<number|null>(null);
+const dynamicsPopupEndpoint=ref<'start'|'end'>('start');
+const dynamicsPopupPosition=ref('');
+const dynamicsPopupMark=ref('');
+function dynamicNotePositions(bar:number){
+ const beats=project.value.beats;
+ const targets=dynamicsTargets(bar);
+ const starts=new Map<number,string[]>();
+ for(const inst of targets)for(const n of score.value[inst]??[]){
+  if(Math.floor((n.start+1e-7)/beats)!==bar)continue;
+  const pos=Number(n.start.toFixed(6));
+  const labels=starts.get(pos)??[];
+  labels.push(`${inst}: ${midiName(n.pitch)}`);starts.set(pos,labels);
+ }
+ return [...starts].sort((a,b)=>a[0]-b[0]).map(([position,labels])=>({position,label:`Beat ${Number((position-bar*beats+1).toFixed(3))} · ${labels.join(', ')}`}));
+}
+function openDynamicPopup(bar:number,rangeIndex:number|null=null,endpoint:'start'|'end'='start'){
+ dynamicsPopupBar.value=bar;dynamicsPopupRange.value=rangeIndex;dynamicsPopupEndpoint.value=endpoint;
+ const range=rangeIndex===null?null:project.value.expressionRanges?.[rangeIndex];
+ const pos=range?(endpoint==='start'?range.startMeasure*project.value.beats+(range.startBeat??0):range.endMeasure*project.value.beats+(range.endBeat??project.value.beats)):bar*project.value.beats;
+ dynamicsPopupPosition.value=String(pos);
+ dynamicsPopupMark.value=dynamicsAt(noteInst.value,bar);
+}
+function saveDynamicPopup(){
+ const bar=dynamicsPopupBar.value;if(bar===null)return;
+ const rangeIndex=dynamicsPopupRange.value;
+ if(rangeIndex===null){applyDynamicsMarkToBar(bar,dynamicsPopupMark.value);dynamicsPopupBar.value=null;return;}
+ const r=project.value.expressionRanges?.[rangeIndex];if(!r)return;
+ const pos=Number(dynamicsPopupPosition.value),beats=project.value.beats;
+ const other=dynamicsPopupEndpoint.value==='start'?r.endMeasure*beats+(r.endBeat??beats):r.startMeasure*beats+(r.startBeat??0);
+ if(!Number.isFinite(pos)||pos<0||pos>project.value.bars.length*beats||(dynamicsPopupEndpoint.value==='start'?pos>=other:pos<=other)){message.value='The start must precede the end of the hairpin.';return;}
+ if(dynamicsPopupEndpoint.value==='start'){r.startMeasure=Math.floor(pos/beats);r.startBeat=Number((pos%beats).toFixed(6));}
+ else{const measure=Math.min(project.value.bars.length-1,Math.floor(pos/beats));r.endMeasure=measure;r.endBeat=Number((pos-measure*beats).toFixed(6));}
+ dynamicsPopupBar.value=null;
+}
+function removeDynamicPopup(){
+ const bar=dynamicsPopupBar.value;if(bar===null)return;
+ if(dynamicsPopupRange.value!==null)project.value.expressionRanges?.splice(dynamicsPopupRange.value,1);
+ else applyDynamicsMarkToBar(bar,'');
+ dynamicsPopupBar.value=null;
+}
+function dynamicsRangeEndpoints(bar:number){
+ return (project.value.expressionRanges??[]).flatMap((r,index)=>{
+  if(!dynamicsTargets(bar).includes(r.instrument))return [];
+  const entries:{index:number;endpoint:'start'|'end';label:string}[]=[];
+  if(r.startMeasure===bar)entries.push({index,endpoint:'start',label:`${r.to>=r.from?'〈':'〉'} Start · ${r.instrument}`});
+  if(r.endMeasure===bar)entries.push({index,endpoint:'end',label:`${r.to>=r.from?'〈':'〉'} End · ${r.instrument}`});
+  return entries;
+ });
+}
 const dynamicsPreviewBars=computed(()=>Array.from({length:Math.min(12,project.value.bars.length)},(_,i)=>Math.max(0,Math.min(project.value.bars.length-1,selectedBar.value-2))+i).filter(b=>b<project.value.bars.length));
 function dynamicsTargets(barIndex:number):Instrument[]{
   const roster=projectInstruments(project.value);
@@ -2849,13 +2900,21 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:.4rem;margin:.75rem 0">
-        <button v-for="barIndex in dynamicsPreviewBars" :key="barIndex" type="button" class="secondary" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" @click="applyDynamicsMarkToBar(barIndex,dynamicsMark)">
+        <button v-for="barIndex in dynamicsPreviewBars" :key="barIndex" type="button" class="secondary" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" @click="openDynamicPopup(barIndex)">
           <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
           <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
           <small>{{dynamicsTargets(barIndex).length}} parts</small>
         </button>
+        <div v-for="edge in dynamicsRangeEndpoints(barIndex)" :key="`${edge.index}-${edge.endpoint}`"><button type="button" class="secondary" style="width:100%;font-size:.75rem" @click="openDynamicPopup(barIndex,edge.index,edge.endpoint)">{{edge.label}}</button></div>
       </div>
-      <p class="hint">The gesture buttons use the From/Through measure fields below. Individual measure tiles set the selected dynamic immediately. Existing expression controls remain available for precise beat-level editing.</p>
+      <div v-if="dynamicsPopupBar!==null" class="note-settings-backdrop" @click.self="dynamicsPopupBar=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Edit dynamic or hairpin endpoint">
+        <div class="note-settings-title"><strong>{{dynamicsPopupRange===null?'Edit dynamic':'Edit hairpin '+dynamicsPopupEndpoint}} · measure {{dynamicsPopupBar+1}}</strong><button type="button" class="secondary" @click="dynamicsPopupBar=null">✕ Close</button></div>
+        <template v-if="dynamicsPopupRange===null"><label>Dynamic<select v-model="dynamicsPopupMark"><option value="">Clear / inherit</option><option v-for="mark in dynamicMarks" :key="mark" :value="mark">{{mark}}</option></select></label></template>
+        <template v-else><label>Snap endpoint to a note onset<select v-model="dynamicsPopupPosition"><option :value="String(dynamicsPopupBar*project.beats)">Start of measure · beat 1</option><option v-for="p in dynamicNotePositions(dynamicsPopupBar)" :key="p.position" :value="String(p.position)">{{p.label}}</option><option :value="String((dynamicsPopupBar+1)*project.beats)">End of measure</option></select></label>
+        <label>Or exact beat position (absolute beats from beginning, zero-based)<input type="number" step="0.25" min="0" :max="project.bars.length*project.beats" v-model="dynamicsPopupPosition"/></label></template>
+        <div class="expression-range-row"><button type="button" class="primary" @click="saveDynamicPopup">Save</button><button type="button" class="secondary" @click="removeDynamicPopup">{{dynamicsPopupRange===null?'Clear dynamic':'Delete hairpin'}}</button></div>
+      </div></div>
+      <p class="hint">Tap a measure's dynamic or a hairpin endpoint to edit it precisely. The gesture buttons use the From/Through measure fields below. Individual measure tiles set the selected dynamic immediately. Existing expression controls remain available for precise beat-level editing.</p>
     </div>
     <div class="figure-workbench" aria-label="Expression ranges"><details class="control-fold" open><summary>Dynamics and expression controls</summary>
       <h3>Expression across measures</h3><div class="two"><label>Start of this measure<select :value="currentMeasureDynamic('start')" @change="setMeasureDynamic('start',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label>End of this measure<select :value="currentMeasureDynamic('end')" @change="setMeasureDynamic('end',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label></div><p class="hint">Set both endpoints for a crescendo or diminuendo hairpin. A single endpoint sets an immediate dynamic marking.</p><p class="hint">Set an instrument-specific crescendo or decrescendo, including across section boundaries. Intensity offsets are applied relative to a neutral value of 80, preserving note accents; written durations do not change. MusicXML exports hairpin wedges.</p>
