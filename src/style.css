@@ -1329,3 +1329,14 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 }
 @media(hover:none){.app-topbar .topbar-group button:hover:not(:disabled){filter:none}}
 @media(prefers-reduced-motion:reduce){.orchestration-scope-tabs button{transition:none}}
+
+
+/* Keep optional chord completions visible beyond the measure and section card.
+   The section's former overflow:hidden clipped the dropdown at its bottom edge. */
+.lead-section{overflow:visible}
+.lead-section-heading{border-radius:11px 11px 0 0}
+.lead-section:has(.chord-suggestions){position:relative;z-index:8}
+.lead-measure-grid{overflow:visible}
+.lead-measure:focus-within{z-index:10}
+.lead-chord-editor:has(.chord-suggestions){z-index:12}
+.chord-suggestions{z-index:30;max-height:min(225px,45vh);overscroll-behavior:contain}
