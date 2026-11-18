@@ -2716,6 +2716,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
   <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
   <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
+  <div class="about-content-columns">
   <div class="about-grid">
     <article class="editor"><h2>Start with your song</h2><p>Enter a melody and chords in the Lead Sheet, or import MIDI or MusicXML. Define sections, measure counts, keys and your ensemble in Structure, Keys &amp; Ensemble.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
     <article class="editor"><h2>Arrange the orchestra</h2><p>Generate parts for piano, contrabass, violins and bandoneons. Assign roles, styles, figures and articulations by section or measure in Orchestration.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
@@ -2754,6 +2755,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="release-entry"><h3>v2.5.0 · Piano figures and expression</h3><p>Moving inversions, countermelodies, melody responses, note slides and dynamic ranges.</p></div>
     <div class="release-entry"><h3>v2.4.0 · Violin arpeggios</h3><p>Four-note arpeggio figures spanning a full measure, with ascending, descending and alternating directions.</p></div>
     <div class="release-entry"><h3>v2.3.0 · Song structure workspace</h3><p>Dedicated Structure &amp; Keys tab and a measure-focused Orchestration.</p></div>
+  </div>
   </div>
   <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango.json backup to transfer them between devices.</p>
 </section>
@@ -3173,4 +3175,25 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 @media(max-width:380px){.about-hero-mark{display:none}}
 @media(prefers-reduced-motion:reduce){.about-page .about-grid .editor{transition:none}.about-page .about-grid .editor:hover{transform:none}}
+
+/* About page follows the full-width workbench, with releases alongside features. */
+.about-page{max-width:none;width:100%;box-sizing:border-box;margin:0;padding:clamp(8px,1.4vw,22px) 0 32px}
+.about-page .about-hero{width:100%;box-sizing:border-box}
+.about-page .about-intro{max-width:1000px}
+.about-content-columns{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:clamp(14px,1.8vw,28px);align-items:start;min-width:0}
+.about-content-columns>.about-grid{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start}
+.about-content-columns>.about-releases{min-width:0;margin:0}
+.about-page>.hint{margin-top:20px;line-height:1.55}
+@media(max-width:1250px){
+ .about-content-columns{grid-template-columns:minmax(0,1fr) minmax(320px,.9fr)}
+ .about-content-columns>.about-grid{grid-template-columns:1fr}
+}
+@media(max-width:850px){
+ .about-content-columns{grid-template-columns:minmax(0,1fr)}
+ .about-content-columns>.about-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+ .about-content-columns>.about-grid{grid-template-columns:1fr}
+ .about-page .about-hero{padding:20px}
+}
 </style>
