@@ -6,6 +6,7 @@ import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
 let Tone:typeof import('tone');
 import {version as appVersion} from '../package.json';
+import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,type FigureKind} from './music';
@@ -257,6 +258,37 @@ function initialWorkspaceTab():WorkspaceTab{
   }catch{/* Storage may be disabled; default to the first tab. */}
   return 'structure';
 }
+type ChangelogEntry={version:string;title:string;summary:string};
+const releaseHistory:ChangelogEntry[]=(()=>{
+  const lines=changelogMarkdown.split(/\r?\n/);
+  const entries:ChangelogEntry[]=[];
+  const seen=new Set<string>();
+  const heading=/^#{1,3}\s+(.+)$/;
+  const version=/\bv(\d+)\.(\d+)(?:\.(\d+))?\b/i;
+  for(let i=0;i<lines.length;i++){
+    const match=lines[i].match(heading);
+    if(!match)continue;
+    const number=match[1].match(version);
+    if(!number)continue;
+    const release=[number[1],number[2],number[3]??'0'].join('.');
+    if(seen.has(release))continue;
+    seen.add(release);
+    const title=match[1].replace(/^.*?\bv\d+\.\d+(?:\.\d+)?\s*[-–—·:]?\s*/i,'').trim();
+    const details:string[]=[];
+    for(let j=i+1;j<lines.length&&details.length<3;j++){
+      const line=lines[j].trim();
+      if(heading.test(line))break;
+      if(!line||line==='---'||line.startsWith('**Verification:**')||line.startsWith('**Status:**'))continue;
+      if(line.startsWith('- '))details.push(line.slice(2));
+      else if(!line.startsWith('|')&&!line.startsWith('>')&&!line.startsWith('```')&&line.length>55)details.push(line);
+    }
+    entries.push({version:release,title:title||'Release improvements',summary:details.join(' ').replace(/\*\*/g,'').replace(/`/g,'').slice(0,580)});
+  }
+  return entries.sort((a,b)=>{
+    const x=a.version.split('.').map(Number),y=b.version.split('.').map(Number);
+    return (y[0]-x[0])||(y[1]-x[1])||(y[2]-x[2]);
+  });
+})();
 const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>(initialWorkspaceTab());
 watch(active,tab=>{
   if(!workspaceTabs.includes(tab as WorkspaceTab))return;
@@ -2736,46 +2768,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, written durations, velocities, articulations and expressive gestures. Audition notes or loop a measure while you work.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
     <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango.json backups, and export native .mscz scores for MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
-  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appVersion}}. Recent improvements are listed first; earlier numbered release notes follow.</p>
-    <div class="release-entry"><h3>Recent · Dynamics and native MuseScore export</h3><p>Crescendo and diminuendo hairpins now export in native .mscz files. The Dynamics Timeline displays editable hairpins, with a measure-first endpoint selector and optional note-onset selection showing the starting beat. Explicit measure dynamics take precedence over section defaults at the same position.</p></div>
-    <div class="release-entry"><h3>Recent · Playback and note editing</h3><p>Note audition can use sampled instrument playback, with a synthesizer fallback. Hairpin editing keeps start and end positions together in one dialog.</p></div>
-    <div class="release-entry"><h3>Recent · Workspace and interface refinement</h3><p>More consistent compact controls, aligned toolbars, reduced redundant tab headings, tactile orchestration measure pads, and inline instrument playback controls. The About page now uses a responsive full-width layout, and the dismissible status bar remains visible on this tab.</p></div>
-    <div class="release-entry"><h3>v5.5.3 · Lyrics alignment across measures</h3><p>Note Editor lyrics can align across multiple measures from the selected measure. MusicXML exports verse 1 and 2 melisma extenders with start, continue and stop markers across barlines; importing extenders retains starts and derives later markers from the note sequence.</p></div>
-    <div class="release-entry"><h3>v5.5.2 · Two-verse lyrics and syllable alignment</h3><p>Voice notes support two lyric verses, automatic syllable alignment, hyphen-separated syllables and underscore-reserved melisma notes. The initial release aligned within the selected measure; cross-measure extenders were added in v5.5.3.</p></div>
-    <div class="release-entry"><h3>v5.5.1 · Voice lyrics and roster templates</h3><p>Enter lyric syllables and word-position markers on Voice notes, exported as MusicXML lyrics. Built-in roster templates include Factory seven-part, Quartet, Sextet, Septet and Orquesta típica.</p></div>
-    <div class="release-entry"><h3>v5.5.0 · Custom orchestra roster and El Choclo in 4/4</h3><p>Add, reorder or remove Violin, Bandoneon and Voice parts; save named roster presets and choose a default for new songs. Additional harmony Voice parts follow the active vocal melody while protecting manual edits. MusicXML exports the active roster. The El Choclo study was reorganized from 64 measures of 2/4 into 32 measures of 4/4, preserving melodic timing and harmonic changes; it is not an authenticated historical edition.</p></div>
-    <div class="release-entry"><h3>Earlier versioned releases</h3><p>The entries below describe historical releases. Recent changes above have not been assigned a separate version number here.</p></div>
-    <div class="release-entry"><h3>v5.4.1 · Instrumental section groups</h3><p>Section now means an instrumental group (rhythm, melody or harmony), not a song part. Group membership is editable and saved with the song. All three map scopes show the full song; A/B/C song-part settings live in All.</p></div>
-    <div class="release-entry"><h3>v5.4.0 · Scope-filtered orchestration map</h3><p>The map now follows Instrument (one instrument, whole song), Section (all instruments in the selected section), or All (complete map), retaining original measure numbers and editing behavior.</p></div>
-    <div class="release-entry"><h3>v5.3.0 · Orchestration scopes</h3><p>Instrument, Section and All sub-tabs separate measure editing from section-wide settings. Section controls are grouped into compact categories; the Rhythm Editor remains in the main navigation without redundant map shortcuts.</p></div>
-    <div class="release-entry"><h3>v5.2.0 · Dismissible status below toolbar</h3><p>Status messages now appear directly below the main toolbar, with a close button. Dismissing a message hides it until the next distinct message arrives; the old permanent green workspace banner is removed.</p></div>
-    <div class="release-entry"><h3>v5.1.0 · Compact-by-default and mobile workspace</h3><p>Explanatory text is hidden by default; the ? icon in the main toolbar reveals it when needed. Mobile uses a stable two-row task toolbar, horizontally scrolling workspace tabs, larger touch targets, responsive dialogs and stacked editing controls without overflowing the viewport.</p></div>
-    <div class="release-entry"><h3>v5.0.0 · Contextual lead-sheet editing and score consolidation</h3><p>The selected lead measure opens an inline editor immediately after its card, rather than at the bottom of the song. Section headers select a section and offer Copy chords; after choosing a source, Paste into another header confirms the destination. The Score Review tab is consolidated into a collapsible Score details panel in Orchestration, preserving note-event lists and protection toggles. The Note Inspector now sits below the piano roll without occupying the right edge.</p></div>
-    <div class="release-entry"><h3>v4.9.0 · Topic-grouped toolbar and El Choclo example</h3><p>Playback precedes the song selector; new, save, duplicate and delete are grouped with the library. Generate is in the top bar, Files collects import/export/backup, and song settings remain a dialog. The redundant Arrange your tango heading is removed. The Song selector offers a new editable El Choclo study from the earlier sourced melody, now orchestrated with the current engine.</p></div><div class="release-entry"><h3>v4.8.0 · Focused song workflows</h3><p>Song settings become a modal, file import and MusicXML round-trip get a separate dialog, and the top bar uses consistent SVG icons. The orchestration map moves into Orchestration, redundant section summaries and numbered tabs are removed.</p></div><div class="release-entry"><h3>v4.7.0 · Compact song toolbar and map editing</h3><p>Local song selection, settings, import/export and playback move to the icon-first top bar. The selected instrument’s range editor sits horizontally above the orchestration map, without a redundant instrument selector.</p></div><div class="release-entry"><h3>v4.5.0 · Focus ranges and measure overview</h3><p>The Focus action is now in the upper-right of the regular Note Editor. Set the lowest and highest visible pitches, and use the Loop from/to measure range to view and navigate a multi-measure phrase while editing the selected measure below.</p></div>
-    <div class="release-entry"><h3>v4.6.0 · Editor-first workspace</h3><p>Project drawer, compact note toolbar, desktop note inspector, contextual orchestration selection actions, and a larger editing surface. The rhythm and note workspaces share transport styling.</p></div><div class="release-entry"><h3>v4.4.0 · Focused note editing</h3><p>Expand the Note Editor to a full-viewport piano roll. Previous/next measure, instrument loop playback and optional loop-range bounds remain in a compact sticky toolbar; selected-note quick editing stays at the bottom. Exit focus to return to the normal tabs and controls.</p></div>
-    <div class="release-entry"><h3>v4.3.3 · Correct staccato and marcato notation</h3><p>Written note lengths stay independent of sounding gates: new staccato and marcato attacks default to quarter notes, with a dot for unaccented staccato and a &gt; accent for accented attacks in MusicXML. Explicit rhythmic durations remain unchanged; the short tango playback remains available.</p></div>
-    <div class="release-entry"><h3>v4.3.0 · Collapsible controls and note editor tabs</h3><p>Instrument and measure navigation remain above four note editor tabs: Notes, Live input, Figures, and Dynamics &amp; expression. Control groups can be expanded or collapsed across the workspaces without changing arrangement data.</p></div>
-    <div class="release-entry"><h3>v4.3.1 · Precise horizontal note placement</h3><p>All instruments open the Note Editor with sixteenth-note drag snapping, including Easy difficulty. The grid displays subdivisions (1e, 1&amp;, 1a), resize grips leave the note center free to drag, and selected-note controls can move an onset by half a beat.</p></div>
-    <div class="release-entry"><h3>v4.2.0 · Note movement and dual-edge resizing</h3><p>Drag the center of a note horizontally to change its onset or vertically to change pitch; diagonal dragging adjusts both. Resize from either edge: left keeps the note end fixed, right keeps its start fixed. Edits snap to the editor grid and remain within the measure.</p></div>
-    <div class="release-entry"><h3>v4.1.0 · Contrabass styles</h3><p>Section and measure-level bass techniques: traditional, pizzicato, arco legato, marcato, walking and habanera. Styles change the generated rhythm, sounding length and articulation; MusicXML includes pizzicato/arco markings where appropriate.</p></div>
-    <div class="release-entry"><h3>v4.0.0 · Custom live melody keyboard range</h3><p>Choose the start and end note independently to display any chromatic keyboard span within the instrument register, including ranges across multiple octaves. Existing captured takes are preserved when the keyboard display range changes.</p></div>
-    <div class="release-entry"><h3>v3.9.0 · Playback start position</h3><p>Separate controls start arrangement playback from measure 1 or from the currently selected measure. A dedicated Stop button ends playback; starting either mode restarts from that position.</p></div>
-    <div class="release-entry"><h3>v3.8.0 · Live tap capture</h3><p>Loop a measure or phrase with full orchestration, tap rhythms in real time, or play an on-screen octave keyboard to capture pitched notes. Quantize to a sixteenth-note grid, review and edit draft takes, then apply explicitly.</p></div>
-    <div class="release-entry"><h3>v3.7.0 · Keyboard shortcuts for rhythm and note editing</h3><p>Delete/Backspace removes selected notes or rhythm attacks. Arrow keys navigate selections; shortcuts adjust durations, note pitch and rhythm accents, and control loops. Editable fields retain native keyboard behavior.</p></div>
-    <div class="release-entry"><h3>v3.5.0 · Shift+click orchestration map ranges</h3><p>Click a map cell or measure heading to anchor a selection, then Shift+click another measure to fill From/To in the instrument range editor. Selected measures are highlighted; applying remains explicit.</p></div>
-    <div class="release-entry"><h3>v3.6.0 · Violin duet harmony and manual rhythm grid</h3><p>Violin II Harmony follows Violin I Melody, including protected violin edits. Rhythm presets fill an editable attack, rest, accent and duration grid with live loop playback and selected-part application.</p></div>
-    <div class="release-entry"><h3>v3.4.0 · Confirm section key changes</h3><p>Choose a section-key transposition mode, then explicitly apply it. Errors are shown in the dialog.</p></div>
-    <div class="release-entry"><h3>v3.3.0 · Free chord entry, note duration and section-key choices</h3><p>Optional chord suggestions, written-duration editing feedback, and section-key transposition options.</p></div>
-    <div class="release-entry"><h3>v3.2.0 · Rhythm editor</h3><p>Apply tango rhythmic presets to the rhythm section, any selected parts, a section, measure range or whole song. Preserve voicings, protect manual edits and preview accents.</p></div>
-    <div class="release-entry"><h3>v3.1.0 · Accurate note durations</h3><p>Full-length piano-roll note bars, real endpoint touch handles, immediate duration slider and numeric edits, and protected-score persistence tests.</p></div>
-    <div class="release-entry"><h3>v3.0.0 · About &amp; release notes</h3><p>Click the Tango Arranger title to open this guide and release history. Added an About &amp; releases navigation tab.</p></div>
-    <div class="release-entry"><h3>v2.9.0 · Dynamics</h3><p>Measure start/end dynamics, crescendo and diminuendo export, individual subito markings, and melody-aware accompaniment balancing.</p></div>
-    <div class="release-entry"><h3>v2.8.0 · Touch duration editing</h3><p>Larger note-resize handles, pointer capture and duration stepper buttons for touch editing.</p></div>
-    <div class="release-entry"><h3>v2.7.0 · Note editor and compact workspace</h3><p>Direct note manipulation, note properties, advanced difficulty defaults, persistent playback controls and optional explanatory text.</p></div>
-    <div class="release-entry"><h3>v2.6.x · Notation, mobile and audio</h3><p>Cleaner rhythmic notation, piano bass/treble separation, mobile layout improvements, audio initialization and sound testing.</p></div>
-    <div class="release-entry"><h3>v2.5.0 · Piano figures and expression</h3><p>Moving inversions, countermelodies, melody responses, note slides and dynamic ranges.</p></div>
-    <div class="release-entry"><h3>v2.4.0 · Violin arpeggios</h3><p>Four-note arpeggio figures spanning a full measure, with ascending, descending and alternating directions.</p></div>
-    <div class="release-entry"><h3>v2.3.0 · Song structure workspace</h3><p>Dedicated Structure &amp; Keys tab and a measure-focused Orchestration.</p></div>
+  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appVersion}} · Versioned history is loaded from CHANGELOG.md.</p>
+    <div class="release-entry"><h3>Latest improvements · Not yet assigned a version</h3><p>Native .mscz crescendo and diminuendo hairpins, interactive Dynamics Timeline editing, sampled note audition, compact workspace controls, responsive About layout and restoration of the last selected tab.</p></div>
+    <div v-for="release in releaseHistory" :key="release.version" class="release-entry"><h3>v{{release.version}} · {{release.title}}</h3><p>{{release.summary}}</p></div>
+    <p class="hint">For the full technical history and verification notes, see CHANGELOG.md in the repository.</p>
   </div>
   </div>
   <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango.json backup to transfer them between devices.</p>
