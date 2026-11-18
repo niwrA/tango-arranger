@@ -229,8 +229,15 @@ const focusVisibleMeasures=computed(()=>{
   return Array.from({length:to-from+1},(_,i)=>from+i-1);
 });
 function focusMeasureNotes(bar:number){
-  const beats=project.value.beats;
-  return (score.value[noteInst.value]??[]).filter(n=>Math.floor((n.start+1e-7)/beats)===bar);
+  const beats=project.value.beats,begin=bar*beats,end=begin+beats;
+  return (score.value[noteInst.value]??[]).filter(n=>n.start<end-1e-7&&n.start+n.duration>begin+1e-7);
+}
+function focusNoteLeft(note:{start:number;duration:number},bar:number):number{
+  return Math.max(0,(note.start-bar*project.value.beats)/project.value.beats*100);
+}
+function focusNoteWidth(note:{start:number;duration:number},bar:number):number{
+  const begin=bar*project.value.beats,end=begin+project.value.beats;
+  return Math.max(1,(Math.min(end,note.start+note.duration)-Math.max(begin,note.start))/project.value.beats*100);
 }
 function focusNoteTop(pitch:number){
   const span=Math.max(1,noteViewEnd.value-noteViewStart.value);
@@ -2163,7 +2170,7 @@ function moveNoteDrag(event:PointerEvent){
   let duration=drag.startDuration;
   let pitch=drag.startPitch;
   if(drag.mode==='resize-right'){
-    duration=dragWrittenDuration(drag.startDuration,dx,drag.cellWidth,noteStep.value,drag.startLocal,beats);
+    duration=Math.max(0.25,Math.min(project.value.bars.length*beats-(selectedBar.value*beats+drag.startLocal),Math.round((drag.startDuration+dx/drag.cellWidth*noteStep.value)/noteStep.value)*noteStep.value));
   }else if(drag.mode==='resize-left'){
     const geometry=dragWrittenNoteLeftEdge(drag.startLocal,drag.startDuration,dx,drag.cellWidth,noteStep.value,beats);
     localStart=geometry.start;duration=geometry.duration;
@@ -2210,9 +2217,9 @@ function nudgeSelectedNote(delta:number){
   if(!note)return;
   const beats=project.value.beats;
   const local=note.start-selectedBar.value*beats;
-  const next=Number(Math.max(0,Math.min(beats-note.duration,local+delta)).toFixed(4));
+  const next=Number(Math.max(0,Math.min(beats-0.25,local+delta)).toFixed(4));
   if(Math.abs(next-local)<1e-8){
-    message.value='Cannot move note further: it must remain inside the measure.';
+    message.value='Cannot move note further within its starting measure.';
     return;
   }
   updateSelectedNote('start',String(next));
@@ -3090,7 +3097,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="note-focus-phrase-scroll" :style="{'--overview-measure-width':noteOverviewZoom+'px'}">
         <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" :class="['note-focus-measure',{'current':barIndex===selectedBar,'playing':noteLoopPlaying&&noteLoopMeasure===barIndex}]" :aria-label="`Edit measure ${barIndex+1}, ${focusMeasureNotes(barIndex).length} notes`" :aria-current="barIndex===selectedBar?'true':undefined" @click="selectFocusMeasure(barIndex)">
           <span class="note-focus-measure-heading">{{barIndex+1}} · {{project.bars[barIndex].section}} <small>{{project.bars[barIndex].chord||'—'}}</small></span>
-          <span class="note-focus-measure-lanes"><span v-for="(n,i) in focusMeasureNotes(barIndex)" :key="`${i}-${n.start}-${n.pitch}`" class="note-focus-measure-note" :style="{left:`${(n.start-barIndex*project.beats)/project.beats*100}%`,width:`${Math.max(1,n.duration/project.beats*100)}%`,top:`${focusNoteTop(n.pitch)}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats`"></span></span>
+          <span class="note-focus-measure-lanes"><span v-for="(n,i) in focusMeasureNotes(barIndex)" :key="`${i}-${n.start}-${n.pitch}`" class="note-focus-measure-note" :style="{left:`${focusNoteLeft(n,barIndex)}%`,width:`${focusNoteWidth(n,barIndex)}%`,top:`${focusNoteTop(n.pitch)}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats${n.start<barIndex*project.beats?' (tied from previous measure)':''}${n.start+n.duration>(barIndex+1)*project.beats?' (continues into next measure)':''}`"></span></span>
         </button>
       </div>
     </div>
