@@ -1267,3 +1267,65 @@ label{line-height:1.35}
   .app-topbar .topbar-group .topbar-menu>summary,
   .app-topbar .topbar-group .header-song-picker{height:38px!important;min-height:38px!important}
 }
+
+
+/* Compact DAW-inspired controls: quiet surfaces, restrained gold, unified geometry. */
+:root{--control-height:36px;--control-radius:8px;--ui-ease:cubic-bezier(.2,.75,.3,1)}
+.app-topbar{min-height:56px;gap:9px}
+.app-topbar .topbar-group{gap:5px;padding-right:10px}
+.app-topbar .topbar-group button,
+.app-topbar .topbar-group .icon-action,
+.app-topbar .topbar-group .topbar-menu>summary,
+.app-topbar .topbar-group .header-song-picker,
+.app-topbar .topbar-group button.performance-topbar-button{
+  height:36px!important;min-height:36px!important;border-radius:8px;
+  line-height:1.2;box-shadow:inset 0 1px rgba(255,255,255,.045),0 1px 2px rgba(0,0,0,.12);
+}
+.app-topbar .topbar-group .header-song-picker{padding:5px 10px!important}
+.app-topbar .topbar-group .generate-action{padding:5px 11px!important}
+.app-topbar .topbar-group .files-summary{padding:5px 10px!important}
+.app-topbar .topbar-group button:not(.primary):not(.play),
+.app-topbar .topbar-group .topbar-menu>summary{border-color:#354451;background-color:#202b35}
+.app-topbar .topbar-group button.primary:not(.transport-play),
+.app-topbar .topbar-group .generate-action{background:#cba66f;border-color:#cba66f;box-shadow:inset 0 1px rgba(255,255,255,.17),0 1px 3px rgba(0,0,0,.13)}
+.app-topbar .topbar-playback .transport-play.primary{background:#273744;color:#e4eaf0;border-color:#3b4c5a}
+.app-topbar .topbar-playback .transport-play.play{background:#cba66f;color:#18202a;border-color:#cba66f}
+.app-topbar .topbar-group button:hover:not(:disabled),
+.app-topbar .topbar-group .topbar-menu>summary:hover{filter:brightness(1.09)}
+.app-topbar .topbar-group button:active:not(:disabled){transform:translateY(1px)}
+/* Connected, compact scope selector replaces tall tab-like buttons. */
+.orchestration-scope-tabs{
+  display:inline-flex;align-items:stretch;gap:2px;
+  margin:7px 0 12px;padding:3px;
+  background:#151e27;border:1px solid #2b3946;border-radius:9px;
+  border-bottom:1px solid #2b3946;overflow-x:auto;
+}
+.orchestration-scope-tabs button{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:34px;height:34px;padding:5px 13px;
+  background:transparent;border:1px solid transparent;border-radius:6px;
+  box-shadow:none;color:#b6c3cd;font-size:12px;font-weight:600;
+  transition:background-color .15s ease,color .15s ease,box-shadow .15s ease;
+}
+.orchestration-scope-tabs button.selected{
+  background:#304252;color:#e9c58f;border-color:#405363;
+  box-shadow:inset 0 1px rgba(255,255,255,.07),0 1px 3px rgba(0,0,0,.18);
+}
+.orchestration-scope-tabs button:hover:not(.selected){background:#22303d;color:#e4e9ed}
+/* Reduce notification height while retaining error and success visibility. */
+.topbar-status{padding:3px 14px;min-height:32px;gap:8px;font-size:11px;line-height:1.3}
+.topbar-status-close{width:26px;height:26px;min-height:26px;padding:4px;border-color:transparent}
+.topbar-status-close:hover{border-color:currentColor}
+/* Controls elsewhere share the same visual rhythm without shrinking large edit pads. */
+.tabs button{min-height:36px;padding:7px 12px}
+button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.performance-part):not(.lead-section-collapse){transition-duration:.15s}
+@media(max-width:720px){
+ .app-topbar .topbar-group button,
+ .app-topbar .topbar-group .icon-action,
+ .app-topbar .topbar-group .topbar-menu>summary,
+ .app-topbar .topbar-group .header-song-picker,
+ .app-topbar .topbar-group button.performance-topbar-button{height:36px!important;min-height:36px!important}
+ .orchestration-scope-tabs button{min-height:34px;height:34px;padding:5px 10px}
+}
+@media(hover:none){.app-topbar .topbar-group button:hover:not(:disabled){filter:none}}
+@media(prefers-reduced-motion:reduce){.orchestration-scope-tabs button{transition:none}}
