@@ -1823,6 +1823,7 @@ const dynamicsCreateStart=ref('');
 const dynamicsCreateEnd=ref('');
 const dynamicsCreateFrom=ref(55);
 const dynamicsCreateTo=ref(105);
+const dynamicsMeasureEndpoints=computed(()=>Array.from({length:project.value.bars.length},(_,i)=>({position:(i+1)*project.value.beats,label:`End of measure ${i+1}`})));
 const dynamicsCreateNotes=computed(()=>{
  const inst=dynamicsCreateInstrument.value;
  if(!inst)return [];
@@ -2981,7 +2982,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <div class="note-settings-title"><strong>Edit hairpin · {{project.expressionRanges?.[dynamicsEditRange]?.instrument}}</strong><button type="button" class="secondary" @click="dynamicsEditRange=null">✕ Close</button></div>
         <template v-if="project.expressionRanges?.[dynamicsEditRange]">
           <label>Start note<select v-model="dynamicsEditStart"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="n.start" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option></select></label>
-          <label>End note<select v-model="dynamicsEditEnd"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="n.start" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option><option :value="String(project.bars.length*project.beats)">End of score</option></select></label>
+          <label>End position<select v-model="dynamicsEditEnd"><optgroup label="Measure boundaries"><option v-for="m in dynamicsMeasureEndpoints" :key="`measure-${m.position}`" :value="String(m.position)">{{m.label}}</option></optgroup><optgroup label="Note onsets"><option v-for="n in (score[project.expressionRanges[dynamicsEditRange].instrument]??[])" :key="`note-${n.start}`" :value="String(n.start)">M{{Math.floor(n.start/project.beats)+1}} · beat {{Number((n.start%project.beats+1).toFixed(3))}} · {{midiName(n.pitch)}}</option></optgroup></select></label>
         </template>
         <div class="expression-range-row"><button class="primary" @click="saveHairpinEditor">Save endpoints</button><button class="secondary" @click="project.expressionRanges?.splice(dynamicsEditRange,1);dynamicsEditRange=null">Delete hairpin</button></div>
       </div></div>
@@ -2989,7 +2990,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <div class="note-settings-title"><strong>{{dynamicsCreateShape==='crescendo'?'Create crescendo':'Create diminuendo'}}</strong><button type="button" class="secondary" @click="dynamicsCreateShape=null">✕ Close</button></div>
         <label>Instrument<select v-model="dynamicsCreateInstrument"><option v-for="inst in projectInstruments(project)" :key="inst" :value="inst">{{inst}}</option></select></label>
         <label>Start note<select v-model="dynamicsCreateStart"><option v-for="n in dynamicsCreateNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option></select></label>
-        <label>End note<select v-model="dynamicsCreateEnd"><option v-for="n in dynamicsCreateNotes" :key="n.position" :value="String(n.position)">{{n.label}}</option><option :value="String(project.bars.length*project.beats)">End of score</option></select></label>
+        <label>End position<select v-model="dynamicsCreateEnd"><optgroup label="Measure boundaries"><option v-for="m in dynamicsMeasureEndpoints" :key="`measure-${m.position}`" :value="String(m.position)">{{m.label}}</option></optgroup><optgroup label="Note onsets"><option v-for="n in dynamicsCreateNotes" :key="`note-${n.position}`" :value="String(n.position)">{{n.label}}</option></optgroup></select></label>
         <div class="two"><label>Start intensity<input type="number" min="1" max="127" v-model.number="dynamicsCreateFrom"/></label><label>End intensity<input type="number" min="1" max="127" v-model.number="dynamicsCreateTo"/></label></div>
         <p class="hint">Creates one hairpin between the chosen notes without overwriting dynamic markings in other measures.</p>
         <button type="button" class="primary" @click="saveDynamicsHairpin">Create hairpin</button>
