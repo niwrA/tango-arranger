@@ -1799,7 +1799,7 @@ async function toggleNoteLoop(){
     let loopPass=0;
     let lastRangeKey='';
     transport.scheduleRepeat(time=>{
-      const range=noteFocusMode.value?noteFocusLoopRange():{from:selectedBar.value,to:selectedBar.value};
+      const range=noteFocusLoopRange();
       const rangeKey=range.from+':'+range.to;
       if(rangeKey!==lastRangeKey){loopPass=0;lastRangeKey=rangeKey;}
       const bar=range.from+(loopPass++%(range.to-range.from+1));
@@ -2345,10 +2345,10 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   const previousLoopLength=Math.max(1,noteLoopTo.value-noteLoopFrom.value+1);
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
   overviewFocus.value=selectedBar.value;
-  if(noteFocusMode.value&&previousBar!==selectedBar.value){
+  if(previousBar!==selectedBar.value){
     noteLoopFrom.value=selectedBar.value+1;
     noteLoopTo.value=Math.min(project.value.bars.length,noteLoopFrom.value+previousLoopLength-1);
-  }else if(!noteFocusMode.value){noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;}
+  }else if(!noteFocusMode.value&&arrivingFromAnotherView){noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;}
   const range=instrumentRange(inst);
   const existing=(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value);
   const typical=inst==='Contrabass'?43:inst==='Piano'?61:inst==='Violin I'?76:inst==='Violin II'?69:inst.startsWith('Bandoneon')?67:72;
@@ -2962,7 +2962,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
   <div v-if="!noteFocusMode" class="compact-note-toolbar" role="toolbar" aria-label="Note editing workspace"><button v-if="noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button><button type="button" class="secondary" @click="returnToMap">← Map</button><label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">←</button><label>Measure<select v-model.number="selectedBar" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}}</option></select></label><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">→</button><button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button><button type="button" class="secondary" @click="noteInspectorOpen=!noteInspectorOpen" :aria-pressed="noteInspectorOpen">{{noteInspectorOpen?'Hide':'Show'}} inspector</button><button type="button" class="secondary" @click="enterNoteFocusMode">⛶ Focus</button></div><div class="note-editor-navigation" aria-label="Note editor navigation"><button type="button" class="secondary" @click="returnToMap">← Back to map</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous measure</button><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next measure →</button><span class="editor-shortcut-help">Keyboard: Delete / Backspace remove note · ← → select notes · ↑ ↓ pitch ± semitone · + / − duration ± ¼ beat · [ ] measures · L loop · Esc map. Text fields keep normal typing.</span></div>
-  <div class="note-loop-controls" aria-label="Measure playback"><button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop measure loop':'▶ Loop this instrument measure'}}</button><span class="hint" role="status" aria-live="polite">{{noteLoopPlaying?`Looping ${noteInst}, measure ${selectedBar+1} · beat ${noteLoopBeat<0?'…':noteLoopBeat+1}`:'Stopped · plays only the selected instrument and measure'}}</span></div>
+  <div class="note-loop-controls" aria-label="Measure playback"><button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop instrument'}}</button><label>From <input type="number" min="1" :max="project.bars.length" v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"/></label><label>To <input type="number" :min="noteLoopFrom" :max="project.bars.length" v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"/></label><span class="hint" role="status" aria-live="polite">{{noteLoopPlaying?`Playing measure ${noteLoopMeasure+1}`:`Editing and looping measures ${noteLoopFrom}–${noteLoopTo}`}}</span></div>
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
     <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">♫ Notes &amp; properties</button>
     <button id="note-tab-capture" type="button" role="tab" :aria-selected="noteEditorTab==='capture'" :tabindex="noteEditorTab==='capture'?0:-1" aria-controls="note-panel-capture" :class="{selected:noteEditorTab==='capture'}" @click="setNoteEditorTab('capture')">● Live input</button>
@@ -3100,15 +3100,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div></div><div v-if="false" class="note-focus-view-tools" aria-label="Visible pitch range">
       <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
       <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
-    </div>
-    <div class="note-focus-phrase" aria-label="Visible measure range and note overview">
-      <div class="note-focus-phrase-heading"><strong>Visible measures {{noteLoopFrom}}–{{noteLoopTo}} ({{focusVisibleMeasures.length}})</strong><span class="note-overview-controls"><button type="button" class="secondary" @click="setNoteOverviewCount(2)">2 bars</button><button type="button" class="secondary" @click="setNoteOverviewCount(4)">4 bars</button><button type="button" class="secondary" @click="setNoteOverviewCount(8)">8 bars</button><label>Zoom <input type="range" min="65" max="200" step="5" v-model.number="noteOverviewZoom" /></label></span><span class="hint">Edit notes directly in any visible measure below. This range is also the playback loop.</span></div>
-      <div class="note-focus-phrase-scroll" :style="{'--overview-measure-width':noteOverviewZoom+'px'}">
-        <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" :class="['note-focus-measure',{'current':barIndex===selectedBar,'playing':noteLoopPlaying&&noteLoopMeasure===barIndex}]" :aria-label="`Edit measure ${barIndex+1}, ${focusMeasureNotes(barIndex).length} notes`" :aria-current="barIndex===selectedBar?'true':undefined" @click="selectFocusMeasure(barIndex)">
-          <span class="note-focus-measure-heading">{{barIndex+1}} · {{project.bars[barIndex].section}} <small>{{project.bars[barIndex].chord||'—'}}</small></span>
-          <span class="note-focus-measure-lanes"><span v-for="(n,i) in focusMeasureNotes(barIndex)" :key="`${i}-${n.start}-${n.pitch}`" class="note-focus-measure-note" :style="{left:`${focusNoteLeft(n,barIndex)}%`,width:`${focusNoteWidth(n,barIndex)}%`,top:`${focusNoteTop(n.pitch)}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats${n.start<barIndex*project.beats?' (tied from previous measure)':''}${n.start+n.duration>(barIndex+1)*project.beats?' (continues into next measure)':''}`"></span></span>
-        </button>
-      </div>
     </div>
     <div class="note-context-panel" aria-label="Instrument context"><div class="note-context">
       <span><strong>Role</strong> {{noteCtx.role}}</span><span><strong>Difficulty</strong> {{noteCtx.difficulty}}</span>
