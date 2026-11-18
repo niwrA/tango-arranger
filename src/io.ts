@@ -220,12 +220,39 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         const elements:string[]=[];
         const mark=(value:string)=>/^(ppp|pp|p|mp|mf|f|ff|fff)$/.test(value)?`<Dynamic><subtype>${value}</subtype></Dynamic>`:'';
         const section=p.bars[barIndex].section;
-        if(barIndex===0||p.bars[barIndex-1].section!==section){const dynamic=p.expression?.sections?.[section];if(p.expression?.enabled!==false&&dynamic)elements.push(mark(dynamic));}
         const measure=p.measureDynamics?.[`${inst}:${barIndex}`];
+        // An explicit instrument/measure marking overrides the section default at this position.
+        // Emitting both produced conflicting mp + mf symbols in MuseScore.
+        if(barIndex===0||p.bars[barIndex-1].section!==section){
+          const dynamic=p.expression?.sections?.[section];
+          if(p.expression?.enabled!==false&&dynamic&&!measure?.start)elements.push(mark(dynamic));
+        }
         if(measure?.start)elements.push(mark(measure.start));
-        if(measure?.end&&measure.end!==measure.start)elements.push(mark(measure.end));
-        for(const range of p.expressionRanges??[]){if(range.instrument!==inst)continue;
-          if(range.startMeasure===barIndex)elements.push(`<Spanner type="HairPin"><HairPin><subtype>${range.to>=range.from?0:1}</subtype></HairPin></Spanner>`);
+        // MuseScore MSCX spanners require a matching next/prev location. A bare
+        // HairPin element is ignored by MuseScore when the file is opened.
+        const fraction=(beat:number)=>{
+          const ticks=Math.round(beat*tpq),denominator=tpq*4;
+          const gcd=(a:number,b:number):number=>b?gcd(b,a%b):a;
+          const divisor=gcd(Math.abs(ticks),denominator)||1;
+          return `${ticks/divisor}/${denominator/divisor}`;
+        };
+        for(const range of p.expressionRanges??[]){
+          if(range.instrument!==inst)continue;
+          const start=range.startMeasure*beats+(range.startBeat??0);
+          const end=range.endMeasure*beats+(range.endBeat??beats);
+          if(!(end>start))continue;
+          const startBar=Math.floor(start/beats);
+          const endBar=Math.min(p.bars.length-1,Math.floor(end/beats));
+          const emit=(position:number,markup:string)=>`<tick>${Math.round(position*tpq)}</tick>${markup}<tick>${begin*tpq}</tick>`;
+          if(startBar===barIndex){
+            const distance=end-start;
+            const location=`<location><fractions>${fraction(distance)}</fractions></location>`;
+            elements.push(emit(start,`<Spanner type="HairPin"><HairPin><subtype>${range.to>=range.from?0:1}</subtype></HairPin><next>${location}</next></Spanner>`));
+          }
+          if(endBar===barIndex){
+            const location=`<location><fractions>${fraction(start-end)}</fractions></location>`;
+            elements.push(emit(end,`<Spanner type="HairPin"><prev>${location}</prev></Spanner>`));
+          }
         }
         return elements.join('');
       })():'';
