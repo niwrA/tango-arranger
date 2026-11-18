@@ -1094,3 +1094,72 @@ label{line-height:1.35}
   .song-map{border-spacing:1px}
 }
 @media(prefers-reduced-motion:reduce){.song-cell{transition:none}}
+
+
+/* Match Performance to the compact transport buttons, overriding generic button height. */
+.topbar-group button.performance-topbar-button{
+  height:35px!important;
+  min-height:35px!important;
+  padding:5px 9px!important;
+  line-height:1!important;
+  font-size:12px;
+  white-space:nowrap;
+  flex:0 0 auto;
+}
+.topbar-group button.performance-topbar-button .app-icon{width:16px;height:16px;flex-shrink:0}
+
+/* Keep the instrument name and its two preview actions on one orchestration row.
+   A wider sticky column avoids wrapping without disturbing table semantics. */
+.song-map tbody th.sticky-instrument{
+  position:sticky;
+  left:0;
+  min-width:260px;
+  max-width:260px;
+  width:260px;
+  height:66px;
+  padding:5px 7px;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+.song-map tbody th.sticky-instrument .instrument-heading-button{
+  display:inline-flex;
+  vertical-align:middle;
+  width:calc(100% - 114px);
+  min-width:0;
+  height:34px;
+  min-height:34px;
+  padding:3px 5px;
+  margin:0;
+  justify-content:flex-start;
+  gap:4px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  box-shadow:none;
+}
+.song-map tbody th.sticky-instrument .instrument-heading-button span{flex-shrink:0}
+.song-map tbody th.sticky-instrument .instrument-row-preview{
+  display:inline-flex;
+  vertical-align:middle;
+  flex-wrap:nowrap;
+  align-items:center;
+  justify-content:flex-end;
+  gap:3px;
+  width:110px;
+  margin:0;
+}
+.song-map tbody th.sticky-instrument .instrument-row-preview button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
+  height:32px;
+  padding:3px 5px;
+  font-size:10px;
+  line-height:1;
+  flex:0 0 auto;
+}
+@media(max-width:650px){
+  .song-map tbody th.sticky-instrument{min-width:240px;max-width:240px;width:240px}
+  .song-map tbody th.sticky-instrument .instrument-heading-button{width:calc(100% - 114px);font-size:11px}
+}
