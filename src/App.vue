@@ -1828,7 +1828,7 @@ function hairpinNotesInMeasure(inst:string|null,measure:number){
  if(!inst)return [];
  const beats=project.value.beats;
  return (score.value[inst]??[]).filter(n=>Number.isFinite(n.start)&&n.start>=measure*beats&&n.start<(measure+1)*beats)
-  .slice().sort((a,b)=>a.start-b.start).map(n=>({position:Number(n.start.toFixed(6)),label:`Beat ${Number((n.start%beats+1).toFixed(3))} · ${midiName(n.pitch)}`}));
+  .slice().sort((a,b)=>a.start-b.start).map(n=>({position:Number(n.start.toFixed(6)),label:`${midiName(n.pitch)} · starts at beat ${Number((n.start-measure*beats+1).toFixed(4))}`}));
 }
 const dynamicsCreateEndNotes=computed(()=>hairpinNotesInMeasure(dynamicsCreateInstrument.value,dynamicsCreateEndMeasure.value));
 const dynamicsEditEndNotes=computed(()=>{const i=dynamicsEditRange.value;return i===null?[]:hairpinNotesInMeasure(project.value.expressionRanges?.[i]?.instrument??null,dynamicsEditEndMeasure.value)});
