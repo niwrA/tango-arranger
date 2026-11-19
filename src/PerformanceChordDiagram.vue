@@ -70,7 +70,6 @@ const diagramDescription=computed(()=>{
      </div>
    </div>
    <div v-else-if="isStringInstrument" class="diagram-fingerboard" :aria-label="family+' open strings and schematic semitone positions'">
-     <div class="diagram-fingerboard-header"><span>String</span><span>Open</span><span>+2</span><span>+4</span><span>+6</span></div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row">
        <span class="diagram-open-label">{{string.name}}</span>
        <span v-for="offset in stops" :key="offset" class="diagram-string-stop" :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
@@ -83,10 +82,10 @@ const diagramDescription=computed(()=>{
        <template v-if="family==='Bandoneon'">
          <span class="diagram-bank">◉ ◉ ◉</span><span class="diagram-bellows">▥▥▥</span><span class="diagram-bank">◉ ◉ ◉</span>
        </template>
-       <template v-else-if="family==='Trumpet'"><span>○　○　○</span><span>BRASS · B♭</span></template>
-       <template v-else-if="family==='Trombone'"><span>━━━━━━━━</span><span>SLIDE</span></template>
-       <template v-else-if="family==='Flute'||family==='Clarinet'"><span>●—●—●—●—●</span><span>WIND</span></template>
-       <template v-else><span>♪ ♫ ♪</span><span>VOICE / TONES</span></template>
+       <template v-else-if="family==='Trumpet'"><span>○　○　○</span></template>
+       <template v-else-if="family==='Trombone'"><span>━━━━━━━━</span></template>
+       <template v-else-if="family==='Flute'||family==='Clarinet'"><span>●—●—●—●—●</span></template>
+       <template v-else><span>♪ ♫ ♪</span></template>
      </div>
      <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill" :class="{'is-root':tone===root}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
    </div>
