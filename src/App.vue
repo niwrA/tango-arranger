@@ -292,7 +292,7 @@ function handleNoteTabKey(event:KeyboardEvent){
 }
 const noteDetailsPopup=ref(false);
 function scrollMapEditPanel(){document.querySelector('.overview-edit')?.scrollIntoView({behavior:'smooth',block:'center'});}
-const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteInspectorOpen=ref(true);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());type WorkspaceTab='structure'|'lead'|'arrange'|'rhythm'|'notes'|'about';
+const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());type WorkspaceTab='structure'|'lead'|'arrange'|'rhythm'|'notes'|'about';
 const workspaceTabs:readonly WorkspaceTab[]=['structure','lead','arrange','rhythm','notes','about'];
 function initialWorkspaceTab():WorkspaceTab{
   try{
@@ -2987,7 +2987,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
     <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
     <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
-    <button type="button" class="secondary" @click="noteInspectorOpen=!noteInspectorOpen" :aria-pressed="noteInspectorOpen">{{noteInspectorOpen?'Hide':'Show'}} inspector</button>
     <button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
   </div>
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
@@ -3101,7 +3100,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div v-for="r in currentExpressionRanges" :key="r.index" class="expression-range-row"><span>Measures {{r.startMeasure+1}} (beat {{(r.startBeat??0)+1}}) – {{r.endMeasure+1}} (through beat {{r.endBeat??project.beats}}) · {{r.from}} → {{r.to}} {{r.to>=r.from?'crescendo':'decrescendo'}}</span><button class="secondary" @click="removeExpressionRange(r.index)">Remove</button></div>
     </details></div>
   </section>
-  <section id="note-panel-notes" v-show="noteEditorTab==='notes'" role="tabpanel" aria-labelledby="note-tab-notes" :class="{'inspector-open':noteInspectorOpen}">
+  <section id="note-panel-notes" v-show="noteEditorTab==='notes'" role="tabpanel" aria-labelledby="note-tab-notes" class="inspector-open">
   <p v-if="false" class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
     <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
@@ -3184,7 +3183,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
     <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
-    <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong><button type="button" class="secondary" @click="noteInspectorOpen=false" aria-label="Close note inspector">✕</button></div><details class="control-fold selected-note-fold" open><summary>Edit selected note · {{displayPitch(selectedEvent.pitch)}}</summary><div class="note-editor-controls">
+    <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong></div><details class="control-fold selected-note-fold" open><summary>Edit selected note · {{displayPitch(selectedEvent.pitch)}}</summary><div class="note-editor-controls">
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>
       <label>Beat (starts at 1)<input type="number" min="1" :max="project.beats" step="0.25" :value="selectedEvent.start-selectedBar*project.beats+1" @change="updateSelectedNote('start',String(Number(($event.target as HTMLInputElement).value)-1))"/></label><div class="note-position-nudge"><span>Move onset (keep duration)</span><div class="note-nudge-buttons"><button type="button" class="secondary" aria-label="Move selected note half a beat earlier" :disabled="selectedEvent.start-selectedBar*project.beats<=0" @click="nudgeSelectedNote(-0.5)">← ½ beat</button><button type="button" class="secondary" aria-label="Move selected note half a beat later" :disabled="selectedEvent.start-selectedBar*project.beats+selectedEvent.duration>=project.beats-0.0001" @click="nudgeSelectedNote(0.5)">½ beat →</button></div></div>
       <div class="note-duration-field"><label for="note-written-duration">Written duration · {{selectedEvent.duration}} beats</label><div class="note-duration-controls"><button type="button" class="secondary" @click="changeNoteDuration(-0.25)" :disabled="selectedEvent.duration<=0.25" aria-label="Shorten note by quarter beat">−</button><input id="note-written-duration" type="number" min="0.25" :max="selectedDurationMax" step="0.25" v-model="writtenDurationDraft" @keydown.enter.prevent="applyWrittenDurationDraft" @change="applyWrittenDurationDraft"/><button type="button" class="primary" @click="applyWrittenDurationDraft">Apply</button><button type="button" class="secondary" @click="changeNoteDuration(0.25)" :disabled="selectedEvent.duration>=selectedDurationMax-0.0001" aria-label="Lengthen note by quarter beat">+</button></div><input class="note-duration-slider" type="range" min="0.25" :max="selectedDurationMax" step="0.25" :value="selectedEvent.duration" :disabled="selectedDurationMax<=0.25" aria-label="Written note duration in beats" @input="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><div class="duration-preview" role="status" :aria-label="`Written duration ${selectedEvent.duration} beats`"><span :style="{width:`${noteDurationPercent}%`}"></span></div><small class="hint">Saved duration: <strong>{{selectedEvent.duration}} beats</strong> · starts at beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}} · maximum {{selectedDurationMax}} beats until the song ends. Written length is separate from sounding length.</small></div>
@@ -3327,4 +3326,113 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   .note-unified-focus-toolbar .note-focus-range{flex:1 1 145px;flex-wrap:wrap;white-space:normal}
   .note-unified-focus-toolbar .note-focus-range select{width:100%;max-width:none}
 }
+
+/* Tablet-first Note Editor: full-width workspace and minimal internal spacing. */
+.note-editor-section:not(.note-focus-mode){
+  margin-inline:calc(0px - clamp(12px,2.1vw,34px));
+  padding-inline:4px;
+  max-width:none;
+}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar{
+  display:flex;
+  align-items:center;
+  flex-wrap:nowrap;
+  gap:5px;
+  padding:3px 4px;
+  margin:0 0 4px;
+  border-radius:6px;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar button{
+  flex:0 0 auto;
+  padding:5px 7px;
+  min-height:36px;
+  font-size:12px;
+}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar label{
+  flex:0 0 135px;
+  min-width:0;
+  max-width:none;
+  font-size:10px;
+  white-space:nowrap;
+}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar label:first-of-type{flex-basis:172px}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar select{
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  margin-top:1px;
+  padding:4px 5px;
+  height:35px;
+  box-sizing:border-box;
+}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar .note-focus-enter{
+  margin-left:auto;
+  white-space:nowrap;
+}
+.note-editor-section:not(.note-focus-mode) .note-subtabs{margin:3px 0 4px;padding:0;gap:4px}
+.note-editor-section:not(.note-focus-mode) .note-subtabs button{padding:7px 10px}
+.note-editor-section:not(.note-focus-mode) .note-editor-panel{
+  padding:0;
+  margin:0;
+  border-radius:4px;
+}
+.note-editor-section:not(.note-focus-mode) #note-panel-notes.inspector-open .note-editor-panel{padding-right:0}
+.note-editor-section:not(.note-focus-mode) .note-staff-panel{margin:2px 0 4px}
+.note-editor-section:not(.note-focus-mode) .note-context-panel{margin:2px 0 3px;padding:2px 3px}
+
+.note-editor-section.note-focus-mode{
+  padding:0 3px calc(96px + env(safe-area-inset-bottom));
+}
+.note-editor-section.note-focus-mode .note-unified-focus-toolbar{
+  margin:0 -3px 3px;
+  padding:3px 5px;
+  display:flex;
+  flex-wrap:nowrap;
+  gap:5px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+.note-editor-section.note-focus-mode .note-unified-focus-toolbar button{
+  min-height:36px;
+  padding:5px 7px;
+  flex:0 0 auto;
+}
+.note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-identity{
+  margin-right:auto;
+  flex:0 0 auto;
+}
+.note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range{
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range select{
+  min-width:82px;
+  max-width:120px;
+  padding:4px;
+  height:35px;
+}
+.note-editor-section.note-focus-mode .note-editor-panel{margin:0;padding:0;border-radius:3px}
+.note-editor-section.note-focus-mode .note-staff-panel{margin:2px 0 4px}
+.note-editor-section.note-focus-mode .note-context-panel{margin:2px 0 3px;padding:2px 3px}
+.note-editor-section .note-context-panel .note-context{margin:0;gap:3px 4px}
+.note-editor-section .note-context-panel .note-context span{padding:3px 5px}
+@media(max-width:700px){
+  .note-editor-section:not(.note-focus-mode){padding-inline:2px}
+  .note-editor-section:not(.note-focus-mode) .note-unified-toolbar{flex-wrap:nowrap;gap:4px;padding:2px}
+  .note-editor-section:not(.note-focus-mode) .note-unified-toolbar label{flex:0 0 125px}
+  .note-editor-section:not(.note-focus-mode) .note-unified-toolbar label:first-of-type{flex-basis:148px}
+  .note-editor-section.note-focus-mode{padding-inline:2px}
+  .note-editor-section.note-focus-mode .note-unified-focus-toolbar{margin-inline:-2px;padding:2px 3px;gap:4px}
+  .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-identity{flex-basis:auto}
+  .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range{flex:0 0 auto;flex-wrap:nowrap}
+  .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range select{width:auto;max-width:120px}
+}
+
 </style>
