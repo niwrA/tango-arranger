@@ -32,7 +32,7 @@ import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type Captur
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
-import {splitAtMeasureBoundaries} from './performanceCues';
+import {splitAtMeasureBoundaries,soundingPitchesAtBeat} from './performanceCues';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -467,8 +467,10 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const notes=score.value[part.inst]??[];
  const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
  const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
+ const activePitches=playing.value?soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration):[];
+ const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:rosterDisplayName(part.inst),playingInMeasure,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:rosterDisplayName(part.inst),playingInMeasure,activePitches,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -3294,7 +3296,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <strong>{{part.display}}</strong>
         <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"/>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones"/>
       <template v-else>
         <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
         <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
