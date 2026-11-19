@@ -11,9 +11,10 @@ import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
-import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts} from './io';
+import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
 import {measureLoopEvents} from './measureLoop';
+import {EDITION_LEVELS,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {playExpressiveEvent} from './expressiveAudio';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
@@ -1021,7 +1022,41 @@ function gestureMini(n:Note,voice:'primary'|'partner'='primary'):string{
  const min=Math.min(n.pitch,n.slideTo)-1,max=Math.max(n.pitch,n.slideTo)+1;
  return '0,'+(19-(n.pitch-min)/(max-min)*15).toFixed(2)+' 100,'+(19-(n.slideTo-min)/(max-min)*15).toFixed(2);
 }
-function setInstrumentDifficulty(inst:Instrument,e:Event){ensureInstrumentSettings();project.value.instrumentSettings![inst]??={};project.value.instrumentSettings![inst]!.difficulty=(e.target as HTMLSelectElement).value as Difficulty;}
+function setInstrumentDifficulty(inst:Instrument,e:Event){switchDifficultyEdition(inst,(e.target as HTMLSelectElement).value as Difficulty);}
+function switchDifficultyEdition(inst:Instrument,level:Difficulty){
+  try{
+    if(level===currentEditionLevel(project.value,inst))return;
+    stopPlayback();
+    const stored=!!project.value.partEditions?.[inst]?.[level];
+    project.value=switchInstrumentEdition(project.value,inst,level);
+    noteSelected.value=-1;noteDetailsPopup.value=false;
+    message.value=`${rosterDisplayName(inst)}: ${level} edition selected. ${stored?'Stored notes and protected edits restored.':'A new edition was generated; the previous version is preserved.'}`;
+  }catch(err){message.value='Cannot change instrument edition: '+String(err);}
+}
+function regenerateCurrentEdition(inst:Instrument){
+  try{
+    stopPlayback();
+    const level=currentEditionLevel(project.value,inst);
+    project.value=regenerateInstrumentEdition(project.value,inst,level);
+    noteSelected.value=-1;
+    message.value=`Regenerated ${rosterDisplayName(inst)} · ${level}. Protected edits retained; other instruments and stored editions unchanged.`;
+  }catch(err){message.value='Could not regenerate selected edition: '+String(err);}
+}
+function editionDescription(inst:Instrument,level:Difficulty):string{
+  const info=getEditionInfo(project.value,inst,level);
+  return level+(info.active?' · selected':info.stored?' · saved':' · create on selection')+
+    (info.stale?' · song changed':'')+(info.protectedCount?' · '+info.protectedCount+' protected':'');
+}
+async function exportDifficultyEditionPack(){
+  try{
+    const exported=snapshotActiveEditions(project.value);
+    const blob=await exportEditionPrintPack(exported);
+    const base=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();
+    download(blob,base+'-difficulty-editions.zip','application/zip');
+    message.value='Print pack exported: chosen mixed-skill score and Easy/Intermediate/Advanced MusicXML parts. Open in MuseScore to print.';
+  }catch(error){message.value='Edition print pack failed: '+String(error);}
+}
+
 function instrumentDynamicsOffset(inst:Instrument):number{return project.value.instrumentSettings?.[inst]?.dynamicsOffset??0;}
 function setInstrumentDynamicsOffset(inst:Instrument,e:Event){ensureInstrumentSettings();project.value.instrumentSettings![inst]??={};project.value.instrumentSettings![inst]!.dynamicsOffset=Number((e.target as HTMLInputElement).value);}
 function instrumentTarget(inst:Instrument):number{return Math.round((project.value.instrumentSettings?.[inst]?.activity??(inst.startsWith('Voice')?0:0.9))*100);}
@@ -2775,7 +2810,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
   <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Import and export">
-    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import / MuseScore round-trip</button><button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> Export MusicXML</button><button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Export compressed MusicXML (.mxl)</button><button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> Experimental MuseScore (.mscz)</button><label>Single-instrument MuseScore (.mscz) <select @change="($event.target as HTMLSelectElement).value && exportMscz(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).value=''"><option value="">Choose instrument to export…</option><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label><button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> Export ABC lead sheet</button><button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> Export for MobileSheets (ABC parts ZIP)</button><button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Export .tango.json backup</button></div></details>
+    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import / MuseScore round-trip</button><button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> Export MusicXML</button><button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Export compressed MusicXML (.mxl)</button><button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> Experimental MuseScore (.mscz)</button>
+      <button type="button" class="secondary" @click="exportDifficultyEditionPack"><AppIcon name="file-down"/> Printable difficulty editions (.zip)</button><label>Single-instrument MuseScore (.mscz) <select @change="($event.target as HTMLSelectElement).value && exportMscz(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).value=''"><option value="">Choose instrument to export…</option><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label><button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> Export ABC lead sheet</button><button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> Export for MobileSheets (ABC parts ZIP)</button><button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Export .tango.json backup</button></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-options" role="group" aria-label="Song settings and view">
     <button class="secondary icon-action header-settings" type="button" :aria-expanded="projectDrawerOpen" aria-controls="song-settings-modal" title="Settings for selected song" aria-label="Song settings" @click="projectDrawerOpen=!projectDrawerOpen"><AppIcon name="settings"/></button>
@@ -2944,6 +2980,21 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
 <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
 </div>
+<div class="orchestration-editions-bar" role="region" aria-label="Instrument difficulty editions">
+  <strong>Instrument editions</strong>
+  <span class="hint">Select a difficulty for each player. Notes and manual corrections stay independent; choosing a new level creates its part without replacing other editions.</span>
+  <div class="orchestration-edition-selectors">
+    <label v-for="inst in activeRoster" :key="inst" class="instrument-edition-label">
+      <span>{{rosterDisplayName(inst)}}</span>
+      <select :value="instrumentDifficulty(inst)" :aria-label="'Difficulty edition for '+rosterDisplayName(inst)"
+        @change="switchDifficultyEdition(inst,($event.target as HTMLSelectElement).value as Difficulty)">
+        <option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(inst,level)}}</option>
+      </select>
+    </label>
+  </div>
+  <button type="button" class="secondary" @click="regenerateCurrentEdition(overviewInstrument)">↻ Regenerate selected instrument edition</button>
+  <button type="button" class="secondary" @click="exportDifficultyEditionPack">Export all difficulty editions for printing (.zip)</button>
+</div>
 <div class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
 <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
 <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
@@ -3050,7 +3101,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
     <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
     <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
-    <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}}</strong>
+    <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}} · {{instrumentSkillShort(noteInst)}}</strong>
+    <label class="note-focus-range">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
     <label class="note-focus-range">Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
     <label class="note-focus-range">End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
@@ -3062,6 +3114,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button v-if="noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button>
     <button type="button" class="secondary" @click="returnToMap">← Map</button>
     <label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+    <label class="note-edition-selector">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
     <label>Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
     <label>End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
@@ -3577,4 +3630,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .performance-gesture-path.secondary{stroke:#efba75;stroke-dasharray:4 3}
 .performance-gesture-path.latigo{stroke:#f6b55f;stroke-width:4}
 
+
+/* Independent editable part editions, not a global simplified-score switch. */
+.orchestration-editions-bar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:4px 0 8px;padding:7px;border:1px solid #556472;border-radius:7px;background:#24323d}
+.orchestration-editions-bar>.hint{margin:0;flex:1 1 390px;font-size:11px}
+.orchestration-edition-selectors{width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:5px}
+.instrument-edition-label{display:flex;flex-direction:column;gap:1px;font-size:11px;min-width:0}
+.instrument-edition-label select{width:100%;max-width:100%;padding:5px 6px;margin:0}
+.note-editor-section:not(.note-focus-mode) .note-unified-toolbar label.note-edition-selector{flex-basis:150px}
+@media(max-width:700px){.orchestration-edition-selectors{grid-template-columns:repeat(auto-fit,minmax(145px,1fr))}.orchestration-editions-bar{padding:4px}}
 </style>

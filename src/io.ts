@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import {EDITION_LEVELS,assembleEditionScore,currentEditionLevel,getEditionInfo,snapshotActiveEditions,type EditionChoice} from './editions';
 import {gestureLabel} from './tangoGestures';
 import { Midi } from '@tonejs/midi';
 import {INSTRUMENTS,projectInstruments,pianoStaffForPitch,parsePitch,midiName,transposeScore,transposeChord,parseChordSequence,chordSequenceFromBeats,parseKeySignature,sectionKey,transposeKeySignature,inferSectionKeys,KEY_SIGNATURES,sectionLetter,type ChordChange,type Project,type Score,type Note,type Instrument,instrumentFamily,INSTRUMENT_CAPABILITIES} from './music';
@@ -347,11 +348,17 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
   zip.file('score.mscx',mscx);
   return zip.generateAsync({type:'blob',mimeType:'application/vnd.musescore.mscz'});
 }
-export function exportMusicXml(p:Project,score:Score){
+export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice}){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
+  const instruments=options?.onlyInstrument?[options.onlyInstrument]:projectInstruments(p);
+  if(instruments.some(inst=>!projectInstruments(p).includes(inst)))throw Error('Unknown print instrument');
+  const partName=(inst:Instrument)=>[p.instrumentNames?.[inst]||inst,...(options?.editionLevels?.[inst]?[options.editionLevels[inst]]:[])].join(' · ');
   const titleXml=esc(exportSongTitle(p));
-  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${titleXml}</work-title></work><movement-title>${titleXml}</movement-title><credit page="1"><credit-type>title</credit-type><credit-words default-x="595" default-y="1627" justify="center" valign="top" font-size="24">${titleXml}</credit-words></credit><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${projectInstruments(p).map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(p.instrumentNames?.[inst]||inst)}</part-name><part-abbreviation>${esc(p.instrumentNames?.[inst]||inst)}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(p.instrumentNames?.[inst]||inst)}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
+  const subtitle=options?.onlyInstrument
+    ?`<credit page="1"><credit-type>subtitle</credit-type><credit-words default-x="595" default-y="1550" justify="center">${esc(partName(options.onlyInstrument))}</credit-words></credit>`
+    :'';
+  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${titleXml}</work-title></work><movement-title>${titleXml}</movement-title>${subtitle}<credit page="1"><credit-type>title</credit-type><credit-words default-x="595" default-y="1627" justify="center" valign="top" font-size="24">${titleXml}</credit-words></credit><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${instruments.map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(partName(inst))}</part-name><part-abbreviation>${esc(partName(inst))}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(partName(inst))}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
   const dynamics=p.expression?.enabled!==false?(p.expression?.sections??{A1:'mp',B1:'mf',A2:'mp',B2:'f',C:'f'}):null;
   const dynamicDirection=(inst:Instrument,b:number)=>{
     if(!dynamics)return '';
@@ -394,7 +401,7 @@ export function exportMusicXml(p:Project,score:Score){
   };
   let sectionOrdinal=-1;
   const sectionMarks=p.bars.map((bar,b)=>{if(b===0||bar.section!==p.bars[b-1].section)sectionOrdinal++;return sectionLetter(sectionOrdinal);});
-  const body=projectInstruments(p).map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="no" number="${b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${inst.startsWith('Piano')?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&(b===0||bar.section!==p.bars[b-1].section)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?parseChordSequence(bar.chord,p.beats).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${inst.startsWith('Piano')?writePianoMeasure(p,transposed[inst]??[],b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0))}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
+  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="no" number="${b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${inst.startsWith('Piano')?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&(b===0||bar.section!==p.bars[b-1].section)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?parseChordSequence(bar.chord,p.beats).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${inst.startsWith('Piano')?writePianoMeasure(p,transposed[inst]??[],b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0))}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
   return head+body+'</score-partwise>';
 }
 
@@ -500,10 +507,52 @@ export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUME
   }
   return problems;
 }
+
+/** A musician-facing print pack with a mixed-skill full score plus every
+ * difficulty edition as independently printable MusicXML. Any uncreated
+ * variant is generated only for the pack; protected edits remain untouched. */
+export async function exportEditionPrintPack(p:Project):Promise<Blob>{
+ const saved=snapshotActiveEditions(p),instruments=projectInstruments(saved);
+ const choices=Object.fromEntries(instruments.map(inst=>[inst,currentEditionLevel(saved,inst)])) as EditionChoice;
+ const mixed=assembleEditionScore(saved,choices);
+ const scoreXml=exportMusicXml(saved,mixed,{editionLevels:choices});
+ const problems=validateMusicXmlDurations(scoreXml,saved.beats,instruments.length);
+ if(problems.length)throw Error('Selected ensemble score invalid: '+problems.slice(0,2).join('; '));
+ const zip=new JSZip();
+ zip.file('selected-ensemble.musicxml',scoreXml);
+ const levelScores=Object.fromEntries(EDITION_LEVELS.map(level=>{
+  const editions=Object.fromEntries(instruments.map(inst=>[inst,level])) as EditionChoice;
+  return [level,assembleEditionScore(saved,editions)];
+ })) as Record<string,Score>;
+ const safe=(str:string)=>str.toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-+|-+$/g,'')||'part';
+ for(const inst of instruments)for(const level of EDITION_LEVELS){
+  const noteScore=levelScores[level];
+  const partXml=exportMusicXml(saved,noteScore,{onlyInstrument:inst,editionLevels:{[inst]:level}});
+  const issues=validateMusicXmlDurations(partXml,saved.beats,1);
+  if(issues.length)throw Error(inst+' '+level+': '+issues[0]);
+  zip.file('parts/'+safe(inst)+'/'+level+'.musicxml',partXml);
+ }
+ const selection=instruments.map(inst=>({instrument:inst,chosen:choices[inst],
+  available:[...EDITION_LEVELS],stored:[...EDITION_LEVELS].filter(level=>!!saved.partEditions?.[inst]?.[level]),
+  stale:[...EDITION_LEVELS].filter(level=>getEditionInfo(saved,inst,level).stale)}));
+ zip.file('edition-selections.json',JSON.stringify({schema:1,title:saved.title,tempoBpm:saved.bpm,
+  beats:saved.beats,selection},null,2));
+ zip.file('README.txt',
+  'Tango Arranger – printable difficulty editions\nSong: '+saved.title+'\nTempo: '+saved.bpm+' BPM\n\n'+
+  'Open selected-ensemble.musicxml in MuseScore for the mixed-skill full score.\n'+
+  'The parts/ folders contain Easy, Intermediate and Advanced editions for each instrument.\n'+
+  'Open any individual MusicXML file in MuseScore, then use File > Print or Export to PDF.\n'+
+  'Each edition is a separate score; your currently selected combination is described in edition-selections.json.\n'+
+  'For editable versions and protected changes share the original .tango.json project.\n'+
+  'Uncreated alternatives are generated for this pack, not saved over the .tango project.\n'+
+  'If the song has changed, stored alternative editions may be stale. See the stale field in edition-selections.json before printing.\n');
+ return zip.generateAsync({type:'blob',mimeType:'application/zip',compression:'DEFLATE'});
+}
+
 export async function saveProject(p:Project){
   // Native projects are JSON so mobile document pickers recognize the file type.
   // The project object already includes its generated and imported scores.
-  download(JSON.stringify(p,null,2),p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()+'.tango.json','application/json');
+  download(JSON.stringify(snapshotActiveEditions(p),null,2),p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()+'.tango.json','application/json');
 }
 export async function loadProject(file:File):Promise<Project>{
   // Legacy .tango files were ZIP archives containing project.json.

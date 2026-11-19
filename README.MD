@@ -105,6 +105,34 @@ are not round-tripped by MuseScore. More advanced fingerings, phrase-aware
 automatic generation, multi-difficulty editions and rhythm-snap provenance
 remain future work. Browser/Safari and MuseScore GUI validation remain necessary.
 
+## Independent instrument difficulty editions (Milestone 2, 2026-11-19)
+
+A single portable `.tango.json` song now stores separate **Easy**, **Intermediate**
+and **Advanced** versions of each instrument. The form, lead-sheet melody,
+harmonic progression and tempo remain shared. Choose a musician's version in
+**Orchestration → Instrument editions**, or switch the active part in the
+Note Editor (including Focus mode). Switching saves the previous version's
+notes, manual edits and protected measures, then restores the chosen version.
+A missing version is generated without overwriting the others; it can then be
+edited and protected independently. The default active scores retain their
+original fields for compatibility with older files and project tools.
+
+In **Files**, choose **Printable difficulty editions (.zip)**. The download
+contains `selected-ensemble.musicxml` with your currently chosen combination
+of difficulties, plus Easy/Intermediate/Advanced individual MusicXML parts for
+every instrument. Open these in MuseScore to print or export PDF. The bundle
+also includes `edition-selections.json`, which describes the chosen levels,
+and lists stored editions that may be stale after changes to shared material.
+Missing parts are generated for the ZIP without changing the editable song.
+The `.tango.json` backup stores the independent editable editions, including
+manual protections. Legacy version-1 song files remain readable.
+
+**Limitations:** Edits to shared melody, harmony or form do not automatically
+re-harmonize saved alternatives; the UI marks stale editions. Regenerate or
+review those versions before printing. The three levels remain heuristic
+arrangements, not individually certified technique examinations. Print-ready
+layout is finalized in MuseScore; no native browser PDF engraver is provided.
+
 ## Known constraints
 
 - The v1.3 note editor is a simple beat-grid piano roll, **not** engraved staff notation or finger-position optimization. Double stops use a conservative adjacent-string/open-low-position heuristic. The editor permits arbitrary manual polyphony; ergonomic playability is not guaranteed.

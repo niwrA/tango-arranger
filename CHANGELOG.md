@@ -1,3 +1,17 @@
+## Milestone 2 — Independent instrument difficulty editions (2026-11-19)
+
+- Added independently editable Easy, Intermediate and Advanced versions for
+  each instrument in the existing portable project, while sharing one song
+  form, melody, harmony and tempo.
+- Edition switches preserve each variant's note data, gestures and
+  protected manual measures, with on-demand generation of missing versions.
+- Added instrument edition selectors to the Orchestration and Note Editor
+  workspaces, including Focus mode.
+- Added a printable ZIP containing the selected mixed-level score and each
+  instrument's three MusicXML editions; stale saved alternatives are flagged.
+- Targeted regression checks run in CI. MuseScore layout/print and Safari
+  touch tests still require device/application verification.
+
 # Tango Arranger — release notes and version history
 
 This file preserves the historical release notes previously included in README.MD. Earlier entries describe the application as it existed at the time; for current behavior see [README.MD](README.MD).

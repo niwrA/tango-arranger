@@ -34,6 +34,9 @@ jobs:
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 
+      - name: Test independent difficulty editions and printable export
+        run: npm run test:editions
+
       - name: Verify production output
         run: |
           test -f dist/index.html

@@ -1,4 +1,5 @@
 import type {Project} from './music';
+import {snapshotActiveEditions} from './editions';
 
 /** Browser-local, multi-song library. No server, account or network requests. */
 export interface LocalSongSummary {id:string; title:string; updatedAt:number; measures:number}
@@ -40,7 +41,7 @@ export function newLocalSongId():string{
 }
 export async function saveLocalSong(id:string,project:Project):Promise<LocalSongSummary>{
   const db=await database();
-  const record:LocalSongRecord={id,title:project.title.trim()||'Untitled Tango',updatedAt:Date.now(),measures:project.bars.length,project:cloneProject(project)};
+  const record:LocalSongRecord={id,title:project.title.trim()||'Untitled Tango',updatedAt:Date.now(),measures:project.bars.length,project:cloneProject(snapshotActiveEditions(project))};
   await new Promise<void>((resolve,reject)=>{
     const tx=db.transaction(STORE,'readwrite');
     tx.objectStore(STORE).put(record);

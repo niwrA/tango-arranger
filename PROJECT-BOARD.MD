@@ -37,6 +37,23 @@
 - Focus view shows the measure range chosen by Loop from / To as a scrollable note overview. Click any measure to make it the editable measure below. Playback loops the same measure range.
 - Only the selected measure is directly draggable/resizable; the phrase overview is navigational and does not allow dragging across measure boundaries.
 
+## Milestone 2 — Independent difficulty editions (19 November 2026)
+
+- [x] Keep the shared lead sheet, song form, chords and tempo unchanged while
+  storing separate Easy, Intermediate and Advanced note editions per instrument
+  in version-1 compatible `.tango.json` project data.
+- [x] Make switching editions preserve each version's manual notes, protection
+  and expressive gestures, without silently borrowing protected material from
+  another edition. New versions can be generated on demand.
+- [x] Provide selectors in Orchestration, the Note Editor and Focus mode.
+- [x] Export a selected mixed-skill ensemble MusicXML plus separate printable
+  MusicXML instrument parts at all three levels in one ZIP.
+- [x] Mark saved alternatives stale when shared song data changes; preserve
+  the old notes until the musician deliberately revises/regenerates them.
+- [ ] Actual MuseScore printing and iPad Safari acceptance testing.
+- [ ] More sophisticated instrument-specific difficulty metrics and phrase
+  planning remain future musical-quality milestones.
+
 ## v4.4.0 — Focused Note Editor (14 November 2026)
 
 The Instrument Note Editor now offers a full-viewport **Focus editor** mode. The sticky top bar keeps previous/next measure, instrument-loop playback and optional loop-from/loop-to measure controls within reach. The bottom quick editor keeps the selected note’s timing, written duration, articulation and deletion accessible; **All note properties** reveals the complete form. Escape exits focus mode before leaving the Note Editor. The normal Notes, Live Input, Figures and Dynamics tabs remain unchanged outside focus mode. The focused loop plays only the current instrument across the selected measure range; navigating to another measure stops playback, while preserving the loop range in focus mode. This is a CSS full-viewport workspace, not the browser Fullscreen API.
