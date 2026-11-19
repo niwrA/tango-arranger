@@ -1,3 +1,4 @@
+import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
 export type Instrument = string;
 export const FACTORY_INSTRUMENTS: readonly Instrument[] = ['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
 /** Reactive UI compatibility: mutate in place when switching projects. Engine functions use project roster. */
@@ -55,7 +56,7 @@ export type Role = 'melody'|'harmony'|'chords'|'bass'|'fill'|'variation'|'rest';
 export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
-export type Note = { lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark };
+export type Note = { lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture };
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
   staccato:0.28,marcato_staccato:0.58,legato:0.94
@@ -251,7 +252,7 @@ export type Project = { version:1; bandoneonGrandStaff?:Record<string,boolean>; 
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
-  return Object.fromEntries(Object.keys(score).map(i=>[i,(score[i]??[]).map(n=>{const pitch=n.pitch+semitones;if(pitch<0||pitch>127||(n.slideTo!==undefined&&(n.slideTo+semitones<0||n.slideTo+semitones>127)))throw Error(`Transposition exceeds MIDI pitch limits for ${i}`);return {...n,pitch,slideTo:n.slideTo===undefined?undefined:n.slideTo+semitones};})])) as Score;
+  return Object.fromEntries(Object.keys(score).map(i=>[i,(score[i]??[]).map(n=>{const pitch=n.pitch+semitones;if(pitch<0||pitch>127||(n.slideTo!==undefined&&(n.slideTo+semitones<0||n.slideTo+semitones>127)))throw Error(`Transposition exceeds MIDI pitch limits for ${i}`);return {...n,pitch,slideTo:n.slideTo===undefined?undefined:n.slideTo+semitones,gesture:n.gesture?transposeTangoGesture(n.gesture,semitones):undefined};})])) as Score;
 }
 export function transposeChord(symbol:string,semitones:number):string {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Invalid transpose');
@@ -1140,6 +1141,7 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
   if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const offset=barIndex*p.beats,hi=offset+p.beats,range=instrumentRange(inst);
   const edited=notes.map(n=>{
+    if(n.gesture){if(n.slideTo!==undefined)throw Error('Use either a legacy slide or an expressive gesture, not both');validateGesture(n,inst,n.gesture,range);}
     if(n.gate!==undefined&&(!Number.isFinite(n.gate)||n.gate<=0||n.gate>1))throw Error('Note gate must be between 0 (exclusive) and 1');
     if(n.slideTo!==undefined&&(!Number.isInteger(n.slideTo)||n.slideTo<range[0]||n.slideTo>range[1]||inst==='Piano'||n.technique==='pizzicato'))throw Error('Slide unsupported for this instrument, technique or pitch range');
     if(n.swellTo!==undefined&&(!Number.isInteger(n.swellTo)||n.swellTo<1||n.swellTo>127||inst==='Piano'||n.technique==='pizzicato'))throw Error('Swell unsupported for this instrument, technique or velocity');

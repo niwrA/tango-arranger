@@ -1,6 +1,7 @@
+import {transposeTangoGesture,type TangoGesture} from './tangoGestures';
 import {noteSoundingDuration,noteSoundingVelocity,type Note,type ExpressionRange,type Instrument,type Project,measureDynamicVelocity,melodyDuckingFactor,DYNAMIC_VELOCITIES} from './music';
 
-export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number};
+export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture};
 /** Build one instrument-measure's loop events, preserving absolute-score note positions.
  * Times are relative to the selected measure. The sounding gate, not the written
  * note duration, controls audio. Long tails are clipped at the loop boundary. */
@@ -31,6 +32,7 @@ export function measureLoopEvents(notes:readonly Note[],measureIndex:number,beat
         durationSeconds:Math.max(0.025,soundingBeats*secondsPerBeat),
         velocity:startVelocity,
         ...(n.slideTo!==undefined?{slideTo:Math.max(0,Math.min(127,n.slideTo+transpose))}:{}),
+        ...(n.gesture?{gesture:transposeTangoGesture(n.gesture,transpose)}:{}),
         ...(n.swellTo!==undefined||matching.length?{endVelocity}:{}),
       };
     }).sort((a,b)=>a.onsetSeconds-b.onsetSeconds||a.pitch-b.pitch);

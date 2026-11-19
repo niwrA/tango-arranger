@@ -86,6 +86,25 @@ The application opens with an **empty 80-measure song**, divided into five 16-me
 - `PROJECT-GOALS.MD`: product and musical goals with references.
 - `PROJECT-BOARD.MD`: stories/tasks, release/status, verification and risks.
 
+## Expression gestures (Milestone 1, 2026-11-19)
+
+Note Editor and Performance mode show marcato and staccato markers, structured
+pitch trajectories and compact per-instrument difficulty labels. An editable
+`gesture` on a note preserves its normalized pitch points; optional
+`partner` adds a second violin voice for a double sirena. Presets include
+ascending/descending portamento and látigo, single and double sirenas in both
+directions, rise–fall/fall–rise sirenas and descending double sirena with tremolo.
+Double violin gestures are checked against a conservative adjacent-string and
+first-position model. Manual edits are protected from regeneration and saved
+in the existing `.tango.json` backup; legacy `slideTo` notes still work.
+
+App playback synthesizes multi-point pitch trajectories and two simultaneous
+notes for double sirenas. MusicXML and experimental MSCZ export both starting
+pitches and a **text label**; exact gesture pitch bends and tremolo playback
+are not round-tripped by MuseScore. More advanced fingerings, phrase-aware
+automatic generation, multi-difficulty editions and rhythm-snap provenance
+remain future work. Browser/Safari and MuseScore GUI validation remain necessary.
+
 ## Known constraints
 
 - The v1.3 note editor is a simple beat-grid piano roll, **not** engraved staff notation or finger-position optimization. Double stops use a conservative adjacent-string/open-low-position heuristic. The editor permits arbitrary manual polyphony; ergonomic playability is not guaranteed.

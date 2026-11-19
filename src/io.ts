@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import {gestureLabel} from './tangoGestures';
 import { Midi } from '@tonejs/midi';
 import {INSTRUMENTS,projectInstruments,pianoStaffForPitch,parsePitch,midiName,transposeScore,transposeChord,parseChordSequence,chordSequenceFromBeats,parseKeySignature,sectionKey,transposeKeySignature,inferSectionKeys,KEY_SIGNATURES,sectionLetter,type ChordChange,type Project,type Score,type Note,type Instrument,instrumentFamily,INSTRUMENT_CAPABILITIES} from './music';
 export function download(content: Blob | string, filename: string, mimeType = 'application/octet-stream'): void {
@@ -77,7 +78,9 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
   const barTicks=Math.round(beats*DIV),offset=bar*beats;
   // Keep note-level dynamics in the export event projection; omitting subito
   // makes the MusicXML direction below fail TypeScript compilation.
-  const events=notes.map(n=>({pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
+  const notationNotes=notes.flatMap(n=>n.gesture?.partner?
+    [n,{...n,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]:[n]);
+  const events=notationNotes.map(n=>({gesture:n.gesture,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
@@ -110,6 +113,8 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const ties=`${tieStop?'<tie type="stop"/>':''}${tieStart?'<tie type="start"/>':''}`;
         const isAttack=!tieStop;
         if(isAttack&&j===0){
+          const gesture=active.find(n=>n.gesture&&n.start===begin);
+          if(gesture?.gesture)out+=`<direction placement="above"><direction-type><words>${esc(gestureLabel(gesture.gesture))}</words></direction-type></direction>`;
           const slide=sources.find(n=>n.slideTo!==undefined&&n.start===begin);
           const swell=sources.find(n=>n.swellTo!==undefined&&n.start===begin);
           const subito=sources.find(n=>n.subito&&n.start===begin);
@@ -125,8 +130,8 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const staccato=isAttack&&!markedAccent&&sources.some(n=>n.articulation==='staccato'&&n.start===begin);
         const marks=(markedAccent?'<accent/>':'')+(staccato?'<staccato/>':'');
         const articulationMarks=marks?`<articulations>${marks}</articulations>`:'';
-        const lyricSource=isAttack&&j===0?sources.find(n=>n.start===begin&&n.lyric?.trim()):undefined;
-        const lyricXml=isAttack&&j===0?sources.filter(n=>n.start===begin).slice(0,1).map(n=>[1,2].map(v=>{const word=(v===1?n.lyric:n.lyric2)?.trim();const phase=lyricExtensionPhase(notes,n,v as 1|2);if(!word&&!phase)return '';const syllabic=v===1?n.syllabic:n.syllabic2;return `<lyric number="${v}">${word?`<syllabic>${syllabic??'single'}</syllabic><text>${esc(word)}</text>`:''}${phase?`<extend type="${phase}"/>`:''}</lyric>`;}).join('')).join(''):'';
+        const lyricSource=isAttack&&j===0?active.find(n=>n.start===begin&&n.lyric?.trim()):undefined;
+        const lyricXml=isAttack&&j===0?active.filter(n=>n.start===begin&&(n.lyric||n.lyric2||n.melisma||n.melisma2)).slice(0,1).map(n=>[1,2].map(v=>{const word=(v===1?n.lyric:n.lyric2)?.trim();const phase=lyricExtensionPhase(notes,n,v as 1|2);if(!word&&!phase)return '';const syllabic=v===1?n.syllabic:n.syllabic2;return `<lyric number="${v}">${word?`<syllabic>${syllabic??'single'}</syllabic><text>${esc(word)}</text>`:''}${phase?`<extend type="${phase}"/>`:''}</lyric>`;}).join('')).join(''):'';
         const notations=(tieStop||tieStart||articulationMarks)?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${articulationMarks}</notations>`:'';
         out+=`<note>${j?'<chord/>':''}${pitchXml(pitch,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${staffTag}${notations}${lyricXml}</note>`;
       }
@@ -189,7 +194,9 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
     return `<Part><Staff id="${staffId}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>${(family==='Piano'||(family==='Bandoneon'&&p.bandoneonGrandStaff?.[inst]))?`<Staff id="${staffId+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>`:''}<trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
   }).join('');
   const staffs=instruments.map((inst,index)=>{
-    const allNotes=(scoreNotes[inst]??[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>0)
+    const allNotes=(scoreNotes[inst]??[]).flatMap(n=>n.gesture?.partner?
+      [n,{...n,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]:[n])
+      .filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>0)
       .slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
@@ -283,7 +290,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         const events:string[]=[];
         const rest=(ticks:number)=>{for(const c of chunks(ticks/tpq))events.push(`<Rest><durationType>${c.type}</durationType></Rest>`);};
         for(const group of active){
-          const n=group.notes[0];
+          const n=group.notes.find(note=>note.gesture||note.lyric||note.lyric2)??group.notes[0];
           const startTick=Math.max(0,Math.round((Math.max(begin,n.start)-begin)*8)*60);
           const endTick=Math.min(beats*tpq,Math.round((Math.min(end,n.start+n.duration)-begin)*8)*60);
           if(endTick<=startTick)continue;
@@ -313,6 +320,8 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
               const forward=tiedForward?`<Spanner type="Tie"><Tie/><next>${location(spanTicks)}</next></Spanner>`:'';
               return `<Note><pitch>${Math.round(note.pitch)}</pitch><tpc>${tpcForPitch(note.pitch,fifths)}</tpc>${backward}${forward}</Note>`;
             }).join('');
+            if(pi===0&&!previous&&n.gesture)
+              events.push(`<StaffText><text>${esc(gestureLabel(n.gesture))}</text></StaffText>`);
             events.push(`<Chord><durationType>${piece.type}</durationType>${articulation}${noteXml}${lyric(n.lyric,n.syllabic,1)}${lyric(n.lyric2,n.syllabic2,2)}</Chord>`);
           }
           cursor=endTick;

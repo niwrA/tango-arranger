@@ -18,6 +18,7 @@ import {playExpressiveEvent} from './expressiveAudio';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {selectMapMeasure} from './mapSelection';
+import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
@@ -353,7 +354,25 @@ const performanceSections=computed(()=>sectionSpans(project.value));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
-const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const low=Math.max(24,Math.min(84,...notes.map(n=>n.pitch))-2);const high=Math.min(108,Math.max(low+12,...notes.map(n=>n.pitch))+2);return {first,length,low,high,notes};});
+const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[])]);
+ const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes};});
+const performanceGesturePaths=computed(()=>{
+ const window=performanceRoll.value;if(!window)return [];
+ const paths:{id:string;points:string;partner:boolean;kind:string}[]=[];
+ window.notes.forEach((n,i)=>{
+  const lines=n.gesture?[n.gesture.points,...(n.gesture.partner?[n.gesture.partner]:[])]:n.slideTo!==undefined?
+    [[{at:0,pitch:n.pitch},{at:1,pitch:n.slideTo}]]:[];
+  lines.forEach((points,j)=>{
+   const coords=points.map(pt=>{
+    const x=(n.start+pt.at*n.duration-window.first)/window.length*1000;
+    const y=(1-(pt.pitch-window.low)/(window.high-window.low+1))*1000;
+    return x.toFixed(2)+','+y.toFixed(2);
+   }).join(' ');
+   paths.push({id:i+':'+j,points:coords,partner:j>0,kind:n.gesture?.kind??'slide'});
+  });
+ });
+ return paths;
+});
 const performanceLyricNotes=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return [];return (score.value[inst]??[]).filter(n=>Boolean(n.lyric||n.lyric2)).sort((a,b)=>a.start-b.start);});
 const performanceCurrentLyric=computed(()=>{const beat=performanceBeat.value,notes=performanceLyricNotes.value;let index=-1;for(let i=0;i<notes.length;i++){if(notes[i].start<=beat+0.0001)index=i;else break;}const active=index>=0&&beat<notes[index].start+noteSoundingDuration(notes[index])-0.0001;return {notes,index,active};});
 const performanceLyricWindow=computed(()=>{const {notes,index,active}=performanceCurrentLyric.value;if(index<0||!performanceDisplayedPart.value)return [];const beat=performanceBeat.value;const measure=Math.floor(beat/project.value.beats);const nearby=notes.filter(n=>Math.floor(n.start/project.value.beats)>=measure-1&&Math.floor(n.start/project.value.beats)<=measure+2);if(!nearby.length)return [];const at=nearby.findIndex(n=>n===notes[index]);const start=Math.max(0,at-4);return nearby.slice(start,Math.min(nearby.length,Math.max(9,at+9))).map(note=>({note,active:active&&note===notes[index]}));});
@@ -805,7 +824,7 @@ async function toggleCaptureLoop(){
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
-          if(event.slideTo!==undefined||event.endVelocity!==undefined)
+          if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
             playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
@@ -991,6 +1010,17 @@ const difficulties:Difficulty[]=['easy','intermediate','advanced'];
 const dynamicMarks:DynamicMark[]=DYNAMIC_MARKS;
 function ensureInstrumentSettings(){project.value.instrumentSettings??=defaultInstrumentSettings();}
 function instrumentDifficulty(inst:Instrument):Difficulty{return project.value.instrumentSettings?.[inst]?.difficulty??project.value.difficulty??'advanced';}
+function instrumentSkillShort(inst:Instrument){return ({easy:'Easy',intermediate:'Inter.',advanced:'Adv.'} as const)[instrumentDifficulty(inst)];}
+function noteAttackMark(n:Note):string{
+ return n.articulation==='marcato_staccato'||n.accent?'›':n.articulation==='staccato'?'·':n.articulation==='legato'?'⌒':'';
+}
+function gestureText(n:Note):string{return n.gesture?gestureLabel(n.gesture):n.slideTo!==undefined?'slide → '+midiName(n.slideTo):'';}
+function gestureMini(n:Note,voice:'primary'|'partner'='primary'):string{
+ if(n.gesture)return gestureSvgPoints(n.gesture,voice);
+ if(voice==='partner'||n.slideTo===undefined)return '';
+ const min=Math.min(n.pitch,n.slideTo)-1,max=Math.max(n.pitch,n.slideTo)+1;
+ return '0,'+(19-(n.pitch-min)/(max-min)*15).toFixed(2)+' 100,'+(19-(n.slideTo-min)/(max-min)*15).toFixed(2);
+}
 function setInstrumentDifficulty(inst:Instrument,e:Event){ensureInstrumentSettings();project.value.instrumentSettings![inst]??={};project.value.instrumentSettings![inst]!.difficulty=(e.target as HTMLSelectElement).value as Difficulty;}
 function instrumentDynamicsOffset(inst:Instrument):number{return project.value.instrumentSettings?.[inst]?.dynamicsOffset??0;}
 function setInstrumentDynamicsOffset(inst:Instrument,e:Event){ensureInstrumentSettings();project.value.instrumentSettings![inst]??={};project.value.instrumentSettings![inst]!.dynamicsOffset=Number((e.target as HTMLInputElement).value);}
@@ -1743,7 +1773,7 @@ async function play(origin:PlaybackOrigin){
         const defaultVelocity=noteSoundingVelocity(n);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
-        if(event.slideTo!==undefined||event.endVelocity!==undefined)
+        if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
         else triggerInstrument(inst,event.pitch,event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
       },seconds);
@@ -1834,7 +1864,7 @@ async function toggleNoteLoop(){
       // Read the current score at the start of every pass, including manual edits.
       const events=measureLoopEvents(score.value[noteInst.value]??[],bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value);
       for(const event of events){
-        if(event.slideTo!==undefined||event.endVelocity!==undefined)
+        if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,event,time+event.onsetSeconds);
         else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds,time+event.onsetSeconds,event.velocity/127);
       }
@@ -1874,10 +1904,11 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
 }
 function auditionEvent(note:Note){
   if(!auditionEnabled.value)return;
-  if(note.slideTo!==undefined||note.swellTo!==undefined){
+  if(note.gesture||note.slideTo!==undefined||note.swellTo!==undefined){
     void startAudioFromGesture().then(tone=>{Tone=tone;playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{
       pitch:note.pitch+(project.value.transposeSemitones??0),
       slideTo:note.slideTo===undefined?undefined:note.slideTo+(project.value.transposeSemitones??0),
+      gesture:note.gesture?transposeTangoGesture(note.gesture,project.value.transposeSemitones??0):undefined,
       durationSeconds:Math.max(0.025,noteSoundingDuration(note)*60/project.value.bpm),
       velocity:noteSoundingVelocity(note),endVelocity:note.swellTo
     },Tone.now());}).catch(error=>{message.value=`Expressive audition unavailable: ${String(error)}`;});
@@ -2645,6 +2676,8 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   }
   if(field==='start')value=selectedBar.value*project.value.beats+(value as number);
   const next={...old,[field]:value};
+  if(field==='pitch'&&old.gesture&&typeof value==='number')next.gesture=transposeTangoGesture(old.gesture,value-old.pitch);
+  if(field==='slideTo'&&raw!=='inherit')delete next.gesture;
   if((field==='lyric'||field==='lyric2')&&!raw.trim())delete next[field];
   if(field==='articulation'){
     if(raw==='inherit')delete next.articulation;
@@ -2664,6 +2697,50 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
     if(['pitch','start','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(next);
   }catch(error){message.value=`Note edit rejected: ${String(error)}`;}
 }
+
+function gesturePresetForNote(n:Note):string{
+ const g=n.gesture;
+ if(!g)return '';
+ if(g.kind==='sirena')return 'sirena_'+(g.partner?'double':'single')+'_'+g.contour+(g.tremolo?'_tremolo':'');
+ return g.kind+'_'+g.contour;
+}
+function setSelectedGesturePreset(preset:string){
+ if(!selectedEvent.value)return;
+ const old=selectedEvent.value,events=noteMeasure.value.map(n=>({...n})),index=noteSelected.value;
+ const next:Note={...old};
+ try{
+  if(!preset)delete next.gesture;
+  else{
+   next.gesture=createTangoGesture(old,noteInst.value,preset as GesturePreset,noteCtx.value.range);
+   next.gate=1; // Sustain the whole contour; players may override the sounding length later.
+   delete next.slideTo;
+  }
+  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,
+    events.map((n,i)=>i===index?next:n));
+  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
+  message.value=next.gesture?'Applied '+gestureLabel(next.gesture)+' (saved as protected edit)':'Cleared expressive gesture';
+  auditionEvent(next);
+ }catch(error){message.value='Gesture unavailable: '+String(error);}
+}
+function updateSelectedGesturePitch(voice:'points'|'partner',index:number,raw:string){
+ const old=selectedEvent.value;if(!old?.gesture)return;
+ const pitch=Number(raw);
+ const range=noteCtx.value.range;
+ if(!Number.isInteger(pitch)||pitch<range[0]||pitch>range[1]){message.value='Gesture target must be an available instrument pitch';return;}
+ const gesture={...old.gesture,points:old.gesture.points.map(p=>({...p})),
+   ...(old.gesture.partner?{partner:old.gesture.partner.map(p=>({...p}))}:{})};
+ const path=gesture[voice];if(!path||!path[index])return;
+ path[index].pitch=pitch;
+ try{
+  validateGesture(old,noteInst.value,gesture,range);
+  const next={...old,gesture};
+  const events=noteMeasure.value.map((n,i)=>i===noteSelected.value?next:n);
+  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
+  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
+  auditionEvent(next);
+ }catch(error){message.value='Gesture pitch rejected: '+String(error);}
+}
+
 function deleteSelectedNote(){
   if(!selectedEvent.value)return;
   const removed=noteSelected.value;
@@ -2745,9 +2822,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span class="performance-compact-meta"><strong>{{project.bpm}}</strong> BPM <span aria-hidden="true">·</span> Beat <strong>{{performanceMeasureBeat.toFixed(1)}}/{{project.beats}}</strong></span>
     </div>
   </div>
-  <div class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(n,i) in performanceRoll.notes" :key="i" class="performance-roll-note" :style="{left:`${Math.max(0,(n.start-performanceRoll.first)/performanceRoll.length*100)}%`,width:`${Math.max(.3,Math.min(n.duration,performanceRoll.first+performanceRoll.length-n.start)/performanceRoll.length*100)}%`,bottom:`${(n.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${n.pitch} · beat ${n.start+1} · duration ${n.duration}`"></span><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
+  <div class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(n,i) in performanceRoll.notes" :key="i" class="performance-roll-note" :class="{'performance-note-accent':n.accent||n.articulation==='marcato_staccato','performance-note-staccato':n.articulation==='staccato'&&!n.accent,'performance-note-expressive':Boolean(n.gesture||n.slideTo!==undefined)}" :style="{left:`${Math.max(0,(n.start-performanceRoll.first)/performanceRoll.length*100)}%`,width:`${Math.max(.3,Math.min(n.duration,performanceRoll.first+performanceRoll.length-n.start)/performanceRoll.length*100)}%`,bottom:`${(n.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${n.pitch} · beat ${n.start+1} · duration ${n.duration} · ${gestureText(n)}`"><span v-if="noteAttackMark(n)" class="performance-attack-mark">{{noteAttackMark(n)}}</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
 
-  <div class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span></button></div>
+  <div class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
  </section>
 <div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
   <div class="section-heading"><h2>New blank song</h2><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
@@ -2884,7 +2961,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="editor overview-edit"><p class="map-range-summary" role="status">{{rosterDisplayName(overviewInstrument)}} · measures <strong>{{overviewStart}}–{{overviewEnd}}</strong> · {{Math.max(0,overviewEnd-overviewStart+1)}} selected</p><div class="overview-controls"><label>Section shortcut<select :value="''" aria-label="Select section to set measure range" @change="selectOverviewSectionRange(Number(($event.target as HTMLSelectElement).value));($event.target as HTMLSelectElement).value=''"><option value="" disabled>Choose section…</option><option v-for="(span,i) in sectionSpans(project)" :key="`${span.start}:${i}`" :value="i">{{sectionLetter(i)}} · {{span.start+1}}–{{span.start+span.measures}}</option></select></label><label>From measure<input v-model.number="overviewStart" type="number" min="1" :max="project.bars.length" @change="anchorMapRangeFromInput"/></label><label>To measure<input v-model.number="overviewEnd" type="number" :min="overviewStart" :max="project.bars.length" @change="anchorMapRangeFromInput"/></label><label>Musical role<select v-model="overviewRole"><option value="inherit">Inherit section</option><option v-for="role in dynamicsRoles" :key="role" :value="role">{{role}}</option></select></label><label v-if="overviewInstrument.startsWith('Violin')||overviewInstrument.startsWith('Bandoneon')">Articulation<select v-model="overviewArt"><option v-for="mode in articulationModes" :key="mode" :value="mode">{{mode==='auto'?'Inherit default':mode==='legato'?(overviewInstrument.startsWith('Violin')?'Arco / legato':'Legato'):mode.replaceAll('_',' ')}}</option></select></label><label v-if="overviewInstrument.startsWith('Violin')">Chord technique<select v-model="overviewTechnique"><option value="inherit">Inherit section</option><option v-for="tech in violinTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select></label><label v-if="overviewInstrument==='Contrabass'">Bass technique<select v-model="overviewBassTechnique"><option value="inherit">Inherit section</option><option v-for="tech in bassTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select></label></div><div v-if="overviewInstrument==='Piano'" class="overview-piano-figure"><label>Piano figure · section {{chosenSection}}<select :value="pianoFigureForSection()" @change="setPianoFigure"><option v-for="kind in FIGURE_KINDS" :key="kind" :value="kind">{{figureLabels[kind]}}</option></select></label><button class="secondary" @click="nextPianoFigureVariation">↻ New section piano variation</button><p class="hint">Generated Piano Chords measures in this section use the selected figure. Protected manual measures stay unchanged.</p></div><div class="overview-actions" role="toolbar" aria-label="Apply selected instrument settings"><button type="button" class="primary" title="Apply role, articulation and technique to selected measures" aria-label="Apply to range" @click="applyOverviewRange();measureSettingsOpen=false">✓ Apply</button><button type="button" class="secondary icon-action" :title="`Apply settings to entire section ${chosenSection}`" :aria-label="`Apply to section ${chosenSection}`" @click="applyOverviewSection"><AppIcon name="layers"/></button><button type="button" class="secondary icon-action" title="Select all measures in the song" aria-label="Select whole song" @click="overviewStart=1;overviewEnd=project.bars.length;mapRangeAnchor=0"><AppIcon name="list-check"/></button><button type="button" class="secondary icon-action" title="Regenerate orchestration, retaining protected edits" aria-label="Regenerate orchestration" @click="regenerate"><AppIcon name="refresh-cw"/></button><button type="button" class="secondary icon-action" title="Open note editor for selected instrument and measure" aria-label="Edit notes in selected measure" @click="openNoteEditor(overviewInstrument,overviewFocus)"><AppIcon name="pencil"/></button></div><p v-if="overviewNotice" class="hint overview-feedback" role="status">{{overviewNotice}}</p></div>
 </div>
 <div class="overview-workspace"><div class="overview-map-pane">
-<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}`" @click="overviewInstrument=inst;openChordEditor(overviewFocus)">{{rosterDisplayName(inst)}} <span aria-hidden="true">♫</span></button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${effectiveRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${effectiveRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${effectiveRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
+<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}`" @click="overviewInstrument=inst;openChordEditor(overviewFocus)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${effectiveRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${effectiveRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${effectiveRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 </div>
 
 </div>
@@ -3173,7 +3250,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <template v-for="barIndex in focusVisibleMeasures" :key="barIndex">
           <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
         </template>
-        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats. Drag either edge to resize across measures.'" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span class="note-bar-label">{{n.duration}} beats</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
+        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+'. Drag either edge to resize across measures.'" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.duration}} beats</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
       </div>
     </div>
   </div>
@@ -3194,7 +3271,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div v-if="selectedEvent" class="lyric-selected-editor"><label>Selected syllable · {{displayPitch(selectedEvent.pitch)}} · beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}}<input type="text" maxlength="160" :value="(lyricVerse===1?selectedEvent.lyric:selectedEvent.lyric2)??''" placeholder="Type a syllable" @change="updateSelectedNote(lyricVerse===1?'lyric':'lyric2',($event.target as HTMLInputElement).value)"/></label><label>Syllable position<select :value="(lyricVerse===1?selectedEvent.syllabic:selectedEvent.syllabic2)??'single'" @change="updateSelectedNote(lyricVerse===1?'syllabic':'syllabic2',($event.target as HTMLSelectElement).value)"><option value="single">Single</option><option value="begin">Beginning</option><option value="middle">Middle</option><option value="end">End</option></select></label><label><input type="checkbox" :checked="(lyricVerse===1?selectedEvent.melisma:selectedEvent.melisma2)??false" @change="updateSelectedNote(lyricVerse===1?'melisma':'melisma2',String(($event.target as HTMLInputElement).checked))"/> Extend syllable across following untexted notes</label></div>
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
-    <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
+    <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.gesture?' · '+gestureLabel(n.gesture):n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
     <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong></div><details class="control-fold selected-note-fold" open><summary>Edit selected note · {{displayPitch(selectedEvent.pitch)}}</summary><div class="note-editor-controls">
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>
       <label>Beat (starts at 1)<input type="number" min="1" :max="project.beats" step="0.25" :value="selectedEvent.start-selectedBar*project.beats+1" @change="updateSelectedNote('start',String(Number(($event.target as HTMLInputElement).value)-1))"/></label><div class="note-position-nudge"><span>Move onset (keep duration)</span><div class="note-nudge-buttons"><button type="button" class="secondary" aria-label="Move selected note half a beat earlier" :disabled="selectedEvent.start-selectedBar*project.beats<=0" @click="nudgeSelectedNote(-0.5)">← ½ beat</button><button type="button" class="secondary" aria-label="Move selected note half a beat later" :disabled="selectedEvent.start-selectedBar*project.beats+selectedEvent.duration>=project.beats-0.0001" @click="nudgeSelectedNote(0.5)">½ beat →</button></div></div>
@@ -3210,6 +3287,28 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>
       <label>Sounding length (%) · {{Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)}}%<input type="range" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @input="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @change="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/></label>
       <label v-if="slideSupported">Slide to pitch (MIDI)<select :value="selectedEvent.slideTo??'inherit'" @change="updateSelectedNote('slideTo',($event.target as HTMLSelectElement).value)"><option value="inherit">No slide</option><option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}} ({{pitch}})</option></select></label>
+
+      <div v-if="slideSupported" class="tango-gesture-editor" aria-label="Tango gestures">
+        <label>Expressive gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)">
+          <option value="">No special gesture</option>
+          <option v-for="preset in GESTURE_PRESETS.filter(g=>noteInst.startsWith('Violin')||!g.value.startsWith('sirena'))" :key="preset.value" :value="preset.value">{{preset.label}}</option>
+        </select></label>
+        <template v-if="selectedEvent.gesture">
+          <label v-for="(point,index) in selectedEvent.gesture.points.slice(1)" :key="'primary-'+index">
+            {{index===0&&selectedEvent.gesture.points.length===3?'Turning pitch':'End pitch'}} · voice 1
+            <select :value="point.pitch" @change="updateSelectedGesturePitch('points',index+1,($event.target as HTMLSelectElement).value)">
+              <option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}}</option>
+            </select>
+          </label>
+          <label v-for="(point,index) in (selectedEvent.gesture.partner??[])" :key="'partner-'+index">
+            {{index===0?'Second voice start':index===1&&selectedEvent.gesture.partner?.length===3?'Second voice turn':'Second voice end'}}
+            <select :value="point.pitch" @change="updateSelectedGesturePitch('partner',index,($event.target as HTMLSelectElement).value)">
+              <option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}}</option>
+            </select>
+          </label>
+          <small>Contours follow the written note length. Double sirenas require conservatively reachable adjacent violin strings. The stored gesture is preserved in .tango files.</small>
+        </template>
+      </div>
       <label>Subito dynamic (immediate change)<select :value="selectedEvent.subito??'inherit'" @change="updateSelectedNote('subito',($event.target as HTMLSelectElement).value)"><option value="inherit">No subito</option><option v-for="mark in dynamicMarks" :key="mark" :value="mark">subito {{mark}}</option></select></label>
       <label v-if="slideSupported">Swell to velocity<select :value="selectedEvent.swellTo??'inherit'" @change="updateSelectedNote('swellTo',($event.target as HTMLSelectElement).value)"><option value="inherit">No note swell</option><option v-for="v in [35,45,55,65,75,85,95,105,115,125]" :key="v" :value="v">{{v}} / 127</option></select></label>
       <label v-if="noteInst.startsWith('Violin')||noteInst==='Contrabass'">Technique<select :value="selectedEvent.technique??'inherit'" @change="updateSelectedNote('technique',($event.target as HTMLSelectElement).value)"><option value="inherit">None</option><option value="arco">Arco</option><option value="pizzicato">Pizzicato</option></select></label>
@@ -3226,6 +3325,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" class="secondary" aria-label="Shorten note by quarter beat" @click="changeNoteDuration(-0.25)">Shorter −</button>
       <button type="button" class="secondary" aria-label="Lengthen note by quarter beat" @click="changeNoteDuration(0.25)">Longer +</button>
       <label class="note-focus-articulation">Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato ·</option><option value="marcato_staccato">Marcato &gt;</option><option value="legato">Legato</option></select></label>
+      <label class="note-focus-articulation">Gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)"><option value="">None</option><option v-for="preset in GESTURE_PRESETS.filter(g=>noteInst.startsWith('Violin')||!g.value.startsWith('sirena'))" :key="preset.value" :value="preset.value">{{preset.label}}</option></select></label>
       <button type="button" class="secondary" @click="noteFocusMore=!noteFocusMore;noteDetailsPopup=false">{{noteFocusMore?'Close details':'All note properties'}}</button>
       <button type="button" class="secondary" @click="deleteSelectedNote">Delete</button>
     </template>
@@ -3455,4 +3555,26 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-playability-warnings strong{color:#f6d39c}
 .note-playability-warnings span{padding:2px 5px;border-radius:3px;background:#4a3626}
 .note-playability-warnings small{color:#d0b79a}
+
+/* Milestone 1: explicit articulations, expressive pitch trajectories and skills. */
+.instrument-skill-tag{display:inline-flex;align-items:center;justify-content:center;border:1px solid #8b9ca9;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:750;color:#e8d5a7;white-space:nowrap;background:#30404d;line-height:1.2}
+.note-bar-accented{border-top:3px solid #f6d08c}
+.note-bar-staccato{border-top:2px dotted #e7edf5}
+.note-attack-mark{position:absolute;top:-15px;left:13px;font-size:19px;line-height:18px;color:#ffe1aa;text-shadow:0 0 2px #142432;pointer-events:none;font-weight:900}
+.note-gesture-mini{position:absolute;inset:1px 11px auto 11px;height:21px;width:calc(100% - 22px);overflow:visible;pointer-events:none}
+.note-gesture-mini polyline{fill:none;stroke:#1c4055;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.note-gesture-mini polyline.secondary{stroke:#8b361d;stroke-dasharray:3 2}
+.note-gesture-label{display:block;position:relative;z-index:1;font-size:9px;line-height:20px;letter-spacing:.02em;text-shadow:0 0 3px #efd8ad;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tango-gesture-editor{display:flex;flex-wrap:wrap;align-items:end;gap:6px;border:1px solid #6d8292;border-radius:6px;padding:5px;margin:3px 0}
+.tango-gesture-editor label{min-width:125px;flex:1 1 150px}
+.tango-gesture-editor small{flex:1 1 100%;color:#b2c5d0}
+.performance-roll-note.performance-note-accent{background:#e3a34f;border-color:#ffdf9d}
+.performance-roll-note.performance-note-staccato{border-top:3px dotted #f1f5f9}
+.performance-roll-note.performance-note-expressive{border-color:#b5e4ed}
+.performance-attack-mark{position:absolute;top:-15px;left:0;color:#f6d08c;font-size:18px;font-weight:900;text-shadow:0 1px 3px #111;pointer-events:none}
+.performance-gesture-layer{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2}
+.performance-gesture-path{fill:none;stroke:#86e6f2;stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.9}
+.performance-gesture-path.secondary{stroke:#efba75;stroke-dasharray:4 3}
+.performance-gesture-path.latigo{stroke:#f6b55f;stroke-width:4}
+
 </style>
