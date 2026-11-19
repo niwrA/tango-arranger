@@ -11,7 +11,7 @@ check('one note crossing a bar boundary is sliced without shortening',()=>{
  const n={start:3.5,duration:1.25,pitch:60};
  const output=split([n],4,0,8);
  assert.equal(output.length,2);
- assert.deepEqual(output.map(s=>[s.start,s.duration,s.continued,s.continues]),[[3.5,0.5,false,true],[4,0.75,true,false]]);
+ assert.deepEqual(JSON.parse(JSON.stringify(output.map(s=>[s.start,s.duration,s.continued,s.continues]))),[[3.5,0.5,false,true],[4,0.75,true,false]]);
  assert.equal(output[0].note,n);assert.equal(n.duration,1.25);
 });
 check('visible window clips a spanning note and preserves continuation',()=>{
