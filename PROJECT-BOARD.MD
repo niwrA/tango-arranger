@@ -1,3 +1,15 @@
+## MusicXML alignment & reviewable merge (2026-11-19)
+
+- [x] Correct PlayScore 2 timing interpretation across measures, voices and staves.
+- [x] Add normalized pitch and key-signature source metadata, with transparent, optional chord estimates.
+- [x] Propose per-section harmonic matching and local transposition, then allow per-measure source remapping.
+- [x] Present Ours / Theirs / Combine decisions, direct editing of existing protected notes and section-wide actions.
+- [x] Support existing-song fit, imported piano-led structure and reference-only modes.
+- [x] Keep complete pre-merge project/difficulty editions in a reversible snapshot; retain imported MusicXML and merge mapping in project data.
+- [x] Constrain orchestration row playback buttons inside sticky instrument heading on iPad.
+- [ ] Validate full 94/92-bar imported PlayScore arrangements visually in Safari and MuseScore.
+- [ ] Expand musical alignment to detect repeated phrases, unnotated returns and more ambiguous violin passages.
+
 ## v5.5.3 - Lyrics export and alignment follow-up
 
 - Multi-measure lyric alignment option in the Note Editor, beginning at the selected measure; syllables and underscore-reserved melisma notes follow chronological note onsets.

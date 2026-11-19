@@ -165,6 +165,18 @@ Existing editor actions are now available directly from their musical objects. T
 
 Manual acceptance checks remain important on iPad Safari: scroll cancellation, right-click from a desktop mouse, keyboard context keys, focus recovery and popup geometry in both orientations.
 
+## Intelligent MusicXML import, alignment and merge (2026-11-19)
+
+Files > Import offers a **reviewed MusicXML merge** in addition to older melody and positional round-trip imports. The new MusicXML parser retains division durations across measures (important for PlayScore 2), independent voices, backup timing, piano staves, signature regions, lyric metadata, and measure boundaries. Explicit harmony is recognized; if no chord symbols are present, **Suggest harmony** offers a fallible note-based estimate rather than silently fabricating a chord.
+
+The preview compares existing **Ours** with incoming **Theirs**, with an optional **Combine** decision per measure for the selected instrument and harmony. Sections have batch decisions; individual rows expose source-measure remapping, local +/-24-semitone shifts, evidence-based confidence, protected-note policy, and a small inline editor for original MIDI pitches. Choose **Fit to current song**, **Imported score defines structure**, or **Reference only**. When imported piano leads, key-signature regions supply initial section boundaries; this is not proof of major or minor tonal center. Unmatched/low-confidence regions are flagged for review.
+
+**Data protection:** Before applying, the app requests confirmation. It saves the full previous project (including every original instrument and difficulty edition) inside importMergeBackup for **Files > Undo last MusicXML merge**. The selected source MusicXML and alignment plan are saved in the project as an import reference for later review. Protected parts keep their pitches by default; deliberate merge and edit decisions may modify them. For a source-led reconstruction, only mapped original measures are carried into the new timeline; unmatched material survives in the backup, not as an invented correspondence. The result remains editable in the Note Editor and can be exported to MuseScore. Legacy imports remain offered for same-layout round trips.
+
+**Known limitations:** No image-based score comparison, automated fingering reassignment, full MusicXML schema validation, harmonic certainty guarantee, repeat expansion, or intelligent pitch-level contrapuntal rewriting. Printed score appearance and Safari touch interactions still require application/device acceptance testing.
+
+**Orchestration-map iPad fix:** Instrument names, the options button and two playback actions are now constrained to a single allocated row within the sticky instrument column, avoiding overlap with measure 1.
+
 ## Known constraints
 
 - The v1.3 note editor is a simple beat-grid piano roll, **not** engraved staff notation or finger-position optimization. Double stops use a conservative adjacent-string/open-low-position heuristic. The editor permits arbitrary manual polyphony; ergonomic playability is not guaranteed.

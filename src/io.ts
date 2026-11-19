@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import {parseMusicXmlDetailed} from './musicXmlImport';
 import {EDITION_LEVELS,assembleEditionScore,currentEditionLevel,getEditionInfo,snapshotActiveEditions,type EditionChoice} from './editions';
 import {gestureLabel} from './tangoGestures';
 import { Midi } from '@tonejs/midi';
@@ -572,30 +573,10 @@ export async function loadProject(file:File):Promise<Project>{
   p.sectionKeys??=inferSectionKeys(p);
   return p;
 }
-function nodeText(e:Element|null,tag:string){return e?.getElementsByTagName(tag)[0]?.textContent??'';}
-export function importMusicXml(text:string):{parts:{name:string;notes:Note[]}[];chords:string[];keys:string[]}{const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw Error('Invalid MusicXML');const names=Array.from(doc.getElementsByTagName('score-part')).map(e=>nodeText(e,'part-name'));const parts=Array.from(doc.getElementsByTagName('part')).map((part,i)=>{let cursor=0;const notes:Note[]=[];for(const measure of Array.from(part.getElementsByTagName('measure'))){let pos=cursor,lastStart=cursor;const divisions=Number(nodeText(measure,'divisions'))||480;for(const child of Array.from(measure.children)){if(child.tagName==='backup')pos-=Number(nodeText(child,'duration'))/divisions;if(child.tagName==='forward')pos+=Number(nodeText(child,'duration'))/divisions;if(child.tagName!=='note')continue;const dur=Number(nodeText(child,'duration'))/divisions||1;const chord=!!child.getElementsByTagName('chord').length;const start=chord?lastStart:pos;const pitch=child.getElementsByTagName('pitch')[0];if(pitch){const step=nodeText(pitch,'step'),alter=Number(nodeText(pitch,'alter'))||0,oct=nodeText(pitch,'octave');const name=step+(alter===1?'#':alter===-1?'b':'')+oct;const n=parsePitch(name);if(n!==null){const lyricElements=Array.from(child.getElementsByTagName('lyric'));const readVerse=(number:number)=>{const element=lyricElements.find(e=>(Number(e.getAttribute('number'))||1)===number);const text=element?nodeText(element,'text'):'';const raw=element?nodeText(element,'syllabic'):'';const syllabic=(['single','begin','middle','end'].includes(raw)?raw:'single') as NonNullable<Note['syllabic']>;return {text,syllabic,melisma:Array.from(element?.getElementsByTagName('extend')??[]).some(e=>e.getAttribute('type')==='start')};};const first=readVerse(1),second=readVerse(2);notes.push({pitch:n,start,duration:dur,source:'imported',...(first.text?{lyric:first.text,syllabic:first.syllabic}:{}),...(first.melisma?{melisma:true}:{}),...(second.text?{lyric2:second.text,syllabic2:second.syllabic}:{}),...(second.melisma?{melisma2:true}:{})});}}if(!chord){lastStart=pos;pos+=dur;}}cursor=Math.max(cursor,pos);}return {name:names[i]??`Part ${i+1}`,notes};});const firstPart=doc.getElementsByTagName('part')[0];
-  let activeKey='C';const keys:string[]=[];const chords=Array.from(firstPart?.getElementsByTagName('measure')??[]).map(measure=>{
-    const keyNode=Array.from(measure.children).filter(child=>child.tagName==='attributes').flatMap(a=>Array.from(a.children)).find(child=>child.tagName==='key');
-    if(keyNode){const fifths=Number(nodeText(keyNode,'fifths'));const mode=nodeText(keyNode,'mode')==='minor'?'minor':'major';const found=Object.keys(KEY_SIGNATURES).find(k=>KEY_SIGNATURES[k].fifths===fifths&&KEY_SIGNATURES[k].mode===mode);if(found)activeKey=found;}
-    keys.push(activeKey);
-    const changes:ChordChange[]=[];let cursor=0,lastStart=0;
-    const divisions=Number(nodeText(measure,'divisions'))||480;
-    for(const child of Array.from(measure.children)){
-      if(child.tagName==='backup'){cursor-=Number(nodeText(child,'duration'))/divisions;continue;}
-      if(child.tagName==='forward'){cursor+=Number(nodeText(child,'duration'))/divisions;continue;}
-      if(child.tagName==='harmony'){
-        const kind=child.getElementsByTagName('kind')[0];
-        const symbol=kind?.getAttribute('text')||nodeText(child,'root-step')||'Dm';
-        const beat=cursor+Number(nodeText(child,'offset')||0)/divisions;
-        if(Number.isInteger(beat)&&beat>=0&&beat<12)changes.push({beat,chord:symbol});
-      }
-      if(child.tagName==='note'){
-        const dur=Number(nodeText(child,'duration'))/divisions||0;
-        if(!child.getElementsByTagName('chord').length){lastStart=cursor;cursor+=dur;}else cursor=Math.max(cursor,lastStart);
-      }
-    }
-    const beats=Number(nodeText(measure,'beats'))||4;
-    return chordSequenceFromBeats(changes,beats);
-  });return {parts,chords,keys};}
+/** Backward-compatible import API; normalization is implemented by the shared parser. */
+export function importMusicXml(text:string):{parts:{name:string;notes:Note[]}[];chords:string[];keys:string[]}{
+ const parsed=parseMusicXmlDetailed(text);
+ return {parts:parsed.parts.map(part=>({name:part.name,notes:part.notes})),chords:parsed.chords,keys:parsed.keys};
+}
 export function importMidi(buffer:ArrayBuffer){const midi=new Midi(buffer);return midi.tracks.filter(t=>t.notes.length).map(t=>({name:t.name||`Track ${t.channel+1}`,notes:t.notes.map(n=>({pitch:n.midi,start:n.time/(60/(midi.header.tempos[0]?.bpm||120)),duration:n.duration/(60/(midi.header.tempos[0]?.bpm||120)),source:'imported' as const}))}));}
 export function scoreFromParts(parts:{name:string;notes:Note[]}[]):Score {const result=Object.fromEntries(INSTRUMENTS.map(i=>[i,[]])) as unknown as Score;for(let i=0;i<Math.min(parts.length,INSTRUMENTS.length);i++){const found=INSTRUMENTS.find(n=>n.toLowerCase()===parts[i].name.toLowerCase())??INSTRUMENTS[i];result[found]=parts[i].notes;}return result;}

@@ -46,6 +46,9 @@ jobs:
       - name: Test contextual phrase, rhythm and dynamics interactions
         run: npm run test:contextual
 
+      - name: Test MusicXML parsing, score alignment and protected merges
+        run: npm run test:alignment
+
       - name: Verify production output
         run: |
           test -f dist/index.html

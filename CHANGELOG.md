@@ -1,3 +1,11 @@
+## Intelligent MusicXML Import & Merge (2026-11-19)
+
+- Replaced division-per-measure fallbacks with a persistent MusicXML timing parser supporting multi-voice and multi-staff OMR exports.
+- Added a wide comparison preview with source-measure remapping, local pitch shift, per-measure and section-level Ours/Theirs/Combine choices, and editable protected pitches.
+- Added an imported-source-led structure mode, optional chord inference, and high/low evidence indicators. A reversible project backup and source/alignment reference are saved in the portable Tango song.
+- Bounded sticky orchestration-row buttons so they no longer overlap measure 1 on iPad.
+- Added focused XML import/merge tests to the Azure CI build. Full PlayScore/MuseScore and Safari device checks remain necessary.
+
 ## Lead Sheet toolbar refinement (2026-11-19)
 
 - Moved Undo and Redo into the same compact action row as chord preview and Stop, rather than leaving history buttons on their own line.
