@@ -4285,4 +4285,50 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-cue-grid{grid-template-columns:1fr;grid-auto-rows:minmax(190px,auto)}
 }
 
+/* iPad performance-stage layout correction: the former 200px flex basis was
+   applied to HEIGHT because the seek container was a column, leaving a large
+   empty band above the instrument tiles. Keep the controls a compact row. */
+.performance-stage-main .performance-compact-bar{
+ display:grid;grid-template-columns:minmax(0,1fr) auto;
+ align-items:center;gap:8px;min-height:42px;
+ flex:0 0 auto;align-self:stretch;flex-wrap:nowrap;
+}
+.performance-stage-main .performance-compact-seek{
+ width:auto;min-width:0;flex:none;align-self:center;margin:0;
+}
+.performance-stage-main .performance-section-nav{
+ margin:0;justify-content:flex-end;flex:0 0 auto;flex-wrap:nowrap;
+}
+.performance-stage-layout{align-items:start}
+.performance-harmony-sidebar{align-self:start;height:auto}
+.performance-harmony-progress{margin-top:0}
+.performance-stage-main .performance-cue-grid{
+ flex:0 0 auto;align-content:start;grid-auto-rows:minmax(190px,auto);
+}
+/* At tablet landscape dimensions, fit three stable rows of cues without a
+   seek-bar gap pushing the final row below the visible screen. */
+@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+ .performance-workspace.performance-expanded{padding:7px 10px;gap:5px}
+ .performance-stage-header{min-height:25px}
+ .performance-stage-main{gap:6px}
+ .performance-stage-main .performance-compact-bar{min-height:38px;gap:7px}
+ .performance-stage-main .performance-cue-grid{grid-auto-rows:minmax(163px,auto);gap:7px}
+ .performance-cue-panel{min-height:163px;padding:8px 10px;gap:3px}
+ .performance-cue-identity{min-height:26px;gap:4px}
+ .performance-cue-identity>strong{font-size:clamp(13px,1.45vw,19px)}
+ .performance-cue-activity{min-width:57px;min-height:22px;font-size:10px}
+ .performance-cue-role{min-height:50px;padding:1px 0}
+ .performance-cue-role strong{font-size:clamp(22px,2.3vw,31px)}
+ .performance-cue-role small{font-size:11px}
+ .performance-cue-next{padding-top:5px;gap:5px}
+ .performance-cue-next strong{font-size:clamp(15px,1.5vw,20px)}
+ .performance-cue-next small{font-size:10px}
+ .performance-harmony-sidebar{gap:8px}
+}
+@media(max-width:750px){
+ .performance-stage-main .performance-compact-bar{grid-template-columns:minmax(0,1fr);gap:3px}
+ .performance-stage-main .performance-section-nav{justify-content:flex-start}
+ .performance-stage-main .performance-cue-grid{grid-auto-rows:minmax(198px,auto)}
+}
+
 </style>

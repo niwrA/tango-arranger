@@ -63,4 +63,16 @@ check('large instrument tiles retain fixed structure as entries approach',()=>{
  assert.ok(!app.includes('class="performance-cue-entry">Next entry'));
  assert.ok(app.includes('grid-auto-rows:minmax(205px,1fr)'));
 });
+check('tablet stage prevents seek control from acquiring a vertical flex basis',()=>{
+ const style=app.slice(app.lastIndexOf('/* iPad performance-stage layout correction'));
+ assert.match(style,/\.performance-stage-main \.performance-compact-bar\s*\{[^}]*display:grid;grid-template-columns:minmax\(0,1fr\) auto/s);
+ assert.match(style,/\.performance-stage-main \.performance-compact-seek\s*\{[^}]*flex:none/s);
+ assert.match(style,/\.performance-stage-main \.performance-cue-grid\s*\{[^}]*flex:0 0 auto/s);
+});
+check('landscape tablet uses compact equal-height cue rows',()=>{
+ const css=app.slice(app.lastIndexOf('/* iPad performance-stage layout correction'));
+ assert.match(css,/@media\(min-width:751px\) and \(max-width:1200px\) and \(orientation:landscape\)/);
+ assert.match(css,/grid-auto-rows:minmax\(163px,auto\)/);
+ assert.match(css,/\.performance-harmony-sidebar\{align-self:start;height:auto\}/);
+});
 console.log(count+' performance cue checks passed');
