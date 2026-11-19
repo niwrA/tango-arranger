@@ -226,7 +226,10 @@ const focusVisibleMeasures=computed(()=>{
   const max=project.value.bars.length;
   const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
   const to=Math.max(from,Math.min(max,Math.round(Number(noteLoopTo.value)||from)));
-  return Array.from({length:to-from+1},(_,i)=>from+i-1);
+  // Show at least two adjacent measures for cross-barline editing, regardless of loop length.
+  const count=Math.min(max,Math.max(2,to-from+1));
+  const first=Math.max(0,Math.min(from-1,max-count));
+  return Array.from({length:count},(_,i)=>first+i);
 });
 function focusMeasureNotes(bar:number){
   const beats=project.value.beats,begin=bar*beats,end=begin+beats;
@@ -253,7 +256,7 @@ function continuousVisibleNotes(pitch:number){
  const first=focusVisibleMeasures.value[0]??selectedBar.value;
  const last=focusVisibleMeasures.value.at(-1)??first;
  const beats=project.value.beats;
- return (score.value[noteInst.value]??[]).filter(n=>n.pitch===pitch&&n.start>=first*beats-1e-7&&n.start<(last+1)*beats-1e-7);
+ return (score.value[noteInst.value]??[]).filter(n=>n.pitch===pitch&&n.start<(last+1)*beats-1e-7&&n.start+n.duration>first*beats+1e-7);
 }
 function focusMeasureOnsets(bar:number){
  return focusMeasureNotes(bar).filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===bar);
@@ -2389,7 +2392,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   if(arrivingFromAnotherView)noteEditorTab.value='notes';
   if(arrivingFromAnotherView)void nextTick(()=>noteEditorRegion.value?.focus());
 }
-function pitchClass(pitch:number,beat:number){return noteEditorPitchClass(project.value,noteInst.value,selectedBar.value,beat,pitch);}
+function pitchClass(pitch:number,beat:number,bar=selectedBar.value){return noteEditorPitchClass(project.value,noteInst.value,bar,beat,pitch);}
 /** Color conveys harmonic context, never permission to enter a pitch. */
 function displayPitch(pitch:number){
   const accidentals=editorAccidentals.value==='auto'
@@ -3118,24 +3121,36 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
 </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
-    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div><div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)">
-      <div class="note-continuous-grid">
-        <table class="note-grid note-continuous-table" :style="{'--grid-steps':noteBeats.length*focusVisibleMeasures.length}">
-          <thead>
-            <tr><th class="note-pitch-label">Pitch</th><th v-for="barIndex in focusVisibleMeasures" :key="barIndex" :colspan="noteBeats.length"><button type="button" class="note-multibar-title" @click="activateGridMeasure(barIndex)">Measure {{barIndex+1}} · {{project.bars[barIndex].chord||'—'}}</button></th></tr>
-            <tr class="note-beat-swipe-header"><th class="note-pitch-label">Pitch ↔</th><template v-for="barIndex in focusVisibleMeasures" :key="barIndex"><th v-for="beat in noteBeats" :key="`${barIndex}-${beat}`" :class="{'note-downbeat':Number.isInteger(beat),'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></th></template></tr>
-          </thead>
-          <tbody><tr v-for="pitch in staff.pitches" :key="pitch"><th class="note-pitch-label"><button type="button" class="note-pitch-audition" :title="`Hear ${displayPitch(pitch)}`" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button></th><td class="note-time-lane" :colspan="noteBeats.length*focusVisibleMeasures.length">
-            <div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length*focusVisibleMeasures.length}">
-              <template v-for="barIndex in focusVisibleMeasures" :key="barIndex"><button v-for="beat in noteBeats" :key="`${barIndex}-${beat}`" type="button" :class="['note-grid-cell',`note-tone-${pitchClass(pitch,beat)}`,{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}]" :title="`Add ${displayPitch(pitch)} in measure ${barIndex+1}, beat ${beat+1}`" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button></template>
-              <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="`${n.start}:${n.pitch}:${i}`" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:`${(n.start-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100}%`,width:`${Math.min(n.duration,focusVisibleMeasures.length*project.beats-(n.start-focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100}%`}" :title="`${displayPitch(n.pitch)} · ${n.duration} beats. Drag either edge to resize across measures.`" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span class="note-bar-label">{{n.duration}} beats</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
-            </div>
-          </td></tr></tbody>
-        </table>
+    <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
+<div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)">
+  <div class="note-continuous-grid" :style="{minWidth:(64+focusVisibleMeasures.length*noteBeats.length*28)+'px','--grid-steps':noteBeats.length*focusVisibleMeasures.length,'--visible-measures':focusVisibleMeasures.length}">
+    <div class="note-continuous-row note-continuous-measures">
+      <div class="note-continuous-pitch-title">Pitch</div>
+      <div class="note-continuous-measure-heads">
+        <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" class="note-multibar-title" :class="{'note-multibar-active':selectedBar===barIndex}" @click="activateGridMeasure(barIndex)">Measure {{barIndex+1}} · {{project.bars[barIndex].chord||'—'}}</button>
       </div>
     </div>
+    <div class="note-continuous-row note-continuous-beats">
+      <div class="note-continuous-pitch-title">Pitch ↔</div>
+      <div class="note-continuous-beat-heads note-beat-swipe-header" title="Swipe to navigate measures" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">
+        <template v-for="barIndex in focusVisibleMeasures" :key="barIndex">
+          <div v-for="beat in noteBeats" :key="barIndex+'-'+beat" class="note-continuous-beat" :class="{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></div>
+        </template>
+      </div>
     </div>
+    <div v-for="pitch in staff.pitches" :key="pitch" class="note-continuous-row note-continuous-pitch-row">
+      <button type="button" class="note-pitch-audition note-continuous-pitch-label" :title="'Hear '+displayPitch(pitch)" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button>
+      <div class="note-lane-grid" :style="{'--grid-steps':noteBeats.length*focusVisibleMeasures.length}">
+        <template v-for="barIndex in focusVisibleMeasures" :key="barIndex">
+          <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
+        </template>
+        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats. Drag either edge to resize across measures.'" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span class="note-bar-label">{{n.duration}} beats</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
+      </div>
     </div>
+  </div>
+</div>
+</div>
+</div>
     <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
     <section v-if="noteInst.startsWith('Voice')" class="lyric-workspace" aria-label="Lyric alignment editor">
       <div class="section-heading"><h3>Lyrics · note-aligned timeline</h3><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous lyrics measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.beats}} beats</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next lyrics measure">›</button></div>
@@ -3259,4 +3274,24 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-continuous-table .note-pitch-label{width:58px;min-width:58px}
 .note-continuous-table thead th:not(.note-pitch-label){min-width:0;width:auto;padding:2px 0;font-size:10px}
 .note-continuous-table .note-multibar-title{width:100%;min-height:30px}
+
+/* Explicit CSS-grid rows avoid Safari's unstable colspan table sizing. */
+.note-continuous-grid{width:100%;box-sizing:border-box;min-width:0}
+.note-continuous-row{display:grid;grid-template-columns:64px minmax(0,1fr);width:100%;box-sizing:border-box}
+.note-continuous-measures{min-height:40px}
+.note-continuous-beats{min-height:45px}
+.note-continuous-pitch-title,.note-continuous-pitch-label{background:#253440!important;color:#e2c38d;border:0;border-right:1px solid #455361;border-bottom:1px solid #3b4a59;box-sizing:border-box;padding:5px 3px;text-align:center;white-space:nowrap;overflow:hidden}
+.note-continuous-pitch-title{font-size:11px;color:#d8e1e9;display:flex;align-items:center;justify-content:center}
+.note-continuous-grid .note-pitch-audition{width:100%;min-height:0;height:28px;display:flex;justify-content:center;align-items:center;font-size:11px}
+.note-continuous-measure-heads{display:grid;grid-template-columns:repeat(var(--visible-measures),minmax(0,1fr));min-width:0}
+.note-continuous-measure-heads .note-multibar-title{width:100%;min-width:0;min-height:40px;padding:4px;white-space:nowrap;overflow:hidden;border-radius:0;border:1px solid #455361;background:#293947;color:#dbe5ed;font-size:12px}
+.note-continuous-measure-heads .note-multibar-active{background:#445365;color:#ffe1ad}
+.note-continuous-beat-heads{display:grid;grid-template-columns:repeat(var(--grid-steps),minmax(0,1fr));width:100%;min-width:0}
+.note-continuous-beat{min-width:0;background:#263642;border-right:1px solid #3b4a59;border-bottom:1px solid #3b4a59;padding:5px 0;text-align:center;color:#d8e1e9;font-size:10px;overflow:hidden}
+.note-continuous-beat small{display:block;white-space:nowrap;overflow:hidden;font-size:9px;color:#c9ae85}
+.note-continuous-beat.note-downbeat,.note-continuous-pitch-row .note-grid-cell.note-downbeat{border-left:2px solid #73899a}
+.note-continuous-pitch-row{min-height:28px}
+.note-continuous-pitch-row .note-lane-grid{width:100%;min-width:0}
+.note-continuous-grid .note-bar{min-height:0;height:24px}
+
 </style>
