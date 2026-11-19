@@ -396,6 +396,12 @@ function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performa
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
 const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.section??'A');
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
+/** Animated cue emphasis follows transport beat position rather than a free-running CSS timer. */
+const performanceBeatGlow=computed(()=>{
+ if(!playing.value)return '0.13';
+ const phase=((performanceBeat.value%1)+1)%1;
+ return (0.10+0.37*Math.pow(1-phase,2.4)).toFixed(3);
+});
 const performanceSections=computed(()=>sectionSpans(project.value));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
 /** A real upcoming key change may occur several measures from now. */
@@ -412,17 +418,16 @@ function performanceDynamic(inst:Instrument,bar:number):string{
  const mark=explicit?.start??p.expression?.sections[b.section]??'mf';
  return mark+(explicit?.end&&explicit.end!==mark?' → '+explicit.end:'');
 }
+/** Long-distance stage activity changes only at measure boundaries, not on each note gate. */
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
- const nextStart=(score.value[part.inst]??[]).filter(n=>n.start>performanceBeat.value+0.0001).reduce((a,n)=>Math.min(a,n.start),Infinity);
- const upcomingIn=!part.sounding&&Number.isFinite(nextStart)&&nextStart-performanceBeat.value<=p.beats?
-  Math.max(1,Math.ceil(nextStart-performanceBeat.value)):null;
- const cueStatus=part.sounding?'PLAYING':upcomingIn!==null?'IN '+upcomingIn:part.role==='rest'?'REST':'READY';
- return {...part,display:rosterDisplayName(part.inst),cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ const notes=score.value[part.inst]??[];
+ const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
+ const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
+ const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
+ return {...part,display:rosterDisplayName(part.inst),playingInMeasure,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
-  dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar),
-  offset:p.instrumentSettings?.[part.inst]?.dynamicsOffset??0,
-  nextEntry:Number.isFinite(nextStart)?Math.max(0,Math.ceil(nextStart-performanceBeat.value)):null};
+  dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
 /** Follow the lyric-bearing part, even when a different instrument's notes are selected. */
 const performanceVocalCue=computed(()=>{
@@ -3227,8 +3232,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="performance-lyric-line" aria-live="off"><span v-for="(note,i) in performanceVocalCue.words" :key="`${note.start}:${i}`" :class="{'performance-lyric-active':performanceVocalCue.active&&performanceVocalCue.current===note}">{{note.lyric||note.lyric2||'·'}}</span></div>
   </div>
   <div v-if="performanceView==='ensemble'" class="performance-cue-grid" aria-label="Equal-size instrument cue panels">
-   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.sounding,'performance-cue-rest':part.role==='rest'&&!part.sounding,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
-     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.sounding,'is-upcoming':part.cueStatus.startsWith('IN ')}">{{part.cueStatus}}</span></span>
+   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}" :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
+     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.playingInMeasure,'is-upcoming':part.cueStatus==='NEXT BAR'}">{{part.cueStatus}}</span></span>
      <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
      <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
    </button>
@@ -3236,15 +3241,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <aside class="performance-harmony-sidebar" aria-label="Harmony and form">
       <h3>Harmony &amp; form</h3>
-      <div class="performance-harmony-group">
+      <div class="performance-harmony-group performance-chord-group">
+        <div class="performance-harmony-item performance-harmony-current"><small>Current chord</small><strong>{{performanceHarmony.chord}}</strong></div>
+        <div class="performance-harmony-item performance-harmony-upcoming"><small>Next chord</small><strong>{{performanceHarmony.nextChord}}</strong><span>Measure {{Math.min(project.bars.length,performanceBar+2)}}</span></div>
+      </div>
+      <div class="performance-harmony-group performance-key-group">
         <div class="performance-harmony-item performance-harmony-current"><small>Current key</small><strong>{{performanceHarmony.key}}</strong></div>
         <div class="performance-harmony-item performance-harmony-upcoming" :class="{'performance-harmony-imminent':performanceHarmony.changeMeasure!==null&&performanceHarmony.changeMeasure-performanceBar<=2}">
           <small>Next key</small><strong>{{performanceHarmony.upcomingKey}}</strong><span>{{performanceHarmony.changeMeasure===null?'No change scheduled':'At measure '+performanceHarmony.changeMeasure}}</span>
         </div>
-      </div>
-      <div class="performance-harmony-group performance-chord-group">
-        <div class="performance-harmony-item performance-harmony-current"><small>Current chord</small><strong>{{performanceHarmony.chord}}</strong></div>
-        <div class="performance-harmony-item performance-harmony-upcoming"><small>Next chord</small><strong>{{performanceHarmony.nextChord}}</strong><span>Measure {{Math.min(project.bars.length,performanceBar+2)}}</span></div>
       </div>
       <div class="performance-harmony-progress">
         <span class="performance-harmony-meter">{{performanceSection}} · Measure {{performanceBar+1}}/{{project.bars.length}}</span>
@@ -3403,7 +3408,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <span><i class="legend-dot melody"></i> Melody</span><span><i class="legend-dot chords"></i> Chords / arpeggio / pizzicato</span><span><i class="legend-dot harmony"></i> Harmony</span><span><i class="legend-dot bass"></i> Bass</span><span><i class="legend-dot rest"></i> Rest</span><span><i class="legend-dot overridden"></i> Manual override</span>
   </div>
 </div>
-<PhrasePlanEditor v-if="phrasePlannerVisible" :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
+<PhrasePlanEditor v-if="phrasePlannerVisible" :start-open="true" :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
 <div v-if="orchestrationScope!=='all'" class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
   <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
   <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
