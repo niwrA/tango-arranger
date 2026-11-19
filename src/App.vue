@@ -361,6 +361,36 @@ const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
 const performanceView=ref<'ensemble'|'notes'>('ensemble');
+const performanceShell=ref<HTMLElement|null>(null);
+const performanceStageCompact=ref(false);
+const performanceFullscreenActive=ref(false);
+const performanceFullscreenHint=ref('');
+function onPerformanceFullscreenChange(){
+ performanceFullscreenActive.value=Boolean(document.fullscreenElement);
+ if(!document.fullscreenElement)performanceStageCompact.value=false;
+}
+async function togglePerformanceFullscreen(){
+ if(document.fullscreenElement){
+  try{await document.exitFullscreen();}catch{/* Browser may already have left fullscreen. */}
+  performanceFullscreenActive.value=false;performanceStageCompact.value=false;return;
+ }
+ if(performanceStageCompact.value){performanceStageCompact.value=false;performanceFullscreenHint.value='';return;}
+ const root=performanceShell.value;
+ if(root&&typeof root.requestFullscreen==='function'){
+  try{
+   await root.requestFullscreen();
+   performanceFullscreenActive.value=true;performanceFullscreenHint.value='';
+   return;
+  }catch{/* Safari and other browsers may disallow element fullscreen. */}
+ }
+ performanceStageCompact.value=true;
+ performanceFullscreenHint.value='Browser fullscreen is unavailable here. Stage view reduces app chrome, but Safari controls remain. Try opening the app from the Home Screen for a less distracting presentation.';
+}
+watch(performanceMode,enabled=>{
+ if(enabled)return;
+ performanceStageCompact.value=false;performanceFullscreenHint.value='';
+ if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
+});
 const performanceFocus=ref<Instrument|null>(null);
 function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performanceFocus.value===inst?null:inst;}
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
@@ -385,7 +415,10 @@ function performanceDynamic(inst:Instrument,bar:number):string{
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
  const nextStart=(score.value[part.inst]??[]).filter(n=>n.start>performanceBeat.value+0.0001).reduce((a,n)=>Math.min(a,n.start),Infinity);
- return {...part,display:rosterDisplayName(part.inst),nextRole:effectiveRole(part.inst,nextBar),
+ const upcomingIn=!part.sounding&&Number.isFinite(nextStart)&&nextStart-performanceBeat.value<=p.beats?
+  Math.max(1,Math.ceil(nextStart-performanceBeat.value)):null;
+ const cueStatus=part.sounding?'PLAYING':upcomingIn!==null?'IN '+upcomingIn:part.role==='rest'?'REST':'READY';
+ return {...part,display:rosterDisplayName(part.inst),cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar),
   offset:p.instrumentSettings?.[part.inst]?.dynamicsOffset??0,
@@ -536,9 +569,9 @@ function deleteSelectedRoster(){try{rosterPresets.value=removeRosterPreset(roste
 function makeRosterDefault(){try{setDefaultRoster(projectInstruments(project.value));message.value='Current roster is now the default for new songs.';}catch(e){message.value=String(e);}}
 
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
-onMounted(()=>{window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
+onMounted(()=>{document.addEventListener('fullscreenchange',onPerformanceFullscreenChange);window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
 function saveIfHidden(){if(document.visibilityState==='hidden')saveOnLeave();}
-onBeforeUnmount(()=>{window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
+onBeforeUnmount(()=>{document.removeEventListener('fullscreenchange',onPerformanceFullscreenChange);window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
@@ -3105,7 +3138,7 @@ function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
 </script>
 <template>
-<div class="shell" :class="{'compact-help':compactHelp}"><header class="app-topbar">
+<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appVersion}}</small></span></button>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -3128,6 +3161,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="!performanceMode" class="topbar-group topbar-options" role="group" aria-label="Song settings and view">
     <button class="secondary icon-action header-settings" type="button" :aria-expanded="projectDrawerOpen" aria-controls="song-settings-modal" title="Settings for selected song" aria-label="Song settings" @click="projectDrawerOpen=!projectDrawerOpen"><AppIcon name="settings"/></button>
     <button type="button" class="secondary icon-action help-icon-toggle" :aria-pressed="!compactHelp" :title="compactHelp?'Show explanations':'Hide explanations'" :aria-label="compactHelp?'Show explanations':'Hide explanations'" @click="compactHelp=!compactHelp"><AppIcon name="circle-help"/></button>
+  </div>
+  <div v-if="performanceMode" class="performance-topbar-actions" role="group" aria-label="Stage display options">
+    <div class="performance-topbar-view-switch" role="group" aria-label="Performance views">
+      <button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble</button>
+      <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
+    </div>
+    <button type="button" class="secondary performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive||performanceStageCompact?'Exit full screen or stage view':'Full screen (browser permitting)'" @click="togglePerformanceFullscreen">{{performanceFullscreenActive||performanceStageCompact?'Exit stage':'⛶ Full screen'}}</button>
   </div>
 </header>
 <div v-if="statusVisible && !statusDismissed && !performanceMode" class="topbar-status" :style="/\b(failed|error|invalid|cannot|could not)\b/i.test(message)?{background:'#fff0f0',color:'#9b1c1c',borderColor:'#e9a2a2'}:undefined" role="status" aria-live="polite"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
@@ -3163,18 +3203,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
 </div>
  <section v-if="performanceMode" class="performance-workspace performance-expanded">
-  <div class="performance-stage-header"><div><span class="performance-eyebrow">Live · a la parrilla</span><h2>{{project.title||'Untitled tango'}}</h2></div><div class="performance-view-switch" role="group" aria-label="Performance display"><button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble cues</button><button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button></div></div>
-  <div class="performance-harmony-bar" aria-label="Current and upcoming harmony">
-   <div><span>Current key</span><strong>{{performanceHarmony.key}}</strong></div>
-   <div class="performance-harmony-next"><span>Next key change</span><strong>{{performanceHarmony.upcomingKey}}</strong><small>{{performanceHarmony.changeMeasure===null?'No change scheduled':'Measure '+performanceHarmony.changeMeasure}}</small></div>
-   <div><span>Current chord</span><strong>{{performanceHarmony.chord}}</strong><small>Next {{performanceHarmony.nextChord}}</small></div>
-   <div class="performance-harmony-pulse"><span>Measure {{performanceBar+1}}/{{project.bars.length}} · {{project.bpm}} BPM</span><strong>{{performanceSection}} · Beat {{Math.floor(performanceMeasureBeat)}}/{{project.beats}}</strong><div class="performance-beat-strip" aria-label="Visual beat count"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div></div>
-  </div>
+  <div class="performance-stage-header"><span class="performance-stage-title">{{project.title||'Untitled tango'}}</span><span class="performance-stage-label">A la parrilla · {{performanceView==='ensemble'?'Ensemble cues':'Notes &amp; karaoke'}}</span></div><p v-if="performanceFullscreenHint" role="status" class="performance-fullscreen-hint">{{performanceFullscreenHint}}</p>
+  <div class="performance-stage-layout">
+    <div class="performance-stage-main">
   <div class="performance-compact-bar">
     <label class="performance-compact-seek"><span class="sr-only">Seek to measure</span><input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))" :aria-valuetext="`Measure ${performanceBar+1} of ${project.bars.length}`"/><output>{{performanceBar+1}}/{{project.bars.length}}</output></label>
     <div class="performance-section-nav" aria-label="Jump to section">
       <button v-for="(span,si) in performanceSections" :key="`${span.label}:${span.start}`" type="button" class="performance-section-jump" :class="{'performance-section-jump-active':performanceSection===span.label}" :aria-current="performanceSection===span.label?'true':undefined" :title="`Jump to section ${span.label}, measure ${span.start+1}`" @click="performanceSeek(span.start)">{{sectionLetter(si)}}</button>
-      <span class="performance-compact-meta"><strong>{{project.bpm}}</strong> BPM <span aria-hidden="true">·</span> Beat <strong>{{performanceMeasureBeat.toFixed(1)}}/{{project.beats}}</strong></span>
+      
     </div>
   </div>
   <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
@@ -3186,12 +3222,34 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="performance-lyric-line" aria-live="off"><span v-for="(note,i) in performanceVocalCue.words" :key="`${note.start}:${i}`" :class="{'performance-lyric-active':performanceVocalCue.active&&performanceVocalCue.current===note}">{{note.lyric||note.lyric2||'·'}}</span></div>
   </div>
   <div v-if="performanceView==='ensemble'" class="performance-cue-grid" aria-label="Equal-size instrument cue panels">
-   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.sounding,'performance-cue-rest':part.role==='rest'&&!part.sounding,'performance-cue-focus':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
-     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.sounding}">{{part.sounding?'Playing':part.role==='rest'?'Rest':'Ready'}}</span></span>
+   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.sounding,'performance-cue-rest':part.role==='rest'&&!part.sounding,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
+     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.sounding,'is-upcoming':part.cueStatus.startsWith('IN ')}">{{part.cueStatus}}</span></span>
      <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
-     <span class="performance-cue-next"><span><small>Upcoming role · next measure</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}<template v-if="part.offset"> · offset {{part.offset>0?'+':''}}{{part.offset}}</template></small></span></span>
-     <span v-if="part.nextEntry!==null&&!part.sounding" class="performance-cue-entry">Next entry in {{part.nextEntry}} beats</span>
+     <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
    </button>
+  </div>
+    </div>
+    <aside class="performance-harmony-sidebar" aria-label="Harmony and form">
+      <h3>Harmony &amp; form</h3>
+      <div class="performance-harmony-group">
+        <div class="performance-harmony-item performance-harmony-current"><small>Current key</small><strong>{{performanceHarmony.key}}</strong></div>
+        <div class="performance-harmony-item performance-harmony-upcoming" :class="{'performance-harmony-imminent':performanceHarmony.changeMeasure!==null&&performanceHarmony.changeMeasure-performanceBar<=2}">
+          <small>Next key</small><strong>{{performanceHarmony.upcomingKey}}</strong><span>{{performanceHarmony.changeMeasure===null?'No change scheduled':'At measure '+performanceHarmony.changeMeasure}}</span>
+        </div>
+      </div>
+      <div class="performance-harmony-group performance-chord-group">
+        <div class="performance-harmony-item performance-harmony-current"><small>Current chord</small><strong>{{performanceHarmony.chord}}</strong></div>
+        <div class="performance-harmony-item performance-harmony-upcoming"><small>Next chord</small><strong>{{performanceHarmony.nextChord}}</strong><span>Measure {{Math.min(project.bars.length,performanceBar+2)}}</span></div>
+      </div>
+      <div class="performance-harmony-progress">
+        <span class="performance-harmony-meter">{{performanceSection}} · Measure {{performanceBar+1}}/{{project.bars.length}}</span>
+        <strong>Beat {{Math.floor(performanceMeasureBeat)}}/{{project.beats}}</strong>
+        <div class="performance-beat-strip" aria-label="Visual measure count">
+          <span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span>
+        </div>
+        <span class="performance-harmony-tempo">{{project.bpm}} BPM</span>
+      </div>
+    </aside>
   </div>
  </section>
 <div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
@@ -4140,5 +4198,91 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .performance-roll-note.performance-note-tied{border-right-style:dashed;border-top-right-radius:0;border-bottom-right-radius:0}
 @media(max-width:720px){.performance-harmony-bar{grid-template-columns:repeat(2,minmax(0,1fr))}.performance-harmony-bar>div{padding:8px}.performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(185px,1fr)}.performance-cue-panel{padding:8px;gap:5px}.performance-cue-next{gap:5px}.performance-cue-next strong{font-size:15px}}
 @media(max-width:430px){.performance-cue-grid{grid-template-columns:minmax(0,1fr)}.performance-cue-next strong{font-size:17px}.performance-view-switch{width:100%}.performance-view-switch button{flex:1}}
+
+
+/* Stage v2: keep key/chord/form in one predictable, glanceable right-hand panel. */
+.performance-workspace.performance-expanded{gap:7px;min-height:calc(100dvh - 70px)}
+.performance-stage-header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:30px}
+.performance-stage-title{font-size:clamp(13px,1.5vw,18px);font-weight:650;color:#dbe5ed;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.performance-stage-label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#e2bd82;white-space:nowrap;font-weight:750}
+.performance-stage-layout{display:grid;grid-template-columns:minmax(0,1fr) clamp(275px,23vw,375px);gap:12px;flex:1;min-height:0;align-items:stretch}
+.performance-stage-main{min-width:0;display:flex;flex-direction:column;gap:9px;min-height:0}
+.performance-stage-main .performance-compact-bar{padding:0 1px;gap:6px;flex-wrap:wrap}
+.performance-stage-main .performance-compact-seek{min-width:170px;flex:1 1 200px}
+.performance-stage-main .performance-section-nav{display:flex;gap:4px;margin-left:auto;align-items:center}
+.performance-stage-main .performance-roll-panel{min-width:0;flex:1}
+.performance-stage-main .performance-roll{height:clamp(230px,39dvh,490px)}
+.performance-stage-main .performance-ensemble{min-width:0}
+.performance-harmony-sidebar{display:flex;flex-direction:column;gap:12px;min-width:0;border:1px solid #63778a;border-radius:14px;padding:14px;background:linear-gradient(165deg,#243746,#192734);box-shadow:inset 0 1px #ffffff16}
+.performance-harmony-sidebar h3{text-transform:uppercase;letter-spacing:.12em;font-size:12px;color:#f2d0a0;margin:0;font-weight:800}
+.performance-harmony-group{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.performance-harmony-item{display:flex;flex-direction:column;align-items:flex-start;justify-content:start;min-height:110px;min-width:0;padding:10px 9px;border:1px solid #536879;border-radius:9px;background:#263948;gap:6px}
+.performance-harmony-item small{font-size:clamp(11px,.95vw,13px);line-height:1.2;color:#b6c8d6;font-weight:700}
+.performance-harmony-item strong{font-size:clamp(28px,3.1vw,49px);font-weight:850;line-height:1.06;max-width:100%;overflow-wrap:anywhere;color:#ffdfae}
+.performance-harmony-item span{font-size:11px;color:#c8d7e3;line-height:1.25}
+.performance-harmony-upcoming strong{color:#e7f0f8}
+.performance-harmony-imminent{border-color:#e4b477;background:#3d372f}
+.performance-harmony-imminent strong{color:#ffdc9f}
+.performance-chord-group .performance-harmony-item strong{font-size:clamp(25px,2.8vw,43px)}
+.performance-harmony-progress{margin-top:auto;display:grid;gap:7px;padding:12px 10px;border:1px solid #526c7a;border-radius:10px;background:#1d303d}
+.performance-harmony-progress .performance-harmony-meter{font-size:clamp(13px,1.1vw,16px);font-weight:700;color:#d7e5f1}
+.performance-harmony-progress strong{font-size:clamp(21px,2.25vw,32px);line-height:1.1;color:#ffe0af}
+.performance-harmony-progress .performance-beat-strip{margin:5px 0 2px}
+.performance-harmony-progress .performance-beat-strip span{height:12px}
+.performance-harmony-tempo{font-size:14px;font-weight:750;color:#dfc7a3}
+.performance-topbar-actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-left:auto;min-width:0}
+.performance-topbar-view-switch{display:flex;gap:4px;align-items:center;padding:3px;border:1px solid #526676;border-radius:9px;background:#1b2b36}
+.performance-topbar-view-switch button{border:0;border-radius:6px;background:transparent;padding:8px 12px;min-height:36px;white-space:nowrap;font-size:12px;color:#deebf3}
+.performance-topbar-view-switch button.selected{background:#e2b780;color:#18222c;font-weight:800}
+.performance-topbar-actions .performance-fullscreen-button{min-height:40px;padding:8px 11px;font-size:12px;white-space:nowrap;border-color:#718392}
+.performance-fullscreen-hint{font-size:12px;line-height:1.4;color:#f0d5ac;background:#393124;border:1px solid #8b7251;border-radius:7px;padding:7px 12px;margin:0}
+.performance-cue-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));grid-auto-rows:minmax(205px,1fr);align-content:stretch;gap:9px;min-height:0}
+.performance-cue-panel{height:100%;min-height:205px;gap:7px;padding:12px 14px;overflow:hidden}
+.performance-cue-panel.performance-cue-rest{opacity:.9}
+.performance-cue-panel.performance-cue-change{border-bottom:3px solid #e9bc7b}
+.performance-cue-identity{min-height:35px}
+.performance-cue-identity>strong{font-size:clamp(16px,1.6vw,23px);line-height:1.12;overflow-wrap:anywhere}
+.performance-cue-role{padding:5px 0;min-height:67px}
+.performance-cue-role strong{font-size:clamp(25px,2.5vw,39px);line-height:1.02}
+.performance-cue-role small{font-size:12px}
+.performance-cue-next{grid-template-columns:minmax(0,1fr) minmax(0,.9fr);margin-top:auto;padding-top:9px;gap:9px}
+.performance-cue-next strong{font-size:clamp(17px,1.75vw,25px)}
+.performance-cue-next small{font-size:clamp(11px,.95vw,13px)}
+.performance-cue-activity{display:inline-flex;align-items:center;justify-content:center;min-width:70px;min-height:25px;font-size:11px;font-weight:750;white-space:nowrap;font-variant-numeric:tabular-nums}
+.performance-cue-activity.is-upcoming{color:#ffe3b6;background:#55412d;border-color:#d1a36f}
+.performance-stage-compact .app-topbar{padding:4px 10px;min-height:49px}
+.performance-stage-compact .app-topbar .brand{display:none}
+.performance-stage-compact .performance-workspace.performance-expanded{padding:5px 8px;min-height:calc(100dvh - 50px)}
+.shell:fullscreen{height:100dvh;overflow:auto;background:#10151b}
+@media(max-width:1000px){
+ .performance-stage-layout{grid-template-columns:minmax(0,1fr) 256px;gap:8px}
+ .performance-harmony-sidebar{padding:9px;gap:8px}
+ .performance-harmony-group{gap:5px}
+ .performance-harmony-item{padding:8px 6px;min-height:95px}
+ .performance-harmony-item strong{font-size:clamp(25px,3vw,35px)}
+ .performance-cue-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,208px),1fr))}
+ .performance-cue-panel{padding:9px 11px}
+}
+@media(max-width:750px){
+ .performance-stage-layout{display:flex;flex-direction:column}
+ .performance-harmony-sidebar{order:-1}
+ .performance-harmony-sidebar h3{display:none}
+ .performance-harmony-group{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .performance-harmony-sidebar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ .performance-harmony-progress{grid-column:1/-1;margin:0}
+ .performance-harmony-item{min-height:78px}
+ .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(198px,1fr)}
+ .performance-cue-panel{min-height:198px}
+ .performance-topbar-actions{margin-left:0}
+}
+@media(max-width:480px){
+ .performance-topbar-actions{width:100%;justify-content:space-between}
+ .performance-topbar-view-switch{flex:1}
+ .performance-topbar-view-switch button{flex:1;min-width:0}
+ .performance-stage-label{display:none}
+ .performance-harmony-sidebar{display:flex;flex-direction:column}
+ .performance-harmony-group{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .performance-cue-grid{grid-template-columns:1fr;grid-auto-rows:minmax(190px,auto)}
+}
 
 </style>

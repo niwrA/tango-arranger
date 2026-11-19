@@ -39,4 +39,28 @@ check('performance exposes ensemble, karaoke, harmony and split note slices',()=
  for(const needle of ["performanceView==='ensemble'","performanceVocalCue.count","performanceHarmony.upcomingKey","performanceCueParts","performanceRoll.slices","splitAtMeasureBoundaries(notes,beats,first,length)"])
   assert.ok(app.includes(needle),needle);
 });
+check('stage uses one unified harmony side panel and leaves instruments to the left',()=>{
+ const section=app.slice(app.indexOf('<section v-if="performanceMode"'),app.indexOf('<div v-else class="layout">'));
+ assert.ok(section.includes('class="performance-stage-main"'));
+ assert.ok(section.includes('class="performance-harmony-sidebar"'));
+ assert.ok(section.indexOf('class="performance-stage-main"')<section.indexOf('class="performance-harmony-sidebar"'));
+ assert.equal((section.match(/class="performance-harmony-sidebar"/g)||[]).length,1);
+ assert.ok(section.includes('Current key')&&section.includes('Next key'));
+ assert.ok(section.includes('Current chord')&&section.includes('Next chord'));
+});
+check('view switch and fullscreen are in topbar and browser limitations are handled',()=>{
+ const header=app.slice(app.indexOf('<header class="app-topbar">'),app.indexOf('</header>'));
+ assert.ok(header.includes('class="performance-topbar-actions"'));
+ assert.ok(header.includes('Notes &amp; karaoke'));
+ assert.ok(header.includes('togglePerformanceFullscreen'));
+ assert.ok(app.includes('typeof root.requestFullscreen'));
+ assert.ok(app.includes('performanceStageCompact.value=true'));
+});
+check('large instrument tiles retain fixed structure as entries approach',()=>{
+ assert.ok(app.includes('class="performance-cue-activity"'));
+ assert.ok(app.includes('part.cueStatus'));
+ assert.ok(app.includes('performance-cue-change'));
+ assert.ok(!app.includes('class="performance-cue-entry">Next entry'));
+ assert.ok(app.includes('grid-auto-rows:minmax(205px,1fr)'));
+});
 console.log(count+' performance cue checks passed');
