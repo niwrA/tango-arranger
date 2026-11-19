@@ -31,6 +31,7 @@ import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type Captur
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
+import {splitAtMeasureBoundaries} from './performanceCues';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -359,6 +360,7 @@ const pendingParsed=ref<ParsedMusicXml|null>(null);
 const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
+const performanceView=ref<'ensemble'|'notes'>('ensemble');
 const performanceFocus=ref<Instrument|null>(null);
 function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performanceFocus.value===inst?null:inst;}
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
@@ -366,10 +368,55 @@ const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
 const performanceSections=computed(()=>sectionSpans(project.value));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
+/** A real upcoming key change may occur several measures from now. */
+const performanceHarmony=computed(()=>{
+ const p=project.value,bar=performanceBar.value,current=p.bars[bar],key=keyForSection(current?.section??'A');
+ let upcomingKey=key,changeMeasure:number|null=null;
+ for(let i=bar+1;i<p.bars.length;i++){const candidate=keyForSection(p.bars[i].section);if(candidate!==key){upcomingKey=candidate;changeMeasure=i+1;break;}}
+ return {key,upcomingKey,changeMeasure,chord:current?.chord||'—',nextChord:p.bars[bar+1]?.chord||'—'};
+});
+function performanceDynamic(inst:Instrument,bar:number):string{
+ const p=project.value,b=p.bars[bar];
+ if(!b)return '—';
+ const explicit=p.measureDynamics?.[`${inst}:${bar}`];
+ const mark=explicit?.start??p.expression?.sections[b.section]??'mf';
+ return mark+(explicit?.end&&explicit.end!==mark?' → '+explicit.end:'');
+}
+const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
+ const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
+ const nextStart=(score.value[part.inst]??[]).filter(n=>n.start>performanceBeat.value+0.0001).reduce((a,n)=>Math.min(a,n.start),Infinity);
+ return {...part,display:rosterDisplayName(part.inst),nextRole:effectiveRole(part.inst,nextBar),
+  articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
+  dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar),
+  offset:p.instrumentSettings?.[part.inst]?.dynamicsOffset??0,
+  nextEntry:Number.isFinite(nextStart)?Math.max(0,Math.ceil(nextStart-performanceBeat.value)):null};
+}));
+/** Follow the lyric-bearing part, even when a different instrument's notes are selected. */
+const performanceVocalCue=computed(()=>{
+ const roster=projectInstruments(project.value);
+ const preferred=[...roster.filter(inst=>inst.startsWith('Voice')),...roster.filter(inst=>!inst.startsWith('Voice'))];
+ let instrument:Instrument|null=null,notes:Note[]=[];
+ for(const inst of preferred){
+  const lyrical=(score.value[inst]??[]).filter(n=>Boolean(n.lyric||n.lyric2)).sort((a,b)=>a.start-b.start);
+  if(lyrical.length){instrument=inst;notes=lyrical;break;}
+ }
+ if(!instrument)return null;
+ const beat=performanceBeat.value,beats=project.value.beats;
+ const current=notes.filter(n=>n.start<=beat+0.0001).at(-1);
+ const active=Boolean(current&&beat<current.start+noteSoundingDuration(current));
+ const nextIndex=notes.findIndex(n=>n.start>beat+0.0001);
+ const next=nextIndex>=0?notes[nextIndex]:null;
+ const prior=nextIndex>0?notes[nextIndex-1]:null;
+ const beginsPhrase=Boolean(next&&(!prior||next.start-(prior.start+prior.duration)>=Math.max(1,beats/2)));
+ const lead=next?next.start-beat:Infinity;
+ const count=beginsPhrase&&lead>0&&lead<=Math.min(4,beats)?Math.max(1,Math.ceil(lead)):null;
+ const words=notes.filter(n=>n.start>=beat-beats&&n.start<beat+beats*2).slice(0,18);
+ return {instrument,words,current,active,count,visible:active||count!==null||words.some(n=>n.start>=beat&&n.start<beat+beats)};
+});
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
 const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[])]);
- const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes};});
+ const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes,slices:splitAtMeasureBoundaries(notes,beats,first,length)};});
 const performanceGesturePaths=computed(()=>{
  const window=performanceRoll.value;if(!window)return [];
  const paths:{id:string;points:string;partner:boolean;kind:string}[]=[];
