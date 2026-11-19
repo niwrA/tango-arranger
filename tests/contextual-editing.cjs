@@ -102,7 +102,7 @@ check('context menu keyboard gestures include Menu and Shift+F10 only',()=>{
  console.log('PASS dynamics and hairpin menus reuse validated endpoints');count++;
  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
  const leadStart=app.indexOf("<section v-else-if=\"active==='lead'\">");
- const leadEnd=app.indexOf("<section v-else-if=\"active==='arrange'\">");
+ const leadEnd=app.indexOf("<section v-else-if=\"active==='arrange'\"",leadStart);
  assert.ok(leadStart>=0&&leadEnd>leadStart);
  const lead=app.slice(leadStart,leadEnd);
  assert.match(lead,/class="lead-command-bar" role="group"/);
