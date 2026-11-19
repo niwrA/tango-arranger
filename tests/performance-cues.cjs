@@ -185,4 +185,33 @@ check('per-part chord diagrams highlight sounding notes and dim only unplayed ch
  assert.ok(diagram.includes("'is-unplayed-chord-tone':shouldDimTone(midi)"));
  assert.ok(diagram.includes("is-unplayed-chord-tone:not(.is-sounding)"));
 });
+check('out-of-range sounding pitches stay in a fixed overlay, never new layout rows',()=>{
+ const diagram=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
+ assert.ok(diagram.includes('class="diagram-visual-stage"'));
+ assert.ok(diagram.includes('visibleUnmappedPitches=computed(()=>unmappedSoundingPitches.value.slice(0,3))'));
+ assert.ok(diagram.includes('extraUnmappedCount=computed('));
+ assert.ok(diagram.includes('class="diagram-live-pitches"'));
+ assert.match(diagram,/\.diagram-live-pitches\s*\{[^}]*position:absolute;[^}]*flex-wrap:nowrap;/s);
+ assert.match(diagram,/\.diagram-visual-stage\{position:relative;/);
+ assert.match(diagram,/\.diagram-targets\{height:94px;min-height:94px;max-height:94px/);
+ assert.match(diagram,/\.diagram-fingerboard\{height:98px;min-height:98px;max-height:98px/);
+ assert.match(diagram,/\.diagram-piano\{height:80px;min-height:80px;max-height:80px/);
+});
+check('ensemble performance cards have a fixed row height while playback advances',()=>{
+ assert.match(app,/\.performance-live \.performance-stage-only \.performance-cue-grid\{\s*grid-auto-rows:270px!important;/s);
+ assert.match(app,/\.performance-live \.performance-stage-only \.performance-diagram-card\{\s*height:270px!important;min-height:270px!important;max-height:270px!important;/s);
+ assert.ok(app.includes('height:282px!important;min-height:282px!important;max-height:282px!important'));
+});
+check('fullscreen and editor exit are separate equal-size controls with clear iconography',()=>{
+ const appIcons=fs.readFileSync(path.join(root,'src/AppIcon.vue'),'utf8');
+ assert.ok(appIcons.includes("maximize:'M8 3H5"));
+ assert.ok(appIcons.includes("minimize:'M8 8H3"));
+ assert.ok(app.includes('class="performance-stage-actions"'));
+ assert.ok(app.includes('class="secondary performance-stage-action performance-editor-button"'));
+ assert.ok(app.includes('class="secondary performance-stage-action performance-fullscreen-button"'));
+ assert.ok(app.includes('performanceFullscreenActive||performanceStageCompact?\'minimize\':\'maximize\''));
+ assert.ok(app.includes('class="performance-topbar-view-switch"'));
+ assert.ok(app.includes('height:42px!important;min-height:42px!important;padding:3px!important;box-sizing:border-box'));
+ assert.ok(!app.includes('performanceMode=!performanceMode'));
+});
 console.log(count+' performance cue checks passed');
