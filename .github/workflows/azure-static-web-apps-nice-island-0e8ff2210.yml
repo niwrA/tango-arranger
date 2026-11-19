@@ -40,6 +40,9 @@ jobs:
       - name: Test editable phrase planner and protected editions
         run: npm run test:phrases
 
+      - name: Test rhythm snapping and contextual editor menus
+        run: npm run test:rhythm-snap
+
       - name: Verify production output
         run: |
           test -f dist/index.html

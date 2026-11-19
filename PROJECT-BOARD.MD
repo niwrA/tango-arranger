@@ -37,6 +37,17 @@
 - Focus view shows the measure range chosen by Loop from / To as a scrollable note overview. Click any measure to make it the editable measure below. Playback loops the same measure range.
 - Only the selected measure is directly draggable/resizable; the phrase overview is navigational and does not allow dragging across measure boundaries.
 
+## Milestone 4 — Rhythm provenance and contextual editing (19 November 2026)
+
+- [x] Add an explicit rhythm snap selector to Note Editor / Focus mode, with readable preset onset guides; keep free timing as default.
+- [x] Snap newly entered onsets within a bounded tolerance; allow selected existing notes and simultaneous chords to snap on demand without implicit retiming of the rest of the measure.
+- [x] Store app-local rhythm provenance on notes only when applied from a preset or manually edited rhythm pattern; preserve it in protected edits and independent difficulty editions, and clear stale source labels after time/duration changes.
+- [x] Display rhythm-source cues in Note Editor, selected-note details, note lists and Performance mode.
+- [x] Extend contextual editing: instrument-heading long press/right-click/keyboard and a visible options control, with shortcuts into existing editors; support the keyboard context-menu gesture on map cells and notes.
+- [x] Add regression checks for preset onsets, tolerance, provenance persistence, manual protections, mixed-skill editions, and export timing.
+- [ ] Verify iPad Safari and desktop pointer/keyboard behavior manually, including scrolling cancellation and popup focus.
+- [ ] Expand per-instrument rhythm ergonomics, harmonic retiming checks and phrase-based automatic rhythm recommendations later.
+
 ## Milestone 3 — Phrase-level orchestration planning (19 November 2026)
 
 - [x] Introduce a shared, typed phrase-plan model independent of editable instrument note editions.

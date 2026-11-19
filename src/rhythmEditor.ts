@@ -51,7 +51,7 @@ export function rhythmSlots(preset:RhythmPreset,beats:number,inst:Instrument='Pi
 /** Preserve pitch, chord voicing, note gestures and register. Chord notes sharing
  * an onset remain simultaneous. Piano bass and treble are handled independently,
  * so chord inversions never migrate to the F clef as a side effect of retiming. */
-export function retimeMeasure(notes:Note[],inst:Instrument,barIndex:number,beats:number,slots:RhythmSlot[],mode:RhythmMode,splitPitch=60,upperSlots?:RhythmSlot[]):Note[]{
+export function retimeMeasure(notes:Note[],inst:Instrument,barIndex:number,beats:number,slots:RhythmSlot[],mode:RhythmMode,splitPitch=60,upperSlots?:RhythmSlot[],preset?:RhythmPreset):Note[]{
   const offset=barIndex*beats,end=offset+beats;
   const current=notes.filter(n=>n.start>=offset-1e-7&&n.start<end-1e-7).map(n=>({...n}));
   if(!current.length)return [];
@@ -71,10 +71,18 @@ export function retimeMeasure(notes:Note[],inst:Instrument,barIndex:number,beats
     const originals=[...byOnset.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
     for(let i=0;i<activeSlots.length;i++){
       const slot=activeSlots[i],chord=originals[Math.floor(i*originals.length/activeSlots.length)];
-      groups.push(chord.map(n=>({...n,start:round(offset+slot.beat),duration:slot.duration,
-        accent:slot.accent,articulation:slot.accent?'marcato_staccato':'staccato',
-        // Keep existing technique and gate unless the source had no custom gate.
-        source:'manual' as const})));
+      groups.push(chord.map(n=>{
+        const edited:Note={...n,start:round(offset+slot.beat),duration:slot.duration,
+          accent:slot.accent,articulation:slot.accent?'marcato_staccato':'staccato',
+          // Keep existing technique and gate unless the source had no custom gate.
+          source:'manual' as const};
+        return {...edited,rhythmSource:{
+          kind:preset?'preset':'edited-grid',
+          ...(preset?{preset}:{}),
+          targetBeat:slot.beat,originalBeat:round(n.start-offset),
+          targetDuration:slot.duration,accent:slot.accent
+        }};
+      }));
     }
   }
   return groups.flat().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
@@ -97,7 +105,7 @@ export function applyRhythmPreset(p:Project,source:Score|undefined,options:Rhyth
       if(!original.length){skippedEmpty++;continue;}
       const slots=rhythmSlots(options.preset,p.beats,inst,p.profile);
       const upperSlots=inst==='Piano'&&(['marcato_two','profile_disarli','profile_fresedo'].includes(options.preset)||options.preset==='style'&&['disarli','fresedo'].includes(p.profile))?rhythmSlots(options.preset,p.beats,'Bandoneon I',p.profile):undefined;
-      const notes=retimeMeasure(original,inst,b,p.beats,slots,options.mode,p.pianoSplitPitch??60,upperSlots);
+      const notes=retimeMeasure(original,inst,b,p.beats,slots,options.mode,p.pianoSplitPitch??60,upperSlots,options.preset);
       next=replaceInstrumentMeasure(next,current,inst,b,notes);
       current=next.generatedScore!;
       updated++;

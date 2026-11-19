@@ -1,3 +1,12 @@
+## Milestone 4 — Rhythm snapping, visual cues and contextual menus (2026-11-19)
+
+- Added selectable rhythm-preset onset guides and bounded note snapping in standard and focused Note Editor views; original free timing is default.
+- Added explicit provenance on notes retimed with a predefined or edited pattern, cues in Note Editor and Performance mode, and selected-note snap/release controls.
+- Added instrument-heading context menus through long touch press, desktop right-click, keyboard Shift+F10/Menu and visible more-options access, linking existing note/chord/rhythm/role/difficulty tools.
+- Added right-click and keyboard context access for notes and orchestration measure cells.
+- Added regression checks in CI for preset quantization, metadata integrity, protections and edition/MusicXML compatibility.
+- Actual iPad Safari interaction and MuseScore display remain acceptance checks, not verified.
+
 ## Milestone 3 — Editable phrase planning (2026-11-19)
 
 - Added a shared phrase-level orchestration layer with section-aware phrase segmentation and explicit instrument roles/activity/placement.
