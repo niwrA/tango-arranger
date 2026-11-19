@@ -1,3 +1,9 @@
+## Lead Sheet toolbar refinement (2026-11-19)
+
+- Moved Undo and Redo into the same compact action row as chord preview and Stop, rather than leaving history buttons on their own line.
+- Grouped playback and editing-history actions with accessible labels, kept the measure count aligned at the far right, and added deliberate wrapping on narrow screens.
+- Preserved existing undo, redo and chord-preview behavior; added a contextual UI regression check.
+
 ## Contextual interaction refinement — phrase, rhythm and dynamics (2026-11-19)
 
 - Added compact phrase blocks with contextual draft editing, previous-phrase copying, activity/placement shortcuts and direct Note Editor navigation.

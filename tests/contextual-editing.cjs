@@ -100,5 +100,24 @@ check('context menu keyboard gestures include Menu and Shift+F10 only',()=>{
  ];
  for(const item of expectedDynamics)assert.ok(app.includes(item),'Missing dynamics-menu behavior: '+item);
  console.log('PASS dynamics and hairpin menus reuse validated endpoints');count++;
+ const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+ const leadStart=app.indexOf("<section v-else-if=\"active==='lead'\">");
+ const leadEnd=app.indexOf("<section v-else-if=\"active==='arrange'\">");
+ assert.ok(leadStart>=0&&leadEnd>leadStart);
+ const lead=app.slice(leadStart,leadEnd);
+ assert.match(lead,/class="lead-command-bar" role="group"/);
+ assert.match(lead,/class="lead-preview-controls" role="group"/);
+ assert.match(lead,/class="lead-history-controls" role="group"/);
+ assert.match(lead,/class="lead-measure-count"/);
+ assert.doesNotMatch(lead,/lead-history-actions/);
+ const toolbar=lead.slice(lead.indexOf('class="lead-command-bar"'),lead.indexOf('<p class="muted">'));
+ assert.ok(toolbar.indexOf('lead-preview-controls')<toolbar.indexOf('lead-history-controls'));
+ assert.ok(toolbar.indexOf('lead-history-controls')<toolbar.indexOf('lead-measure-count'));
+ for(const action of ["previewPart('lead',0,project.bars.length-1)","previewPart('lead',selectedBar,project.bars.length-1)","restoreHistory('undo')","restoreHistory('redo')"])
+   assert.ok(toolbar.includes(action),'Missing action in combined toolbar: '+action);
+ assert.ok(css.includes('.lead-command-bar{display:flex;align-items:center;flex-wrap:wrap'));
+ assert.ok(css.includes('@media(max-width:480px)'));
+ assert.ok(css.includes('.lead-history-controls{order:2}'));
+ console.log('PASS compact single-row lead playback/history toolbar and mobile wrapping');count++;
  console.log(count+' contextual editing checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1369,3 +1369,21 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  .topbar-group .generate-action{min-width:37px;padding:6px 8px!important}
  .topbar-files .files-summary{padding:6px 7px!important}
 }
+
+/* Lead sheet: playback, history and measure count share a single compact row. */
+.lead-command-bar{display:flex;align-items:center;flex-wrap:wrap;column-gap:12px;row-gap:7px;margin:5px 0 12px;min-width:0}
+.lead-preview-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
+.lead-command-bar button{min-height:40px;padding:8px 11px;font-size:12px;white-space:nowrap}
+.lead-history-controls{display:inline-flex;align-items:center;gap:5px;padding-left:11px;border-left:1px solid #425463;flex:0 0 auto}
+.lead-history-controls button{min-width:73px}
+.lead-measure-count{margin-left:auto;color:#aebbc5;font-size:12px;white-space:nowrap}
+@media(max-width:700px){
+  .lead-command-bar{column-gap:8px}
+  .lead-history-controls{padding-left:0;border-left:0}
+}
+@media(max-width:480px){
+  .lead-preview-controls{flex:1 1 100%;gap:6px}
+  .lead-command-bar button{min-height:40px;padding:7px 9px;font-size:11px}
+  .lead-history-controls{order:2}
+  .lead-measure-count{order:3}
+}
