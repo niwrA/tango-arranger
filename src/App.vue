@@ -1223,6 +1223,11 @@ function inferredArticulation(inst:Instrument):string{return measureArticulation
 function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24)project.value.transposeSemitones=n;}
 // Song overview: measure-level overrides are sparse and do not replace section defaults.
 const orchestrationScope=ref<'instrument'|'section'|'all'>('all');
+const orchestrationToolsOpen=ref(false);
+const phrasePlannerVisible=ref(false);
+function showOrchestrationPhrasePlanner(){phrasePlannerVisible.value=!phrasePlannerVisible.value;orchestrationToolsOpen.value=false;}
+function showOrchestrationRangeSettings(){measureSettingsOpen.value=true;orchestrationToolsOpen.value=false;}
+function showOrchestrationSelectedNotes(){orchestrationToolsOpen.value=false;openNoteEditor(overviewInstrument.value,overviewStart.value-1);}
 const selectedInstrumentGroup=ref<InstrumentGroup>('rhythm');
 const instrumentGroupOptions:InstrumentGroup[]=['rhythm','melody','harmony'];
 function groupMembers(group:InstrumentGroup):Instrument[]{return instrumentsForGroup(project.value,group,INSTRUMENTS);}
@@ -3378,21 +3383,33 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 <button class="secondary lead-add-measure" @click="addBar">+ Add measure to last section</button></section>
 <section v-else-if="active==='arrange'" class="overview-section">
-<PhrasePlanEditor :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
-<div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
-<button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
+<div class="orchestration-top-row">
+  <div class="orchestration-top-actions">
+    <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
+      <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
+    </div>
+    <div class="orchestration-tool-wrap">
+      <button type="button" class="secondary orchestration-more-button" aria-label="Orchestration tools and selected measure actions" aria-controls="orchestration-tools-popup" :aria-expanded="orchestrationToolsOpen" @click="orchestrationToolsOpen=!orchestrationToolsOpen">⋯ <span>Tools</span></button>
+      <div v-if="orchestrationToolsOpen" id="orchestration-tools-popup" class="orchestration-tools-popup" role="group" aria-label="Orchestration tools">
+        <strong>{{rosterDisplayName(overviewInstrument)}} · measures {{overviewStart}}–{{overviewEnd}}</strong>
+        <button type="button" @click="showOrchestrationRangeSettings">Edit selected measures</button>
+        <button type="button" @click="showOrchestrationSelectedNotes">Edit selected notes</button>
+        <button type="button" :aria-expanded="phrasePlannerVisible" @click="showOrchestrationPhrasePlanner">{{phrasePlannerVisible?'Close':'Open'}} phrase planner</button>
+        <p>Select a cell to edit; long-press or right-click a cell or instrument label for contextual options. Shift+click extends the selected range.</p>
+      </div>
+    </div>
+  </div>
+  <div class="overview-legend orchestration-right-legend" aria-label="Orchestration role colors">
+    <span><i class="legend-dot melody"></i> Melody</span><span><i class="legend-dot chords"></i> Chords / arpeggio / pizzicato</span><span><i class="legend-dot harmony"></i> Harmony</span><span><i class="legend-dot bass"></i> Bass</span><span><i class="legend-dot rest"></i> Rest</span><span><i class="legend-dot overridden"></i> Manual override</span>
+  </div>
 </div>
-<div class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
-<label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-<label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
-<span v-if="orchestrationScope==='all'" class="muted">All instruments · all {{project.bars.length}} measures</span>
-<span v-else class="muted">{{mapVisibleInstruments.length}} {{mapVisibleInstruments.length===1?'instrument':'instruments'}} · {{mapVisibleMeasures.length}} measures</span>
+<PhrasePlanEditor v-if="phrasePlannerVisible" :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
+<div v-if="orchestrationScope!=='all'" class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
+  <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+  <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
 </div>
 <details v-if="orchestrationScope==='section'" class="orchestration-group-members"><summary>Choose instruments in this group</summary><div class="orchestration-group-checks" role="group" :aria-label="`Instruments in ${selectedInstrumentGroup} section`"><label v-for="inst in activeRoster" :key="inst"><input type="checkbox" :checked="groupMembers(selectedInstrumentGroup).includes(inst)" :disabled="groupMembers(selectedInstrumentGroup).length===1&&groupMembers(selectedInstrumentGroup).includes(inst)" @change="toggleGroupMember(inst,($event.target as HTMLInputElement).checked)"/>{{rosterDisplayName(inst)}}</label></div><p class="hint">Group membership is saved with this song. These are functional viewing groups, not the A/B/C song parts or generated musical roles.</p></details>
 <div class="orchestration-instrument-scope" id="scope-map-panel" role="tabpanel" :aria-labelledby="`scope-${orchestrationScope}`">
-<p class="muted orchestration-scope-help">Instrument shows one part; Section shows an editable instrumental group; All shows every part. All views cover the entire song. Select a map cell to edit its instrument and measure. Shift+click extends the range; double-click edits notes.</p>
-<div class="overview-legend"><span><i class="legend-dot melody"></i> Melody</span><span><i class="legend-dot chords"></i> Chords / arpeggio / pizzicato</span><span><i class="legend-dot harmony"></i> Harmony</span><span><i class="legend-dot bass"></i> Bass</span><span><i class="legend-dot rest"></i> Rest</span><span><i class="legend-dot overridden"></i> Manual override (corner)</span></div>
-<div class="map-context-toolbar" role="toolbar" aria-label="Selected orchestration measures"><strong>{{rosterDisplayName(overviewInstrument)}}</strong><span>Measures {{overviewStart}}–{{overviewEnd}}</span><button type="button" class="secondary" @click="measureSettingsOpen=true">Edit selected measures</button><button type="button" class="secondary icon-action" title="Edit notes in selected measure" aria-label="Edit notes" @click="openNoteEditor(overviewInstrument,overviewStart-1)"><AppIcon name="pencil"/></button></div>
 <div v-if="measureSettingsOpen" class="note-properties-backdrop" @click.self="measureSettingsOpen=false"></div>
 <div v-if="measureSettingsOpen" class="note-properties note-properties-popup measure-settings-popup" role="dialog" aria-modal="true" tabindex="-1" :aria-label="`Settings for ${rosterDisplayName(overviewInstrument)}, measures ${overviewStart}–${overviewEnd}`" @keydown.esc.stop.prevent="measureSettingsOpen=false">
 <div class="note-properties-popup-header"><strong>{{rosterDisplayName(overviewInstrument)}} · measures {{overviewStart}}–{{overviewEnd}}</strong><button type="button" class="secondary" @click="measureSettingsOpen=false">✕ Close</button></div>
