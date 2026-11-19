@@ -185,13 +185,11 @@ const noteFocusMode=ref(false);
 const noteFocusMore=ref(false);
 const noteSettingsOpen=ref(false);
 const noteLoopFrom=ref(1);
-const noteLoopTo=ref(1);
+const noteLoopTo=ref(2);
 const noteLoopMeasure=ref(-1);
 function enterNoteFocusMode(){
   noteEditorTab.value='notes';noteDetailsPopup.value=false;noteFocusMore.value=false;
-  if(noteLoopFrom.value>selectedBar.value+1||noteLoopTo.value<selectedBar.value+1){
-    noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;
-  }
+  syncVisibleMeasureSelection();
   noteFocusMode.value=true;
   void nextTick(()=>noteEditorRegion.value?.querySelector<HTMLButtonElement>('.note-focus-close')?.focus({preventScroll:true}));
 }
@@ -207,12 +205,28 @@ function noteFocusLoopRange(){
   noteLoopFrom.value=from;noteLoopTo.value=to;
   return {from:from-1,to:to-1};
 }
+function syncVisibleMeasureSelection(){
+  const first=noteLoopFrom.value-1,last=noteLoopTo.value-1;
+  if(selectedBar.value<first||selectedBar.value>last)activateGridMeasure(first);
+}
 function changeFocusLoopFrom(){
   noteLoopFrom.value=Math.max(1,Math.min(project.value.bars.length,Math.round(Number(noteLoopFrom.value)||1)));
   if(noteLoopTo.value<noteLoopFrom.value)noteLoopTo.value=noteLoopFrom.value;
+  syncVisibleMeasureSelection();
 }
 function changeFocusLoopTo(){
   noteLoopTo.value=Math.max(noteLoopFrom.value,Math.min(project.value.bars.length,Math.round(Number(noteLoopTo.value)||noteLoopFrom.value)));
+  syncVisibleMeasureSelection();
+}
+/** Shift the selected continuous measure window without changing its length. */
+function shiftNoteVisibleRange(delta:number){
+  const max=project.value.bars.length;
+  const span=noteLoopTo.value-noteLoopFrom.value;
+  const from=Math.max(1,Math.min(max-span,noteLoopFrom.value+delta));
+  const shift=from-noteLoopFrom.value;
+  if(!shift)return;
+  noteLoopFrom.value=from;noteLoopTo.value=from+span;
+  activateGridMeasure(Math.max(from-1,Math.min(noteLoopTo.value-1,selectedBar.value+shift)));
 }
 
 // The visible phrase and playback loop intentionally use the same bounds.
@@ -226,10 +240,8 @@ const focusVisibleMeasures=computed(()=>{
   const max=project.value.bars.length;
   const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
   const to=Math.max(from,Math.min(max,Math.round(Number(noteLoopTo.value)||from)));
-  // Show at least two adjacent measures for cross-barline editing, regardless of loop length.
-  const count=Math.min(max,Math.max(2,to-from+1));
-  const first=Math.max(0,Math.min(from-1,max-count));
-  return Array.from({length:count},(_,i)=>first+i);
+  // Two measures by default; the user's explicit start and end define the exact view.
+  return Array.from({length:to-from+1},(_,i)=>from-1+i);
 });
 function focusMeasureNotes(bar:number){
   const beats=project.value.beats,begin=bar*beats,end=begin+beats;
@@ -1804,7 +1816,7 @@ async function toggleNoteLoop(){
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
     transport.bpm.value=project.value.bpm;
-    // In focus mode the user can loop a phrase; ordinary mode still loops one measure.
+    // Both editor modes loop the visible user-selected measure range.
     let loopPass=0;
     let lastRangeKey='';
     transport.scheduleRepeat(time=>{
@@ -2329,18 +2341,7 @@ function finishMeasureHeaderDrag(event:PointerEvent){
   if(Math.abs(delta)<16)return;
   // Swipe left advances; swipe right returns to the preceding measure.
   const steps=-Math.max(1,Math.round(Math.abs(delta)/48))*Math.sign(delta);
-  const max=project.value.bars.length;
-  const destination=Math.max(0,Math.min(max-1,drag.startBar+steps));
-  const actualShift=destination-drag.startBar;
-  if(!actualShift)return;
-  const oldFrom=noteLoopFrom.value;
-  const oldTo=noteLoopTo.value;
-  openNoteEditor(noteInst.value,destination);
-  // Keep the playback window attached to the edited measure when swiping.
-  const span=oldTo-oldFrom;
-  const from=Math.max(1,Math.min(max-span,oldFrom+actualShift));
-  noteLoopFrom.value=from;
-  noteLoopTo.value=from+span;
+  shiftNoteVisibleRange(steps);
 }
 function cancelMeasureHeaderDrag(){measureHeaderDrag.value=null;}
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
@@ -2354,10 +2355,12 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   const previousLoopLength=Math.max(1,noteLoopTo.value-noteLoopFrom.value+1);
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
   overviewFocus.value=selectedBar.value;
-  if(previousBar!==selectedBar.value){
-    noteLoopFrom.value=selectedBar.value+1;
-    noteLoopTo.value=Math.min(project.value.bars.length,noteLoopFrom.value+previousLoopLength-1);
-  }else if(!noteFocusMode.value&&arrivingFromAnotherView){noteLoopFrom.value=selectedBar.value+1;noteLoopTo.value=selectedBar.value+1;}
+  if(arrivingFromAnotherView||previousBar!==selectedBar.value){
+    const count=arrivingFromAnotherView?Math.min(2,project.value.bars.length):Math.min(previousLoopLength,project.value.bars.length);
+    const first=Math.max(0,Math.min(selectedBar.value,project.value.bars.length-count));
+    noteLoopFrom.value=first+1;
+    noteLoopTo.value=first+count;
+  }
   const range=instrumentRange(inst);
   const existing=(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value);
   const typical=inst==='Contrabass'?43:inst==='Piano'?61:inst==='Violin I'?76:inst==='Violin II'?69:inst.startsWith('Bandoneon')?67:72;
@@ -2959,19 +2962,34 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango.json backups. Presets are starting-point heuristics, not transcriptions.</p>
 </section>
 <section v-else-if="active==='notes'" ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
-  <div class="note-editor-heading" role="toolbar" aria-label="Note editor actions" style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;margin:6px 0 10px"><button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button><button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button><button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous measure">‹</button><span class="measure-drag-header" title="Swipe left for next measure, right for previous" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">↔ Measure {{selectedBar+1}} · {{project.bars[selectedBar].section}}</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next measure">›</button><button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Focus editor (full viewport)">⛶ Focus editor</button></div>
-  <div v-if="noteFocusMode" class="note-focus-toolbar" role="toolbar" aria-label="Focused note editor navigation">
-    <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button><button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
-    <strong class="note-focus-identity measure-drag-header" title="Swipe left for next measure, right for previous" style="touch-action:pan-y;user-select:none;cursor:ew-resize" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">{{rosterDisplayName(noteInst)}} · measure {{selectedBar+1}} / {{project.bars.length}} ↔</strong>
-    <button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous</button>
-    <button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next →</button>
-    <button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop instrument'}}</button>
-    <label class="note-focus-range">Loop from<input type="number" min="1" :max="project.bars.length" v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"/></label>
-    <label class="note-focus-range">To<input type="number" :min="noteLoopFrom" :max="project.bars.length" v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"/></label>
+  <div v-if="noteFocusMode" class="note-focus-toolbar note-unified-focus-toolbar" role="toolbar" aria-label="Focused note editor controls">
+    <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
+    <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
+    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
+    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
+    <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}}</strong>
+    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
+    <label class="note-focus-range">Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <label class="note-focus-range">End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopTo>=project.bars.length" @click="shiftNoteVisibleRange(1)" aria-label="Next measure range">→</button>
+    <button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop'}}</button>
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
-  <div v-if="!noteFocusMode" class="compact-note-toolbar" role="toolbar" aria-label="Note editing workspace"><button v-if="noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button><button type="button" class="secondary" @click="returnToMap">← Map</button><label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">←</button><label>Measure<select v-model.number="selectedBar" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}}</option></select></label><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">→</button><button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button><button type="button" class="secondary" @click="noteInspectorOpen=!noteInspectorOpen" :aria-pressed="noteInspectorOpen">{{noteInspectorOpen?'Hide':'Show'}} inspector</button><button type="button" class="secondary" @click="enterNoteFocusMode">⛶ Focus</button></div><div class="note-editor-navigation" aria-label="Note editor navigation"><button type="button" class="secondary" @click="returnToMap">← Back to map</button><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)">← Previous measure</button><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)">Next measure →</button><span class="editor-shortcut-help">Keyboard: Delete / Backspace remove note · ← → select notes · ↑ ↓ pitch ± semitone · + / − duration ± ¼ beat · [ ] measures · L loop · Esc map. Text fields keep normal typing.</span></div>
-  <div class="note-loop-controls" aria-label="Measure playback"><button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop instrument'}}</button><label>From <input type="number" min="1" :max="project.bars.length" v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"/></label><label>To <input type="number" :min="noteLoopFrom" :max="project.bars.length" v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"/></label><span class="hint" role="status" aria-live="polite">{{noteLoopPlaying?`Playing measure ${noteLoopMeasure+1}`:`Editing and looping measures ${noteLoopFrom}–${noteLoopTo}`}}</span></div>
+  <div v-if="!noteFocusMode" class="compact-note-toolbar note-unified-toolbar" role="toolbar" aria-label="Note editing workspace">
+    <button v-if="noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button>
+    <button type="button" class="secondary" @click="returnToMap">← Map</button>
+    <label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
+    <label>Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <label>End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopTo>=project.bars.length" @click="shiftNoteVisibleRange(1)" aria-label="Next measure range">→</button>
+    <button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
+    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
+    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
+    <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
+    <button type="button" class="secondary" @click="noteInspectorOpen=!noteInspectorOpen" :aria-pressed="noteInspectorOpen">{{noteInspectorOpen?'Hide':'Show'}} inspector</button>
+    <button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
+  </div>
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
     <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">♫ Notes &amp; properties</button>
     <button id="note-tab-capture" type="button" role="tab" :aria-selected="noteEditorTab==='capture'" :tabindex="noteEditorTab==='capture'?0:-1" aria-controls="note-panel-capture" :class="{selected:noteEditorTab==='capture'}" @click="setNoteEditorTab('capture')">● Live input</button>
@@ -3294,4 +3312,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-continuous-pitch-row .note-lane-grid{width:100%;min-width:0}
 .note-continuous-grid .note-bar{min-height:0;height:24px}
 
+/* Unified Note Editor controls: one panel in normal mode, one in focus. */
+.note-unified-toolbar{align-items:end;gap:8px 10px}
+.note-unified-toolbar label{flex:1 1 110px;min-width:105px;max-width:220px}
+.note-unified-toolbar .note-focus-enter{margin-left:auto;border:1px solid #d0a66b;font-weight:700}
+.note-unified-focus-toolbar{align-items:center}
+.note-unified-focus-toolbar .note-focus-identity{white-space:nowrap}
+.note-unified-focus-toolbar .note-focus-range{display:flex;align-items:center;gap:6px}
+.note-unified-focus-toolbar .note-focus-range select{min-width:85px;max-width:150px;margin:0;padding:7px 5px}
+@media(max-width:700px){
+  .note-unified-toolbar{gap:6px}
+  .note-unified-toolbar label{flex:1 1 120px;max-width:none}
+  .note-unified-toolbar .note-focus-enter{margin-left:0}
+  .note-unified-focus-toolbar .note-focus-range{flex:1 1 145px;flex-wrap:wrap;white-space:normal}
+  .note-unified-focus-toolbar .note-focus-range select{width:100%;max-width:none}
+}
 </style>
