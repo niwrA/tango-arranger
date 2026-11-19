@@ -23,7 +23,7 @@ let checks=0;
 function check(label,task){task();checks++;console.log('PASS',label);}
 function song(){
  const p=music.blankProject({sections:1,measuresPerSection:3,beats:4,bpm:118,title:'Ediciones & Tango'});
- p.bars.forEach((bar,i)=>{bar.chord=i===1?'A7':'Dm';});
+ p.bars.forEach((bar,i)=>{bar.chord=i===1?'A7':'Dm';bar.melody=[{pitch:74,start:0,duration:1},{pitch:76,start:1,duration:1},{pitch:77,start:2,duration:2}];});
  p.instrumentSettings.Piano={...(p.instrumentSettings.Piano??{}),difficulty:'advanced'};
  p.instrumentSettings['Violin I']={...(p.instrumentSettings['Violin I']??{}),difficulty:'intermediate'};
  p.generatedScore=music.generate(p);
