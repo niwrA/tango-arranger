@@ -4353,4 +4353,79 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-stage-main .performance-cue-grid{grid-auto-rows:minmax(198px,auto)}
 }
 
+
+/* Orchestration: context-first, clean one-line scope + legend toolbar. */
+.orchestration-top-row{display:flex;align-items:center;justify-content:space-between;gap:10px 22px;flex-wrap:wrap;margin:2px 0 10px;min-width:0}
+.orchestration-top-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.orchestration-top-row .orchestration-scope-tabs{display:flex;align-items:center;gap:3px;margin:0;padding:3px;border:1px solid #405365;border-radius:10px;background:#1a2632;overflow:visible}
+.orchestration-top-row .orchestration-scope-tabs button{border:0;border-radius:7px;box-shadow:none;min-height:38px;height:38px;padding:6px 15px}
+.orchestration-top-row .orchestration-scope-tabs button.selected{background:#d1a875;color:#18232c;box-shadow:none;font-weight:800}
+.orchestration-top-row .orchestration-right-legend{display:flex;justify-content:flex-end;align-items:center;flex:1 1 450px;gap:6px 13px;margin:0;font-size:11px;min-width:0}
+.orchestration-top-row .orchestration-right-legend span{white-space:nowrap}
+.orchestration-tool-wrap{position:relative;z-index:16}
+.orchestration-top-row .orchestration-more-button{min-height:42px;white-space:nowrap;padding:8px 12px;font-size:13px;border-color:#536a7d}
+.orchestration-tools-popup{position:absolute;top:calc(100% + 7px);left:0;z-index:30;min-width:min(340px,85vw);max-width:calc(100vw - 24px);display:grid;gap:6px;padding:12px;border:1px solid #8295a6;border-radius:10px;background:#233440;box-shadow:0 14px 34px #000b}
+.orchestration-tools-popup>strong{font-size:13px;color:#f5dbb4;padding-bottom:4px}
+.orchestration-tools-popup button{width:100%;text-align:left;min-height:38px;padding:8px 10px}
+.orchestration-tools-popup p{font-size:11px;line-height:1.45;color:#bacbd8;margin:4px 0 0}
+.orchestration-top-row+.orchestration-map-filter{margin:5px 0}
+.overview-section>.phrase-planner{margin:2px 0 10px}
+.overview-section .orchestration-instrument-scope{min-width:0}
+@media(max-width:920px){.orchestration-top-row{gap:9px}.orchestration-top-row .orchestration-right-legend{justify-content:flex-end;flex-basis:100%}}
+@media(max-width:550px){.orchestration-top-actions{width:100%}.orchestration-top-row .orchestration-scope-tabs{flex:1;min-width:0}.orchestration-top-row .orchestration-scope-tabs button{flex:1;min-width:0;padding:5px}.orchestration-top-row .orchestration-right-legend{justify-content:flex-start}.orchestration-tools-popup{left:auto;right:0}}
+
+/* Stage: chord is the long-distance information, key becomes a quiet footnote. */
+.performance-harmony-sidebar{gap:9px}
+.performance-chord-group{order:0}
+.performance-key-group{order:1}
+.performance-harmony-progress{order:2}
+.performance-chord-group .performance-harmony-item{min-height:129px}
+.performance-chord-group .performance-harmony-item strong{font-size:clamp(36px,3.7vw,61px);font-weight:900}
+.performance-key-group .performance-harmony-item{min-height:70px;padding:7px 9px;gap:2px;border-color:#3b4c5d;background:#1e303d}
+.performance-key-group .performance-harmony-item small{font-size:11px}
+.performance-key-group .performance-harmony-item strong{font-size:clamp(18px,1.5vw,24px);font-weight:700;color:#b7cbd9}
+.performance-key-group .performance-harmony-item span{font-size:10px;color:#aabfcf}
+.performance-key-group .performance-harmony-imminent{border-color:#b89361;background:#332e2b}
+.performance-key-group .performance-harmony-imminent strong{color:#efc894}
+
+/* A stage panel is now an upright, predictable cue card rather than a wide tile. */
+.performance-stage-main{container-name:performance-parts;container-type:inline-size}
+.performance-stage-main .performance-cue-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(235px,auto);gap:9px;align-content:start}
+.performance-stage-main .performance-cue-panel{min-height:235px;height:100%;gap:6px;padding:12px 11px;background:linear-gradient(160deg,#293a48,#1b2834)}
+.performance-stage-main .performance-cue-identity{align-content:start;min-height:36px}
+.performance-stage-main .performance-cue-identity>strong{font-size:clamp(15px,1.55vw,22px)}
+.performance-stage-main .performance-cue-role{min-height:80px;align-items:center;justify-content:center;text-align:center;gap:4px}
+.performance-stage-main .performance-cue-role strong{font-size:clamp(24px,2.5vw,37px)}
+.performance-stage-main .performance-cue-next{margin-top:auto}
+.performance-cue-panel.performance-cue-playing{
+ border-color:#bd9b66;
+ box-shadow:inset 0 0 0 2px rgba(247,193,111,var(--cue-beat-glow,0.13)),0 0 12px rgba(240,182,95,0.10);
+ background:linear-gradient(160deg,rgba(228,175,100,calc(var(--cue-beat-glow,0.13)*0.20)),transparent 75%),linear-gradient(160deg,#293a48,#1b2834);
+ transition:box-shadow .08s linear,background-color .08s linear;
+}
+.performance-cue-panel.performance-cue-rest{opacity:.91}
+.performance-cue-activity.is-playing{background:#314b42;border-color:#5d9a78;color:#d4f3df}
+@container performance-parts (max-width:800px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(213px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:213px;padding:9px}
+}
+@container performance-parts (max-width:655px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(205px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:205px}
+}
+@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+ .performance-stage-main .performance-cue-grid{grid-auto-rows:minmax(213px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:213px}
+}
+@media(max-width:750px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(205px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:205px}
+}
+@media(max-width:430px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:1fr}
+}
+@media(prefers-reduced-motion:reduce){
+ .performance-cue-panel.performance-cue-playing{transition:none;box-shadow:inset 0 3px 0 #d5aa6d;background:linear-gradient(160deg,#293a48,#1b2834)}
+}
+
 </style>
