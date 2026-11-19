@@ -12,6 +12,8 @@ export function download(content: Blob | string, filename: string, mimeType = 'a
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+/** One canonical title across notation exports; an empty name still prints legibly. */
+const exportSongTitle=(p:Project)=>p.title.trim()||'Untitled Tango';
 const esc=(s:string)=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const harmonyRootXml=(chord:string)=>{const m=chord.match(/^([A-G])([#b]?)/);return `<root><root-step>${m?.[1]??'C'}</root-step>${m?.[2]?`<root-alter>${m[2]==='#'?1:-1}</root-alter>`:''}</root>`;};
 /** Spell diatonic notes according to the active key signature, including the
@@ -153,6 +155,7 @@ export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Bl
 /** Experimental native MuseScore 3-style MSCX/MSCZ writer. Not a MusicXML archive. */
 export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:Instrument):Promise<Blob>{
   const tpq=480,beats=p.beats;
+  const titleXml=esc(exportSongTitle(p));
   const instruments=onlyInstrument?[onlyInstrument]:projectInstruments(p);
   if(onlyInstrument&&!projectInstruments(p).includes(onlyInstrument))throw Error('Instrument is not in the current ensemble');
   const scoreNotes=transposeScore(score,p.transposeSemitones??0);
@@ -216,6 +219,11 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
       const keySignature=barIndex===0||key!==previousKey?`<KeySig><accidental>${fifths}</accidental></KeySig>`:'';
       const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${(staffIndex===1&&(inst.startsWith('Piano')||inst.startsWith('Bandoneon')))?'F':INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].clef}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
+      // Native MuseScore tempo values are quarter notes per second, not BPM.
+      // One system-level Tempo element controls both visible text and playback.
+      const initialTempo=barIndex===0&&index===0&&staffIndex===0
+        ?`<Tempo><tempo>${Number((p.bpm/60).toFixed(9))}</tempo><followText>1</followText><text><sym>metNoteQuarterUp</sym> = ${p.bpm}</text></Tempo>`
+        :'';
       const dynamicsXml=staffIndex===0?(()=>{
         const elements:string[]=[];
         const mark=(value:string)=>/^(ppp|pp|p|mp|mf|f|ff|fff)$/.test(value)?`<Dynamic><subtype>${value}</subtype></Dynamic>`:'';
@@ -310,16 +318,21 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
           cursor=endTick;
         }
         if(cursor<beats*tpq)rest(beats*tpq-cursor);
-        return `<voice>${laneIndex===0?signature+dynamicsXml+chordPrefix:''}${events.join('')}</voice>`;
+        return `<voice>${laneIndex===0?signature+initialTempo+dynamicsXml+chordPrefix:''}${events.join('')}</voice>`;
       });
-      if(!voices.length)voices.push(`<voice>${signature+dynamicsXml+chordPrefix}${chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`).join('')}</voice>`);
+      if(!voices.length)voices.push(`<voice>${signature+initialTempo+dynamicsXml+chordPrefix}${chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`).join('')}</voice>`);
       return `<Measure>${voices.join('')}</Measure>`;
     }).join('');
-    return `<Staff id="${staffIds[index]+staffIndex}">${measures}</Staff>`;
+    // Metadata alone does not place a title on the printed page in MuseScore.
+    // The top staff owns exactly one vertical title frame (also for part exports).
+    const titleFrame=index===0&&staffIndex===0
+      ?`<VBox><height>10</height><Text><style>Title</style><text>${titleXml}</text></Text></VBox>`
+      :'';
+    return `<Staff id="${staffIds[index]+staffIndex}">${titleFrame}${measures}</Staff>`;
     };
     return (inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?renderStaff(0)+renderStaff(1):renderStaff(0);
   }).join('');
-  const mscx=`<?xml version="1.0" encoding="utf-8"?><museScore version="3.6"><programVersion>3.6.2</programVersion><Score><Division>480</Division><Style><concertPitch>1</concertPitch></Style><metaTag name="workTitle">${esc(p.title)}</metaTag><metaTag name="movementTitle">${esc(p.title)}</metaTag><metaTag name="title">${esc(p.title)}</metaTag>${partXml}${staffs}</Score></museScore>`;
+  const mscx=`<?xml version="1.0" encoding="utf-8"?><museScore version="3.6"><programVersion>3.6.2</programVersion><Score><Division>480</Division><Style><concertPitch>1</concertPitch></Style><metaTag name="workTitle">${titleXml}</metaTag><metaTag name="movementTitle">${titleXml}</metaTag><metaTag name="title">${titleXml}</metaTag>${partXml}${staffs}</Score></museScore>`;
   const zip=new JSZip();
   zip.file('META-INF/container.xml','<?xml version="1.0" encoding="utf-8"?><container><rootfiles><rootfile full-path="score.mscx"/></rootfiles></container>');
   zip.file('score.mscx',mscx);
@@ -328,7 +341,8 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
 export function exportMusicXml(p:Project,score:Score){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
-  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${esc(p.title)}</work-title></work><movement-title>${esc(p.title)}</movement-title><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${projectInstruments(p).map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(p.instrumentNames?.[inst]||inst)}</part-name><part-abbreviation>${esc(p.instrumentNames?.[inst]||inst)}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(p.instrumentNames?.[inst]||inst)}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
+  const titleXml=esc(exportSongTitle(p));
+  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${titleXml}</work-title></work><movement-title>${titleXml}</movement-title><credit page="1"><credit-type>title</credit-type><credit-words default-x="595" default-y="1627" justify="center" valign="top" font-size="24">${titleXml}</credit-words></credit><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${projectInstruments(p).map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(p.instrumentNames?.[inst]||inst)}</part-name><part-abbreviation>${esc(p.instrumentNames?.[inst]||inst)}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(p.instrumentNames?.[inst]||inst)}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
   const dynamics=p.expression?.enabled!==false?(p.expression?.sections??{A1:'mp',B1:'mf',A2:'mp',B2:'f',C:'f'}):null;
   const dynamicDirection=(inst:Instrument,b:number)=>{
     if(!dynamics)return '';
@@ -423,8 +437,9 @@ function abcMeasure(notes:Note[],bar:number,beats:number,chords:ChordChange[]=[]
 export function exportAbc(p:Project,score:Score,part:'lead'|Instrument='lead'):string {
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter for ABC');
   const transpose=p.transposeSemitones??0;
-  const title=abcSafe(p.title)+(part==='lead'?' — Lead Sheet':' — '+abcSafe(part));
-  const lines=['% Generated by Tango Arranger','X:1','T:'+title,'M:'+p.beats+'/4','L:1/16','Q:1/4='+Math.round(p.bpm)];
+  const title=abcSafe(exportSongTitle(p));
+  const partName=part==='lead'?'Lead Sheet':abcSafe(part);
+  const lines=['% Generated by Tango Arranger','X:1','T:'+title,'T:'+partName,'M:'+p.beats+'/4','L:1/16','Q:1/4='+Math.round(p.bpm)];
   let previousKey='',previousSection='';
   for(let bar=0;bar<p.bars.length;bar++){
     const current=p.bars[bar],key=transposeKeySignature(sectionKey(p,current.section),transpose);
@@ -444,7 +459,7 @@ export async function exportMobileSheetsBundle(p:Project,score:Score):Promise<Bl
   const zip=new JSZip();
   zip.file('00-lead-sheet.abc',exportAbc(p,score,'lead'));
   projectInstruments(p).forEach((inst,index)=>zip.file(String(index+1).padStart(2,'0')+'-'+abcFileName(inst)+'.abc',exportAbc(p,score,inst)));
-  zip.file('README.txt','MobileSheets ABC bundle from Tango Arranger.\nExtract the ZIP first, then import the individual .abc files into MobileSheets.\nLead sheet: 00-lead-sheet.abc\nEach remaining file contains one instrument part.\n');
+  zip.file('README.txt',`MobileSheets ABC bundle from Tango Arranger.\nSong: ${exportSongTitle(p)}\nTempo: ${Math.round(p.bpm)} quarter notes per minute.\nExtract the ZIP first, then import the individual .abc files into MobileSheets.\nLead sheet: 00-lead-sheet.abc\nEach remaining file contains one instrument part.\n`);
   return zip.generateAsync({type:'blob'});
 }
 
