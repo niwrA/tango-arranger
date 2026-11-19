@@ -4537,4 +4537,68 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-card-beats i.is-current{box-shadow:none}
 }
 
+
+/* Stage v5: one-line title in the playback bar. Preserve full title on hover/touch
+ * accessibility, but remove bracketed recording notes only from the display. */
+.performance-live .app-topbar{display:flex;align-items:center;flex-wrap:nowrap;gap:9px;padding:6px 11px;min-height:54px}
+.performance-live .app-topbar .brand{display:none!important}
+.performance-live .app-topbar .performance-topbar-song-title{display:block;order:1;flex:1 1 auto;min-width:50px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:clamp(20px,2.55vw,36px);font-weight:800;line-height:1.08;letter-spacing:-.025em;color:#e9eff3}
+.performance-live .app-topbar .topbar-playback{order:2;flex:0 0 auto;margin:0;padding:0}
+.performance-live .app-topbar .performance-topbar-actions{order:3;flex:0 0 auto;margin-left:0}
+.performance-live .app-topbar .topbar-playback .icon-action{height:39px;min-height:39px}
+.performance-live .performance-workspace.performance-expanded{padding:7px 11px;gap:8px}
+.performance-live .performance-stage-top{padding:5px 10px;gap:4px}
+.performance-live .performance-stage-controls{display:grid;grid-template-columns:minmax(120px,1fr) auto auto;gap:9px;align-items:center}
+.performance-live .performance-top-seek{display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0}
+.performance-live .performance-seek-index{color:#f4d7a8;font-size:clamp(14px,1.3vw,18px);line-height:1;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums}
+.performance-live .performance-top-seek .performance-compact-seek{width:auto;min-width:90px;flex:1 1 auto;height:26px}
+.performance-live .performance-top-seek .performance-compact-seek input{width:100%;min-width:0}
+.performance-live .performance-top-section{display:flex;flex-direction:row;align-items:center}
+.performance-live .performance-section-grid{display:grid;grid-template-columns:repeat(4,minmax(34px,1fr));min-width:0;gap:4px}
+.performance-live .performance-section-grid .performance-section-jump{font-size:14px;min-width:34px;min-height:34px;height:34px;padding:4px 8px}
+.performance-live .performance-top-beat{border-left:1px solid #506577;padding:0 0 0 10px;align-items:center;gap:2px}
+.performance-live .performance-beat-display{display:flex;align-items:baseline;gap:4px}
+.performance-live .performance-beat-display strong{font-size:clamp(22px,2.4vw,33px);line-height:1;color:#f9d49d}
+.performance-live .performance-top-beat-count{font-size:14px}
+.performance-live .performance-compact-tempo{font-size:11px;color:#aebfcb;font-weight:700;font-variant-numeric:tabular-nums;padding-left:4px}
+.performance-live .performance-top-beat .performance-beat-strip{width:100%;max-width:94px;gap:3px}
+.performance-live .performance-top-beat .performance-beat-strip span{height:5px}
+.performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(238px,auto);gap:9px}
+.performance-live .performance-stage-only .performance-diagram-card{min-height:238px;padding:9px 10px 7px;gap:5px}
+.performance-live .performance-diagram-card .performance-cue-identity{min-height:26px;margin:0;gap:5px}
+.performance-live .performance-diagram-card .performance-cue-identity>strong{font-size:clamp(16px,1.55vw,23px)}
+.performance-live .performance-diagram-card .performance-card-rest-cue{font-size:18px;line-height:1}
+.performance-live .performance-diagram-card .performance-card-mode-hint{margin-top:auto;padding:2px 0 0;line-height:1;font-size:16px;border-top:0}
+.performance-live .performance-stage-top .performance-vocal-cue{margin:3px 0 0}
+@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(236px,auto)}
+ .performance-live .performance-stage-only .performance-diagram-card{min-height:236px}
+}
+@media(max-width:850px){
+ .performance-live .app-topbar .performance-topbar-song-title{font-size:clamp(17px,2.25vw,26px)}
+ .performance-live .app-topbar{gap:5px}
+ .performance-live .performance-stage-controls{gap:6px}
+}
+@media(max-width:750px){
+ .performance-live .app-topbar{flex-wrap:wrap}
+ .performance-live .app-topbar .performance-topbar-song-title{flex:1 1 100%;order:0;font-size:clamp(19px,4vw,29px)}
+ .performance-live .app-topbar .topbar-playback{order:1;margin-right:auto}
+ .performance-live .app-topbar .performance-topbar-actions{order:2}
+ .performance-live .performance-stage-controls{grid-template-columns:minmax(0,1fr) auto}
+ .performance-live .performance-top-seek{grid-column:1;grid-row:1}
+ .performance-live .performance-top-section{grid-column:1;grid-row:2}
+ .performance-live .performance-top-beat{grid-column:2;grid-row:1 / span 2}
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(245px,auto)}
+ .performance-live .performance-stage-only .performance-diagram-card{min-height:245px}
+}
+@media(max-width:480px){
+ .performance-live .app-topbar .performance-topbar-song-title{font-size:19px}
+ .performance-live .performance-compact-tempo{display:none}
+ .performance-live .performance-stage-top{padding:5px 7px}
+ .performance-live .performance-stage-controls{gap:5px}
+ .performance-live .performance-section-grid .performance-section-jump{min-width:30px;padding:3px 5px}
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(235px,auto)}
+ .performance-live .performance-stage-only .performance-diagram-card{min-height:235px}
+}
+
 </style>
