@@ -3272,7 +3272,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         </span>
         <span v-else class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'Next measure':'Rest'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"/>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :next-measure="performanceHarmony.nextChordMeasure" :next-beat="performanceHarmony.nextChordBeat"/>
       <template v-else>
         <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
         <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
@@ -4488,7 +4488,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-stage-controls{grid-template-columns:minmax(125px,1fr) auto 125px;gap:9px}
  .performance-top-beat{padding-left:9px}
 }
-@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+@media(min-width:920px) and (max-width:1200px) and (orientation:landscape){
+ .performance-stage-only .performance-cue-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(270px,auto);gap:8px}
+ .performance-stage-only .performance-diagram-card{min-height:270px}
+}
+@media(min-width:751px) and (max-width:919px) and (orientation:landscape){
  .performance-stage-only .performance-cue-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(267px,auto);gap:8px}
  .performance-stage-only .performance-diagram-card{min-height:267px}
 }
