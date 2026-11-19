@@ -3230,53 +3230,56 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
 </div>
  <section v-if="performanceMode" class="performance-workspace performance-expanded">
-  <div class="performance-stage-header"><span class="performance-stage-title">{{project.title||'Untitled tango'}}</span><span class="performance-stage-label">A la parrilla · {{performanceView==='ensemble'?'Ensemble cues':'Notes &amp; karaoke'}}</span></div><p v-if="performanceFullscreenHint" role="status" class="performance-fullscreen-hint">{{performanceFullscreenHint}}</p>
-  <div class="performance-stage-layout">
-    <div class="performance-stage-main">
-  <div class="performance-compact-bar">
-    <label class="performance-compact-seek"><span class="sr-only">Seek to measure</span><input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))" :aria-valuetext="`Measure ${performanceBar+1} of ${project.bars.length}`"/><output>{{performanceBar+1}}/{{project.bars.length}}</output></label>
-    <div class="performance-section-nav" aria-label="Jump to section">
-      <button v-for="(span,si) in performanceSections" :key="`${span.label}:${span.start}`" type="button" class="performance-section-jump" :class="{'performance-section-jump-active':performanceSection===span.label}" :aria-current="performanceSection===span.label?'true':undefined" :title="`Jump to section ${span.label}, measure ${span.start+1}`" @click="performanceSeek(span.start)">{{sectionLetter(si)}}</button>
-      
+  <div class="performance-stage-top" role="region" aria-label="Performance measure, section and beat">
+   <div class="performance-stage-top-title"><strong>{{project.title||'Untitled tango'}}</strong><span>Key {{performanceHarmony.key}}<template v-if="performanceHarmony.changeMeasure!==null"> · {{performanceHarmony.upcomingKey}} at measure {{performanceHarmony.changeMeasure}}</template></span></div>
+   <div class="performance-stage-controls">
+    <div class="performance-top-seek">
+      <span class="performance-top-caption">Measure {{performanceBar+1}} / {{project.bars.length}} · {{project.bpm}} BPM</span>
+      <label class="performance-compact-seek"><span class="sr-only">Seek to measure</span><input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))" :aria-valuetext="`Measure ${performanceBar+1} of ${project.bars.length}`"/></label>
     </div>
-  </div>
-  <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
-
-  <div v-if="performanceView==='notes'" class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
-  <div v-if="performanceVocalCue&&performanceVocalCue.visible" class="performance-vocal-cue" role="region" aria-label="Vocal karaoke and count-in">
+    <div class="performance-top-section">
+     <span class="performance-top-caption">Section {{performanceSection}}</span>
+     <div class="performance-section-grid" role="group" aria-label="Jump to section">
+      <button v-for="(span,si) in performanceSections" :key="`${span.label}:${span.start}`" type="button" class="performance-section-jump" :class="{'performance-section-jump-active':performanceSection===span.label}" :aria-current="performanceSection===span.label?'true':undefined" :aria-label="`Jump to section ${span.label}, measure ${span.start+1}`" @click="performanceSeek(span.start)">{{sectionLetter(si)}}</button>
+     </div>
+    </div>
+    <div class="performance-top-beat" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
+      <span class="performance-top-caption">Beat · {{performanceSection}}</span>
+      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/ {{project.beats}}</span></div>
+      <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
+    </div>
+   </div>
+   <div v-if="performanceVocalCue&&performanceVocalCue.visible" class="performance-vocal-cue" role="region" aria-label="Vocal karaoke and count-in">
     <div class="performance-vocal-heading"><strong>{{rosterDisplayName(performanceVocalCue.instrument)}} · lyrics</strong><span v-if="performanceVocalCue.count!==null">Entrance in {{performanceVocalCue.count}} beat{{performanceVocalCue.count===1?'':'s'}}</span><span v-else>Follow the highlighted syllable</span></div>
     <div v-if="performanceVocalCue.count!==null" class="performance-count-beats" aria-label="Visual lyric entrance count"><span v-for="beat in Math.min(4,project.beats)" :key="beat" :class="{'current':beat===performanceVocalCue.count,'passed':beat>performanceVocalCue.count}">{{beat}}</span></div>
     <div class="performance-lyric-line" aria-live="off"><span v-for="(note,i) in performanceVocalCue.words" :key="`${note.start}:${i}`" :class="{'performance-lyric-active':performanceVocalCue.active&&performanceVocalCue.current===note}">{{note.lyric||note.lyric2||'·'}}</span></div>
+   </div>
   </div>
-  <div v-if="performanceView==='ensemble'" class="performance-cue-grid" aria-label="Equal-size instrument cue panels">
-   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}" :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
-     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.playingInMeasure,'is-upcoming':part.cueStatus==='NEXT BAR'}">{{part.cueStatus}}</span></span>
-     <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
-     <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
-   </button>
+  <p v-if="performanceFullscreenHint" role="status" class="performance-fullscreen-hint">{{performanceFullscreenHint}}</p>
+  <div class="performance-stage-main performance-stage-only">
+  <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
+
+  <div v-if="performanceView==='notes'" class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
+  <div v-if="performanceView==='ensemble'" class="performance-cue-grid performance-diagram-grid" aria-label="Instrument chord diagrams and role cues">
+    <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel performance-diagram-card" type="button"
+      :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}"
+      :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-label="`${part.display}: ${cardShowsDiagram(part.inst)?'chord diagram':'role and dynamics'}. Tap to switch view`"
+      :aria-pressed="!cardShowsDiagram(part.inst)" @click="flipPerformanceCard(part.inst)">
+      <span class="performance-cue-identity">
+        <strong>{{part.display}}</strong>
+        <span v-if="part.playingInMeasure" class="performance-card-beats" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
+         <i v-for="beat in project.beats" :key="beat" :class="{'is-current':beat===Math.floor(performanceMeasureBeat)}" aria-hidden="true"></i>
+        </span>
+        <span v-else class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'Next measure':'Rest'}}</span>
+      </span>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"/>
+      <template v-else>
+        <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
+        <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
+      </template>
+      <span class="performance-card-mode-hint">{{cardShowsDiagram(part.inst)?'Tap for role & dynamics':'Tap for chord diagram'}}</span>
+    </button>
   </div>
-    </div>
-    <aside class="performance-harmony-sidebar" aria-label="Harmony and form">
-      <h3>Harmony &amp; form</h3>
-      <div class="performance-harmony-group performance-chord-group">
-        <div class="performance-harmony-item performance-harmony-current"><small>Current chord</small><strong>{{performanceHarmony.chord}}</strong></div>
-        <div class="performance-harmony-item performance-harmony-upcoming"><small>Next chord</small><strong>{{performanceHarmony.nextChord}}</strong><span>Measure {{Math.min(project.bars.length,performanceBar+2)}}</span></div>
-      </div>
-      <div class="performance-harmony-group performance-key-group">
-        <div class="performance-harmony-item performance-harmony-current"><small>Current key</small><strong>{{performanceHarmony.key}}</strong></div>
-        <div class="performance-harmony-item performance-harmony-upcoming" :class="{'performance-harmony-imminent':performanceHarmony.changeMeasure!==null&&performanceHarmony.changeMeasure-performanceBar<=2}">
-          <small>Next key</small><strong>{{performanceHarmony.upcomingKey}}</strong><span>{{performanceHarmony.changeMeasure===null?'No change scheduled':'At measure '+performanceHarmony.changeMeasure}}</span>
-        </div>
-      </div>
-      <div class="performance-harmony-progress">
-        <span class="performance-harmony-meter">{{performanceSection}} · Measure {{performanceBar+1}}/{{project.bars.length}}</span>
-        <strong>Beat {{Math.floor(performanceMeasureBeat)}}/{{project.beats}}</strong>
-        <div class="performance-beat-strip" aria-label="Visual measure count">
-          <span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span>
-        </div>
-        <span class="performance-harmony-tempo">{{project.bpm}} BPM</span>
-      </div>
-    </aside>
   </div>
  </section>
 <div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
