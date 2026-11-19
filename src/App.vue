@@ -384,7 +384,7 @@ async function togglePerformanceFullscreen(){
   }catch{/* Safari and other browsers may disallow element fullscreen. */}
  }
  performanceStageCompact.value=true;
- performanceFullscreenHint='Browser fullscreen is unavailable here. Stage view reduces app chrome, but Safari controls remain. Try opening the app from the Home Screen for a less distracting presentation.';
+ performanceFullscreenHint.value='Browser fullscreen is unavailable here. Stage view reduces app chrome, but Safari controls remain. Try opening the app from the Home Screen for a less distracting presentation.';
 }
 watch(performanceMode,enabled=>{
  if(enabled)return;
