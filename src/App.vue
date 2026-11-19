@@ -361,6 +361,36 @@ const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
 const performanceView=ref<'ensemble'|'notes'>('ensemble');
+const performanceShell=ref<HTMLElement|null>(null);
+const performanceStageCompact=ref(false);
+const performanceFullscreenActive=ref(false);
+const performanceFullscreenHint=ref('');
+function onPerformanceFullscreenChange(){
+ performanceFullscreenActive.value=Boolean(document.fullscreenElement);
+ if(!document.fullscreenElement)performanceStageCompact.value=false;
+}
+async function togglePerformanceFullscreen(){
+ if(document.fullscreenElement){
+  try{await document.exitFullscreen();}catch{/* Browser may already have left fullscreen. */}
+  performanceFullscreenActive.value=false;performanceStageCompact.value=false;return;
+ }
+ if(performanceStageCompact.value){performanceStageCompact.value=false;performanceFullscreenHint.value='';return;}
+ const root=performanceShell.value;
+ if(root&&typeof root.requestFullscreen==='function'){
+  try{
+   await root.requestFullscreen();
+   performanceFullscreenActive.value=true;performanceFullscreenHint.value='';
+   return;
+  }catch{/* Safari and other browsers may disallow element fullscreen. */}
+ }
+ performanceStageCompact.value=true;
+ performanceFullscreenHint='Browser fullscreen is unavailable here. Stage view reduces app chrome, but Safari controls remain. Try opening the app from the Home Screen for a less distracting presentation.';
+}
+watch(performanceMode,enabled=>{
+ if(enabled)return;
+ performanceStageCompact.value=false;performanceFullscreenHint.value='';
+ if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
+});
 const performanceFocus=ref<Instrument|null>(null);
 function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performanceFocus.value===inst?null:inst;}
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
@@ -385,7 +415,10 @@ function performanceDynamic(inst:Instrument,bar:number):string{
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
  const nextStart=(score.value[part.inst]??[]).filter(n=>n.start>performanceBeat.value+0.0001).reduce((a,n)=>Math.min(a,n.start),Infinity);
- return {...part,display:rosterDisplayName(part.inst),nextRole:effectiveRole(part.inst,nextBar),
+ const upcomingIn=!part.sounding&&Number.isFinite(nextStart)&&nextStart-performanceBeat.value<=p.beats?
+  Math.max(1,Math.ceil(nextStart-performanceBeat.value)):null;
+ const cueStatus=part.sounding?'PLAYING':upcomingIn!==null?'IN '+upcomingIn:part.role==='rest'?'REST':'READY';
+ return {...part,display:rosterDisplayName(part.inst),cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar),
   offset:p.instrumentSettings?.[part.inst]?.dynamicsOffset??0,
@@ -536,9 +569,9 @@ function deleteSelectedRoster(){try{rosterPresets.value=removeRosterPreset(roste
 function makeRosterDefault(){try{setDefaultRoster(projectInstruments(project.value));message.value='Current roster is now the default for new songs.';}catch(e){message.value=String(e);}}
 
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
-onMounted(()=>{window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
+onMounted(()=>{document.addEventListener('fullscreenchange',onPerformanceFullscreenChange);window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);});
 function saveIfHidden(){if(document.visibilityState==='hidden')saveOnLeave();}
-onBeforeUnmount(()=>{window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
+onBeforeUnmount(()=>{document.removeEventListener('fullscreenchange',onPerformanceFullscreenChange);window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
@@ -3105,7 +3138,7 @@ function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
 </script>
 <template>
-<div class="shell" :class="{'compact-help':compactHelp}"><header class="app-topbar">
+<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appVersion}}</small></span></button>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
