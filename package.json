@@ -13,7 +13,7 @@
     "test:phrases": "node tests/phrase-planning.cjs",
     "test:rhythm-snap": "node tests/rhythm-snap.cjs",
     "test:contextual": "node tests/contextual-editing.cjs",
-    "test:alignment": "node tests/musicxml-alignment.cjs"
+    "test:alignment": "node tests/musicxml-alignment.cjs && node tests/performance-cues.cjs"
   },
   "dependencies": {
     "@tonejs/midi": "^2.0.28",

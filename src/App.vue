@@ -31,6 +31,7 @@ import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type Captur
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
+import {splitAtMeasureBoundaries} from './performanceCues';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -359,6 +360,7 @@ const pendingParsed=ref<ParsedMusicXml|null>(null);
 const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
+const performanceView=ref<'ensemble'|'notes'>('ensemble');
 const performanceFocus=ref<Instrument|null>(null);
 function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performanceFocus.value===inst?null:inst;}
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
@@ -366,10 +368,55 @@ const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
 const performanceSections=computed(()=>sectionSpans(project.value));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
+/** A real upcoming key change may occur several measures from now. */
+const performanceHarmony=computed(()=>{
+ const p=project.value,bar=performanceBar.value,current=p.bars[bar],key=keyForSection(current?.section??'A');
+ let upcomingKey=key,changeMeasure:number|null=null;
+ for(let i=bar+1;i<p.bars.length;i++){const candidate=keyForSection(p.bars[i].section);if(candidate!==key){upcomingKey=candidate;changeMeasure=i+1;break;}}
+ return {key,upcomingKey,changeMeasure,chord:current?.chord||'—',nextChord:p.bars[bar+1]?.chord||'—'};
+});
+function performanceDynamic(inst:Instrument,bar:number):string{
+ const p=project.value,b=p.bars[bar];
+ if(!b)return '—';
+ const explicit=p.measureDynamics?.[`${inst}:${bar}`];
+ const mark=explicit?.start??p.expression?.sections[b.section]??'mf';
+ return mark+(explicit?.end&&explicit.end!==mark?' → '+explicit.end:'');
+}
+const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
+ const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
+ const nextStart=(score.value[part.inst]??[]).filter(n=>n.start>performanceBeat.value+0.0001).reduce((a,n)=>Math.min(a,n.start),Infinity);
+ return {...part,display:rosterDisplayName(part.inst),nextRole:effectiveRole(part.inst,nextBar),
+  articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
+  dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar),
+  offset:p.instrumentSettings?.[part.inst]?.dynamicsOffset??0,
+  nextEntry:Number.isFinite(nextStart)?Math.max(0,Math.ceil(nextStart-performanceBeat.value)):null};
+}));
+/** Follow the lyric-bearing part, even when a different instrument's notes are selected. */
+const performanceVocalCue=computed(()=>{
+ const roster=projectInstruments(project.value);
+ const preferred=[...roster.filter(inst=>inst.startsWith('Voice')),...roster.filter(inst=>!inst.startsWith('Voice'))];
+ let instrument:Instrument|null=null,notes:Note[]=[];
+ for(const inst of preferred){
+  const lyrical=(score.value[inst]??[]).filter(n=>Boolean(n.lyric||n.lyric2)).sort((a,b)=>a.start-b.start);
+  if(lyrical.length){instrument=inst;notes=lyrical;break;}
+ }
+ if(!instrument)return null;
+ const beat=performanceBeat.value,beats=project.value.beats;
+ const current=notes.filter(n=>n.start<=beat+0.0001).at(-1);
+ const active=Boolean(current&&beat<current.start+noteSoundingDuration(current));
+ const nextIndex=notes.findIndex(n=>n.start>beat+0.0001);
+ const next=nextIndex>=0?notes[nextIndex]:null;
+ const prior=nextIndex>0?notes[nextIndex-1]:null;
+ const beginsPhrase=Boolean(next&&(!prior||next.start-(prior.start+prior.duration)>=Math.max(1,beats/2)));
+ const lead=next?next.start-beat:Infinity;
+ const count=beginsPhrase&&lead>0&&lead<=Math.min(4,beats)?Math.max(1,Math.ceil(lead)):null;
+ const words=notes.filter(n=>n.start>=beat-beats&&n.start<beat+beats*2).slice(0,18);
+ return {instrument,words,current,active,count,visible:active||count!==null||words.some(n=>n.start>=beat&&n.start<beat+beats)};
+});
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
 const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[])]);
- const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes};});
+ const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes,slices:splitAtMeasureBoundaries(notes,beats,first,length)};});
 const performanceGesturePaths=computed(()=>{
  const window=performanceRoll.value;if(!window)return [];
  const paths:{id:string;points:string;partner:boolean;kind:string}[]=[];
@@ -3116,7 +3163,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
 </div>
  <section v-if="performanceMode" class="performance-workspace performance-expanded">
-  <div class="section-heading"><h2>{{project.title||'Untitled tango'}}</h2></div>
+  <div class="performance-stage-header"><div><span class="performance-eyebrow">Live · a la parrilla</span><h2>{{project.title||'Untitled tango'}}</h2></div><div class="performance-view-switch" role="group" aria-label="Performance display"><button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble cues</button><button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button></div></div>
+  <div class="performance-harmony-bar" aria-label="Current and upcoming harmony">
+   <div><span>Current key</span><strong>{{performanceHarmony.key}}</strong></div>
+   <div class="performance-harmony-next"><span>Next key change</span><strong>{{performanceHarmony.upcomingKey}}</strong><small>{{performanceHarmony.changeMeasure===null?'No change scheduled':'Measure '+performanceHarmony.changeMeasure}}</small></div>
+   <div><span>Current chord</span><strong>{{performanceHarmony.chord}}</strong><small>Next {{performanceHarmony.nextChord}}</small></div>
+   <div class="performance-harmony-pulse"><span>Measure {{performanceBar+1}}/{{project.bars.length}} · {{project.bpm}} BPM</span><strong>{{performanceSection}} · Beat {{Math.floor(performanceMeasureBeat)}}/{{project.beats}}</strong><div class="performance-beat-strip" aria-label="Visual beat count"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div></div>
+  </div>
   <div class="performance-compact-bar">
     <label class="performance-compact-seek"><span class="sr-only">Seek to measure</span><input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))" :aria-valuetext="`Measure ${performanceBar+1} of ${project.bars.length}`"/><output>{{performanceBar+1}}/{{project.bars.length}}</output></label>
     <div class="performance-section-nav" aria-label="Jump to section">
@@ -3124,9 +3177,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span class="performance-compact-meta"><strong>{{project.bpm}}</strong> BPM <span aria-hidden="true">·</span> Beat <strong>{{performanceMeasureBeat.toFixed(1)}}/{{project.beats}}</strong></span>
     </div>
   </div>
-  <div class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(n,i) in performanceRoll.notes" :key="i" class="performance-roll-note" :class="{'performance-note-accent':n.accent||n.articulation==='marcato_staccato','performance-note-staccato':n.articulation==='staccato'&&!n.accent,'performance-note-expressive':Boolean(n.gesture||n.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(n))}" :style="{left:`${Math.max(0,(n.start-performanceRoll.first)/performanceRoll.length*100)}%`,width:`${Math.max(.3,Math.min(n.duration,performanceRoll.first+performanceRoll.length-n.start)/performanceRoll.length*100)}%`,bottom:`${(n.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${n.pitch} · beat ${n.start+1} · duration ${n.duration} · ${gestureText(n)}${rhythmCue(n)?' · '+rhythmCue(n):''}`"><span v-if="noteAttackMark(n)" class="performance-attack-mark">{{noteAttackMark(n)}}</span><span v-if="rhythmCue(n)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
+  <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{rosterDisplayName(performanceDisplayedPart)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
 
-  <div class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
+  <div v-if="performanceView==='notes'" class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
+  <div v-if="performanceVocalCue&&performanceVocalCue.visible" class="performance-vocal-cue" role="region" aria-label="Vocal karaoke and count-in">
+    <div class="performance-vocal-heading"><strong>{{rosterDisplayName(performanceVocalCue.instrument)}} · lyrics</strong><span v-if="performanceVocalCue.count!==null">Entrance in {{performanceVocalCue.count}} beat{{performanceVocalCue.count===1?'':'s'}}</span><span v-else>Follow the highlighted syllable</span></div>
+    <div v-if="performanceVocalCue.count!==null" class="performance-count-beats" aria-label="Visual lyric entrance count"><span v-for="beat in Math.min(4,project.beats)" :key="beat" :class="{'current':beat===performanceVocalCue.count,'passed':beat>performanceVocalCue.count}">{{beat}}</span></div>
+    <div class="performance-lyric-line" aria-live="off"><span v-for="(note,i) in performanceVocalCue.words" :key="`${note.start}:${i}`" :class="{'performance-lyric-active':performanceVocalCue.active&&performanceVocalCue.current===note}">{{note.lyric||note.lyric2||'·'}}</span></div>
+  </div>
+  <div v-if="performanceView==='ensemble'" class="performance-cue-grid" aria-label="Equal-size instrument cue panels">
+   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.sounding,'performance-cue-rest':part.role==='rest'&&!part.sounding,'performance-cue-focus':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
+     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.sounding}">{{part.sounding?'Playing':part.role==='rest'?'Rest':'Ready'}}</span></span>
+     <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
+     <span class="performance-cue-next"><span><small>Upcoming role · next measure</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}<template v-if="part.offset"> · offset {{part.offset>0?'+':''}}{{part.offset}}</template></small></span></span>
+     <span v-if="part.nextEntry!==null&&!part.sounding" class="performance-cue-entry">Next entry in {{part.nextEntry}} beats</span>
+   </button>
+  </div>
  </section>
 <div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
   <div class="section-heading"><h2>New blank song</h2><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
@@ -3139,7 +3205,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4 — Tango</option><option :value="3">3/4 — Vals</option><option :value="2">2/4 — Milonga / historical notation</option></select></label><label>Tempo (quarter notes/min)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label></div>
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
-</div><nav class="tabs" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
+</div><nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
     <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
@@ -3258,21 +3324,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
 <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
 </div>
-<div class="orchestration-editions-bar" role="region" aria-label="Instrument difficulty editions">
-  <strong>Instrument editions</strong>
-  <span class="hint">Select a difficulty for each player. Notes and manual corrections stay independent; choosing a new level creates its part without replacing other editions.</span>
-  <div class="orchestration-edition-selectors">
-    <label v-for="inst in activeRoster" :key="inst" class="instrument-edition-label">
-      <span>{{rosterDisplayName(inst)}}</span>
-      <select :value="instrumentDifficulty(inst)" :aria-label="'Difficulty edition for '+rosterDisplayName(inst)"
-        @change="switchDifficultyEdition(inst,($event.target as HTMLSelectElement).value as Difficulty)">
-        <option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(inst,level)}}</option>
-      </select>
-    </label>
-  </div>
-  <button type="button" class="secondary" @click="regenerateCurrentEdition(overviewInstrument)">↻ Regenerate selected instrument edition</button>
-  <button type="button" class="secondary" @click="exportDifficultyEditionPack">Export all difficulty editions for printing (.zip)</button>
-</div>
 <div class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
 <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
 <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
@@ -3301,10 +3352,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" class="secondary" @click="openRhythmFromMap(instrumentContext!)">Edit rhythm for this instrument</button>
       <button type="button" class="secondary" @click="previewPart('instrument',0,project.bars.length-1,instrumentContext!);closeInstrumentContext()">▶ Play instrument from start</button>
     </div>
-    <label>Instrument difficulty edition<select :value="instrumentDifficulty(instrumentContext!)" @change="switchDifficultyEdition(instrumentContext!,($event.target as HTMLSelectElement).value as Difficulty)">
+    <label>Instrument difficulty edition<select :value="instrumentDifficulty(instrumentContext!)" @change="switchDifficultyEdition(instrumentContext!,($event.target as HTMLSelectElement).value as Difficulty);closeInstrumentContext()">
       <option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(instrumentContext!,level)}}</option>
     </select></label>
-    <small>Tip: right-click or long-press a map cell for measure-specific settings. On a keyboard use Shift+F10 or the menu key.</small>
+    <div class="instrument-context-edition-actions"><button type="button" class="secondary" @click="regenerateCurrentEdition(instrumentContext!);closeInstrumentContext()">↻ Regenerate selected edition</button><button type="button" class="secondary" @click="exportDifficultyEditionPack();closeInstrumentContext()">Export all editions (.zip)</button></div>
+    <small>Long-press or right-click an instrument label to open this menu. Use Shift+F10 or the menu key with a keyboard.</small>
   </div>
 </div></Teleport>
 <div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${effectiveRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${effectiveRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${effectiveRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
@@ -4032,4 +4084,61 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .dynamics-hairpin-more{flex:0 0 25px;padding:0;border-radius:0 4px 4px 0;border-left:0;font-size:17px}
 .dynamics-measure-main:focus-visible,.dynamics-more:focus-visible,.dynamics-hairpin-main:focus-visible,.dynamics-hairpin-more:focus-visible{outline:2px solid #f3c77c;outline-offset:1px}
 @media(max-width:480px){.context-sheet-dialog{padding:8px}.context-sheet-two{gap:5px}.context-sheet-two button{font-size:11px}.dynamics-hairpin-more{flex-basis:23px}}
+
+/* Desktop: a full-width modern menu. iPad portrait keeps accessible horizontal navigation. */
+.tabs.workspace-menu{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;width:100%;margin:12px 0 16px;padding:5px;border:1px solid #405263;border-radius:12px;background:linear-gradient(180deg,#24313d,#18232e);box-shadow:0 6px 22px #0003;overflow:visible}
+.tabs.workspace-menu button{min-width:0;min-height:48px;padding:9px 8px;border:1px solid transparent;border-radius:9px;white-space:normal;line-height:1.25;text-wrap:balance;color:#ccd6df;font-size:clamp(11px,1vw,14px);font-weight:650;background:transparent;box-shadow:none!important;transition:background-color .15s,border-color .15s}
+.tabs.workspace-menu button:hover{background:#354859}
+.tabs.workspace-menu button.active{color:#1d2229;background:linear-gradient(180deg,#f2d3a1,#caa16b);border-color:#f4d5a3;box-shadow:inset 0 1px #fff5,0 2px 10px #0004!important}
+.tabs.workspace-menu button:focus-visible{outline:2px solid #f3d4a1;outline-offset:1px}
+@media(max-width:820px){.tabs.workspace-menu{display:flex;overflow-x:auto;scrollbar-width:thin;overscroll-behavior-x:contain}.tabs.workspace-menu button{flex:0 0 138px;white-space:normal}}
+.instrument-context-edition-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.instrument-context-edition-actions button{min-width:0;min-height:43px;font-size:12px;line-height:1.3;text-align:center}
+.performance-workspace.performance-expanded{width:100%;max-width:none;min-height:calc(100dvh - 84px);padding:clamp(8px,1.5vw,22px);gap:12px;display:flex;flex-direction:column}
+.performance-stage-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.performance-stage-header h2{font-size:clamp(18px,2vw,27px);margin:0;line-height:1.15;overflow-wrap:anywhere}
+.performance-eyebrow{display:block;color:#e4bf84;font-weight:750;text-transform:uppercase;letter-spacing:.15em;font-size:10px;margin-bottom:3px}
+.performance-view-switch{display:flex;gap:4px;padding:4px;border:1px solid #405364;background:#1b2935;border-radius:10px}
+.performance-view-switch button{border:0;background:transparent;border-radius:7px;padding:9px 14px;min-height:40px;font-size:13px}
+.performance-view-switch button.selected{background:#d4ac75;color:#182430;font-weight:800}
+.performance-harmony-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr);gap:8px}
+.performance-harmony-bar>div{min-width:0;background:#23323f;border:1px solid #475a6b;border-radius:12px;padding:12px 15px;display:flex;flex-direction:column;gap:4px;justify-content:center}
+.performance-harmony-bar span,.performance-harmony-bar small{font-size:clamp(11px,1.05vw,14px);color:#b9cbd9;line-height:1.25}
+.performance-harmony-bar strong{font-size:clamp(20px,3.3vw,48px);color:#ffe0ad;line-height:1.05;overflow-wrap:anywhere}
+.performance-harmony-next strong{color:#d9e7f2}
+.performance-harmony-pulse strong{font-size:clamp(16px,2vw,25px)}
+.performance-beat-strip{display:grid;grid-auto-columns:1fr;grid-auto-flow:column;gap:5px;margin-top:5px}
+.performance-beat-strip span{height:8px;border-radius:4px;background:#415565}
+.performance-beat-strip span.elapsed{background:#897454}
+.performance-beat-strip span.current{background:#ffd28b;box-shadow:0 0 0 2px #ffd28b44}
+.performance-compact-bar{margin:0}
+.performance-cue-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,245px),1fr));grid-auto-rows:minmax(175px,1fr);gap:10px;flex:1;align-content:stretch}
+.performance-cue-panel{display:flex;flex-direction:column;text-align:left;align-items:stretch;min-width:0;gap:9px;padding:12px 14px;border:1px solid #526475;border-radius:12px;background:linear-gradient(160deg,#293a48,#1b2834);box-shadow:inset 0 1px #ffffff14;color:#f3f6f8}
+.performance-cue-panel.performance-cue-playing{border-color:#d5aa6d;box-shadow:inset 0 3px #d8a862,0 0 0 1px #d8a86222}
+.performance-cue-panel.performance-cue-rest{opacity:.78}
+.performance-cue-panel.performance-cue-focus{outline:2px solid #8bc5f3;outline-offset:0}
+.performance-cue-identity{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.performance-cue-identity>strong{font-size:clamp(15px,1.6vw,22px);margin-right:auto}
+.performance-cue-activity{font-size:11px;color:#c1cbd3;padding:3px 7px;border:1px solid #5a6d79;border-radius:99px}
+.performance-cue-activity.is-playing{color:#c4ffdf;border-color:#489b74;background:#285440}
+.performance-cue-role{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:5px 0}
+.performance-cue-role strong{font-size:clamp(22px,2.4vw,34px);text-transform:capitalize;line-height:1.05;color:#ffe0ae}
+.performance-cue-panel small{font-size:clamp(10px,.95vw,12px);color:#b5c6d2;overflow-wrap:anywhere}
+.performance-cue-next{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;border-top:1px solid #506273;padding-top:9px;margin-top:auto}
+.performance-cue-next>span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.performance-cue-next strong{font-size:clamp(16px,1.6vw,24px);line-height:1.1;text-transform:capitalize;color:#e0eaf2;overflow-wrap:anywhere}
+.performance-cue-entry{color:#f7d79d;font-size:12px;font-weight:700}
+.performance-vocal-cue{display:grid;gap:6px;padding:10px 16px;border:1px solid #af9067;border-radius:12px;background:#392f29}
+.performance-vocal-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px}
+.performance-vocal-heading>span{color:#f5d3a4}
+.performance-vocal-cue .performance-lyric-line{min-height:0;font-size:clamp(18px,2vw,30px);gap:5px 12px}
+.performance-count-beats{display:flex;justify-content:center;gap:10px}
+.performance-count-beats span{display:flex;align-items:center;justify-content:center;width:clamp(34px,4vw,52px);height:clamp(34px,4vw,52px);font-size:20px;font-weight:850;border-radius:50%;border:2px solid #716254;background:#302924;color:#a89785}
+.performance-count-beats span.current{background:#ffd48d;color:#1d2630;border-color:#fff0c9;transform:scale(1.13)}
+.performance-count-beats span.passed{background:#674c2d;color:#f6d49e}
+.performance-roll-note.performance-note-continuation{border-left-style:dashed;border-top-left-radius:0;border-bottom-left-radius:0}
+.performance-roll-note.performance-note-tied{border-right-style:dashed;border-top-right-radius:0;border-bottom-right-radius:0}
+@media(max-width:720px){.performance-harmony-bar{grid-template-columns:repeat(2,minmax(0,1fr))}.performance-harmony-bar>div{padding:8px}.performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(185px,1fr)}.performance-cue-panel{padding:8px;gap:5px}.performance-cue-next{gap:5px}.performance-cue-next strong{font-size:15px}}
+@media(max-width:430px){.performance-cue-grid{grid-template-columns:minmax(0,1fr)}.performance-cue-next strong{font-size:17px}.performance-view-switch{width:100%}.performance-view-switch button{flex:1}}
+
 </style>
