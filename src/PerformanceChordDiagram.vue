@@ -5,7 +5,7 @@ import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -21,6 +21,12 @@ const root=computed(()=>{
  const match=props.chord.trim().match(/^([A-Ga-g])([#b]?)/);
  return match?parsePitch(match[1].toUpperCase()+match[2]+'4')!%12:-1;
 });
+const activeMidi=computed(()=>new Set(props.activePitches));
+const activeClasses=computed(()=>new Set(props.activePitches.map(n=>((n%12)+12)%12)));
+function isPlayingPitch(midi:number){return activeMidi.value.has(midi);}
+function isPlayingTone(tone:number){return activeClasses.value.has(tone);}
+function shouldDimTone(midi:number){return props.dimUnplayedChordTones&&isTone(midi)&&!isPlayingPitch(midi);}
+function shouldDimClass(tone:number){return props.dimUnplayedChordTones&&tones.value.includes(tone)&&!isPlayingTone(tone);}
 function isTone(midi:number){return tones.value.includes(midi%12);}
 function isRoot(midi:number){return root.value>=0&&midi%12===root.value;}
 function midiLabel(midi:number){return noteName(midi%12)+(Math.floor(midi/12)-1);}
@@ -61,18 +67,18 @@ const diagramDescription=computed(()=>{
    </div>
    <div v-if="family==='Piano'" class="diagram-piano" aria-label="Piano keys highlighted at chord pitch classes">
      <div class="diagram-white-keys">
-       <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key" :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi)}" :title="midiLabel(midi)">
+       <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key"  :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi)}" :title="midiLabel(midi)">
          <span v-if="isTone(midi)">{{noteName(midi)}}</span>
        </div>
      </div>
      <div class="diagram-black-keys" aria-hidden="true">
-       <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key" :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)">{{noteName(key.midi)}}</span></span>
+       <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"  :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)">{{noteName(key.midi)}}</span></span>
      </div>
    </div>
    <div v-else-if="isStringInstrument" class="diagram-fingerboard" :aria-label="family+' open strings and schematic semitone positions'">
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row">
        <span class="diagram-open-label">{{string.name}}</span>
-       <span v-for="offset in stops" :key="offset" class="diagram-string-stop" :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
+       <span v-for="offset in stops" :key="offset" class="diagram-string-stop"  :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),'is-sounding':isPlayingPitch(string.midi+offset),'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
          <span v-if="isTone(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
        </span>
      </div>
@@ -87,7 +93,7 @@ const diagramDescription=computed(()=>{
        <template v-else-if="family==='Flute'||family==='Clarinet'"><span>●—●—●—●—●</span></template>
        <template v-else><span>♪ ♫ ♪</span></template>
      </div>
-     <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill" :class="{'is-root':tone===root}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
+     <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill"  :class="{'is-root':tone===root,'is-sounding':isPlayingTone(tone),'is-unplayed-chord-tone':shouldDimClass(tone)}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
    </div>
  </div>
 </template>
