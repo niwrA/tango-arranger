@@ -4448,4 +4448,67 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-cue-panel.performance-cue-playing{transition:none;box-shadow:inset 0 3px 0 #d5aa6d;background:linear-gradient(160deg,#293a48,#1b2834)}
 }
 
+
+/* Stage v4: one navigation / section / beat panel, instruments below, no side drawer. */
+.performance-workspace.performance-expanded{gap:10px;min-height:calc(100dvh - 65px)}
+.performance-stage-top{border:1px solid #586f80;border-radius:12px;background:linear-gradient(155deg,#243745,#1c2c38);padding:12px 15px;display:grid;gap:8px;min-width:0}
+.performance-stage-top-title{display:flex;align-items:center;justify-content:space-between;gap:14px;min-width:0}
+.performance-stage-top-title strong{font-size:clamp(13px,1.35vw,19px);font-weight:730;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.performance-stage-top-title>span{font-size:11px;color:#a8bccb;text-align:right;flex:0 0 auto}
+.performance-stage-controls{display:grid;grid-template-columns:minmax(180px,1fr) minmax(175px,auto) 153px;gap:12px;align-items:center}
+.performance-top-seek,.performance-top-section,.performance-top-beat{min-width:0;display:flex;flex-direction:column;gap:5px;justify-content:center}
+.performance-top-caption{color:#cad6df;font-size:12px;font-weight:750;letter-spacing:.01em}
+.performance-top-seek .performance-compact-seek{display:flex;align-items:center;width:100%;height:30px;flex:none;margin:0}
+.performance-top-seek .performance-compact-seek input{width:100%;margin:0;min-width:0;accent-color:#e7bf83}
+.performance-section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(36px,1fr));gap:4px;min-width:175px}
+.performance-section-grid .performance-section-jump{min-width:36px;min-height:37px;padding:5px 7px;border-radius:7px;font-size:14px}
+.performance-top-beat{align-items:flex-start;border-left:1px solid #5b7181;padding-left:14px}
+.performance-beat-display{display:flex;gap:7px;align-items:baseline}
+.performance-beat-display strong{font-size:clamp(24px,3vw,41px);line-height:1;font-variant-numeric:tabular-nums;color:#ffe0ab}
+.performance-top-beat-count{font-size:15px;color:#e0e9f1;font-weight:700}
+.performance-top-beat .performance-beat-strip{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:5px;margin:0}
+.performance-top-beat .performance-beat-strip span{height:7px}
+.performance-stage-top .performance-vocal-cue{margin-top:4px;max-width:none}
+.performance-stage-only{width:100%;flex:1;min-height:0;display:flex;flex-direction:column;gap:11px}
+.performance-stage-only .performance-cue-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(287px,auto);gap:10px;align-content:start;width:100%;flex:0 0 auto}
+.performance-stage-only .performance-diagram-card{min-height:287px;padding:13px 13px 10px;gap:7px;justify-content:flex-start}
+.performance-diagram-card .performance-cue-identity{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:33px;margin:0 0 3px}
+.performance-diagram-card .performance-cue-identity>strong{font-size:clamp(15px,1.4vw,22px);line-height:1.12;margin-right:auto;text-align:left}
+.performance-card-beats{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-height:22px}
+.performance-card-beats i{display:inline-block;height:8px;width:8px;flex:0 0 8px;border:1px solid #667c87;background:#415461;border-radius:50%}
+.performance-card-beats i.is-current{background:#ffd18c;border-color:#f8dfa8;box-shadow:0 0 0 3px rgba(255,212,153,.13)}
+.performance-card-rest-cue{color:#b4c7d6;font-size:10px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;font-weight:680}
+.performance-card-mode-hint{display:block;margin-top:auto;border-top:1px solid #49606e;padding-top:7px;text-align:center;color:#bdccd8;font-size:10px;line-height:1.2;letter-spacing:.02em;flex:0 0 auto}
+.performance-diagram-card .performance-cue-role{min-height:125px}
+.performance-diagram-card .performance-cue-next{margin-top:0}
+.performance-diagram-card:focus-visible{outline:3px solid #f4d39f;outline-offset:2px}
+@media(max-width:1040px){
+ .performance-stage-only .performance-cue-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(280px,auto)}
+ .performance-stage-only .performance-diagram-card{min-height:280px}
+ .performance-stage-controls{grid-template-columns:minmax(125px,1fr) auto 125px;gap:9px}
+ .performance-top-beat{padding-left:9px}
+}
+@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+ .performance-stage-only .performance-cue-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(267px,auto);gap:8px}
+ .performance-stage-only .performance-diagram-card{min-height:267px}
+}
+@media(max-width:750px){
+ .performance-stage-controls{grid-template-columns:minmax(0,1fr) 128px;gap:10px}
+ .performance-top-section{grid-column:1 / -1;grid-row:2}
+ .performance-top-beat{grid-column:2;grid-row:1}
+ .performance-top-seek{grid-column:1;grid-row:1}
+ .performance-stage-only .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(282px,auto)}
+ .performance-stage-only .performance-diagram-card{min-height:282px}
+ .performance-stage-top-title{flex-wrap:wrap;gap:4px}
+ .performance-stage-top-title>span{text-align:left}
+}
+@media(max-width:470px){
+ .performance-stage-top{padding:9px 10px}
+ .performance-stage-controls{grid-template-columns:minmax(0,1fr) 95px;gap:7px}
+ .performance-stage-only .performance-cue-grid{grid-template-columns:1fr;grid-auto-rows:minmax(282px,auto)}
+}
+@media(prefers-reduced-motion:reduce){
+ .performance-card-beats i.is-current{box-shadow:none}
+}
+
 </style>
