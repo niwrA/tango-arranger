@@ -186,6 +186,16 @@ const diagramDescription=computed(()=>{
  .diagram-targets{min-height:78px}
 }
 
+/* Prevent changes in chord tone count or live notes from altering chart height.
+ * All visual movement is confined to color/highlight changes inside a fixed box. */
+.diagram-targets{height:94px;min-height:94px;max-height:94px;box-sizing:border-box;overflow:hidden}
+.diagram-fingerboard{height:98px;min-height:98px;max-height:98px;box-sizing:border-box;overflow:hidden}
+.diagram-piano{height:80px;min-height:80px;max-height:80px;box-sizing:border-box}
+@media(max-width:900px){
+ .diagram-targets{height:82px;min-height:82px;max-height:82px}
+ .diagram-fingerboard{height:94px;min-height:94px;max-height:94px}
+ .diagram-piano{height:77px;min-height:77px;max-height:77px}
+}
 /* Aqua means the note is actually sounding in this instrument, rather than
  * simply belonging to the theoretical chord. Unplayed chord tones are subdued
  * only for a sounding chord-role voicing. */
