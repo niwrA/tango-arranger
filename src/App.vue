@@ -362,6 +362,12 @@ const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
 const performanceView=ref<'ensemble'|'notes'>('ensemble');
+/** A stage title never changes the saved project title. Remove bracketed revision notes,
+ * retaining the full name as a tooltip on the displayed heading. */
+const performanceShortTitle=computed(()=> {
+ const original=project.value.title.trim()||'Untitled tango';
+ return original.replace(/\s*[([{].*$/,'').trim()||original;
+});
 const performanceCardModes=ref<Record<string,'diagram'|'cues'>>({});
 function flipPerformanceCard(inst:Instrument){performanceCardModes.value={...performanceCardModes.value,[inst]:performanceCardModes.value[inst]==='cues'?'diagram':'cues'};}
 function cardShowsDiagram(inst:Instrument){return performanceCardModes.value[inst]!=='cues';}
@@ -407,6 +413,26 @@ const performanceBeatGlow=computed(()=>{
  return (0.10+0.37*Math.pow(1-phase,2.4)).toFixed(3);
 });
 const performanceSections=computed(()=>sectionSpans(project.value));
+/** Per-beat measure cues show the chord when it first appears, then a dash while
+ * that same chord continues. Each row restarts at its own measure boundary. */
+function stageMeasureChords(index:number):string[]{
+ const p=project.value,bar=p.bars[index];
+ if(!bar)return Array.from({length:p.beats},()=> '–');
+ let previous='';
+ return Array.from({length:p.beats},(_,beat)=>{
+  let symbol='';
+  try{symbol=chordAt(bar.chord,p.beats,beat).trim();}catch{symbol=bar.chord.split(',')[0]?.trim()??'';}
+  if(!symbol)return '–';
+  if(symbol===previous)return '–';
+  previous=symbol;
+  return symbol;
+ });
+}
+const performanceChordBeats=computed(()=>({
+ current:stageMeasureChords(performanceBar.value),
+ next:stageMeasureChords(performanceBar.value+1),
+ nextMeasure:Math.min(project.value.bars.length,performanceBar.value+2)
+}));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
 /** Harmonic timeline tracks intra-measure chord changes instead of assuming one chord per bar. */
 const performanceHarmony=computed(()=>{
@@ -3165,8 +3191,9 @@ function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
 </script>
 <template>
-<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact}"><header class="app-topbar">
+<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appVersion}}</small></span></button>
+  <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'">{{performanceShortTitle}}</div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
@@ -3231,21 +3258,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
  <section v-if="performanceMode" class="performance-workspace performance-expanded">
   <div class="performance-stage-top" role="region" aria-label="Performance measure, section and beat">
-   <div class="performance-stage-top-title"><strong>{{project.title||'Untitled tango'}}</strong><span>Key {{performanceHarmony.key}}<template v-if="performanceHarmony.changeMeasure!==null"> · {{performanceHarmony.upcomingKey}} at measure {{performanceHarmony.changeMeasure}}</template></span></div>
+   
    <div class="performance-stage-controls">
     <div class="performance-top-seek">
-      <span class="performance-top-caption">Measure {{performanceBar+1}} / {{project.bars.length}} · {{project.bpm}} BPM</span>
+      <span class="performance-seek-index">{{performanceBar+1}}/{{project.bars.length}}</span>
       <label class="performance-compact-seek"><span class="sr-only">Seek to measure</span><input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))" :aria-valuetext="`Measure ${performanceBar+1} of ${project.bars.length}`"/></label>
     </div>
     <div class="performance-top-section">
-     <span class="performance-top-caption">Section {{performanceSection}}</span>
      <div class="performance-section-grid" role="group" aria-label="Jump to section">
       <button v-for="(span,si) in performanceSections" :key="`${span.label}:${span.start}`" type="button" class="performance-section-jump" :class="{'performance-section-jump-active':performanceSection===span.label}" :aria-current="performanceSection===span.label?'true':undefined" :aria-label="`Jump to section ${span.label}, measure ${span.start+1}`" @click="performanceSeek(span.start)">{{sectionLetter(si)}}</button>
      </div>
     </div>
     <div class="performance-top-beat" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-      <span class="performance-top-caption">Beat · {{performanceSection}}</span>
-      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/ {{project.beats}}</span></div>
+      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo">{{project.bpm}}</span></div>
       <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
     </div>
    </div>
@@ -3267,17 +3292,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       :aria-pressed="!cardShowsDiagram(part.inst)" @click="flipPerformanceCard(part.inst)">
       <span class="performance-cue-identity">
         <strong>{{part.display}}</strong>
-        <span v-if="part.playingInMeasure" class="performance-card-beats" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-         <i v-for="beat in project.beats" :key="beat" :class="{'is-current':beat===Math.floor(performanceMeasureBeat)}" aria-hidden="true"></i>
-        </span>
-        <span v-else class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'Next measure':'Rest'}}</span>
+        <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :next-measure="performanceHarmony.nextChordMeasure" :next-beat="performanceHarmony.nextChordBeat"/>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"/>
       <template v-else>
         <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
         <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
       </template>
-      <span class="performance-card-mode-hint">{{cardShowsDiagram(part.inst)?'Tap for role & dynamics':'Tap for chord diagram'}}</span>
+      <span v-if="!cardShowsDiagram(part.inst)" class="performance-card-mode-hint">⇄</span>
     </button>
   </div>
   </div>
