@@ -77,7 +77,11 @@
 - [x] Update generated note realization, orchestration map and Note Editor contexts to respect phrase plans, explicit per-measure overrides and manual protections.
 - [x] Keep active difficulty editions current after applying a plan, retain other editions unchanged and flag them stale.
 - [x] Add focused regression tests for form/roster changes, explicit rests, instrumental techniques, protected edits, and MusicXML/print-pack compatibility; run these in CI.
+- [x] Apply phrase articulation consistently to new manual notes and their duration/playback defaults, while retaining explicit measure overrides.
+- [x] Render malformed imported plans as actionable validation states; retain rebuild/discard controls and verify Vue rendering, native backup round trips and real ZIP contents in the phrase test gate.
+- [x] Honor planned bandoneon leads over section follower settings and generate linked violin leads before their harmonies, even after roster reordering. Reuse a validated phrase map in the interface.
 - [ ] Validate touch interaction in Safari on iPad and inspect exported phrase arrangements in MuseScore.
+- [ ] Reduce duplicated phrase-plan source data in edition signatures for very large ensembles and fine-grained phrase plans; current signatures retain the complete source for staleness comparison.
 - [ ] Improve phrase discovery from melodic contour and harmony, cross-part voice leading, advanced violin fingering/double stops, bandoneon/contrabass ergonomic modeling, and historical-corpus comparison.
 
 ## Milestone 2 — Independent difficulty editions (19 November 2026)

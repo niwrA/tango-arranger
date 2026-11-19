@@ -1,3 +1,10 @@
+## Phrase planner reliability (2026-11-19)
+
+- New manual violin notes inherit reviewed phrase articulation before automatic beat-pattern defaults; explicit measure overrides still win.
+- Invalid saved plans display validation and rebuilding controls without crashing the phrase editor. Invalid drafts can still be discarded.
+- Explicit planned bandoneon leads take priority over section-follow settings, and linked violin generation follows lead-before-harmony order for reordered rosters. Shared interface role readers reuse the validated phrase map.
+- Expanded the phrase CI gate with protected-note/edition preservation, native JSON and ZIP backup round trips, real MusicXML ZIP validation, and actual Vue server-rendering checks for invalid data. Browser/device interaction remains separately unverified.
+
 ## Intelligent MusicXML Import & Merge (2026-11-19)
 
 - Replaced division-per-measure fallbacks with a persistent MusicXML timing parser supporting multi-voice and multi-staff OMR exports.

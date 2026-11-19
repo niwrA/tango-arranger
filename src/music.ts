@@ -767,7 +767,9 @@ export function generate(p:Project):Score {
     const harmony=(beat:number)=>chordTones(chordAt(bar.chord,p.beats,beat));
     const tones=harmony(0),root=tones[0];
     // Generate primary lines first so followers can copy the actual generated notes.
-    const order:Instrument[]=[...roster].sort((left,right)=>{const aLead=left.startsWith('Voice')&&effectiveRole(p,left,b,phrase)==='melody';const bLead=right.startsWith('Voice')&&effectiveRole(p,right,b,phrase)==='melody';return Number(bLead)-Number(aLead);});
+    const leadPriority=(inst:Instrument)=>effectiveRole(p,inst,b,phrase)==='melody'?
+      (inst.startsWith('Voice')?2:phrase&&inst==='Violin I'?1:0):0;
+    const order:Instrument[]=[...roster].sort((left,right)=>leadPriority(right)-leadPriority(left));
     for(const inst of order){
       const configuredRole=effectiveRole(p,inst,b,phrase),notes=score[inst],range=instrumentRange(inst);
       if(!bar.chord.trim() && configuredRole!=='melody' && configuredRole!=='variation')continue; // No invented harmony before chord entry.
@@ -856,7 +858,9 @@ export function generate(p:Project):Score {
         if(role==='chords')continue;
         // In fill mode, continue generating the melody line on top of these chord events.
       }
-      if(inst.startsWith('Bandoneon')){
+      // A reviewed phrase's lead/variation role uses the shared lead melody.
+      // Section-follow settings still serve accompaniment and legacy projects.
+      if(inst.startsWith('Bandoneon')&&(!phrase||(configuredRole!=='melody'&&configuredRole!=='variation'))){
         const follower=settings.bandoneon[bar.section]?.[inst as 'Bandoneon I'|'Bandoneon II']??(inst==='Bandoneon I'?{target:'Violin II' as FollowTarget,method:'adapt' as FollowMethod}:undefined);
         if(follower&&follower.target!=='independent'&&follower.target!==inst){
           const source=score[follower.target]??[];
@@ -1116,7 +1120,7 @@ export function newNoteWrittenDuration(p:Project,inst:Instrument,barIndex:number
     violinChordNoteStyle(p,p.bars[barIndex].section,inst as ViolinPart,beat,ctx.technique):undefined;
   const bassArticulation=inst==='Contrabass'&&ctx.technique==='marcato'?'marcato_staccato':
     inst==='Contrabass'&&ctx.technique==='arco_legato'?'legato':undefined;
-  const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`];
+  const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`]??plannedArticulation(p,inst,barIndex);
   const effective=articulation!=='inherit'?articulation:(measureOverride??violinChordStyle?.articulation??ctx.articulation??bassArticulation);
   // Tango marcato/staccato attacks are normally written as eighth notes;
   // their much shorter audible release is handled by the playback gate.
@@ -1143,7 +1147,9 @@ export function suggestedEditorNote(p:Project,inst:Instrument,barIndex:number,be
   const chordStyle=inst.startsWith('Violin')&&ctx.role==='chords'&&
     (ctx.technique==='pizzicato'||ctx.technique==='tango_staccato')?
     violinChordNoteStyle(p,p.bars[barIndex].section,inst as ViolinPart,beat,ctx.technique):undefined;
-  const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`];
+  // A deliberate phrase articulation outranks the automatic beat pattern;
+  // an explicit measure override still has the highest inherited priority.
+  const measureOverride=p.articulation?.overrides?.[`${inst}:${barIndex}`]??plannedArticulation(p,inst,barIndex);
   return {pitch,start:barIndex*p.beats+beat,duration:length,velocity:Math.max(35,Math.min(127,Math.round(base))),
     articulation:ctx.articulation,technique,source:'manual',...chordStyle,
     ...(measureOverride?{articulation:measureOverride,accent:measureOverride==='marcato_staccato',gate:undefined}:{})};

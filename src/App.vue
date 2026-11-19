@@ -20,7 +20,7 @@ import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exp
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
 import {measureLoopEvents} from './measureLoop';
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
-import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,type PhrasePlan} from './phrasePlan';
+import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent} from './expressiveAudio';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
@@ -917,7 +917,7 @@ type HeldCapture=CapturedTap&{duration?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number}>();
 function captureGrid(bar:number):number{
   if(captureQuantize.value!=='auto')return Number(captureQuantize.value);
-  const articulation=measureArticulation(project.value,noteInst.value,bar);
+  const articulation=measureArticulation(project.value,noteInst.value,bar,plannedPhrasesByMeasure.value[bar]??null);
   return articulation==='staccato'||articulation==='marcato_staccato'?0.5:0.25;
 }
 function captureElapsedBeats():number{
@@ -1177,7 +1177,7 @@ function toggleRhythmTarget(inst:Instrument,checked:boolean){
 function applyRhythmSelection(){
   const targets=rhythmTargets.value;
   if(!targets.length||!rhythmMeasures.value.length){rhythmFeedback.value='Select at least one instrument and one measure.';return;}
-  const special=targets.includes('Voice')||targets.some(inst=>rhythmMeasures.value.some(b=>(project.value.measureRoles?.[`${inst}:${b}`]??project.value.roles[project.value.bars[b].section]?.[inst])==='melody'));
+  const special=targets.includes('Voice')||targets.some(inst=>rhythmMeasures.value.some(b=>effectiveRole(inst,b)==='melody'));
   if(special&&!window.confirm('This selection includes melody or voice parts. Replacing their rhythmic placement may change the melody. Continue?'))return;
   if(rhythmOverwrite.value&&rhythmProtectedCount.value&&!window.confirm(`Overwrite ${rhythmProtectedCount.value} protected instrument-measures? Their manual note edits will be replaced.`))return;
   try{
@@ -1269,7 +1269,7 @@ function activitySummary(inst:Instrument){return Math.round(instrumentActivity(s
 const articulationModes:Articulation[]=['auto','marcato_staccato','staccato','legato'];
 function barArticulation(inst:Instrument):Articulation{return project.value.articulation?.overrides?.[`${inst}:${selectedBar.value}`]??'auto';}
 function setBarArticulation(inst:Instrument,e:Event){project.value.articulation??=defaultArticulation();const key=`${inst}:${selectedBar.value}`;const value=(e.target as HTMLSelectElement).value as Articulation;if(value==='auto')delete project.value.articulation.overrides[key];else project.value.articulation.overrides[key]=value;}
-function inferredArticulation(inst:Instrument):string{return measureArticulation(project.value,inst,selectedBar.value)??'not applicable';}
+function inferredArticulation(inst:Instrument):string{return measureArticulation(project.value,inst,selectedBar.value,plannedPhrasesByMeasure.value[selectedBar.value]??null)??'not applicable';}
 function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24)project.value.transposeSemitones=n;}
 // Song overview: measure-level overrides are sparse and do not replace section defaults.
 const orchestrationScope=ref<'instrument'|'section'|'all'>('all');
@@ -1518,7 +1518,8 @@ function openLeadVoiceLyrics(measure:number){
 function openLeadMelodyNotes(measure:number){
   const roster=projectInstruments(project.value);
   const preferred=roster.find(inst=>project.value.measureRoles?.[`${inst}:${measure}`]==='melody')
-    ??roster.find(inst=>project.value.roles?.[project.value.bars[measure].section]?.[inst]==='melody')
+    ??roster.find(inst=>effectiveRole(inst,measure)==='melody'&&!plannedRest(inst,measure))
+    ??roster.find(inst=>effectiveRole(inst,measure)==='melody')
     ??roster.find(inst=>inst.startsWith('Violin'))
     ??roster.find(inst=>inst.startsWith('Voice'))
     ??roster[0];
@@ -1729,12 +1730,39 @@ const mapVisibleMeasures=computed(()=>project.value.bars.flatMap((bar,index)=>{
 function toggleMapSection(start:number){
   collapsedMapSections.value=collapsedMapSections.value.includes(start)?collapsedMapSections.value.filter(i=>i!==start):[...collapsedMapSections.value,start];
 }
-function effectiveRole(inst:Instrument,i:number):Role{return plannedEffectiveRole(project.value,inst,i);}
+// Validate the shared plan once per change, rather than once per map cell or
+// performance tick. null explicitly retains the legacy section-based rules.
+const plannedPhrasesByMeasure=computed(()=>phraseMeasureMap(project.value));
+function effectiveRole(inst:Instrument,i:number):Role{return plannedEffectiveRole(project.value,inst,i,plannedPhrasesByMeasure.value[i]??null);}
+function plannedRest(inst:Instrument,i:number):boolean{return plannedMeasureActive(project.value,inst,i,plannedPhrasesByMeasure.value[i]??null)===false;}
+function mapRole(inst:Instrument,i:number):Role{return plannedRest(inst,i)?'rest':effectiveRole(inst,i);}
 function roleOverridden(inst:Instrument,i:number){return Object.prototype.hasOwnProperty.call(project.value.measureRoles??{},`${inst}:${i}`);}
-function violinTechnique(inst:Instrument,i:number):ViolinTechnique|undefined{return inst.startsWith('Violin')?plannedViolinTechnique(project.value,inst,i):undefined;}
+function violinTechnique(inst:Instrument,i:number):ViolinTechnique|undefined{return inst.startsWith('Violin')?plannedViolinTechnique(project.value,inst,i,plannedPhrasesByMeasure.value[i]??null):undefined;}
 function articulationOverride(inst:Instrument,i:number):Articulation{return project.value.articulation?.overrides?.[`${inst}:${i}`]??'auto';}
-function cellArticulation(inst:Instrument,i:number):string{if(inst==='Contrabass'&&effectiveRole(inst,i)==='bass'&&bassTechniqueFor(project.value,i)!=='traditional')return bassTechniqueFor(project.value,i).replaceAll('_',' ');if(inst.startsWith('Violin')&&effectiveRole(inst,i)==='chords'&&!project.value.articulation?.overrides?.[`${inst}:${i}`]&&['tango_staccato','pizzicato'].includes(violinTechnique(inst,i)??'')){const beats=violinMarcatoBeatsFor(project.value,project.value.bars[i].section,inst as 'Violin I'|'Violin II').map(n=>n+1);return `${violinTechnique(inst,i)==='pizzicato'?'Pizz.':'Stacc.'}${beats.length?' ^'+beats.join(','):''}`;}const mode=measureArticulation(project.value,inst,i);return mode==='marcato_staccato'?'Marc.':mode==='staccato'?'Stacc.':mode==='legato'?(inst.startsWith('Violin')?'Arco':'Legato'):'—';}
-function cellLabel(inst:Instrument,i:number):string{const role=effectiveRole(inst,i);const tech=violinTechnique(inst,i);if(inst==='Contrabass'&&role==='bass')return bassTechniqueFor(project.value,i)==='traditional'?'bass':bassTechniqueFor(project.value,i).replaceAll('_',' ');return role==='chords'&&inst==='Piano'?(project.value.pianoFigures?.[project.value.bars[i].section]??'chords_up').replaceAll('_',' '):role==='chords'&&tech?tech.replaceAll('_',' '):role;}
+function cellArticulation(inst:Instrument,i:number):string{
+  if(plannedRest(inst,i))return project.value.protectedBars[`${inst}:${i}`]?'Protected notes':'Phrase rest';
+  const phrase=plannedPhrasesByMeasure.value[i]??null;
+  const explicit=project.value.articulation?.overrides?.[`${inst}:${i}`]??plannedArticulation(project.value,inst,i,phrase);
+  if(inst.startsWith('Contrabass')&&effectiveRole(inst,i)==='bass'&&!explicit){
+    const technique=plannedBassTechnique(project.value,inst,i,phrase);
+    if(technique!=='traditional')return technique.replaceAll('_',' ');
+  }
+  if(inst.startsWith('Violin')&&effectiveRole(inst,i)==='chords'&&!explicit&&['tango_staccato','pizzicato'].includes(violinTechnique(inst,i)??'')){
+    const beats=violinMarcatoBeatsFor(project.value,project.value.bars[i].section,inst as 'Violin I'|'Violin II').map(n=>n+1);
+    return `${violinTechnique(inst,i)==='pizzicato'?'Pizz.':'Stacc.'}${beats.length?' ^'+beats.join(','):''}`;
+  }
+  const mode=measureArticulation(project.value,inst,i,phrase);
+  return mode==='marcato_staccato'?'Marc.':mode==='staccato'?'Stacc.':mode==='legato'?(inst.startsWith('Violin')?'Arco':'Legato'):'—';
+}
+function cellLabel(inst:Instrument,i:number):string{
+  const role=mapRole(inst,i);if(plannedRest(inst,i))return 'rest';
+  const tech=violinTechnique(inst,i);
+  if(inst.startsWith('Contrabass')&&role==='bass'){
+    const technique=plannedBassTechnique(project.value,inst,i,plannedPhrasesByMeasure.value[i]??null);
+    return technique==='traditional'?'bass':technique.replaceAll('_',' ');
+  }
+  return role==='chords'&&inst==='Piano'?(project.value.pianoFigures?.[project.value.bars[i].section]??'chords_up').replaceAll('_',' '):role==='chords'&&tech?tech.replaceAll('_',' '):role;
+}
 watch([orchestrationScope,selectedInstrumentGroup,()=>project.value.orchestralGroups],()=>{
   if(orchestrationScope.value!=='section')return;
   const members=mapVisibleInstruments.value;
@@ -2443,8 +2471,7 @@ function dynamicsTargets(barIndex:number):Instrument[]{
   const roster=projectInstruments(project.value);
   if(dynamicsScope.value==='all')return roster;
   if(dynamicsScope.value==='instrument')return roster.includes(noteInst.value)?[noteInst.value]:[];
-  const section=project.value.bars[barIndex]?.section;
-  return roster.filter(inst=>project.value.roles?.[section]?.[inst]===dynamicsRole.value);
+  return roster.filter(inst=>effectiveRole(inst,barIndex)===dynamicsRole.value);
 }
 function dynamicsAt(inst:Instrument,barIndex:number):string{
   return project.value.measureDynamics?.[`${inst}:${barIndex}`]?.start??'';
@@ -3490,7 +3517,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <small>Long-press or right-click an instrument label to open this menu. Use Shift+F10 or the menu key with a keyboard.</small>
   </div>
 </div></Teleport>
-<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${effectiveRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${effectiveRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${effectiveRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
+<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${mapRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${mapRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${mapRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 </div>
 
 </div>

@@ -12,12 +12,12 @@ const phraseHold=createLongPressMenu();
 const phraseContextId=ref<string|null>(null);
 function closePhraseContext(){phraseContextId.value=null;phraseHold.cancel();}
 function openPhraseContext(id:string){
-  if(!displayed.value?.phrases.some(p=>p.id===id))return;
+  if(!phrases.value.some(p=>p.id===id))return;
   selectedId.value=id;
   phraseContextId.value=id;
 }
 function clickPhrase(id:string){
-  if(phraseHold.consumeClick())return;
+  if(!phrases.value.some(p=>p.id===id)||phraseHold.consumeClick())return;
   selectedId.value=id;
 }
 function phraseContextKey(event:KeyboardEvent,id:string){
@@ -56,13 +56,16 @@ function openPhraseNotes(){
   closePhraseContext();
 }
 const displayed=computed(()=>props.draft??props.project.phrasePlan);
-const phraseContext=computed(()=>displayed.value?.phrases.find(p=>p.id===phraseContextId.value));
-const phraseContextIndex=computed(()=>displayed.value?.phrases.findIndex(p=>p.id===phraseContextId.value)??-1);
 const roster=computed(()=>projectInstruments(props.project));
-const errors=computed(()=>displayed.value?validatePhrasePlan(props.project,displayed.value):[]);
+const errors=computed(()=>displayed.value===undefined?[]:validatePhrasePlan(props.project,displayed.value));
+// Do not dereference imported phrase data until the complete plan is valid.
+// Invalid drafts still expose validation, rebuild and discard actions below.
+const phrases=computed(()=>displayed.value&&!errors.value.length?displayed.value.phrases:[]);
+const phraseContext=computed(()=>phrases.value.find(p=>p.id===phraseContextId.value));
+const phraseContextIndex=computed(()=>phrases.value.findIndex(p=>p.id===phraseContextId.value));
 const current=computed(()=>!props.project.phrasePlan||phrasePlanIsCurrent(props.project,props.project.phrasePlan));
-const selected=computed(()=>displayed.value?.phrases.find(p=>p.id===selectedId.value)??displayed.value?.phrases[0]);
-const index=computed(()=>displayed.value?.phrases.findIndex(p=>p.id===selected.value?.id)??-1);
+const selected=computed(()=>phrases.value.find(p=>p.id===selectedId.value)??phrases.value[0]);
+const index=computed(()=>phrases.value.findIndex(p=>p.id===selected.value?.id));
 const roles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];
 const violinTechniques:ViolinTechnique[]=['tango_staccato','arpeggio','pizzicato','pizzicato_arpeggio','double_stop','sustained','block'];
 const clone=(plan:PhrasePlan):PhrasePlan=>JSON.parse(JSON.stringify(plan));
@@ -74,14 +77,14 @@ const rows=computed(()=>{
   return roster.value.flatMap(instrument=>{
     const part=phrase.parts[instrument];if(!part)return [];
     const measures:number[]=[];
-    if(!errors.value.length)for(let m=phrase.startMeasure;m<=phrase.endMeasure;m++)if(plannedMeasureActive(preview,instrument,m))measures.push(m+1);
+    for(let m=phrase.startMeasure;m<=phrase.endMeasure;m++)if(plannedMeasureActive(preview,instrument,m,phrase))measures.push(m+1);
     return [{instrument,part,measures}];
   });
 });
 watch(()=>displayed.value?.phraseBars,n=>{if(n!==undefined)phraseBars.value=n;});
 function name(instrument:string){return props.project.instrumentNames?.[instrument]||instrument;}
 function title(i:number){
-  const phrase=displayed.value?.phrases[i];
+  const phrase=phrases.value[i];
   return phrase?String(i+1)+' · '+phrase.section+' · measures '+String(phrase.startMeasure+1)+'–'+String(phrase.endMeasure+1):'';
 }
 function proposal(){
@@ -97,7 +100,7 @@ function edit(){
   emit('update:draft',clone(props.project.phrasePlan));
   notice.value='Editing a draft. Existing notes are unchanged.';
 }
-function move(delta:number){const target=displayed.value?.phrases[index.value+delta];if(target)selectedId.value=target.id;}
+function move(delta:number){const target=phrases.value[index.value+delta];if(target)selectedId.value=target.id;}
 function update<K extends keyof PhrasePart>(instrument:string,key:K,value:PhrasePart[K]){
   if(!props.draft||!selected.value)return;
   const draft=clone(props.draft),part=draft.phrases.find(p=>p.id===selected.value?.id)?.parts[instrument];
@@ -156,7 +159,8 @@ function apply(){
         <button v-if="project.phrasePlan&&!draft" type="button" class="secondary" @click="edit">Edit applied plan</button>
         <button v-if="project.phrasePlan" type="button" class="secondary" @click="emit('apply',undefined);notice=''">Use section settings</button>
       </div>
-      <p v-if="!current" class="phrase-warning" role="status">The song form or instrument roster changed. The old plan is inactive; rebuild it before applying.</p>
+      <p v-if="!current" class="phrase-warning" role="status">The applied plan no longer matches this song or contains invalid settings. New generation uses section settings until you rebuild the plan.</p>
+      <ul v-if="errors.length" class="phrase-warning" role="alert"><li v-for="error in errors.slice(0,4)" :key="error">{{error}}</li></ul>
       <template v-if="displayed&&selected">
         <div class="phrase-blocks" role="group" aria-label="Phrase blocks · select or open contextual options">
           <div v-for="(phrase,i) in displayed.phrases" :key="phrase.id" class="phrase-block">
@@ -191,13 +195,12 @@ function apply(){
           </table>
         </div>
         <p class="phrase-footnote">Activity selects how many measures sound within the phrase; placement chooses where they fall. Explicit measure overrides and protected notes take precedence.</p>
-        <ul v-if="errors.length" class="phrase-warning" role="alert"><li v-for="error in errors.slice(0,4)" :key="error">{{error}}</li></ul>
-        <div v-if="draft" class="phrase-actions">
+      </template>
+      <div v-if="draft" class="phrase-actions">
           <button type="button" class="primary" :disabled="errors.length>0" @click="apply">Apply phrase plan</button>
           <button type="button" class="secondary" @click="closePhraseContext();emit('update:draft',undefined)">Discard draft</button>
           <span>Active difficulty editions are updated; saved alternatives remain intact.</span>
-        </div>
-      </template>
+      </div>
       <p v-if="notice" class="phrase-notice" role="status">{{notice}}</p>
     </div>
   </details>
