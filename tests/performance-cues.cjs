@@ -139,7 +139,7 @@ check('mixed-case Maj7 chord highlights the major seventh rather than dominant s
  const musicSource=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
  const musicJs=ts.transpileModule(musicSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
  const musicMod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${musicJs}\\n})`,{console})(
+ vm.runInNewContext(`(function(require,module,exports){${musicJs}\n})`,{console})(
   ()=>{throw Error('Unexpected runtime import');},musicMod,musicMod.exports
  );
  const tones=Array.from(musicMod.exports.chordTones('GMaj7'));
