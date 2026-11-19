@@ -21,6 +21,7 @@ import {playExpressiveEvent} from './expressiveAudio';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel,clearRhythmSourceIfRetimed} from './rhythmSnap';
+import {createLongPressMenu,isContextMenuKey} from './contextPress';
 import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
@@ -77,6 +78,7 @@ function stopPlayback(){
   capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureRecordedPass=-1;
 }
 function selectProjectInEditor(p:Project){
+  closeRhythmMenu();closeDynamicsContext();
   closeInstrumentContext();
   phrasePlanDraft.value=undefined;
   stopPlayback();syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
@@ -577,7 +579,46 @@ let rhythmLoopSynth:Synth|null=null;
 let rhythmLoopSession=0;
 const rhythmSteps=computed(()=>Array.from({length:Math.round(project.value.beats/rhythmGridStep)},(_,i)=>i*rhythmGridStep));
 const rhythmSelectedSlot=computed(()=>rhythmPattern.value[rhythmSelected.value]);
+const rhythmPress=createLongPressMenu();
+const rhythmMenuIndex=ref<number|null>(null);
+const rhythmMenuSlot=computed(()=>rhythmMenuIndex.value===null?undefined:rhythmPattern.value[rhythmMenuIndex.value]);
+function closeRhythmMenu(){rhythmMenuIndex.value=null;rhythmPress.cancel();}
+function openRhythmMenu(index:number){
+  if(!rhythmPattern.value[index])return;
+  rhythmSelected.value=index;
+  rhythmMenuIndex.value=index;
+  void nextTick(()=>document.querySelector<HTMLElement>('.rhythm-context-dialog')?.focus({preventScroll:true}));
+}
+function rhythmPointerDown(event:PointerEvent,index:number){
+  if((event.target as HTMLElement).closest('.rhythm-resize-handle'))return;
+  rhythmPress.start(event,()=>openRhythmMenu(index));
+}
+function rhythmContextKey(event:KeyboardEvent,index:number){
+  if(!isContextMenuKey(event))return;
+  event.preventDefault();event.stopPropagation();openRhythmMenu(index);
+}
+function selectRhythmAttack(index:number){
+  if(rhythmPress.consumeClick())return;
+  rhythmSelected.value=index;
+}
+function rhythmMenuAction(action:'details'|'accent'|'shorten'|'lengthen'|'earlier'|'later'|'split'|'delete'){
+  const index=rhythmMenuIndex.value;
+  if(index===null||!rhythmPattern.value[index]){closeRhythmMenu();return;}
+  rhythmSelected.value=index;
+  closeRhythmMenu();
+  const slot=rhythmPattern.value[index];
+  if(action==='details'){
+    void nextTick(()=>rhythmEditorRegion.value?.querySelector<HTMLInputElement>('.rhythm-event-properties input')?.focus({preventScroll:true}));
+  }else if(action==='accent')rhythmEdit({accent:!slot.accent});
+  else if(action==='shorten')rhythmDurationStep(-1);
+  else if(action==='lengthen')rhythmDurationStep(1);
+  else if(action==='earlier')rhythmEdit({beat:slot.beat-rhythmGridStep});
+  else if(action==='later')rhythmEdit({beat:slot.beat+rhythmGridStep});
+  else if(action==='split')rhythmSplit();
+  else if(action==='delete')rhythmDelete();
+}
 function loadRhythmPreset(){
+  closeRhythmMenu();
   try{
     rhythmPattern.value=quantizeRhythmPreset(rhythmSlots(rhythmPreset.value,project.value.beats,rhythmPreviewInstrument.value,project.value.profile),project.value.beats,rhythmGridStep);
     rhythmSelected.value=rhythmPattern.value.length?0:-1;
@@ -1035,6 +1076,15 @@ function applyReviewedPhrasePlan(plan:PhrasePlan|undefined){
   noteSelected.value=-1;noteDetailsPopup.value=false;
   message.value=plan?'Applied '+plan.phrases.length+' reviewed phrases; protected notes retained and stored alternatives preserved.':'Restored section-based arrangement; protected notes retained.';
  }catch(err){message.value='Phrase planning failed: '+String(err);}
+}
+function openPhraseNotes(firstMeasure:number,lastMeasure:number){
+  const first=Math.max(0,Math.min(project.value.bars.length-1,firstMeasure));
+  const last=Math.max(first,Math.min(project.value.bars.length-1,lastMeasure));
+  openNoteEditor(overviewInstrument.value,first);
+  noteEditorTab.value='notes';
+  noteLoopFrom.value=first+1;
+  noteLoopTo.value=last+1;
+  message.value='Opened '+rosterDisplayName(overviewInstrument.value)+' notes for phrase measures '+(first+1)+'–'+(last+1)+'.';
 }
 function setInstrumentDifficulty(inst:Instrument,e:Event){switchDifficultyEdition(inst,(e.target as HTMLSelectElement).value as Difficulty);}
 function switchDifficultyEdition(inst:Instrument,level:Difficulty){
@@ -2107,6 +2157,52 @@ const visibleHairpins=computed(()=> (project.value.expressionRanges??[]).map((ra
  const first=dynamicsPreviewBars.value[0]??0,last=(dynamicsPreviewBars.value.at(-1)??first)+1;
  return {index,range,start,end,from:Math.max(0,(start-first*project.value.beats)/((last-first)*project.value.beats)*100),to:Math.min(100,(end-first*project.value.beats)/((last-first)*project.value.beats)*100),visible:end>first*project.value.beats&&start<last*project.value.beats&&dynamicsTargets(range.startMeasure).includes(range.instrument)};
 }).filter(item=>item.visible&&item.to>item.from));
+type DynamicsContextTarget={kind:'measure';bar:number}|{kind:'hairpin';index:number};
+const dynamicsContext=ref<DynamicsContextTarget|null>(null);
+const dynamicsPress=createLongPressMenu();
+const dynamicsContextRange=computed(()=>dynamicsContext.value?.kind==='hairpin'
+ ?project.value.expressionRanges?.[dynamicsContext.value.index]:undefined);
+function closeDynamicsContext(){dynamicsContext.value=null;dynamicsPress.cancel();}
+function openDynamicsContext(kind:'measure'|'hairpin',value:number){
+ if((kind==='measure'&&!project.value.bars[value])||(kind==='hairpin'&&!project.value.expressionRanges?.[value]))return;
+ dynamicsContext.value=kind==='measure'?{kind,bar:value}:{kind,index:value};
+ void nextTick(()=>document.querySelector<HTMLElement>('.dynamics-context-dialog')?.focus({preventScroll:true}));
+}
+function startDynamicsContextHold(event:PointerEvent,kind:'measure'|'hairpin',value:number){
+ dynamicsPress.start(event,()=>openDynamicsContext(kind,value));
+}
+function dynamicsContextKey(event:KeyboardEvent,kind:'measure'|'hairpin',value:number){
+ if(!isContextMenuKey(event))return;
+ event.preventDefault();event.stopPropagation();openDynamicsContext(kind,value);
+}
+function clickDynamicsMeasure(bar:number){if(!dynamicsPress.consumeClick())openDynamicPopup(bar);}
+function clickDynamicsHairpin(index:number){if(!dynamicsPress.consumeClick())openHairpinEditor(index);}
+function dynamicsMenuAction(action:'edit'|'mf'|'f'|'clear'|'crescendo'|'diminuendo'|'start'|'end'|'delete'){
+ const target=dynamicsContext.value;
+ if(!target)return;
+ closeDynamicsContext();
+ if(target.kind==='measure'){
+  if(action==='edit')openDynamicPopup(target.bar);
+  else if(action==='mf'||action==='f')applyDynamicsMarkToBar(target.bar,action);
+  else if(action==='clear')applyDynamicsMarkToBar(target.bar,'');
+  else if(action==='crescendo'||action==='diminuendo'){
+   selectedBar.value=target.bar;beginDynamicsHairpin(action);
+  }
+ }else{
+  const range=project.value.expressionRanges?.[target.index];if(!range)return;
+  if(action==='edit')openHairpinEditor(target.index);
+  else if(action==='start')openDynamicPopup(range.startMeasure,target.index,'start');
+  else if(action==='end')openDynamicPopup(range.endMeasure,target.index,'end');
+  else if(action==='delete'){
+   if(window.confirm('Delete this '+(range.to>=range.from?'crescendo':'diminuendo')+' hairpin for '+range.instrument+'?')){
+    project.value.expressionRanges?.splice(target.index,1);
+    message.value='Deleted hairpin for '+range.instrument+'.';
+   }
+  }
+ }
+}
+watch([active,noteEditorTab],([tab,subtab])=>{if(tab!=='notes'||subtab!=='expression')closeDynamicsContext();});
+watch(active,tab=>{if(tab!=='rhythm')closeRhythmMenu();});
 const dynamicsPopupBar=ref<number|null>(null);
 const dynamicsPopupRange=ref<number|null>(null);
 const dynamicsPopupEndpoint=ref<'start'|'end'>('start');
@@ -2114,7 +2210,8 @@ const dynamicsPopupPosition=ref('');
 const dynamicsPopupMark=ref('');
 function dynamicNotePositions(bar:number){
  const beats=project.value.beats;
- const targets=dynamicsTargets(bar);
+ const selectedRange=dynamicsPopupRange.value===null?undefined:project.value.expressionRanges?.[dynamicsPopupRange.value];
+ const targets=selectedRange?[selectedRange.instrument]:dynamicsTargets(bar);
  const starts=new Map<number,string[]>();
  for(const inst of targets)for(const n of score.value[inst]??[]){
   if(Math.floor((n.start+1e-7)/beats)!==bar)continue;
@@ -3096,7 +3193,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 <button class="secondary lead-add-measure" @click="addBar">+ Add measure to last section</button></section>
 <section v-else-if="active==='arrange'" class="overview-section">
-<PhrasePlanEditor :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan"/>
+<PhrasePlanEditor :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
 <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
 <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
 </div>
@@ -3197,16 +3294,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
 </details></div>
       <div class="rhythm-ruler" :style="{'--rhythm-beats':project.beats}"><span v-for="beat in project.beats" :key="beat" :class="{'rhythm-current-beat':rhythmLoopPlaying&&rhythmLoopBeat===beat-1}">{{beat}}</span></div>
-      <div class="rhythm-track" role="group" aria-label="Editable rhythm attacks and durations">
+      <Teleport to="body"><div v-if="rhythmMenuSlot" class="context-sheet-backdrop" @click.self="closeRhythmMenu()">
+  <div class="context-sheet-dialog rhythm-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="'Rhythm attack options for beat '+(rhythmMenuSlot.beat+1)" @keydown.esc.stop.prevent="closeRhythmMenu()">
+    <div class="context-sheet-header"><strong>Rhythm attack · beat {{Number((rhythmMenuSlot.beat+1).toFixed(2))}}</strong><button type="button" class="secondary" @click="closeRhythmMenu()">✕ Close</button></div>
+    <p>Duration {{rhythmMenuSlot.duration}} beats · {{rhythmMenuSlot.accent?'accented':'unaccented'}}. Changes affect the editable grid; apply the pattern separately to change instrument notes.</p>
+    <button type="button" class="secondary" @click="rhythmMenuAction('details')">Edit beat and written duration…</button>
+    <button type="button" class="secondary" @click="rhythmMenuAction('accent')">{{rhythmMenuSlot.accent?'Remove accent':'Add accent'}}</button>
+    <div class="context-sheet-two"><button type="button" class="secondary" :disabled="rhythmMenuSlot.beat<=0" @click="rhythmMenuAction('earlier')">← Move ¼ beat</button><button type="button" class="secondary" :disabled="rhythmMenuSlot.beat+rhythmGridStep>=project.beats" @click="rhythmMenuAction('later')">Move ¼ beat →</button></div>
+    <div class="context-sheet-two"><button type="button" class="secondary" :disabled="rhythmMenuSlot.duration<=rhythmGridStep" @click="rhythmMenuAction('shorten')">Shorten ¼ beat</button><button type="button" class="secondary" @click="rhythmMenuAction('lengthen')">Lengthen ¼ beat</button></div>
+    <button type="button" class="secondary" :disabled="rhythmMenuSlot.duration<rhythmGridStep*2" @click="rhythmMenuAction('split')">Split attack</button>
+    <button type="button" class="secondary danger" @click="rhythmMenuAction('delete')">Delete attack</button>
+  </div>
+</div></Teleport>
+<div class="rhythm-track" role="group" aria-label="Editable rhythm attacks and durations">
         <button v-for="beat in rhythmSteps" :key="beat" type="button" class="rhythm-step-cell" :class="{'rhythm-step-downbeat':Number.isInteger(beat)}" :title="`Add attack at beat ${beat+1}`" :aria-label="`Add rhythm attack at beat ${beat+1}`" @click="rhythmAddAt(beat)"></button>
-        <button v-for="(slot,i) in rhythmPreview" :key="`attack-${slot.beat}`" type="button" class="rhythm-event" :class="{'rhythm-event-accent':slot.accent,'rhythm-event-selected':rhythmSelected===i}" :style="{left:`${100*slot.beat/project.beats}%`,width:`${100*slot.duration/project.beats}%`}" :aria-label="`Attack at beat ${slot.beat+1}, duration ${slot.duration}, ${slot.accent?'accented':'unaccented'}`" @click="rhythmSelected=i">
-          <span>{{slot.accent?'›':'•'}} {{slot.duration}}</span>
+        <button v-for="(slot,i) in rhythmPreview" :key="`attack-${slot.beat}`" type="button" class="rhythm-event" :class="{'rhythm-event-accent':slot.accent,'rhythm-event-selected':rhythmSelected===i}" :style="{left:`${100*slot.beat/project.beats}%`,width:`${100*slot.duration/project.beats}%`}" :aria-label="`Attack at beat ${slot.beat+1}, duration ${slot.duration}, ${slot.accent?'accented':'unaccented'}. Long-press or right-click for options.`" :title="`Beat ${slot.beat+1} · long press, right-click or Shift+F10 for options`" @pointerdown="rhythmPointerDown($event,i)" @pointermove="rhythmPress.move($event)" @pointerup="rhythmPress.end($event)" @pointercancel="rhythmPress.cancel()" @contextmenu.prevent.stop="openRhythmMenu(i)" @keydown="rhythmContextKey($event,i)" @click="selectRhythmAttack(i)">
+          <span>{{slot.accent?'›':'•'}} {{slot.duration}}</span><span class="rhythm-context-hint" aria-hidden="true">⋯</span>
           <span class="rhythm-resize-handle" role="presentation" title="Drag to change written duration" @pointerdown="rhythmResizeDown($event,i)" @pointermove="rhythmResizeMove" @pointerup="rhythmResizeUp" @pointercancel="rhythmResizeUp" @click.stop>↔</span>
         </button>
       </div>
-      <p class="hint">Tap an empty sixteenth-note grid cell to add an attack. Select a bar to edit it; drag its right edge to resize. Gaps are rests. A preset is only the starting point.</p>
+      <p class="hint">Tap an empty sixteenth-note grid cell to add an attack. Select a bar to edit it; drag its right edge to resize. Long-press, right-click, Shift+F10 or choose ⋯ Options for nearby settings. Gaps are rests. A preset is only the starting point.</p>
       <p class="editor-shortcut-help"><strong>Keyboard:</strong> Delete / Backspace remove selected attack · ← → select attacks · + / − change duration · A toggle accent · S split · L loop · Esc deselect. Shortcuts pause while typing in fields.</p>
       <div v-if="rhythmSelectedSlot" class="rhythm-event-properties">
+        <div class="rhythm-selected-context-action"><strong>Selected attack · beat {{Number((rhythmSelectedSlot.beat+1).toFixed(2))}}</strong><button type="button" class="secondary" @click="openRhythmMenu(rhythmSelected)">⋯ Options</button></div>
         <label>Attack beat<input type="number" min="1" :max="project.beats" step="0.25" :value="rhythmSelectedSlot.beat+1" @change="rhythmEdit({beat:Number(($event.target as HTMLInputElement).value)-1})"/></label>
         <label>Written duration (beats)<input type="number" min="0.25" :max="project.beats-rhythmSelectedSlot.beat" step="0.25" :value="rhythmSelectedSlot.duration" @change="rhythmEdit({duration:Number(($event.target as HTMLInputElement).value)})"/></label>
         <label>Accent<select :value="rhythmSelectedSlot.accent?'accent':'normal'" @change="rhythmEdit({accent:($event.target as HTMLSelectElement).value==='accent'})"><option value="accent">Accented</option><option value="normal">Normal</option></select></label>
@@ -3321,17 +3431,39 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:.4rem;margin:.75rem 0">
-        <div v-for="barIndex in dynamicsPreviewBars" :key="barIndex">
-        <button type="button" class="secondary" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" @click="openDynamicPopup(barIndex)">
+        <div v-for="barIndex in dynamicsPreviewBars" :key="barIndex" class="dynamics-measure-tile">
+        <button type="button" class="secondary dynamics-measure-main" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" :aria-label="'Dynamics in measure '+(barIndex+1)+'; long press or right click for options'" :title="'Measure '+(barIndex+1)+' · right-click, long press or Shift+F10 for options'" @pointerdown="startDynamicsContextHold($event,'measure',barIndex)" @pointermove="dynamicsPress.move($event)" @pointerup="dynamicsPress.end($event)" @pointercancel="dynamicsPress.cancel()" @contextmenu.prevent.stop="openDynamicsContext('measure',barIndex)" @keydown="dynamicsContextKey($event,'measure',barIndex)" @click="clickDynamicsMeasure(barIndex)">
           <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
           <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
           <small>{{dynamicsTargets(barIndex).length}} parts</small>
         </button>
- 
+        <button type="button" class="secondary dynamics-more" :aria-label="'More dynamics options for measure '+(barIndex+1)" @click="openDynamicsContext('measure',barIndex)">⋯</button>
         </div>
       </div>
+      <Teleport to="body"><div v-if="dynamicsContext" class="context-sheet-backdrop" @click.self="closeDynamicsContext()">
+        <div class="context-sheet-dialog dynamics-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="dynamicsContext.kind==='measure'?'Dynamics measure options':'Hairpin options'" @keydown.esc.stop.prevent="closeDynamicsContext()">
+          <div class="context-sheet-header"><strong>{{dynamicsContext.kind==='measure'?'Dynamics · measure '+(dynamicsContext.bar+1):'Hairpin · '+dynamicsContextRange?.instrument}}</strong><button type="button" class="secondary" @click="closeDynamicsContext()">✕ Close</button></div>
+          <template v-if="dynamicsContext.kind==='measure'">
+            <p>Actions use the current dynamics scope (instrument, role or orchestra). Open the full editor for precise settings.</p>
+            <button type="button" class="secondary" @click="dynamicsMenuAction('edit')">Edit dynamic…</button>
+            <div class="context-sheet-two"><button type="button" class="secondary" @click="dynamicsMenuAction('mf')">Set mf</button><button type="button" class="secondary" @click="dynamicsMenuAction('f')">Set f</button></div>
+            <button type="button" class="secondary" @click="dynamicsMenuAction('clear')">Clear dynamic in scope</button>
+            <div class="context-sheet-two"><button type="button" class="secondary" @click="dynamicsMenuAction('crescendo')">Create crescendo…</button><button type="button" class="secondary" @click="dynamicsMenuAction('diminuendo')">Create diminuendo…</button></div>
+          </template>
+          <template v-else-if="dynamicsContextRange">
+            <p>{{dynamicsContextRange.to>=dynamicsContextRange.from?'Crescendo':'Diminuendo'}} · {{dynamicsContextRange.instrument}}. Existing note and endpoint editors remain authoritative.</p>
+            <button type="button" class="secondary" @click="dynamicsMenuAction('edit')">Edit both endpoints…</button>
+            <button type="button" class="secondary" @click="dynamicsMenuAction('start')">Edit start endpoint…</button>
+            <button type="button" class="secondary" @click="dynamicsMenuAction('end')">Edit end endpoint…</button>
+            <button type="button" class="secondary danger" @click="dynamicsMenuAction('delete')">Delete hairpin…</button>
+          </template>
+        </div>
+      </div></Teleport>
       <div v-if="visibleHairpins.length" style="position:relative;min-height:70px;margin:.65rem 0;border-top:1px solid var(--border, #888);border-bottom:1px solid var(--border, #888)">
-        <button v-for="item in visibleHairpins" :key="item.index" type="button" class="secondary" :style="{position:'absolute',left:item.from+'%',width:(item.to-item.from)+'%',top:(item.index%2)*34+'px',height:'30px',padding:'2px',overflow:'hidden',whiteSpace:'nowrap'}" @click="openHairpinEditor(item.index)">{{item.range.to>=item.range.from?'〈 Crescendo':'〉 Diminuendo'}} · {{item.range.instrument}}</button>
+        <div v-for="item in visibleHairpins" :key="item.index" class="dynamics-hairpin-item" :style="{position:'absolute',left:item.from+'%',width:(item.to-item.from)+'%',top:(item.index%2)*34+'px',height:'30px'}">
+          <button type="button" class="secondary dynamics-hairpin-main" :title="item.range.instrument+' · right-click, long press or Shift+F10 for hairpin options'" @pointerdown="startDynamicsContextHold($event,'hairpin',item.index)" @pointermove="dynamicsPress.move($event)" @pointerup="dynamicsPress.end($event)" @pointercancel="dynamicsPress.cancel()" @contextmenu.prevent.stop="openDynamicsContext('hairpin',item.index)" @keydown="dynamicsContextKey($event,'hairpin',item.index)" @click="clickDynamicsHairpin(item.index)">{{item.range.to>=item.range.from?'〈 Crescendo':'〉 Diminuendo'}} · {{item.range.instrument}}</button>
+          <button type="button" class="secondary dynamics-hairpin-more" :aria-label="'More options for '+item.range.instrument+' hairpin'" @click.stop="openDynamicsContext('hairpin',item.index)">⋯</button>
+        </div>
       </div>
       <div v-if="dynamicsEditRange!==null" class="note-settings-backdrop" @click.self="dynamicsEditRange=null"><div class="note-settings-dialog" role="dialog" aria-modal="true" aria-label="Edit hairpin">
         <div class="note-settings-title"><strong>Edit hairpin · {{project.expressionRanges?.[dynamicsEditRange]?.instrument}}</strong><button type="button" class="secondary" @click="dynamicsEditRange=null">✕ Close</button></div>
@@ -3359,7 +3491,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label>Or exact beat position (absolute beats from beginning, zero-based)<input type="number" step="0.25" min="0" :max="project.bars.length*project.beats" v-model="dynamicsPopupPosition"/></label></template>
         <div class="expression-range-row"><button type="button" class="primary" @click="saveDynamicPopup">Save</button><button type="button" class="secondary" @click="removeDynamicPopup">{{dynamicsPopupRange===null?'Clear dynamic':'Delete hairpin'}}</button></div>
       </div></div>
-      <p class="hint">Tap a measure's dynamic or a hairpin endpoint to edit it precisely. The gesture buttons use the From/Through measure fields below. Individual measure tiles set the selected dynamic immediately. Existing expression controls remain available for precise beat-level editing.</p>
+      <p class="hint">Tap a measure or hairpin to edit it; use ⋯, long press, right-click or Shift+F10 for contextual settings and endpoint shortcuts. Measure actions use the current scope. Exact beat positions remain editable in the existing dialogs.</p>
     </div>
     <div class="figure-workbench" aria-label="Expression ranges"><details class="control-fold" open><summary>Dynamics and expression controls</summary>
       <h3>Expression across measures</h3><div class="two"><label>Start of this measure<select :value="currentMeasureDynamic('start')" @change="setMeasureDynamic('start',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label>End of this measure<select :value="currentMeasureDynamic('end')" @change="setMeasureDynamic('end',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label></div><p class="hint">Set both endpoints for a crescendo or diminuendo hairpin. A single endpoint sets an immediate dynamic marking.</p><p class="hint">Set an instrument-specific crescendo or decrescendo, including across section boundaries. Intensity offsets are applied relative to a neutral value of 80, preserving note accents; written durations do not change. MusicXML exports hairpin wedges.</p>
@@ -3819,4 +3951,24 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .instrument-context-dialog select{min-height:40px;margin:0}
 @media (max-width:580px){.note-rhythm-snap-bar{padding:3px;gap:3px}.note-rhythm-snap-bar select{max-width:168px}.instrument-context-dialog{max-width:100%}}
 
+
+/* Contextual sheets reuse the same editors rather than storing a parallel edit state. */
+.context-sheet-backdrop{position:fixed;inset:0;z-index:28000;background:rgba(6,12,18,.7);display:flex;align-items:center;justify-content:center;padding:12px}
+.context-sheet-dialog{display:grid;gap:7px;background:#253642;color:#edf3f6;border:1px solid #8599a8;border-radius:9px;box-shadow:0 14px 35px #0009;padding:12px;width:min(430px,100%);max-height:calc(100dvh - 24px);overflow:auto}
+.context-sheet-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.context-sheet-header strong{font-size:15px}.context-sheet-dialog p{font-size:12px;line-height:1.45;color:#cbd8e0;margin:2px 0}
+.context-sheet-dialog>button{min-height:38px;text-align:left}
+.context-sheet-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.context-sheet-two>button{min-height:38px}
+.rhythm-event{touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.rhythm-context-hint{font-weight:bold;font-size:13px;opacity:.75;pointer-events:none;margin-left:4px}
+.rhythm-selected-context-action{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap;grid-column:1/-1}
+.rhythm-selected-context-action strong{font-size:12px}.rhythm-selected-context-action button{min-height:34px}
+.dynamics-measure-tile{position:relative;min-width:0}
+.dynamics-measure-main{width:100%;min-height:77px;padding-right:27px;overflow:hidden;word-wrap:break-word}
+.dynamics-more{position:absolute;right:2px;top:3px;min-height:30px;min-width:26px;padding:1px 4px;border:1px solid #607380;border-radius:5px;font-size:17px}
+.dynamics-hairpin-item{display:flex;align-items:stretch;min-width:0;overflow:visible}
+.dynamics-hairpin-main{flex:1;min-width:0;padding:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;border-radius:4px 0 0 4px}
+.dynamics-hairpin-more{flex:0 0 25px;padding:0;border-radius:0 4px 4px 0;border-left:0;font-size:17px}
+.dynamics-measure-main:focus-visible,.dynamics-more:focus-visible,.dynamics-hairpin-main:focus-visible,.dynamics-hairpin-more:focus-visible{outline:2px solid #f3c77c;outline-offset:1px}
+@media(max-width:480px){.context-sheet-dialog{padding:8px}.context-sheet-two{gap:5px}.context-sheet-two button{font-size:11px}.dynamics-hairpin-more{flex-basis:23px}}
 </style>

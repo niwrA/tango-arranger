@@ -2,12 +2,62 @@
 import {computed,ref,watch} from 'vue';
 import {projectInstruments,type Project,type Role,BASS_TECHNIQUES,type ViolinTechnique} from './music';
 import {createPhrasePlan,validatePhrasePlan,phrasePlanIsCurrent,plannedMeasureActive,type PhrasePlan,type PhrasePart} from './phrasePlan';
+import {createLongPressMenu,isContextMenuKey} from './contextPress';
 const props=defineProps<{project:Project;draft?:PhrasePlan}>();
-const emit=defineEmits<{'update:draft':[plan:PhrasePlan|undefined];apply:[plan:PhrasePlan|undefined]}>();
+const emit=defineEmits<{'update:draft':[plan:PhrasePlan|undefined];apply:[plan:PhrasePlan|undefined];'open-notes':[firstMeasure:number,lastMeasure:number]}>();
 const phraseBars=ref(props.draft?.phraseBars??props.project.phrasePlan?.phraseBars??8);
 const selectedId=ref('');
 const notice=ref('');
+const phraseHold=createLongPressMenu();
+const phraseContextId=ref<string|null>(null);
+function closePhraseContext(){phraseContextId.value=null;phraseHold.cancel();}
+function openPhraseContext(id:string){
+  if(!displayed.value?.phrases.some(p=>p.id===id))return;
+  selectedId.value=id;
+  phraseContextId.value=id;
+}
+function clickPhrase(id:string){
+  if(phraseHold.consumeClick())return;
+  selectedId.value=id;
+}
+function phraseContextKey(event:KeyboardEvent,id:string){
+  if(!isContextMenuKey(event))return;
+  event.preventDefault();event.stopPropagation();openPhraseContext(id);
+}
+function editPhraseFromMenu(){
+  if(!props.draft)edit();
+  closePhraseContext();
+}
+function copyPriorPhrase(){
+  const plan=props.draft&&clone(props.draft),i=phraseContextIndex.value;
+  if(!plan||i<=0)return;
+  plan.phrases[i].parts=JSON.parse(JSON.stringify(plan.phrases[i-1].parts));
+  emit('update:draft',plan);notice.value='Copied previous phrase settings into the draft. Apply to update the arrangement.';
+  closePhraseContext();
+}
+function setPhrasePlacement(placement:PhrasePart['placement']){
+  const plan=props.draft&&clone(props.draft),i=phraseContextIndex.value;
+  if(!plan||i<0)return;
+  for(const part of Object.values(plan.phrases[i].parts))if(part.role!=='rest')part.placement=placement;
+  emit('update:draft',plan);notice.value='Updated phrase placement in draft. Review, then Apply.';
+  closePhraseContext();
+}
+function setPhraseActivity(activity:number){
+  const plan=props.draft&&clone(props.draft),i=phraseContextIndex.value;
+  if(!plan||i<0)return;
+  for(const part of Object.values(plan.phrases[i].parts))if(part.role!=='rest')part.activity=activity;
+  emit('update:draft',plan);notice.value='Updated phrase activity in draft. Review, then Apply.';
+  closePhraseContext();
+}
+function openPhraseNotes(){
+  const phrase=phraseContext.value;
+  if(!phrase)return;
+  emit('open-notes',phrase.startMeasure,phrase.endMeasure);
+  closePhraseContext();
+}
 const displayed=computed(()=>props.draft??props.project.phrasePlan);
+const phraseContext=computed(()=>displayed.value?.phrases.find(p=>p.id===phraseContextId.value));
+const phraseContextIndex=computed(()=>displayed.value?.phrases.findIndex(p=>p.id===phraseContextId.value)??-1);
 const roster=computed(()=>projectInstruments(props.project));
 const errors=computed(()=>displayed.value?validatePhrasePlan(props.project,displayed.value):[]);
 const current=computed(()=>!props.project.phrasePlan||phrasePlanIsCurrent(props.project,props.project.phrasePlan));
@@ -78,6 +128,25 @@ function apply(){
 </script>
 <template>
   <details class="phrase-planner">
+    <Teleport to="body">
+      <div v-if="phraseContext" class="phrase-context-backdrop" @click.self="closePhraseContext()">
+        <div class="phrase-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="'Phrase '+(phraseContextIndex+1)+' options'" @keydown.esc.stop.prevent="closePhraseContext()">
+          <div class="phrase-context-heading"><strong>{{title(phraseContextIndex)}} · options</strong><button type="button" class="secondary" @click="closePhraseContext()">✕ Close</button></div>
+          <p>Context actions reuse the phrase planner. Changes stay in the draft until you select Apply.</p>
+          <button type="button" class="secondary" @click="editPhraseFromMenu">{{draft?'Edit this phrase below':'Make editable draft of this phrase'}}</button>
+          <button type="button" class="secondary" @click="openPhraseNotes">Open this phrase in Note Editor</button>
+          <template v-if="draft">
+            <button type="button" class="secondary" :disabled="phraseContextIndex<=0" @click="copyPriorPhrase">Copy settings from previous phrase</button>
+            <button type="button" class="secondary" @click="setPhrasePlacement('opening')">Place active parts at opening</button>
+            <button type="button" class="secondary" @click="setPhrasePlacement('throughout')">Distribute active parts throughout</button>
+            <button type="button" class="secondary" @click="setPhrasePlacement('closing')">Place active parts at closing</button>
+            <button type="button" class="secondary" @click="setPhraseActivity(1)">Set active parts to 100% activity</button>
+            <button type="button" class="secondary" @click="setPhraseActivity(.5)">Set active parts to 50% activity</button>
+          </template>
+          <small v-else>Choose Make editable draft to enable phrase changes. The applied arrangement stays unchanged until you apply the draft.</small>
+        </div>
+      </div>
+    </Teleport>
     <summary><strong>Phrase planner</strong><span class="phrase-state" :class="{draft:Boolean(draft),invalid:!current}">{{state}}</span></summary>
     <div class="phrase-body">
       <p class="phrase-hint">Plan musical roles, active measures, silence and techniques across each multi-measure phrase. Proposals respect song sections and instrument settings. Review the draft before applying it.</p>
@@ -89,6 +158,12 @@ function apply(){
       </div>
       <p v-if="!current" class="phrase-warning" role="status">The song form or instrument roster changed. The old plan is inactive; rebuild it before applying.</p>
       <template v-if="displayed&&selected">
+        <div class="phrase-blocks" role="group" aria-label="Phrase blocks · select or open contextual options">
+          <div v-for="(phrase,i) in displayed.phrases" :key="phrase.id" class="phrase-block">
+            <button type="button" class="phrase-block-main" :class="{selected:selected.id===phrase.id}" :aria-pressed="selected.id===phrase.id" :title="title(i)+' · long press, right-click or Shift+F10 for options'" @click="clickPhrase(phrase.id)" @pointerdown="phraseHold.start($event,()=>openPhraseContext(phrase.id))" @pointermove="phraseHold.move($event)" @pointerup="phraseHold.end($event)" @pointercancel="phraseHold.cancel()" @contextmenu.prevent.stop="openPhraseContext(phrase.id)" @keydown="phraseContextKey($event,phrase.id)">{{i+1}} · {{phrase.section}} <small>M{{phrase.startMeasure+1}}–{{phrase.endMeasure+1}}</small></button>
+            <button type="button" class="phrase-block-more" :aria-label="'More options for '+title(i)" :title="'Options for '+title(i)" @click="openPhraseContext(phrase.id)">⋯</button>
+          </div>
+        </div>
         <div class="phrase-navigation">
           <button type="button" class="secondary" :disabled="index<=0" aria-label="Previous phrase" @click="move(-1)">←</button>
           <label>Phrase<select :value="selected.id" aria-label="Selected phrase" @change="selectedId=($event.target as HTMLSelectElement).value"><option v-for="(phrase,i) in displayed.phrases" :key="phrase.id" :value="phrase.id">{{title(i)}}</option></select></label>
@@ -119,7 +194,7 @@ function apply(){
         <ul v-if="errors.length" class="phrase-warning" role="alert"><li v-for="error in errors.slice(0,4)" :key="error">{{error}}</li></ul>
         <div v-if="draft" class="phrase-actions">
           <button type="button" class="primary" :disabled="errors.length>0" @click="apply">Apply phrase plan</button>
-          <button type="button" class="secondary" @click="emit('update:draft',undefined)">Discard draft</button>
+          <button type="button" class="secondary" @click="closePhraseContext();emit('update:draft',undefined)">Discard draft</button>
           <span>Active difficulty editions are updated; saved alternatives remain intact.</span>
         </div>
       </template>
@@ -141,4 +216,20 @@ function apply(){
 .phrase-measures{display:block;margin-top:4px;font-size:10px;font-weight:400;color:#b8c9d5;overflow-wrap:anywhere}.phrase-percent{display:flex;gap:4px;align-items:center}.phrase-percent input{min-width:0}.phrase-percent>span{font-size:11px;color:#b8c9d5}.phrase-mobile-label{display:none}.phrase-no-technique{display:block;padding:8px;color:#879ba9}
 .phrase-actions>span{font-size:11px;color:#bdcbd6;flex:1 1 230px}
 @media(max-width:800px){.phrase-table,.phrase-table tbody{display:block}.phrase-table thead{position:absolute;width:1px;height:1px;overflow:hidden}.phrase-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:7px;gap:7px;border-bottom:1px solid #435361}.phrase-table tbody tr:last-child{border-bottom:0}.phrase-table th,.phrase-table td{display:block;padding:0;border:0;min-width:0}.phrase-table tbody th{grid-column:1/-1}.phrase-mobile-label{display:block;font-size:10px;color:#b8c9d5}.phrase-table select,.phrase-table input{min-height:40px}.phrase-count{width:100%}}
+
+.phrase-blocks{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 10px;align-items:center}
+.phrase-block{display:flex;align-items:stretch;border:1px solid #566e80;border-radius:6px;overflow:hidden;background:#293b47;max-width:100%}
+.phrase-block-main,.phrase-block-more{border:0;border-radius:0;background:transparent;color:#e3edf4;cursor:pointer;margin:0;padding:6px 8px;min-height:38px}
+.phrase-block-main{font-size:12px;display:flex;align-items:center;gap:5px}
+.phrase-block-main small{font-size:10px;font-weight:400}
+.phrase-block-main.selected{background:#3f6477;color:#fff0cf;font-weight:700}
+.phrase-block-more{border-left:1px solid #566e80;font-size:17px;min-width:32px}
+.phrase-block-main:focus-visible,.phrase-block-more:focus-visible{outline:2px solid #f2ca81;outline-offset:-2px}
+.phrase-context-backdrop{position:fixed;inset:0;z-index:26000;background:rgba(6,12,18,.68);display:flex;align-items:center;justify-content:center;padding:12px}
+.phrase-context-dialog{display:grid;gap:7px;background:#253643;color:#edf3f6;border:1px solid #8597a8;border-radius:9px;width:min(450px,100%);max-height:calc(100dvh - 24px);overflow:auto;padding:12px;box-shadow:0 12px 35px #0008}
+.phrase-context-dialog>button{text-align:left;min-height:38px}
+.phrase-context-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.phrase-context-heading strong{font-size:15px}
+.phrase-context-dialog p,.phrase-context-dialog small{font-size:12px;line-height:1.5;margin:2px 0;color:#c7d5de}
+@media(max-width:440px){.phrase-block-main{padding:5px 6px}.phrase-block-more{min-width:31px}.phrase-blocks{gap:4px}}
 </style>

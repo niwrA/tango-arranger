@@ -37,6 +37,15 @@
 - Focus view shows the measure range chosen by Loop from / To as a scrollable note overview. Click any measure to make it the editable measure below. Playback loops the same measure range.
 - Only the selected measure is directly draggable/resizable; the phrase overview is navigational and does not allow dragging across measure boundaries.
 
+## Contextual interaction refinement — phrase, rhythm and dynamics (19 November 2026)
+
+- [x] Offer a phrase-block strip with long-press/right-click/keyboard/visible-menu access; keep draft changes separate from applied orchestration.
+- [x] Connect phrase contextual actions to existing plan controls and the selected instrument's full phrase measure range in the Note Editor.
+- [x] Add contextual attack actions in the Rhythm Editor (accent, timing, duration, split, delete) with no automatic application to instrument notes.
+- [x] Add context actions on dynamics measure tiles and hairpins, including the actual-instrument note snapping for endpoints and a delete confirmation.
+- [x] Centralize touch long-press and scroll-cancellation logic; test pointer release, movement, keyboard shortcuts and synthetic click suppression.
+- [ ] Physical iPad Safari and desktop-browser accessibility/touch acceptance testing.
+
 ## Milestone 4 — Rhythm provenance and contextual editing (19 November 2026)
 
 - [x] Add an explicit rhythm snap selector to Note Editor / Focus mode, with readable preset onset guides; keep free timing as default.

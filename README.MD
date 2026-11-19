@@ -153,6 +153,18 @@ Snapped notes carry a small diamond and a source label in the Note Editor and Pe
 
 **Limits:** Snap guides indicate deterministic app templates, not historically authenticated orchestral rhythms. Applying a rhythm in the Rhythm Editor can intentionally retime notes and requires confirmation before overwriting protected measures. Source labels are app-specific and do not claim that MuseScore can recreate the originating preset. UI changes and pointer/context-menu behavior still require physical iPad Safari and desktop-browser acceptance testing.
 
+## Contextual editing extension — phrase, rhythm and dynamics (2026-11-19)
+
+Existing editor actions are now available directly from their musical objects. Touch and pen long press (about 550 ms), desktop right-click, keyboard Menu/Shift+F10, and visible more-options controls open context menus without replacing ordinary clicks. Moving the touch pointer cancels the pending hold, allowing scroll gestures. Menu actions lead back to the same editor functionality; there is no second independent arrangement state.
+
+**Phrase planner:** A new compact phrase-block strip selects contiguous phrases and offers contextual shortcuts to open the whole measure range in the Note Editor, create an editable phrase-plan draft, copy the previous phrase's part settings, or set shared placement/activity for non-resting parts. All changes to phrase roles, activity and placement remain in a **draft** until **Apply phrase plan**. Applied alternatives and protected notes are not silently overwritten.
+
+**Rhythm editor:** Long-press, right-click or keyboard-open a rhythm attack, or use **Options** on its selected-note controls. The menu provides beat/duration editing, accented/unaccented, move/lengthen/shorten by a sixteenth-note step, split and delete. This changes only the editable rhythm grid; instrument notes do not change until the existing Apply action. A vertical scroll cancels a pending long press; the dedicated resize grip still handles dragging.
+
+**Dynamics timeline:** Measure tiles and hairpins have context menus and a visible more-options button. Measure options edit/set/clear dynamics within the current scope or open the existing crescendo/diminuendo composer. A hairpin menu opens the existing full editor, starts or ends as exact-beat/note-snapped endpoints, or requests confirmation before deleting. The endpoint chooser now uses notes from the actual hairpin instrument even when the dynamics scope differs.
+
+Manual acceptance checks remain important on iPad Safari: scroll cancellation, right-click from a desktop mouse, keyboard context keys, focus recovery and popup geometry in both orientations.
+
 ## Known constraints
 
 - The v1.3 note editor is a simple beat-grid piano roll, **not** engraved staff notation or finger-position optimization. Double stops use a conservative adjacent-string/open-low-position heuristic. The editor permits arbitrary manual polyphony; ergonomic playability is not guaranteed.

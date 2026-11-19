@@ -43,6 +43,9 @@ jobs:
       - name: Test rhythm snapping and contextual editor menus
         run: npm run test:rhythm-snap
 
+      - name: Test contextual phrase, rhythm and dynamics interactions
+        run: npm run test:contextual
+
       - name: Verify production output
         run: |
           test -f dist/index.html

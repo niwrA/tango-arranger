@@ -1,3 +1,11 @@
+## Contextual interaction refinement — phrase, rhythm and dynamics (2026-11-19)
+
+- Added compact phrase blocks with contextual draft editing, previous-phrase copying, activity/placement shortcuts and direct Note Editor navigation.
+- Added Rhythm Editor attack context actions for accent, onset, duration, split, delete and properties, preserving the separate Apply step.
+- Added Dynamics Timeline measure/hairpin context actions for existing dynamic and endpoint editors, with deletion confirmation.
+- Shared touch/pen hold gesture handling cancels on scrolling and avoids duplicate click effects; keyboard Menu/Shift+F10 and visible menu buttons are provided.
+- Added focused interaction regression tests to CI. Touch and browser GUI acceptance remain outstanding.
+
 ## Milestone 4 — Rhythm snapping, visual cues and contextual menus (2026-11-19)
 
 - Added selectable rhythm-preset onset guides and bounded note snapping in standard and focused Note Editor views; original free timing is default.
