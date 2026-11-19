@@ -3324,10 +3324,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="performanceView==='ensemble'" class="performance-cue-grid performance-diagram-grid" aria-label="Instrument chord diagrams and role cues">
     <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel performance-diagram-card" type="button"
       :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}"
-      :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-label="`${part.display}: ${cardShowsDiagram(part.inst)?'chord diagram':'role and dynamics'}. Tap to switch view`"
+      :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-label="`${part.display}, current role: ${part.role}. ${cardShowsDiagram(part.inst)?'Chord diagram':'Role and dynamics'}. Tap to switch view`"
       :aria-pressed="!cardShowsDiagram(part.inst)" @click="flipPerformanceCard(part.inst)">
       <span class="performance-cue-identity">
-        <strong>{{part.display}}</strong>
+        <strong :title="part.display">{{part.display}}</strong>
+        <span class="performance-card-role" :title="`Current role: ${part.role}`">{{part.role}}</span>
         <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
       <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones"/>
@@ -4601,9 +4602,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .performance-live .performance-top-beat .performance-beat-strip span{height:5px}
 .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(238px,auto);gap:9px}
 .performance-live .performance-stage-only .performance-diagram-card{min-height:238px;padding:9px 10px 7px;gap:5px}
-.performance-live .performance-diagram-card .performance-cue-identity{min-height:26px;margin:0;gap:5px}
-.performance-live .performance-diagram-card .performance-cue-identity>strong{font-size:clamp(16px,1.55vw,23px)}
-.performance-live .performance-diagram-card .performance-card-rest-cue{font-size:18px;line-height:1}
+/* Keep the current role beside the name without growing the card header. */
+.performance-live .performance-diagram-card .performance-cue-identity{height:26px;min-height:26px;flex:0 0 26px;flex-wrap:nowrap;min-width:0;margin:0;gap:6px}
+.performance-live .performance-diagram-card .performance-cue-identity>strong{font-size:clamp(16px,1.55vw,23px);min-width:0;margin-right:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.performance-live .performance-diagram-card .performance-card-role{flex:0 0 auto;margin-right:auto;padding-left:6px;border-left:1px solid #667987;color:#cbd9e3;font-size:clamp(11px,1.1vw,14px);font-weight:600;line-height:1.2;text-transform:capitalize;white-space:nowrap}
+.performance-live .performance-diagram-card .performance-card-rest-cue{flex:0 0 auto;font-size:18px;line-height:1}
 .performance-live .performance-diagram-card .performance-card-mode-hint{margin-top:auto;padding:2px 0 0;line-height:1;font-size:16px;border-top:0}
 .performance-live .performance-stage-top .performance-vocal-cue{margin:3px 0 0}
 @media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
