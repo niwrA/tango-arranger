@@ -5,8 +5,7 @@ import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;nextMeasure?:number|null;nextBeat?:number|null}>();
-const nextTiming=computed(()=>props.nextMeasure===null||props.nextMeasure===undefined?'':`m. ${props.nextMeasure}${props.nextBeat&&props.nextBeat>1?' · beat '+props.nextBeat:''}`);
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -18,8 +17,6 @@ function toneClasses(symbol:string):number[]{
   return [...new Set(chordTones(symbol))];
 }
 const tones=computed(()=>toneClasses(props.chord));
-const upcomingTones=computed(()=>toneClasses(props.nextChord));
-const nextNames=computed(()=>upcomingTones.value.map(noteName).join(' · ')||'—');
 const root=computed(()=>{
  const match=props.chord.trim().match(/^([A-Ga-g])([#b]?)/);
  return match?parsePitch(match[1].toUpperCase()+match[2]+'4')!%12:-1;
@@ -51,10 +48,16 @@ const diagramDescription=computed(()=>{
 </script>
 
 <template>
- <div class="performance-instrument-diagram" :aria-label="instrument+' chord note reference'">
-   <div class="diagram-harmony-pair">
-     <div class="diagram-chord-now"><small>Current chord</small><strong>{{chord||'—'}}</strong></div>
-     <div class="diagram-chord-next"><small>Coming chord</small><strong>{{nextChord||'—'}}</strong><em v-if="nextTiming">{{nextTiming}}</em></div>
+ <div class="performance-instrument-diagram" :aria-label="instrument+' chord note reference. '+diagramDescription">
+   <div class="diagram-measure-chords" role="group" :aria-label="'Current measure chords, beat '+activeBeat+' of '+currentBeats.length">
+    <span v-for="(symbol,index) in currentBeats" :key="index" class="diagram-chord-beat" :class="{'is-current-beat':activeBeat===index+1,'is-continuation':symbol==='–'}" :aria-label="'Beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
+      <strong>{{symbol}}</strong>
+    </span>
+   </div>
+   <div class="diagram-upcoming-measure" role="group" aria-label="Chords in the next measure">
+    <span v-for="(symbol,index) in upcomingBeats" :key="index" class="diagram-next-chord-beat" :class="{'is-continuation':symbol==='–'}" :aria-label="'Next measure beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
+      <strong>{{symbol}}</strong>
+    </span>
    </div>
    <div v-if="family==='Piano'" class="diagram-piano" aria-label="Piano keys highlighted at chord pitch classes">
      <div class="diagram-white-keys">
@@ -87,7 +90,6 @@ const diagramDescription=computed(()=>{
      </div>
      <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill" :class="{'is-root':tone===root}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
    </div>
-   <div class="diagram-footer"><span>{{diagramDescription}}</span><span class="diagram-next-tones">Next: {{nextNames}}</span></div>
  </div>
 </template>
 
@@ -128,4 +130,36 @@ const diagramDescription=computed(()=>{
 .diagram-footer{margin-top:auto;display:flex;gap:2px;flex-direction:column;text-align:left;color:#a6bbcb;font-size:10px;line-height:1.2}
 .diagram-next-tones{font-weight:650;color:#cedce5}
 @media(max-width:900px){.diagram-harmony-pair strong{font-size:clamp(18px,2.3vw,27px)}.diagram-chord-next strong{font-size:clamp(16px,2vw,24px)}.diagram-white-key>span,.diagram-black-key{font-size:9px}.diagram-fingerboard{min-height:108px}.diagram-string-stop span{font-size:9px}}
+
+/* Beat slots ARE the chord and count-in: one chord onset per measure or a
+ * continuation dash. The active playback beat is the only bright slot. */
+.diagram-measure-chords,.diagram-upcoming-measure{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:5px;width:100%;min-width:0}
+.diagram-chord-beat,.diagram-next-chord-beat{display:flex;align-items:center;justify-content:center;min-width:0;white-space:nowrap;border-radius:7px;border:1px solid #617589;font-variant-numeric:tabular-nums}
+.diagram-measure-chords{margin:0 0 1px}
+.diagram-chord-beat{height:51px;background:#263846;color:#d6e4ed}
+.diagram-chord-beat strong{font-weight:850;font-size:clamp(18px,2vw,30px);line-height:1;overflow:hidden;text-overflow:ellipsis}
+.diagram-chord-beat.is-continuation{color:#718996}
+.diagram-chord-beat.is-current-beat{background:#f1c587;color:#192731;border-color:#ffe3b5;box-shadow:inset 0 1px rgba(255,255,255,.35),0 0 0 1px #efc58b55}
+.diagram-chord-beat.is-current-beat.is-continuation{color:#314353}
+.diagram-upcoming-measure{margin:0 0 3px}
+.diagram-next-chord-beat{height:33px;background:#1d2d39;border-color:#3a5061;color:#d2dfe9}
+.diagram-next-chord-beat strong{font-size:clamp(14px,1.3vw,20px);font-weight:760;overflow:hidden;text-overflow:ellipsis}
+.diagram-next-chord-beat.is-continuation{color:#617989}
+.performance-instrument-diagram{gap:7px}
+.diagram-piano{min-height:80px;height:80px;margin-top:2px}
+.diagram-fingerboard{min-height:98px;padding:4px;gap:3px}
+.diagram-string-row{min-height:18px}
+.diagram-string-stop{height:17px}
+.diagram-targets{min-height:83px;gap:5px;padding:6px}
+.diagram-tone-pill{min-height:29px;min-width:29px;font-size:14px;padding:4px 6px}
+.diagram-targets-graphic{font-size:13px}
+@media(max-width:900px){
+ .diagram-chord-beat{height:46px}
+ .diagram-chord-beat strong{font-size:clamp(18px,2vw,25px)}
+ .diagram-next-chord-beat{height:31px}
+ .diagram-piano{min-height:77px;height:77px}
+ .diagram-fingerboard{min-height:94px}
+ .diagram-targets{min-height:78px}
+}
+
 </style>
