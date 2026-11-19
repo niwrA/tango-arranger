@@ -2743,7 +2743,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 
   <div class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span></button></div>
  </section>
-<div v-else class="layout"><main><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
+<div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
   <div class="section-heading"><h2>New blank song</h2><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
   <p class="muted">Start with an empty lead sheet: no demo melody, no chord symbols and no generated accompaniment. Default: five sections (A–E), each with sixteen measures. Set each section length before creating the song; the alphabetical section labels also appear as MuseScore rehearsal marks.</p>
   <div class="two"><label>Song title<input v-model="newSongTitle" placeholder="Untitled Tango"/></label><label>Number of sections (A, B, C…)<input v-model.number="newSongSections" type="number" min="1" max="26"/></label></div>
@@ -3327,11 +3327,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   .note-unified-focus-toolbar .note-focus-range select{width:100%;max-width:none}
 }
 
-/* Tablet-first Note Editor: full-width workspace and minimal internal spacing. */
+/* Use the actual workspace width in normal mode, rather than offsetting a
+   100%-wide section beyond the main content box with a negative margin.
+   This also handles iPad breakpoints where the main padding differs. */
+.layout>main.note-workspace-main{padding-inline:4px}
 .note-editor-section:not(.note-focus-mode){
-  margin-inline:calc(0px - clamp(12px,2.1vw,34px));
-  padding-inline:4px;
+  width:100%;
   max-width:none;
+  margin-inline:0;
+  padding-inline:0;
 }
 .note-editor-section:not(.note-focus-mode) .note-unified-toolbar{
   display:flex;
