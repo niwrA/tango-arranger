@@ -4611,6 +4611,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 
 
+/* Fixed-height ensemble rows: MIDI activity changes paint only, not layout.
+ * The 270px slot accommodates each of the instrument-specific static diagrams.
+ * Avoid minmax(X,auto), which silently reintroduces row growth on a note change. */
+.performance-live .performance-stage-only .performance-cue-grid{
+ grid-auto-rows:270px!important;align-content:start;
+}
+.performance-live .performance-stage-only .performance-diagram-card{
+ height:270px!important;min-height:270px!important;max-height:270px!important;
+ box-sizing:border-box;overflow:hidden;
+}
+@media(max-width:750px){
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:282px!important}
+ .performance-live .performance-stage-only .performance-diagram-card{
+  height:282px!important;min-height:282px!important;max-height:282px!important;
+ }
+}
+/* A segmented switch's *outer* height now matches the 42px buttons. */
+.performance-live .performance-topbar-view-switch{
+ height:42px!important;min-height:42px!important;padding:3px!important;box-sizing:border-box;
+}
+.performance-live .performance-topbar-view-switch button{
+ height:34px!important;min-height:34px!important;padding:4px 12px!important;
+}
 /* Identical stage-control and transport touch targets. Full screen and returning
  * to the editor are distinct, adjacent actions with consistent visual rhythm. */
 .performance-live .app-topbar{gap:7px;min-height:57px}
