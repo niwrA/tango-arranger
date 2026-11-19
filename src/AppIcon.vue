@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'}>();
 const paths:Record<typeof props.name,string>={
   plus:'M12 5v14 M5 12h14',
   save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z M7 3v6h10V4 M7 21v-8h10v8',
@@ -26,7 +26,9 @@ const paths:Record<typeof props.name,string>={
   'sliders-horizontal':'M4 7h16 M4 17h16 M9 4v6 M15 14v6',
   'circle-help':'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M9.1 9a3 3 0 0 1 5.8 1c0 2-2.9 2.2-2.9 4 M12 17h.01',
   'presentation':'M3 3h18v14H3z M8 21l4-4 4 4 M12 17v4',
-  'arrow-left':'M19 12H5 M12 19l-7-7 7-7'
+  'arrow-left':'M19 12H5 M12 19l-7-7 7-7',
+  maximize:'M8 3H5a2 2 0 0 0-2 2v3 M16 3h3a2 2 0 0 1 2 2v3 M21 16v3a2 2 0 0 1-2 2h-3 M8 21H5a2 2 0 0 1-2-2v-3',
+  minimize:'M8 8H3 M8 8V3 M16 8h5 M16 8V3 M16 16h5 M16 16v5 M8 16H3 M8 16v5'
 };
 </script>
 <template><svg class="app-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="paths[props.name]"/></svg></template>

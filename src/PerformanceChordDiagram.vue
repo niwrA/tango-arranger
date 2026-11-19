@@ -52,6 +52,11 @@ const unmappedSoundingPitches=computed(()=>props.activePitches.filter(midi=>{
  if(isStringInstrument.value)return !openStrings.value.some(string=>midi>=string.midi&&midi<string.midi+stops.length);
  return true;
 }));
+/** Live note labels are overlays; they never add flex/grid rows.
+ * Bound the visible pitch badges so polyphonic voicings cannot overflow. */
+const visibleUnmappedPitches=computed(()=>unmappedSoundingPitches.value.slice(0,3));
+const extraUnmappedCount=computed(()=>Math.max(0,unmappedSoundingPitches.value.length-visibleUnmappedPitches.value.length));
+const livePitchesLabel=computed(()=>unmappedSoundingPitches.value.map(midiLabel).join(' · '));
 const diagramDescription=computed(()=>{
  if(family.value==='Piano')return 'Two octaves · concert pitches';
  if(isStringInstrument.value)return 'Open strings + chromatic positions · schematic';
@@ -73,6 +78,7 @@ const diagramDescription=computed(()=>{
       <strong>{{symbol}}</strong>
     </span>
    </div>
+   <div class="diagram-visual-stage" :class="{'diagram-target-visual':!isStringInstrument&&family!=='Piano'}">
    <div v-if="family==='Piano'" class="diagram-piano" aria-label="Piano keys highlighted at chord pitch classes">
      <div class="diagram-white-keys">
        <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key"  :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi)}" :title="midiLabel(midi)">
@@ -103,8 +109,10 @@ const diagramDescription=computed(()=>{
      </div>
      <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill"  :class="{'is-root':tone===root,'is-sounding':isPlayingTone(tone),'is-unplayed-chord-tone':shouldDimClass(tone)}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
    </div>
-   <div v-if="unmappedSoundingPitches.length" class="diagram-live-pitches" aria-label="Sounding notes outside the depicted positions">
-    <span v-for="pitch in unmappedSoundingPitches" :key="pitch" class="diagram-live-pitch">{{midiLabel(pitch)}}</span>
+   <div v-if="unmappedSoundingPitches.length" class="diagram-live-pitches" :title="livePitchesLabel" :aria-label="'Additional sounding pitches: '+livePitchesLabel">
+    <span v-for="pitch in visibleUnmappedPitches" :key="pitch" class="diagram-live-pitch">{{midiLabel(pitch)}}</span>
+    <span v-if="extraUnmappedCount" class="diagram-live-pitch diagram-live-overflow">+{{extraUnmappedCount}}</span>
+   </div>
    </div>
  </div>
 </template>
@@ -178,6 +186,16 @@ const diagramDescription=computed(()=>{
  .diagram-targets{min-height:78px}
 }
 
+/* Prevent changes in chord tone count or live notes from altering chart height.
+ * All visual movement is confined to color/highlight changes inside a fixed box. */
+.diagram-targets{height:94px;min-height:94px;max-height:94px;box-sizing:border-box;overflow:hidden}
+.diagram-fingerboard{height:98px;min-height:98px;max-height:98px;box-sizing:border-box;overflow:hidden}
+.diagram-piano{height:80px;min-height:80px;max-height:80px;box-sizing:border-box}
+@media(max-width:900px){
+ .diagram-targets{height:82px;min-height:82px;max-height:82px}
+ .diagram-fingerboard{height:94px;min-height:94px;max-height:94px}
+ .diagram-piano{height:77px;min-height:77px;max-height:77px}
+}
 /* Aqua means the note is actually sounding in this instrument, rather than
  * simply belonging to the theoretical chord. Unplayed chord tones are subdued
  * only for a sounding chord-role voicing. */
@@ -192,7 +210,17 @@ const diagramDescription=computed(()=>{
  z-index:2;
 }
 .diagram-white-key.is-sounding{border-color:#317f75}
-.diagram-live-pitches{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:0;min-height:20px}
+.diagram-visual-stage{position:relative;isolation:isolate;min-width:0;flex:0 0 auto}
+.diagram-live-pitches{
+ position:absolute;z-index:10;right:4px;bottom:3px;max-width:calc(100% - 8px);
+ display:flex;align-items:center;justify-content:flex-end;gap:3px;flex-wrap:nowrap;
+ min-width:0;min-height:0;overflow:hidden;white-space:nowrap;pointer-events:none;
+ background:#14232edb;padding:3px 4px;border-radius:7px;border:1px solid #67988f8c;
+}
+/* Abstract button and wind charts have no fixed displayed octave. Place their
+ * live pitch badges above the chord targets, rather than covering the targets. */
+.diagram-target-visual .diagram-live-pitches{top:2px;bottom:auto}
+.diagram-live-overflow{font-size:10px;font-weight:800;color:#c6f6ed;background:#315550;border:1px solid #6bb9a5;border-radius:5px;padding:2px 5px}
 .diagram-live-pitch{font-size:12px;font-weight:800;color:#17333b;background:#79e6d4;border:1px solid #b4fff3;border-radius:7px;padding:2px 7px;font-variant-numeric:tabular-nums}
 @media(prefers-reduced-motion:reduce){
  .diagram-white-key.is-sounding,.diagram-black-key.is-sounding,

@@ -3199,7 +3199,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
-    <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button><button type="button" class="secondary performance-topbar-button" :aria-pressed="performanceMode" @click="performanceMode=!performanceMode" :title="performanceMode?'Return to editor':'Show live performance'" :aria-label="performanceMode?'Return to editor':'Show live performance'"><AppIcon :name="performanceMode?'arrow-left':'presentation'"/><span>{{performanceMode?'Editor':'Performance'}}</span></button>
+    <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button><button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span class="header-save-status" role="status">{{audioEngine==='samples'?sampleStatus:'Original synthesizer selected'}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span class="header-save-status" role="status">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
@@ -3223,7 +3223,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble</button>
       <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
     </div>
-    <button type="button" class="secondary performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive||performanceStageCompact?'Exit full screen or stage view':'Full screen (browser permitting)'" @click="togglePerformanceFullscreen">{{performanceFullscreenActive||performanceStageCompact?'Exit stage':'⛶ Full screen'}}</button>
+    <div class="performance-stage-actions" role="group" aria-label="Stage and editor controls">
+      <button type="button" class="secondary performance-stage-action performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen (if supported)'" :aria-label="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen'" @click="togglePerformanceFullscreen">
+        <AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/><span>{{performanceFullscreenActive||performanceStageCompact?'Exit screen':'Full screen'}}</span>
+      </button>
+      <button type="button" class="secondary performance-stage-action performance-editor-button" title="Leave performance mode and return to editor" aria-label="Leave performance mode and return to editor" @click="performanceMode=false">
+        <AppIcon name="arrow-left"/><span>Editor</span>
+      </button>
+    </div>
   </div>
 </header>
 <div v-if="statusVisible && !statusDismissed && !performanceMode" class="topbar-status" :style="/\b(failed|error|invalid|cannot|could not)\b/i.test(message)?{background:'#fff0f0',color:'#9b1c1c',borderColor:'#e9a2a2'}:undefined" role="status" aria-live="polite"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
@@ -4601,6 +4608,73 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-live .performance-section-grid .performance-section-jump{min-width:30px;padding:3px 5px}
  .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(235px,auto)}
  .performance-live .performance-stage-only .performance-diagram-card{min-height:235px}
+}
+
+
+/* Fixed-height ensemble rows: MIDI activity changes paint only, not layout.
+ * The 270px slot accommodates each of the instrument-specific static diagrams.
+ * Avoid minmax(X,auto), which silently reintroduces row growth on a note change. */
+.performance-live .performance-stage-only .performance-cue-grid{
+ grid-auto-rows:270px!important;align-content:start;
+}
+.performance-live .performance-stage-only .performance-diagram-card{
+ height:270px!important;min-height:270px!important;max-height:270px!important;
+ box-sizing:border-box;overflow:hidden;
+}
+@media(max-width:750px){
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:282px!important}
+ .performance-live .performance-stage-only .performance-diagram-card{
+  height:282px!important;min-height:282px!important;max-height:282px!important;
+ }
+}
+/* A segmented switch's *outer* height now matches the 42px buttons. */
+.performance-live .performance-topbar-view-switch{
+ height:42px!important;min-height:42px!important;padding:3px!important;box-sizing:border-box;
+}
+.performance-live .performance-topbar-view-switch button{
+ height:34px!important;min-height:34px!important;padding:4px 12px!important;
+}
+/* Identical stage-control and transport touch targets. Full screen and returning
+ * to the editor are distinct, adjacent actions with consistent visual rhythm. */
+.performance-live .app-topbar{gap:7px;min-height:57px}
+.performance-live .app-topbar .topbar-playback{gap:4px;border-right:0;padding:0}
+.performance-live .app-topbar .topbar-playback .transport-play,
+.performance-live .app-topbar .topbar-playback .transport-stop{
+ width:42px!important;min-width:42px!important;height:42px!important;min-height:42px!important;
+ padding:7px!important;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;
+}
+.performance-live .performance-topbar-actions{gap:7px;align-items:center}
+.performance-live .performance-topbar-view-switch{gap:3px;padding:3px;border-radius:10px}
+.performance-live .performance-topbar-view-switch button{
+ height:42px;min-height:42px;padding:7px 12px;line-height:1.15;
+ display:inline-flex;align-items:center;justify-content:center;border-radius:7px;
+}
+.performance-live .performance-stage-actions{
+ display:inline-flex;align-items:center;gap:4px;min-width:0;
+ padding-left:8px;border-left:1px solid #445766;
+}
+.performance-live .performance-stage-actions .performance-stage-action,
+.performance-live .performance-topbar-actions .performance-fullscreen-button{
+ display:inline-flex;align-items:center;justify-content:center;gap:6px;
+ height:42px!important;min-height:42px!important;min-width:42px;
+ padding:7px 11px!important;white-space:nowrap;font-size:12px;line-height:1;
+ font-weight:650;border-radius:9px;border:1px solid #647787;
+ background:#263744;color:#e6edf2;box-shadow:none;
+}
+.performance-live .performance-stage-actions .performance-stage-action:hover{background:#34495a;border-color:#9aaab5}
+.performance-live .performance-stage-actions .performance-stage-action:focus-visible{outline:2px solid #f4d19d;outline-offset:2px}
+.performance-live .performance-stage-actions .performance-fullscreen-button[aria-pressed="true"]{
+ background:#455563;border-color:#d5ae77;color:#fff1da;
+}
+.performance-live .performance-stage-actions .performance-editor-button{border-color:#80705c;background:#322d29;color:#f4dcbf}
+.performance-live .performance-stage-actions .app-icon{width:18px;height:18px;flex:0 0 18px}
+@media(max-width:1100px){
+ .performance-live .performance-stage-actions .performance-stage-action span{display:none}
+ .performance-live .performance-stage-actions .performance-stage-action{width:42px;padding:7px!important}
+}
+@media(max-width:750px){
+ .performance-live .performance-topbar-view-switch button{min-height:42px;height:42px}
+ .performance-live .performance-stage-actions{padding-left:5px;gap:3px}
 }
 
 </style>
