@@ -39,14 +39,15 @@ check('performance exposes ensemble, karaoke, harmony and split note slices',()=
  for(const needle of ["performanceView==='ensemble'","performanceVocalCue.count","performanceHarmony.upcomingKey","performanceCueParts","performanceRoll.slices","splitAtMeasureBoundaries(notes,beats,first,length)"])
   assert.ok(app.includes(needle),needle);
 });
-check('stage uses one unified harmony side panel and leaves instruments to the left',()=>{
+check('performance stage contains one combined navigation, section grid and beat panel',()=>{
  const section=app.slice(app.indexOf('<section v-if="performanceMode"'),app.indexOf('<div v-else class="layout">'));
- assert.ok(section.includes('class="performance-stage-main"'));
- assert.ok(section.includes('class="performance-harmony-sidebar"'));
- assert.ok(section.indexOf('class="performance-stage-main"')<section.indexOf('class="performance-harmony-sidebar"'));
- assert.equal((section.match(/class="performance-harmony-sidebar"/g)||[]).length,1);
- assert.ok(section.includes('Current key')&&section.includes('Next key'));
- assert.ok(section.includes('Current chord')&&section.includes('Next chord'));
+ assert.ok(section.includes('class="performance-stage-top"'));
+ assert.ok(section.includes('class="performance-stage-controls"'));
+ assert.ok(section.includes('class="performance-section-grid"'));
+ assert.ok(section.includes('class="performance-top-beat"'));
+ assert.ok(section.includes('class="performance-stage-main performance-stage-only"'));
+ assert.ok(!section.includes('<aside class="performance-harmony-sidebar"'));
+ assert.ok(section.indexOf('class="performance-stage-top"')<section.indexOf('class="performance-cue-grid'));
 });
 check('view switch and fullscreen are in topbar and browser limitations are handled',()=>{
  const header=app.slice(app.indexOf('<header class="app-topbar">'),app.indexOf('</header>'));
@@ -56,12 +57,14 @@ check('view switch and fullscreen are in topbar and browser limitations are hand
  assert.ok(app.includes('typeof root.requestFullscreen'));
  assert.ok(app.includes('performanceStageCompact.value=true'));
 });
-check('large instrument tiles retain fixed structure as entries approach',()=>{
- assert.ok(app.includes('class="performance-cue-activity"'));
- assert.ok(app.includes('part.cueStatus'));
- assert.ok(app.includes('performance-cue-change'));
+check('instrument diagrams are default and a tap switches to roles and dynamics',()=>{
+ assert.ok(app.includes('cardShowsDiagram(inst:Instrument)'));
+ assert.ok(app.includes('flipPerformanceCard(part.inst)'));
+ assert.ok(app.includes('<PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)"'));
+ assert.ok(app.includes("'--cue-beat-glow':performanceBeatGlow"));
+ assert.ok(app.includes('class="performance-card-beats"'));
+ assert.ok(!app.includes('class="performance-cue-activity"'));
  assert.ok(!app.includes('class="performance-cue-entry">Next entry'));
- assert.ok(app.includes('grid-auto-rows:minmax(205px,1fr)'));
 });
 check('tablet stage prevents seek control from acquiring a vertical flex basis',()=>{
  const style=app.slice(app.lastIndexOf('/* iPad performance-stage layout correction'));
@@ -69,11 +72,10 @@ check('tablet stage prevents seek control from acquiring a vertical flex basis',
  assert.match(style,/\.performance-stage-main \.performance-compact-seek\s*\{[^}]*flex:none/s);
  assert.match(style,/\.performance-stage-main \.performance-cue-grid\s*\{[^}]*flex:0 0 auto/s);
 });
-check('landscape tablet uses compact equal-height cue rows',()=>{
- const css=app.slice(app.lastIndexOf('/* iPad performance-stage layout correction'));
- assert.match(css,/@media\(min-width:751px\) and \(max-width:1200px\) and \(orientation:landscape\)/);
- assert.match(css,/grid-auto-rows:minmax\(163px,auto\)/);
- assert.match(css,/\.performance-harmony-sidebar\{align-self:start;height:auto\}/);
+check('stage cards remain same height at each responsive size',()=>{
+ assert.ok(app.includes('.performance-stage-only .performance-cue-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(287px,auto)'));
+ assert.ok(app.includes('.performance-stage-only .performance-diagram-card{min-height:287px'));
+ assert.ok(app.includes('class="performance-card-mode-hint"'));
 });
 check('ensemble activity remains fixed throughout each measure instead of toggling every attack',()=>{
  assert.ok(app.includes('const playingInMeasure=notes.some('));
@@ -82,11 +84,13 @@ check('ensemble activity remains fixed throughout each measure instead of toggli
  assert.ok(app.includes("'--cue-beat-glow':performanceBeatGlow"));
  assert.ok(!app.includes("cueStatus=part.sounding?'PLAYING'"));
 });
-check('chords take visual precedence over smaller key annotations',()=>{
- const side=app.slice(app.indexOf('<aside class="performance-harmony-sidebar"'),app.indexOf('</aside>',app.indexOf('<aside class="performance-harmony-sidebar"')));
- assert.ok(side.indexOf('performance-chord-group')<side.indexOf('performance-key-group'));
- assert.ok(app.includes('.performance-chord-group .performance-harmony-item strong{font-size:clamp(36px,3.7vw,61px)'));
- assert.ok(app.includes('.performance-key-group .performance-harmony-item strong{font-size:clamp(18px,1.5vw,24px)'));
+check('harmonic cue follows intra-measure changes and gives chords priority',()=>{
+ const section=app.slice(app.indexOf('const performanceHarmony=computed('),app.indexOf('function performanceDynamic('));
+ assert.ok(section.includes('chordAt(current?.chord'));
+ assert.ok(section.includes('parseChordSequence(p.bars[i].chord,p.beats)'));
+ assert.ok(section.includes('nextChordMeasure'));
+ assert.ok(app.includes(':chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"'));
+ assert.ok(app.includes('Key {{performanceHarmony.key}}'));
 });
 check('upright stage cards retain reduced-motion option',()=>{
  assert.ok(app.includes('container-name:performance-parts'));
@@ -103,5 +107,16 @@ check('orchestration controls are available in the menu without redundant top pa
  assert.ok(area.includes('<PhrasePlanEditor :project="project" :start-open="true" v-if="phrasePlannerVisible"'));
  assert.ok(area.includes('class="overview-legend orchestration-right-legend"'));
  assert.ok(!area.includes('class="map-context-toolbar"'));
+});
+check('instrument-aware diagrams expose exact note locations only where safe',()=>{
+ const diag=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
+ assert.ok(diag.includes('chordTones(symbol)'));
+ assert.ok(diag.includes("family.value==='Violin'"));
+ assert.ok(diag.includes("family.value==='Contrabass'"));
+ assert.ok(diag.includes("family.value==='Guitar'"));
+ assert.ok(diag.includes("family==='Piano'"));
+ assert.ok(diag.includes('Chord tones · no button fingering inferred'));
+ assert.ok(diag.includes('Concert pitches · transpose for written part'));
+ assert.ok(diag.includes('Coming chord'));
 });
 console.log(count+' performance cue checks passed');
