@@ -4405,11 +4405,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 .performance-cue-panel.performance-cue-rest{opacity:.91}
 .performance-cue-activity.is-playing{background:#314b42;border-color:#5d9a78;color:#d4f3df}
-@container performance-parts (max-width:800px){
+@container performance-parts (max-width:700px){
  .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(213px,auto)}
  .performance-stage-main .performance-cue-panel{min-height:213px;padding:9px}
 }
-@container performance-parts (max-width:655px){
+@container performance-parts (max-width:520px){
  .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(205px,auto)}
  .performance-stage-main .performance-cue-panel{min-height:205px}
 }
