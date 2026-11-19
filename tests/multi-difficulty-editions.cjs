@@ -16,8 +16,9 @@ function load(name,imports={}){
  return mod.exports;
 }
 const gestures=load('src/tangoGestures.ts');
-const music=load('src/music.ts',{'./tangoGestures':gestures});
-const editions=load('src/editions.ts',{'./music':music});
+const phrases=load('src/phrasePlan.ts');
+const music=load('src/music.ts',{'./tangoGestures':gestures,'./phrasePlan':phrases});
+const editions=load('src/editions.ts',{'./music':music,'./phrasePlan':phrases});
 const io=load('src/io.ts',{'./music':music,'./editions':editions,'./tangoGestures':gestures});
 let checks=0;
 function check(label,task){task();checks++;console.log('PASS',label);}

@@ -10,10 +10,11 @@ function load(file,imports={}){
  return mod.exports;
 }
 const gestures=load('src/tangoGestures.ts');
-const music=load('src/music.ts',{'./tangoGestures':gestures});
+const phrases=load('src/phrasePlan.ts');
+const music=load('src/music.ts',{'./tangoGestures':gestures,'./phrasePlan':phrases});
 const measure=load('src/measureLoop.ts',{'./music':music,'./tangoGestures':gestures});
 const audio=load('src/expressiveAudio.ts');
-const editions=load('src/editions.ts',{'./music':music});
+const editions=load('src/editions.ts',{'./music':music,'./phrasePlan':phrases});
 const io=load('src/io.ts',{'./music':music,'./editions':editions,'./tangoGestures':gestures});
 let count=0;function check(name,fn){fn();count++;console.log('PASS',name);}
 const violin={pitch:72,start:0,duration:2,velocity:95};
