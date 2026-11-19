@@ -32,7 +32,7 @@ import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type Captur
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
-import {splitAtMeasureBoundaries} from './performanceCues';
+import {splitAtMeasureBoundaries,soundingPitchesAtBeat} from './performanceCues';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -362,6 +362,12 @@ const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
 const performanceView=ref<'ensemble'|'notes'>('ensemble');
+/** A stage title never changes the saved project title. Remove bracketed revision notes,
+ * retaining the full name as a tooltip on the displayed heading. */
+const performanceShortTitle=computed(()=> {
+ const original=project.value.title.trim()||'Untitled tango';
+ return original.replace(/\s*[([{].*$/,'').trim()||original;
+});
 const performanceCardModes=ref<Record<string,'diagram'|'cues'>>({});
 function flipPerformanceCard(inst:Instrument){performanceCardModes.value={...performanceCardModes.value,[inst]:performanceCardModes.value[inst]==='cues'?'diagram':'cues'};}
 function cardShowsDiagram(inst:Instrument){return performanceCardModes.value[inst]!=='cues';}
@@ -407,6 +413,26 @@ const performanceBeatGlow=computed(()=>{
  return (0.10+0.37*Math.pow(1-phase,2.4)).toFixed(3);
 });
 const performanceSections=computed(()=>sectionSpans(project.value));
+/** Per-beat measure cues show the chord when it first appears, then a dash while
+ * that same chord continues. Each row restarts at its own measure boundary. */
+function stageMeasureChords(index:number):string[]{
+ const p=project.value,bar=p.bars[index];
+ if(!bar)return Array.from({length:p.beats},()=> '–');
+ let previous='';
+ return Array.from({length:p.beats},(_,beat)=>{
+  let symbol='';
+  try{symbol=chordAt(bar.chord,p.beats,beat).trim();}catch{symbol=bar.chord.split(',')[0]?.trim()??'';}
+  if(!symbol)return '–';
+  if(symbol===previous)return '–';
+  previous=symbol;
+  return symbol;
+ });
+}
+const performanceChordBeats=computed(()=>({
+ current:stageMeasureChords(performanceBar.value),
+ next:stageMeasureChords(performanceBar.value+1),
+ nextMeasure:Math.min(project.value.bars.length,performanceBar.value+2)
+}));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
 /** Harmonic timeline tracks intra-measure chord changes instead of assuming one chord per bar. */
 const performanceHarmony=computed(()=>{
@@ -441,8 +467,10 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const notes=score.value[part.inst]??[];
  const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
  const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
+ const activePitches=playing.value?soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration):[];
+ const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:rosterDisplayName(part.inst),playingInMeasure,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:rosterDisplayName(part.inst),playingInMeasure,activePitches,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -3165,8 +3193,9 @@ function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
 </script>
 <template>
-<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact}"><header class="app-topbar">
+<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appVersion}}</small></span></button>
+  <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'">{{performanceShortTitle}}</div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
@@ -3231,21 +3260,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
  <section v-if="performanceMode" class="performance-workspace performance-expanded">
   <div class="performance-stage-top" role="region" aria-label="Performance measure, section and beat">
-   <div class="performance-stage-top-title"><strong>{{project.title||'Untitled tango'}}</strong><span>Key {{performanceHarmony.key}}<template v-if="performanceHarmony.changeMeasure!==null"> · {{performanceHarmony.upcomingKey}} at measure {{performanceHarmony.changeMeasure}}</template></span></div>
+   
    <div class="performance-stage-controls">
     <div class="performance-top-seek">
-      <span class="performance-top-caption">Measure {{performanceBar+1}} / {{project.bars.length}} · {{project.bpm}} BPM</span>
+      <span class="performance-seek-index">{{performanceBar+1}}/{{project.bars.length}}</span>
       <label class="performance-compact-seek"><span class="sr-only">Seek to measure</span><input type="range" min="0" :max="Math.max(0,project.bars.length-1)" step="1" :value="performanceBar" @change="performanceSeek(Number(($event.target as HTMLInputElement).value))" :aria-valuetext="`Measure ${performanceBar+1} of ${project.bars.length}`"/></label>
     </div>
     <div class="performance-top-section">
-     <span class="performance-top-caption">Section {{performanceSection}}</span>
      <div class="performance-section-grid" role="group" aria-label="Jump to section">
       <button v-for="(span,si) in performanceSections" :key="`${span.label}:${span.start}`" type="button" class="performance-section-jump" :class="{'performance-section-jump-active':performanceSection===span.label}" :aria-current="performanceSection===span.label?'true':undefined" :aria-label="`Jump to section ${span.label}, measure ${span.start+1}`" @click="performanceSeek(span.start)">{{sectionLetter(si)}}</button>
      </div>
     </div>
     <div class="performance-top-beat" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-      <span class="performance-top-caption">Beat · {{performanceSection}}</span>
-      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/ {{project.beats}}</span></div>
+      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo">{{project.bpm}}</span></div>
       <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
     </div>
    </div>
@@ -3267,17 +3294,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       :aria-pressed="!cardShowsDiagram(part.inst)" @click="flipPerformanceCard(part.inst)">
       <span class="performance-cue-identity">
         <strong>{{part.display}}</strong>
-        <span v-if="part.playingInMeasure" class="performance-card-beats" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-         <i v-for="beat in project.beats" :key="beat" :class="{'is-current':beat===Math.floor(performanceMeasureBeat)}" aria-hidden="true"></i>
-        </span>
-        <span v-else class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'Next measure':'Rest'}}</span>
+        <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :next-measure="performanceHarmony.nextChordMeasure" :next-beat="performanceHarmony.nextChordBeat"/>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones"/>
       <template v-else>
         <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
         <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
       </template>
-      <span class="performance-card-mode-hint">{{cardShowsDiagram(part.inst)?'Tap for role & dynamics':'Tap for chord diagram'}}</span>
+      <span v-if="!cardShowsDiagram(part.inst)" class="performance-card-mode-hint">⇄</span>
     </button>
   </div>
   </div>
@@ -4513,6 +4537,70 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 @media(prefers-reduced-motion:reduce){
  .performance-card-beats i.is-current{box-shadow:none}
+}
+
+
+/* Stage v5: one-line title in the playback bar. Preserve full title on hover/touch
+ * accessibility, but remove bracketed recording notes only from the display. */
+.performance-live .app-topbar{display:flex;align-items:center;flex-wrap:nowrap;gap:9px;padding:6px 11px;min-height:54px}
+.performance-live .app-topbar .brand{display:none!important}
+.performance-live .app-topbar .performance-topbar-song-title{display:block;order:1;flex:1 1 auto;min-width:50px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:clamp(20px,2.55vw,36px);font-weight:800;line-height:1.08;letter-spacing:-.025em;color:#e9eff3}
+.performance-live .app-topbar .topbar-playback{order:2;flex:0 0 auto;margin:0;padding:0}
+.performance-live .app-topbar .performance-topbar-actions{order:3;flex:0 0 auto;margin-left:0}
+.performance-live .app-topbar .topbar-playback .icon-action{height:39px;min-height:39px}
+.performance-live .performance-workspace.performance-expanded{padding:7px 11px;gap:8px}
+.performance-live .performance-stage-top{padding:5px 10px;gap:4px}
+.performance-live .performance-stage-controls{display:grid;grid-template-columns:minmax(120px,1fr) auto auto;gap:9px;align-items:center}
+.performance-live .performance-top-seek{display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0}
+.performance-live .performance-seek-index{color:#f4d7a8;font-size:clamp(14px,1.3vw,18px);line-height:1;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums}
+.performance-live .performance-top-seek .performance-compact-seek{width:auto;min-width:90px;flex:1 1 auto;height:26px}
+.performance-live .performance-top-seek .performance-compact-seek input{width:100%;min-width:0}
+.performance-live .performance-top-section{display:flex;flex-direction:row;align-items:center}
+.performance-live .performance-section-grid{display:grid;grid-template-columns:repeat(4,minmax(34px,1fr));min-width:0;gap:4px}
+.performance-live .performance-section-grid .performance-section-jump{font-size:14px;min-width:34px;min-height:34px;height:34px;padding:4px 8px}
+.performance-live .performance-top-beat{border-left:1px solid #506577;padding:0 0 0 10px;align-items:center;gap:2px}
+.performance-live .performance-beat-display{display:flex;align-items:baseline;gap:4px}
+.performance-live .performance-beat-display strong{font-size:clamp(22px,2.4vw,33px);line-height:1;color:#f9d49d}
+.performance-live .performance-top-beat-count{font-size:14px}
+.performance-live .performance-compact-tempo{font-size:11px;color:#aebfcb;font-weight:700;font-variant-numeric:tabular-nums;padding-left:4px}
+.performance-live .performance-top-beat .performance-beat-strip{width:100%;max-width:94px;gap:3px}
+.performance-live .performance-top-beat .performance-beat-strip span{height:5px}
+.performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(238px,auto);gap:9px}
+.performance-live .performance-stage-only .performance-diagram-card{min-height:238px;padding:9px 10px 7px;gap:5px}
+.performance-live .performance-diagram-card .performance-cue-identity{min-height:26px;margin:0;gap:5px}
+.performance-live .performance-diagram-card .performance-cue-identity>strong{font-size:clamp(16px,1.55vw,23px)}
+.performance-live .performance-diagram-card .performance-card-rest-cue{font-size:18px;line-height:1}
+.performance-live .performance-diagram-card .performance-card-mode-hint{margin-top:auto;padding:2px 0 0;line-height:1;font-size:16px;border-top:0}
+.performance-live .performance-stage-top .performance-vocal-cue{margin:3px 0 0}
+@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(236px,auto)}
+ .performance-live .performance-stage-only .performance-diagram-card{min-height:236px}
+}
+@media(max-width:850px){
+ .performance-live .app-topbar .performance-topbar-song-title{font-size:clamp(17px,2.25vw,26px)}
+ .performance-live .app-topbar{gap:5px}
+ .performance-live .performance-stage-controls{gap:6px}
+}
+@media(max-width:750px){
+ .performance-live .app-topbar{flex-wrap:wrap}
+ .performance-live .app-topbar .performance-topbar-song-title{flex:1 1 100%;order:0;font-size:clamp(19px,4vw,29px)}
+ .performance-live .app-topbar .topbar-playback{order:1;margin-right:auto}
+ .performance-live .app-topbar .performance-topbar-actions{order:2}
+ .performance-live .performance-stage-controls{grid-template-columns:minmax(0,1fr) auto}
+ .performance-live .performance-top-seek{grid-column:1;grid-row:1}
+ .performance-live .performance-top-section{grid-column:1;grid-row:2}
+ .performance-live .performance-top-beat{grid-column:2;grid-row:1 / span 2}
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(245px,auto)}
+ .performance-live .performance-stage-only .performance-diagram-card{min-height:245px}
+}
+@media(max-width:480px){
+ .performance-live .app-topbar .performance-topbar-song-title{font-size:19px}
+ .performance-live .performance-compact-tempo{display:none}
+ .performance-live .performance-stage-top{padding:5px 7px}
+ .performance-live .performance-stage-controls{gap:5px}
+ .performance-live .performance-section-grid .performance-section-jump{min-width:30px;padding:3px 5px}
+ .performance-live .performance-stage-only .performance-cue-grid{grid-auto-rows:minmax(235px,auto)}
+ .performance-live .performance-stage-only .performance-diagram-card{min-height:235px}
 }
 
 </style>

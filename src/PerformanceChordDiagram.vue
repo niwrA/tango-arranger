@@ -3,10 +3,9 @@ import {computed} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
- * exact notes currently being played by this part. Physical stopped-note locations are
+ * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;nextMeasure?:number|null;nextBeat?:number|null}>();
-const nextTiming=computed(()=>props.nextMeasure===null||props.nextMeasure===undefined?'':`m. ${props.nextMeasure}${props.nextBeat&&props.nextBeat>1?' · beat '+props.nextBeat:''}`);
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -18,12 +17,16 @@ function toneClasses(symbol:string):number[]{
   return [...new Set(chordTones(symbol))];
 }
 const tones=computed(()=>toneClasses(props.chord));
-const upcomingTones=computed(()=>toneClasses(props.nextChord));
-const nextNames=computed(()=>upcomingTones.value.map(noteName).join(' · ')||'—');
 const root=computed(()=>{
  const match=props.chord.trim().match(/^([A-Ga-g])([#b]?)/);
  return match?parsePitch(match[1].toUpperCase()+match[2]+'4')!%12:-1;
 });
+const activeMidi=computed(()=>new Set(props.activePitches));
+const activeClasses=computed(()=>new Set(props.activePitches.map(n=>((n%12)+12)%12)));
+function isPlayingPitch(midi:number){return activeMidi.value.has(midi);}
+function isPlayingTone(tone:number){return activeClasses.value.has(tone);}
+function shouldDimTone(midi:number){return props.dimUnplayedChordTones&&isTone(midi)&&!isPlayingPitch(midi);}
+function shouldDimClass(tone:number){return props.dimUnplayedChordTones&&tones.value.includes(tone)&&!isPlayingTone(tone);}
 function isTone(midi:number){return tones.value.includes(midi%12);}
 function isRoot(midi:number){return root.value>=0&&midi%12===root.value;}
 function midiLabel(midi:number){return noteName(midi%12)+(Math.floor(midi/12)-1);}
@@ -41,6 +44,14 @@ const openStrings=computed(()=>{
 });
 const stops=[0,1,2,3,4,5,6,7];
 const isStringInstrument=computed(()=>openStrings.value.length>0);
+/** Actual sounding notes can fall outside the two-octave piano diagram or the
+ * seven-semitone string segment. Show those pitches explicitly instead of
+ * pretending their octave is on the visible keyboard/fingerboard. */
+const unmappedSoundingPitches=computed(()=>props.activePitches.filter(midi=>{
+ if(family.value==='Piano')return !whiteKeys.includes(midi)&&!blackKeys.some(key=>key.midi===midi);
+ if(isStringInstrument.value)return !openStrings.value.some(string=>midi>=string.midi&&midi<string.midi+stops.length);
+ return true;
+}));
 const diagramDescription=computed(()=>{
  if(family.value==='Piano')return 'Two octaves · concert pitches';
  if(isStringInstrument.value)return 'Open strings + chromatic positions · schematic';
@@ -51,27 +62,32 @@ const diagramDescription=computed(()=>{
 </script>
 
 <template>
- <div class="performance-instrument-diagram" :aria-label="instrument+' chord note reference'">
-   <div class="diagram-harmony-pair">
-     <div class="diagram-chord-now"><small>Current chord</small><strong>{{chord||'—'}}</strong></div>
-     <div class="diagram-chord-next"><small>Coming chord</small><strong>{{nextChord||'—'}}</strong><em v-if="nextTiming">{{nextTiming}}</em></div>
+ <div class="performance-instrument-diagram" :aria-label="instrument+' chord note reference. '+diagramDescription">
+   <div class="diagram-measure-chords" role="group" :aria-label="'Current measure chords, beat '+activeBeat+' of '+currentBeats.length">
+    <span v-for="(symbol,index) in currentBeats" :key="index" class="diagram-chord-beat" :class="{'is-current-beat':activeBeat===index+1,'is-continuation':symbol==='–'}" :aria-label="'Beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
+      <strong>{{symbol}}</strong>
+    </span>
+   </div>
+   <div class="diagram-upcoming-measure" role="group" aria-label="Chords in the next measure">
+    <span v-for="(symbol,index) in upcomingBeats" :key="index" class="diagram-next-chord-beat" :class="{'is-continuation':symbol==='–'}" :aria-label="'Next measure beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
+      <strong>{{symbol}}</strong>
+    </span>
    </div>
    <div v-if="family==='Piano'" class="diagram-piano" aria-label="Piano keys highlighted at chord pitch classes">
      <div class="diagram-white-keys">
-       <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key" :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi)}" :title="midiLabel(midi)">
-         <span v-if="isTone(midi)">{{noteName(midi)}}</span>
+       <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key"  :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi)}" :title="midiLabel(midi)">
+         <span v-if="isTone(midi)||isPlayingPitch(midi)">{{noteName(midi)}}</span>
        </div>
      </div>
      <div class="diagram-black-keys" aria-hidden="true">
-       <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key" :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)">{{noteName(key.midi)}}</span></span>
+       <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"  :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)||isPlayingPitch(key.midi)">{{noteName(key.midi)}}</span></span>
      </div>
    </div>
    <div v-else-if="isStringInstrument" class="diagram-fingerboard" :aria-label="family+' open strings and schematic semitone positions'">
-     <div class="diagram-fingerboard-header"><span>String</span><span>Open</span><span>+2</span><span>+4</span><span>+6</span></div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row">
        <span class="diagram-open-label">{{string.name}}</span>
-       <span v-for="offset in stops" :key="offset" class="diagram-string-stop" :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
-         <span v-if="isTone(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
+       <span v-for="offset in stops" :key="offset" class="diagram-string-stop"  :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),'is-sounding':isPlayingPitch(string.midi+offset),'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
+         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
        </span>
      </div>
    </div>
@@ -80,14 +96,16 @@ const diagramDescription=computed(()=>{
        <template v-if="family==='Bandoneon'">
          <span class="diagram-bank">◉ ◉ ◉</span><span class="diagram-bellows">▥▥▥</span><span class="diagram-bank">◉ ◉ ◉</span>
        </template>
-       <template v-else-if="family==='Trumpet'"><span>○　○　○</span><span>BRASS · B♭</span></template>
-       <template v-else-if="family==='Trombone'"><span>━━━━━━━━</span><span>SLIDE</span></template>
-       <template v-else-if="family==='Flute'||family==='Clarinet'"><span>●—●—●—●—●</span><span>WIND</span></template>
-       <template v-else><span>♪ ♫ ♪</span><span>VOICE / TONES</span></template>
+       <template v-else-if="family==='Trumpet'"><span>○　○　○</span></template>
+       <template v-else-if="family==='Trombone'"><span>━━━━━━━━</span></template>
+       <template v-else-if="family==='Flute'||family==='Clarinet'"><span>●—●—●—●—●</span></template>
+       <template v-else><span>♪ ♫ ♪</span></template>
      </div>
-     <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill" :class="{'is-root':tone===root}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
+     <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill"  :class="{'is-root':tone===root,'is-sounding':isPlayingTone(tone),'is-unplayed-chord-tone':shouldDimClass(tone)}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
    </div>
-   <div class="diagram-footer"><span>{{diagramDescription}}</span><span class="diagram-next-tones">Next: {{nextNames}}</span></div>
+   <div v-if="unmappedSoundingPitches.length" class="diagram-live-pitches" aria-label="Sounding notes outside the depicted positions">
+    <span v-for="pitch in unmappedSoundingPitches" :key="pitch" class="diagram-live-pitch">{{midiLabel(pitch)}}</span>
+   </div>
  </div>
 </template>
 
@@ -128,4 +146,57 @@ const diagramDescription=computed(()=>{
 .diagram-footer{margin-top:auto;display:flex;gap:2px;flex-direction:column;text-align:left;color:#a6bbcb;font-size:10px;line-height:1.2}
 .diagram-next-tones{font-weight:650;color:#cedce5}
 @media(max-width:900px){.diagram-harmony-pair strong{font-size:clamp(18px,2.3vw,27px)}.diagram-chord-next strong{font-size:clamp(16px,2vw,24px)}.diagram-white-key>span,.diagram-black-key{font-size:9px}.diagram-fingerboard{min-height:108px}.diagram-string-stop span{font-size:9px}}
+
+/* Beat slots ARE the chord and count-in: one chord onset per measure or a
+ * continuation dash. The active playback beat is the only bright slot. */
+.diagram-measure-chords,.diagram-upcoming-measure{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:5px;width:100%;min-width:0}
+.diagram-chord-beat,.diagram-next-chord-beat{display:flex;align-items:center;justify-content:center;min-width:0;white-space:nowrap;border-radius:7px;border:1px solid #617589;font-variant-numeric:tabular-nums}
+.diagram-measure-chords{margin:0 0 1px}
+.diagram-chord-beat{height:51px;background:#263846;color:#d6e4ed}
+.diagram-chord-beat strong{font-weight:850;font-size:clamp(18px,2vw,30px);line-height:1;overflow:hidden;text-overflow:ellipsis}
+.diagram-chord-beat.is-continuation{color:#718996}
+.diagram-chord-beat.is-current-beat{background:#f1c587;color:#192731;border-color:#ffe3b5;box-shadow:inset 0 1px rgba(255,255,255,.35),0 0 0 1px #efc58b55}
+.diagram-chord-beat.is-current-beat.is-continuation{color:#314353}
+.diagram-upcoming-measure{margin:0 0 3px}
+.diagram-next-chord-beat{height:33px;background:#1d2d39;border-color:#3a5061;color:#d2dfe9}
+.diagram-next-chord-beat strong{font-size:clamp(14px,1.3vw,20px);font-weight:760;overflow:hidden;text-overflow:ellipsis}
+.diagram-next-chord-beat.is-continuation{color:#617989}
+.performance-instrument-diagram{gap:7px}
+.diagram-piano{min-height:80px;height:80px;margin-top:2px}
+.diagram-fingerboard{min-height:98px;padding:4px;gap:3px}
+.diagram-string-row{min-height:18px}
+.diagram-string-stop{height:17px}
+.diagram-targets{min-height:83px;gap:5px;padding:6px}
+.diagram-tone-pill{min-height:29px;min-width:29px;font-size:14px;padding:4px 6px}
+.diagram-targets-graphic{font-size:13px}
+@media(max-width:900px){
+ .diagram-chord-beat{height:46px}
+ .diagram-chord-beat strong{font-size:clamp(18px,2vw,25px)}
+ .diagram-next-chord-beat{height:31px}
+ .diagram-piano{min-height:77px;height:77px}
+ .diagram-fingerboard{min-height:94px}
+ .diagram-targets{min-height:78px}
+}
+
+/* Aqua means the note is actually sounding in this instrument, rather than
+ * simply belonging to the theoretical chord. Unplayed chord tones are subdued
+ * only for a sounding chord-role voicing. */
+.diagram-white-key.is-unplayed-chord-tone:not(.is-sounding),
+.diagram-black-key.is-unplayed-chord-tone:not(.is-sounding),
+.diagram-string-stop.is-unplayed-chord-tone:not(.is-sounding),
+.diagram-tone-pill.is-unplayed-chord-tone:not(.is-sounding){opacity:.28;filter:saturate(.35)}
+.diagram-white-key.is-sounding,.diagram-black-key.is-sounding,
+.diagram-string-stop.is-sounding,.diagram-tone-pill.is-sounding{
+ background:#79e6d4;color:#132e32;border-color:#c6fff3;
+ box-shadow:0 0 0 2px #8ffdeb88,0 0 12px #5deace80;
+ z-index:2;
+}
+.diagram-white-key.is-sounding{border-color:#317f75}
+.diagram-live-pitches{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:0;min-height:20px}
+.diagram-live-pitch{font-size:12px;font-weight:800;color:#17333b;background:#79e6d4;border:1px solid #b4fff3;border-radius:7px;padding:2px 7px;font-variant-numeric:tabular-nums}
+@media(prefers-reduced-motion:reduce){
+ .diagram-white-key.is-sounding,.diagram-black-key.is-sounding,
+ .diagram-string-stop.is-sounding,.diagram-tone-pill.is-sounding{box-shadow:inset 0 0 0 2px #174940}
+}
+
 </style>

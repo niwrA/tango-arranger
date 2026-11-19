@@ -6,6 +6,7 @@ const source=fs.readFileSync(path.join(root,'src/performanceCues.ts'),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const mod={exports:{}};vm.runInNewContext(`(function(module,exports){${js}\n})`,{})(mod,mod.exports);
 const split=mod.exports.splitAtMeasureBoundaries;
+const sounding=mod.exports.soundingPitchesAtBeat;
 let count=0;function check(name,fn){fn();count++;console.log('PASS',name);}
 check('one note crossing a bar boundary is sliced without shortening',()=>{
  const n={start:3.5,duration:1.25,pitch:60};
@@ -28,6 +29,29 @@ check('out of window and invalid notes are ignored',()=>{
  assert.equal(output.length,1);assert.equal(output[0].start,1);
  assert.equal(split([{start:0,duration:2}],0,0,4).length,0);
 });
+check('live chord voicing detects overlapping exact pitches without invented notes',()=>{
+ const notes=[{pitch:60,start:0,duration:2,gate:1},{pitch:64,start:0,duration:1,gate:.5},{pitch:67,start:.5,duration:2,gate:1}];
+ const soundingDuration=n=>n.duration*n.gate;
+ assert.deepEqual(Array.from(sounding(notes,.25,soundingDuration)),[60,64]);
+ assert.deepEqual(Array.from(sounding(notes,.75,soundingDuration)),[60,67]);
+ assert.deepEqual(Array.from(sounding(notes,2.25,soundingDuration)),[67]);
+ assert.deepEqual(Array.from(sounding(notes,2.5,soundingDuration)),[]);
+});
+check('instrument note highlights obey gate, repeated voices, rests and the exact beat',()=>{
+ const notes=[{pitch:72,start:2,duration:1,gate:.25},{pitch:72,start:2,duration:.5,gate:1},{pitch:74,start:4,duration:1,gate:1}];
+ const soundingDuration=n=>n.duration*n.gate;
+ assert.deepEqual(Array.from(sounding(notes,1.999,soundingDuration)),[]);
+ assert.deepEqual(Array.from(sounding(notes,2.10,soundingDuration)),[72]);
+ assert.deepEqual(Array.from(sounding(notes,2.4,soundingDuration)),[72]);
+ assert.deepEqual(Array.from(sounding(notes,2.5,soundingDuration)),[]);
+ assert.deepEqual(Array.from(sounding(notes,4,soundingDuration)),[74]);
+ assert.deepEqual(Array.from(sounding(notes,NaN,soundingDuration)),[]);
+});
+check('sounding pitches remain accurate on measure crossings and outside pictured octave',()=>{
+ const notes=[{pitch:40,start:2.75,duration:2,gate:1},{pitch:84,start:3,duration:2,gate:1}];
+ const actual=Array.from(sounding(notes,4.1,n=>n.duration*n.gate));
+ assert.deepEqual(actual,[40,84]);
+});
 const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
 check('difficulty edition controls live in the instrument context only',()=>{
  assert.doesNotMatch(app,/class="orchestration-editions-bar"/);
@@ -36,16 +60,18 @@ check('difficulty edition controls live in the instrument context only',()=>{
  assert.match(app,/exportDifficultyEditionPack\(\);closeInstrumentContext/);
 });
 check('performance exposes ensemble, karaoke, harmony and split note slices',()=>{
- for(const needle of ["performanceView==='ensemble'","performanceVocalCue.count","performanceHarmony.upcomingKey","performanceCueParts","performanceRoll.slices","splitAtMeasureBoundaries(notes,beats,first,length)"])
+ for(const needle of ["performanceView==='ensemble'","performanceVocalCue.count","performanceChordBeats.current","performanceCueParts","performanceRoll.slices","splitAtMeasureBoundaries(notes,beats,first,length)"])
   assert.ok(app.includes(needle),needle);
 });
-check('performance stage contains one combined navigation, section grid and beat panel',()=>{
+check('top panel retains compact seek section and shared beat counter',()=>{
  const section=app.slice(app.indexOf('<section v-if="performanceMode"'),app.indexOf('<div v-else class="layout">'));
  assert.ok(section.includes('class="performance-stage-top"'));
  assert.ok(section.includes('class="performance-stage-controls"'));
+ assert.ok(section.includes('class="performance-seek-index"'));
  assert.ok(section.includes('class="performance-section-grid"'));
  assert.ok(section.includes('class="performance-top-beat"'));
  assert.ok(section.includes('class="performance-stage-main performance-stage-only"'));
+ assert.ok(!section.includes('class="performance-stage-top-title"'));
  assert.ok(!section.includes('<aside class="performance-harmony-sidebar"'));
  assert.ok(section.indexOf('class="performance-stage-top"')<section.indexOf('class="performance-cue-grid'));
 });
@@ -57,12 +83,14 @@ check('view switch and fullscreen are in topbar and browser limitations are hand
  assert.ok(app.includes('typeof root.requestFullscreen'));
  assert.ok(app.includes('performanceStageCompact.value=true'));
 });
-check('instrument diagrams are default and a tap switches to roles and dynamics',()=>{
+check('instrument diagrams default to per-beat chords and tap to switch to roles',()=>{
  assert.ok(app.includes('cardShowsDiagram(inst:Instrument)'));
  assert.ok(app.includes('flipPerformanceCard(part.inst)'));
  assert.ok(app.includes('<PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)"'));
+ assert.ok(app.includes(':current-beats="performanceChordBeats.current"'));
+ assert.ok(app.includes(':upcoming-beats="performanceChordBeats.next"'));
  assert.ok(app.includes("'--cue-beat-glow':performanceBeatGlow"));
- assert.ok(app.includes('class="performance-card-beats"'));
+ assert.ok(!app.includes('class="performance-card-beats"'));
  assert.ok(!app.includes('class="performance-cue-activity"'));
  assert.ok(!app.includes('class="performance-cue-entry">Next entry'));
 });
@@ -84,13 +112,15 @@ check('ensemble activity remains fixed throughout each measure instead of toggli
  assert.ok(app.includes("'--cue-beat-glow':performanceBeatGlow"));
  assert.ok(!app.includes("cueStatus=part.sounding?'PLAYING'"));
 });
-check('harmonic cue follows intra-measure changes and gives chords priority',()=>{
+check('harmonic cues follow intra-measure changes and current measure beats',()=>{
  const section=app.slice(app.indexOf('const performanceHarmony=computed('),app.indexOf('function performanceDynamic('));
  assert.ok(section.includes('chordAt(current?.chord'));
  assert.ok(section.includes('parseChordSequence(p.bars[i].chord,p.beats)'));
  assert.ok(section.includes('nextChordMeasure'));
+ assert.ok(app.includes('const performanceChordBeats=computed('));
+ assert.ok(app.includes('return symbol;'));
+ assert.ok(app.includes("if(symbol===previous)return '–'"));
  assert.ok(app.includes(':chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"'));
- assert.ok(app.includes('Key {{performanceHarmony.key}}'));
 });
 check('upright stage cards retain reduced-motion option',()=>{
  assert.ok(app.includes('container-name:performance-parts'));
@@ -108,7 +138,7 @@ check('orchestration controls are available in the menu without redundant top pa
  assert.ok(area.includes('class="overview-legend orchestration-right-legend"'));
  assert.ok(!area.includes('class="map-context-toolbar"'));
 });
-check('instrument-aware diagrams expose exact note locations only where safe',()=>{
+check('compact instrument-specific diagram rows retain tone labeling and readable beats',()=>{
  const diag=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
  assert.ok(diag.includes('chordTones(symbol)'));
  assert.ok(diag.includes("family.value==='Violin'"));
@@ -117,6 +147,42 @@ check('instrument-aware diagrams expose exact note locations only where safe',()
  assert.ok(diag.includes("family==='Piano'"));
  assert.ok(diag.includes('Chord tones · no button fingering inferred'));
  assert.ok(diag.includes('Concert pitches · transpose for written part'));
- assert.ok(diag.includes('Coming chord'));
+ assert.ok(diag.includes('diagram-measure-chords'));
+ assert.ok(diag.includes('diagram-upcoming-measure'));
+ assert.ok(diag.includes('activeBeat===index+1'));
+ assert.ok(!diag.includes('<small>Current chord</small>'));
+ assert.ok(!diag.includes('class="diagram-footer"'));
+});
+check('stage title is shortened only in presentation, with full name preserved as tooltip',()=>{
+ assert.ok(app.includes('const performanceShortTitle=computed('));
+ assert.ok(app.includes("return original.replace(/\\s*[([{].*$/,'').trim()||original"));
+ assert.ok(app.includes('class="performance-topbar-song-title" :title="project.title'));
+ assert.ok(app.includes('.performance-live .app-topbar .brand{display:none!important}'));
+});
+check('mixed-case Maj7 chord highlights the major seventh rather than dominant seventh',()=>{
+ const musicSource=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
+ const musicJs=ts.transpileModule(musicSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+ const musicMod={exports:{}};
+ vm.runInNewContext(`(function(require,module,exports){${musicJs}\n})`,{console})(
+  (_module)=>({}),musicMod,musicMod.exports
+ );
+ const tones=Array.from(musicMod.exports.chordTones('GMaj7'));
+ assert.deepEqual(tones,[7,11,2,6]);
+ assert.deepEqual(Array.from(musicMod.exports.chordTones('G7')),[7,11,2,5]);
+});
+check('per-part chord diagrams highlight sounding notes and dim only unplayed chord voicings',()=>{
+ const diagram=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
+ assert.ok(app.includes('soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration)'));
+ assert.ok(app.includes('activePitches=playing.value?'));
+ assert.ok(app.includes("part.role==='chords'&&activePitches.length>0"));
+ assert.ok(app.includes(':active-pitches="part.activePitches"'));
+ assert.ok(app.includes(':dim-unplayed-chord-tones="part.dimUnplayedChordTones"'));
+ assert.ok(diagram.includes('activePitches:number[];dimUnplayedChordTones:boolean'));
+ assert.ok(diagram.includes('class="diagram-live-pitches"'));
+ assert.ok(diagram.includes("'is-sounding':isPlayingPitch(midi)"));
+ assert.ok(diagram.includes("'is-sounding':isPlayingPitch(string.midi+offset)"));
+ assert.ok(diagram.includes("'is-sounding':isPlayingTone(tone)"));
+ assert.ok(diagram.includes("'is-unplayed-chord-tone':shouldDimTone(midi)"));
+ assert.ok(diagram.includes("is-unplayed-chord-tone:not(.is-sounding)"));
 });
 console.log(count+' performance cue checks passed');

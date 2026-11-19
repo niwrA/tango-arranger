@@ -31,3 +31,21 @@ export function splitAtMeasureBoundaries<T extends TimedNote>(
   }
   return slices;
 }
+
+/** Return the *sounding* MIDI pitches at the playback cursor, not every theoretical
+ * note in the lead-sheet chord. Respects the caller's gate/articulation duration.
+ * The returned order is stable and duplicates from multiple voices are removed.
+ * For slides and gestures this is the note's attack/nominal pitch, not an audio FFT. */
+export function soundingPitchesAtBeat<T extends {start:number;pitch:number}>(
+ notes:readonly T[],beat:number,soundingDuration:(note:T)=>number
+):number[]{
+ if(!Number.isFinite(beat))return [];
+ const active=new Set<number>();
+ for(const note of notes){
+  if(!Number.isFinite(note.start)||!Number.isInteger(note.pitch)||note.pitch<0||note.pitch>127)continue;
+  if(beat+1e-7<note.start)continue;
+  const duration=soundingDuration(note);
+  if(Number.isFinite(duration)&&duration>0&&beat<note.start+duration-1e-7)active.add(note.pitch);
+ }
+ return [...active].sort((a,b)=>a-b);
+}
