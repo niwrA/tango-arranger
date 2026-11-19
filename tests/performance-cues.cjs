@@ -101,7 +101,7 @@ check('orchestration controls are available in the menu without redundant top pa
  assert.ok(area.includes('class="orchestration-tools-popup"'));
  assert.ok(area.includes('showOrchestrationPhrasePlanner'));
  assert.ok(area.includes('<PhrasePlanEditor :project="project" :start-open="true" v-if="phrasePlannerVisible"'));
- assert.ok(area.includes('class="orchestration-right-legend"'));
+ assert.ok(area.includes('class="overview-legend orchestration-right-legend"'));
  assert.ok(!area.includes('class="map-context-toolbar"'));
 });
 console.log(count+' performance cue checks passed');
