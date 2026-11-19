@@ -94,7 +94,7 @@ check('context menu keyboard gestures include Menu and Shift+F10 only',()=>{
   'class="context-sheet-dialog dynamics-context-dialog"',
   "dynamicsMenuAction('start')","dynamicsMenuAction('end')",
   "dynamicsMenuAction('edit')","dynamicsMenuAction('delete')",
-  'sourceRange?[sourceRange.instrument]'.replace('sourceRange','selectedRange'),
+  'selectedRange?[selectedRange.instrument]',
   "window.confirm('Delete this '",
   "watch([active,noteEditorTab]"
  ];
