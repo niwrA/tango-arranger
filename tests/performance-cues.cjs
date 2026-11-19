@@ -36,7 +36,7 @@ check('difficulty edition controls live in the instrument context only',()=>{
  assert.match(app,/exportDifficultyEditionPack\(\);closeInstrumentContext/);
 });
 check('performance exposes ensemble, karaoke, harmony and split note slices',()=>{
- for(const needle of ["performanceView==='ensemble'","performanceVocalCue.count","performanceHarmony.upcomingKey","performanceCueParts","performanceRoll.slices","splitAtMeasureBoundaries(notes,beats,first,length)"])
+ for(const needle of ["performanceView==='ensemble'","performanceVocalCue.count","performanceChordBeats.current","performanceCueParts","performanceRoll.slices","splitAtMeasureBoundaries(notes,beats,first,length)"])
   assert.ok(app.includes(needle),needle);
 });
 check('top panel retains compact seek section and shared beat counter',()=>{
