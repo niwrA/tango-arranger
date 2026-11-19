@@ -75,4 +75,33 @@ check('landscape tablet uses compact equal-height cue rows',()=>{
  assert.match(css,/grid-auto-rows:minmax\(163px,auto\)/);
  assert.match(css,/\.performance-harmony-sidebar\{align-self:start;height:auto\}/);
 });
+check('ensemble activity remains fixed throughout each measure instead of toggling every attack',()=>{
+ assert.ok(app.includes('const playingInMeasure=notes.some('));
+ assert.ok(app.includes("const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST'"));
+ assert.ok(app.includes('performanceBeatGlow'));
+ assert.ok(app.includes("'--cue-beat-glow':performanceBeatGlow"));
+ assert.ok(!app.includes("cueStatus=part.sounding?'PLAYING'"));
+});
+check('chords take visual precedence over smaller key annotations',()=>{
+ const side=app.slice(app.indexOf('<aside class="performance-harmony-sidebar"'),app.indexOf('</aside>',app.indexOf('<aside class="performance-harmony-sidebar"')));
+ assert.ok(side.indexOf('performance-chord-group')<side.indexOf('performance-key-group'));
+ assert.ok(app.includes('.performance-chord-group .performance-harmony-item strong{font-size:clamp(36px,3.7vw,61px)'));
+ assert.ok(app.includes('.performance-key-group .performance-harmony-item strong{font-size:clamp(18px,1.5vw,24px)'));
+});
+check('upright stage cards retain reduced-motion option',()=>{
+ assert.ok(app.includes('container-name:performance-parts'));
+ assert.ok(app.includes('grid-template-columns:repeat(4,minmax(0,1fr))'));
+ assert.ok(app.includes('@media(prefers-reduced-motion:reduce)'));
+});
+check('orchestration controls are available in the menu without redundant top panels',()=>{
+ const start=app.indexOf("<section v-else-if=\"active==='arrange'\"");
+ const end=app.indexOf('<div v-if="measureSettingsOpen" class="note-properties-backdrop"',start);
+ const area=app.slice(start,end);
+ assert.ok(area.includes('class="orchestration-top-row"'));
+ assert.ok(area.includes('class="orchestration-tools-popup"'));
+ assert.ok(area.includes('showOrchestrationPhrasePlanner'));
+ assert.ok(area.includes('<PhrasePlanEditor :project="project" :start-open="true" v-if="phrasePlannerVisible"'));
+ assert.ok(area.includes('class="overview-legend orchestration-right-legend"'));
+ assert.ok(!area.includes('class="map-context-toolbar"'));
+});
 console.log(count+' performance cue checks passed');

@@ -396,6 +396,12 @@ function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performa
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
 const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.section??'A');
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
+/** Animated cue emphasis follows transport beat position rather than a free-running CSS timer. */
+const performanceBeatGlow=computed(()=>{
+ if(!playing.value)return '0.13';
+ const phase=((performanceBeat.value%1)+1)%1;
+ return (0.10+0.37*Math.pow(1-phase,2.4)).toFixed(3);
+});
 const performanceSections=computed(()=>sectionSpans(project.value));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
 /** A real upcoming key change may occur several measures from now. */
@@ -412,17 +418,16 @@ function performanceDynamic(inst:Instrument,bar:number):string{
  const mark=explicit?.start??p.expression?.sections[b.section]??'mf';
  return mark+(explicit?.end&&explicit.end!==mark?' → '+explicit.end:'');
 }
+/** Long-distance stage activity changes only at measure boundaries, not on each note gate. */
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
- const nextStart=(score.value[part.inst]??[]).filter(n=>n.start>performanceBeat.value+0.0001).reduce((a,n)=>Math.min(a,n.start),Infinity);
- const upcomingIn=!part.sounding&&Number.isFinite(nextStart)&&nextStart-performanceBeat.value<=p.beats?
-  Math.max(1,Math.ceil(nextStart-performanceBeat.value)):null;
- const cueStatus=part.sounding?'PLAYING':upcomingIn!==null?'IN '+upcomingIn:part.role==='rest'?'REST':'READY';
- return {...part,display:rosterDisplayName(part.inst),cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ const notes=score.value[part.inst]??[];
+ const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
+ const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
+ const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
+ return {...part,display:rosterDisplayName(part.inst),playingInMeasure,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
-  dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar),
-  offset:p.instrumentSettings?.[part.inst]?.dynamicsOffset??0,
-  nextEntry:Number.isFinite(nextStart)?Math.max(0,Math.ceil(nextStart-performanceBeat.value)):null};
+  dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
 /** Follow the lyric-bearing part, even when a different instrument's notes are selected. */
 const performanceVocalCue=computed(()=>{
@@ -1223,6 +1228,11 @@ function inferredArticulation(inst:Instrument):string{return measureArticulation
 function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24)project.value.transposeSemitones=n;}
 // Song overview: measure-level overrides are sparse and do not replace section defaults.
 const orchestrationScope=ref<'instrument'|'section'|'all'>('all');
+const orchestrationToolsOpen=ref(false);
+const phrasePlannerVisible=ref(false);
+function showOrchestrationPhrasePlanner(){phrasePlannerVisible.value=!phrasePlannerVisible.value;orchestrationToolsOpen.value=false;}
+function showOrchestrationRangeSettings(){measureSettingsOpen.value=true;orchestrationToolsOpen.value=false;}
+function showOrchestrationSelectedNotes(){orchestrationToolsOpen.value=false;openNoteEditor(overviewInstrument.value,overviewStart.value-1);}
 const selectedInstrumentGroup=ref<InstrumentGroup>('rhythm');
 const instrumentGroupOptions:InstrumentGroup[]=['rhythm','melody','harmony'];
 function groupMembers(group:InstrumentGroup):Instrument[]{return instrumentsForGroup(project.value,group,INSTRUMENTS);}
@@ -3222,8 +3232,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="performance-lyric-line" aria-live="off"><span v-for="(note,i) in performanceVocalCue.words" :key="`${note.start}:${i}`" :class="{'performance-lyric-active':performanceVocalCue.active&&performanceVocalCue.current===note}">{{note.lyric||note.lyric2||'·'}}</span></div>
   </div>
   <div v-if="performanceView==='ensemble'" class="performance-cue-grid" aria-label="Equal-size instrument cue panels">
-   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.sounding,'performance-cue-rest':part.role==='rest'&&!part.sounding,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
-     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.sounding,'is-upcoming':part.cueStatus.startsWith('IN ')}">{{part.cueStatus}}</span></span>
+   <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel" type="button" :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}" :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)">
+     <span class="performance-cue-identity"><strong>{{part.display}}</strong><span class="instrument-skill-tag">{{instrumentSkillShort(part.inst)}}</span><span class="performance-cue-activity" :class="{'is-playing':part.playingInMeasure,'is-upcoming':part.cueStatus==='NEXT BAR'}">{{part.cueStatus}}</span></span>
      <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
      <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
    </button>
@@ -3231,15 +3241,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <aside class="performance-harmony-sidebar" aria-label="Harmony and form">
       <h3>Harmony &amp; form</h3>
-      <div class="performance-harmony-group">
+      <div class="performance-harmony-group performance-chord-group">
+        <div class="performance-harmony-item performance-harmony-current"><small>Current chord</small><strong>{{performanceHarmony.chord}}</strong></div>
+        <div class="performance-harmony-item performance-harmony-upcoming"><small>Next chord</small><strong>{{performanceHarmony.nextChord}}</strong><span>Measure {{Math.min(project.bars.length,performanceBar+2)}}</span></div>
+      </div>
+      <div class="performance-harmony-group performance-key-group">
         <div class="performance-harmony-item performance-harmony-current"><small>Current key</small><strong>{{performanceHarmony.key}}</strong></div>
         <div class="performance-harmony-item performance-harmony-upcoming" :class="{'performance-harmony-imminent':performanceHarmony.changeMeasure!==null&&performanceHarmony.changeMeasure-performanceBar<=2}">
           <small>Next key</small><strong>{{performanceHarmony.upcomingKey}}</strong><span>{{performanceHarmony.changeMeasure===null?'No change scheduled':'At measure '+performanceHarmony.changeMeasure}}</span>
         </div>
-      </div>
-      <div class="performance-harmony-group performance-chord-group">
-        <div class="performance-harmony-item performance-harmony-current"><small>Current chord</small><strong>{{performanceHarmony.chord}}</strong></div>
-        <div class="performance-harmony-item performance-harmony-upcoming"><small>Next chord</small><strong>{{performanceHarmony.nextChord}}</strong><span>Measure {{Math.min(project.bars.length,performanceBar+2)}}</span></div>
       </div>
       <div class="performance-harmony-progress">
         <span class="performance-harmony-meter">{{performanceSection}} · Measure {{performanceBar+1}}/{{project.bars.length}}</span>
@@ -3378,21 +3388,33 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 <button class="secondary lead-add-measure" @click="addBar">+ Add measure to last section</button></section>
 <section v-else-if="active==='arrange'" class="overview-section">
-<PhrasePlanEditor :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
-<div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
-<button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
+<div class="orchestration-top-row">
+  <div class="orchestration-top-actions">
+    <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
+      <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
+    </div>
+    <div class="orchestration-tool-wrap">
+      <button type="button" class="secondary orchestration-more-button" aria-label="Orchestration tools and selected measure actions" aria-controls="orchestration-tools-popup" :aria-expanded="orchestrationToolsOpen" @click="orchestrationToolsOpen=!orchestrationToolsOpen">⋯ <span>Tools</span></button>
+      <div v-if="orchestrationToolsOpen" id="orchestration-tools-popup" class="orchestration-tools-popup" role="group" aria-label="Orchestration tools">
+        <strong>{{rosterDisplayName(overviewInstrument)}} · measures {{overviewStart}}–{{overviewEnd}}</strong>
+        <button type="button" @click="showOrchestrationRangeSettings">Edit selected measures</button>
+        <button type="button" @click="showOrchestrationSelectedNotes">Edit selected notes</button>
+        <button type="button" :aria-expanded="phrasePlannerVisible" @click="showOrchestrationPhrasePlanner">{{phrasePlannerVisible?'Close':'Open'}} phrase planner</button>
+        <p>Select a cell to edit; long-press or right-click a cell or instrument label for contextual options. Shift+click extends the selected range.</p>
+      </div>
+    </div>
+  </div>
+  <div class="overview-legend orchestration-right-legend" aria-label="Orchestration role colors">
+    <span><i class="legend-dot melody"></i> Melody</span><span><i class="legend-dot chords"></i> Chords / arpeggio / pizzicato</span><span><i class="legend-dot harmony"></i> Harmony</span><span><i class="legend-dot bass"></i> Bass</span><span><i class="legend-dot rest"></i> Rest</span><span><i class="legend-dot overridden"></i> Manual override</span>
+  </div>
 </div>
-<div class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
-<label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-<label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
-<span v-if="orchestrationScope==='all'" class="muted">All instruments · all {{project.bars.length}} measures</span>
-<span v-else class="muted">{{mapVisibleInstruments.length}} {{mapVisibleInstruments.length===1?'instrument':'instruments'}} · {{mapVisibleMeasures.length}} measures</span>
+<PhrasePlanEditor :project="project" :start-open="true" v-if="phrasePlannerVisible" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
+<div v-if="orchestrationScope!=='all'" class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
+  <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+  <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
 </div>
 <details v-if="orchestrationScope==='section'" class="orchestration-group-members"><summary>Choose instruments in this group</summary><div class="orchestration-group-checks" role="group" :aria-label="`Instruments in ${selectedInstrumentGroup} section`"><label v-for="inst in activeRoster" :key="inst"><input type="checkbox" :checked="groupMembers(selectedInstrumentGroup).includes(inst)" :disabled="groupMembers(selectedInstrumentGroup).length===1&&groupMembers(selectedInstrumentGroup).includes(inst)" @change="toggleGroupMember(inst,($event.target as HTMLInputElement).checked)"/>{{rosterDisplayName(inst)}}</label></div><p class="hint">Group membership is saved with this song. These are functional viewing groups, not the A/B/C song parts or generated musical roles.</p></details>
 <div class="orchestration-instrument-scope" id="scope-map-panel" role="tabpanel" :aria-labelledby="`scope-${orchestrationScope}`">
-<p class="muted orchestration-scope-help">Instrument shows one part; Section shows an editable instrumental group; All shows every part. All views cover the entire song. Select a map cell to edit its instrument and measure. Shift+click extends the range; double-click edits notes.</p>
-<div class="overview-legend"><span><i class="legend-dot melody"></i> Melody</span><span><i class="legend-dot chords"></i> Chords / arpeggio / pizzicato</span><span><i class="legend-dot harmony"></i> Harmony</span><span><i class="legend-dot bass"></i> Bass</span><span><i class="legend-dot rest"></i> Rest</span><span><i class="legend-dot overridden"></i> Manual override (corner)</span></div>
-<div class="map-context-toolbar" role="toolbar" aria-label="Selected orchestration measures"><strong>{{rosterDisplayName(overviewInstrument)}}</strong><span>Measures {{overviewStart}}–{{overviewEnd}}</span><button type="button" class="secondary" @click="measureSettingsOpen=true">Edit selected measures</button><button type="button" class="secondary icon-action" title="Edit notes in selected measure" aria-label="Edit notes" @click="openNoteEditor(overviewInstrument,overviewStart-1)"><AppIcon name="pencil"/></button></div>
 <div v-if="measureSettingsOpen" class="note-properties-backdrop" @click.self="measureSettingsOpen=false"></div>
 <div v-if="measureSettingsOpen" class="note-properties note-properties-popup measure-settings-popup" role="dialog" aria-modal="true" tabindex="-1" :aria-label="`Settings for ${rosterDisplayName(overviewInstrument)}, measures ${overviewStart}–${overviewEnd}`" @keydown.esc.stop.prevent="measureSettingsOpen=false">
 <div class="note-properties-popup-header"><strong>{{rosterDisplayName(overviewInstrument)}} · measures {{overviewStart}}–{{overviewEnd}}</strong><button type="button" class="secondary" @click="measureSettingsOpen=false">✕ Close</button></div>
@@ -4329,6 +4351,81 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-stage-main .performance-compact-bar{grid-template-columns:minmax(0,1fr);gap:3px}
  .performance-stage-main .performance-section-nav{justify-content:flex-start}
  .performance-stage-main .performance-cue-grid{grid-auto-rows:minmax(198px,auto)}
+}
+
+
+/* Orchestration: context-first, clean one-line scope + legend toolbar. */
+.orchestration-top-row{display:flex;align-items:center;justify-content:space-between;gap:10px 22px;flex-wrap:wrap;margin:2px 0 10px;min-width:0}
+.orchestration-top-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.orchestration-top-row .orchestration-scope-tabs{display:flex;align-items:center;gap:3px;margin:0;padding:3px;border:1px solid #405365;border-radius:10px;background:#1a2632;overflow:visible}
+.orchestration-top-row .orchestration-scope-tabs button{border:0;border-radius:7px;box-shadow:none;min-height:38px;height:38px;padding:6px 15px}
+.orchestration-top-row .orchestration-scope-tabs button.selected{background:#d1a875;color:#18232c;box-shadow:none;font-weight:800}
+.orchestration-top-row .orchestration-right-legend{display:flex;justify-content:flex-end;align-items:center;flex:1 1 450px;gap:6px 13px;margin:0;font-size:11px;min-width:0}
+.orchestration-top-row .orchestration-right-legend span{white-space:nowrap}
+.orchestration-tool-wrap{position:relative;z-index:16}
+.orchestration-top-row .orchestration-more-button{min-height:42px;white-space:nowrap;padding:8px 12px;font-size:13px;border-color:#536a7d}
+.orchestration-tools-popup{position:absolute;top:calc(100% + 7px);left:0;z-index:30;min-width:min(340px,85vw);max-width:calc(100vw - 24px);display:grid;gap:6px;padding:12px;border:1px solid #8295a6;border-radius:10px;background:#233440;box-shadow:0 14px 34px #000b}
+.orchestration-tools-popup>strong{font-size:13px;color:#f5dbb4;padding-bottom:4px}
+.orchestration-tools-popup button{width:100%;text-align:left;min-height:38px;padding:8px 10px}
+.orchestration-tools-popup p{font-size:11px;line-height:1.45;color:#bacbd8;margin:4px 0 0}
+.orchestration-top-row+.orchestration-map-filter{margin:5px 0}
+.overview-section>.phrase-planner{margin:2px 0 10px}
+.overview-section .orchestration-instrument-scope{min-width:0}
+@media(max-width:920px){.orchestration-top-row{gap:9px}.orchestration-top-row .orchestration-right-legend{justify-content:flex-end;flex-basis:100%}}
+@media(max-width:550px){.orchestration-top-actions{width:100%}.orchestration-top-row .orchestration-scope-tabs{flex:1;min-width:0}.orchestration-top-row .orchestration-scope-tabs button{flex:1;min-width:0;padding:5px}.orchestration-top-row .orchestration-right-legend{justify-content:flex-start}.orchestration-tools-popup{left:auto;right:0}}
+
+/* Stage: chord is the long-distance information, key becomes a quiet footnote. */
+.performance-harmony-sidebar{gap:9px}
+.performance-chord-group{order:0}
+.performance-key-group{order:1}
+.performance-harmony-progress{order:2}
+.performance-chord-group .performance-harmony-item{min-height:129px}
+.performance-chord-group .performance-harmony-item strong{font-size:clamp(36px,3.7vw,61px);font-weight:900}
+.performance-key-group .performance-harmony-item{min-height:70px;padding:7px 9px;gap:2px;border-color:#3b4c5d;background:#1e303d}
+.performance-key-group .performance-harmony-item small{font-size:11px}
+.performance-key-group .performance-harmony-item strong{font-size:clamp(18px,1.5vw,24px);font-weight:700;color:#b7cbd9}
+.performance-key-group .performance-harmony-item span{font-size:10px;color:#aabfcf}
+.performance-key-group .performance-harmony-imminent{border-color:#b89361;background:#332e2b}
+.performance-key-group .performance-harmony-imminent strong{color:#efc894}
+
+/* A stage panel is now an upright, predictable cue card rather than a wide tile. */
+.performance-stage-main{container-name:performance-parts;container-type:inline-size}
+.performance-stage-main .performance-cue-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:minmax(235px,auto);gap:9px;align-content:start}
+.performance-stage-main .performance-cue-panel{min-height:235px;height:100%;gap:6px;padding:12px 11px;background:linear-gradient(160deg,#293a48,#1b2834)}
+.performance-stage-main .performance-cue-identity{align-content:start;min-height:36px}
+.performance-stage-main .performance-cue-identity>strong{font-size:clamp(15px,1.55vw,22px)}
+.performance-stage-main .performance-cue-role{min-height:80px;align-items:center;justify-content:center;text-align:center;gap:4px}
+.performance-stage-main .performance-cue-role strong{font-size:clamp(24px,2.5vw,37px)}
+.performance-stage-main .performance-cue-next{margin-top:auto}
+.performance-cue-panel.performance-cue-playing{
+ border-color:#bd9b66;
+ box-shadow:inset 0 0 0 2px rgba(247,193,111,var(--cue-beat-glow,0.13)),0 0 12px rgba(240,182,95,0.10);
+ background:linear-gradient(160deg,rgba(228,175,100,calc(var(--cue-beat-glow,0.13)*0.20)),transparent 75%),linear-gradient(160deg,#293a48,#1b2834);
+ transition:box-shadow .08s linear,background-color .08s linear;
+}
+.performance-cue-panel.performance-cue-rest{opacity:.91}
+.performance-cue-activity.is-playing{background:#314b42;border-color:#5d9a78;color:#d4f3df}
+@container performance-parts (max-width:700px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(213px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:213px;padding:9px}
+}
+@container performance-parts (max-width:520px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(205px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:205px}
+}
+@media(min-width:751px) and (max-width:1200px) and (orientation:landscape){
+ .performance-stage-main .performance-cue-grid{grid-auto-rows:minmax(213px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:213px}
+}
+@media(max-width:750px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(205px,auto)}
+ .performance-stage-main .performance-cue-panel{min-height:205px}
+}
+@media(max-width:430px){
+ .performance-stage-main .performance-cue-grid{grid-template-columns:1fr}
+}
+@media(prefers-reduced-motion:reduce){
+ .performance-cue-panel.performance-cue-playing{transition:none;box-shadow:inset 0 3px 0 #d5aa6d;background:linear-gradient(160deg,#293a48,#1b2834)}
 }
 
 </style>

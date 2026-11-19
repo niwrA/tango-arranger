@@ -3,7 +3,7 @@ import {computed,ref,watch} from 'vue';
 import {projectInstruments,type Project,type Role,BASS_TECHNIQUES,type ViolinTechnique} from './music';
 import {createPhrasePlan,validatePhrasePlan,phrasePlanIsCurrent,plannedMeasureActive,type PhrasePlan,type PhrasePart} from './phrasePlan';
 import {createLongPressMenu,isContextMenuKey} from './contextPress';
-const props=defineProps<{project:Project;draft?:PhrasePlan}>();
+const props=defineProps<{project:Project;draft?:PhrasePlan;startOpen?:boolean}>();
 const emit=defineEmits<{'update:draft':[plan:PhrasePlan|undefined];apply:[plan:PhrasePlan|undefined];'open-notes':[firstMeasure:number,lastMeasure:number]}>();
 const phraseBars=ref(props.draft?.phraseBars??props.project.phrasePlan?.phraseBars??8);
 const selectedId=ref('');
@@ -127,7 +127,7 @@ function apply(){
 }
 </script>
 <template>
-  <details class="phrase-planner">
+  <details class="phrase-planner" :open="props.startOpen">
     <Teleport to="body">
       <div v-if="phraseContext" class="phrase-context-backdrop" @click.self="closePhraseContext()">
         <div class="phrase-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="'Phrase '+(phraseContextIndex+1)+' options'" @keydown.esc.stop.prevent="closePhraseContext()">
