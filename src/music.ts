@@ -514,6 +514,90 @@ export function pianoStaffForPitch(pitch:number,splitPitch=60):1|2 {
   if(!Number.isFinite(pitch)||!Number.isInteger(splitPitch)||splitPitch<48||splitPitch>72)throw Error('Invalid piano staff split');
   return pitch>=splitPitch?1:2;
 }
+
+/** Conservative piano heuristics, not a substitute for individual hand sizing or fingering. */
+export function pianoHandLimits(difficulty:Difficulty='advanced'){
+ return {rightSpan:difficulty==='easy'?7:difficulty==='intermediate'?10:12,rightNotes:difficulty==='easy'?2:3,leftNotes:1};
+}
+export type PianoPlayabilityIssue={kind:'span'|'polyphony'|'leap';hand:'left'|'right';measure:number;beat:number;message:string};
+type PianoVoicingReference={pitches:readonly number[];start:number};
+const pianoCenter=(pitches:readonly number[])=>pitches.reduce((sum,pitch)=>sum+pitch,0)/Math.max(1,pitches.length);
+const pianoLeapAllowance=(elapsedBeats:number,bpm:number)=>Math.min(24,7+12*Math.max(0,elapsedBeats)*60/Math.max(40,bpm));
+function previousPianoChord(notes:readonly Note[],onset:number,split:number):PianoVoicingReference|undefined{
+ const history=notes.filter(n=>n.pitch>=split&&n.start<onset-1e-7);
+ if(!history.length)return undefined;
+ const start=Math.max(...history.map(n=>n.start));
+ return {start,pitches:history.filter(n=>Math.abs(n.start-start)<1e-7).map(n=>n.pitch)};
+}
+/** Jointly choose notes within the hand's span and prefer short movements from the prior chord. */
+export function choosePlayablePianoVoicing(tones:readonly number[],target:number,difficulty:Difficulty,lo:number,hi:number,
+ previous?:PianoVoicingReference,onset=0,bpm=120):number[]{
+ const limits=pianoHandLimits(difficulty);
+ const pcs=[...new Set(tones.map(n=>((Math.round(n)%12)+12)%12))].slice(0,limits.rightNotes);
+ if(!pcs.length||lo>hi)return [];
+ for(let count=pcs.length;count>=1;count--){
+  const options=pcs.slice(0,count).map(pc=>{
+   const pitches:number[]=[];
+   for(let pitch=Math.ceil(lo);pitch<=Math.floor(hi);pitch++)if(((pitch%12)+12)%12===pc)pitches.push(pitch);
+   return pitches;
+  });
+  if(options.some(group=>!group.length))continue;
+  let best:number[]|undefined,bestCost=Infinity;
+  const explore=(index:number,selected:number[])=>{
+   if(index<options.length){
+    for(const pitch of options[index])if(!selected.includes(pitch))explore(index+1,[...selected,pitch]);
+    return;
+   }
+   const sorted=[...selected].sort((a,b)=>a-b),span=sorted[sorted.length-1]-sorted[0];
+   if(span>limits.rightSpan)return;
+   const center=pianoCenter(sorted);
+   let cost=Math.abs(center-target)*1.15+span*0.12;
+   if(previous?.pitches.length){
+    const older=[...previous.pitches].sort((a,b)=>a-b),oldCenter=pianoCenter(older);
+    const jump=Math.abs(center-oldCenter),permitted=pianoLeapAllowance(onset-previous.start,bpm);
+    cost+=jump*1.8+Math.max(0,jump-permitted)*16;
+    for(let i=0;i<Math.min(sorted.length,older.length);i++)cost+=Math.abs(sorted[i]-older[i])*0.4;
+   }
+   if(cost<bestCost-1e-8){bestCost=cost;best=sorted;}
+  };
+  explore(0,[]);
+  if(best)return best;
+ }
+ return [];
+}
+/** Non-destructive score check: using staff split as an approximation of hand assignment.
+ * Checks held-note overlaps as well as notes beginning simultaneously. */
+export function assessPianoPlayability(notes:readonly Note[],p:Pick<Project,'beats'|'bpm'|'pianoSplitPitch'|'difficulty'|'instrumentSettings'>,inst:Instrument='Piano'):PianoPlayabilityIssue[]{
+ const split=p.pianoSplitPitch??60,limits=pianoHandLimits(p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'advanced');
+ const times=[...new Set(notes.filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>0).map(n=>n.start))].sort((a,b)=>a-b);
+ const issues:PianoPlayabilityIssue[]=[];
+ let previous:{start:number;pitches:number[]}|undefined;
+ for(const time of times){
+  const beat=((time%p.beats)+p.beats)%p.beats,measure=Math.floor(time/p.beats);
+  const active=notes.filter(n=>n.start<=time+1e-7&&n.start+n.duration>time+1e-7);
+  const inspect=(hand:'left'|'right',chosen:Note[],maxNotes:number,maxSpan:number)=>{
+   const pitches=[...new Set(chosen.map(n=>n.pitch))].sort((a,b)=>a-b);
+   if(pitches.length>maxNotes)issues.push({kind:'polyphony',hand,measure,beat,message:`${hand==='left'?'Left':'Right'} hand: ${pitches.length} simultaneous notes (limit ${maxNotes})`});
+   if(pitches.length>1&&pitches[pitches.length-1]-pitches[0]>maxSpan)
+    issues.push({kind:'span',hand,measure,beat,message:`${hand==='left'?'Left':'Right'} hand: ${pitches[pitches.length-1]-pitches[0]}-semitone span (limit ${maxSpan})`});
+  };
+  inspect('left',active.filter(n=>n.pitch<split),limits.leftNotes,12);
+  inspect('right',active.filter(n=>n.pitch>=split),limits.rightNotes,limits.rightSpan);
+  const newRight=notes.filter(n=>Math.abs(n.start-time)<1e-7&&n.pitch>=split);
+  if(newRight.length){
+   const pitches=[...new Set(newRight.map(n=>n.pitch))].sort((a,b)=>a-b);
+   if(previous){
+    const distance=Math.abs(pianoCenter(pitches)-pianoCenter(previous.pitches));
+    const allowance=pianoLeapAllowance(time-previous.start,p.bpm);
+    if(distance>allowance+1e-7)issues.push({kind:'leap',hand:'right',measure,beat,
+      message:`Right hand: ${Math.round(distance)}-semitone move in ${((time-previous.start)*60/Math.max(40,p.bpm)).toFixed(2)} s`});
+   }
+   previous={start:time,pitches};
+  }
+ }
+ return issues;
+}
+
 export function instrumentRange(inst:Instrument):[number,number]{return INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].range;}
 export function convertTwoFourToFour(p:Project):Project {
   if(p.beats!==2)throw Error('Only 2/4 projects can be converted to 4/4');
@@ -538,7 +622,7 @@ export function instrumentActivity(score:Score,inst:Instrument,barCount:number,b
 /** One complete figure for a measure, in concert pitch. The variant changes
  * register, starting chord tone and rhythmic placement deterministically.
  * Melody responses only occupy space after the lead phrase where possible. */
-export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:FigureKind,variation=0):Note[] {
+export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:FigureKind,variation=0,history:readonly Note[]=[]):Note[] {
   if(!FIGURE_KINDS.includes(figure)||!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid figure, instrument or measure');
   if(!Number.isInteger(variation)||variation<0||variation>99)throw Error('Variation must be 0–99');
   const bar=p.bars[barIndex],range=instrumentRange(inst),offset=barIndex*p.beats;
@@ -583,10 +667,15 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
         // piano register; preserve independent bass notes in the lower staff.
         const inversion=(index+variation)%Math.max(1,tones.length);
         const reference=base+shift+(down?-index*2:index*2)+(variation%2?7:0);
-        for(let j=0;j<Math.min(inst==='Piano'&&(p.instrumentSettings?.Piano?.difficulty??p.difficulty)==='easy'?2:3,tones.length);j++){
+        if(inst==='Piano'){
+          const difficulty=p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'advanced';
+          const pcs=Array.from({length:Math.min(pianoHandLimits(difficulty).rightNotes,tones.length)},(_,j)=>tones[(inversion+j)%tones.length]);
+          const previous=previousPianoChord([...history,...result],offset+beat,upperFloor);
+          const voicing=choosePlayablePianoVoicing(pcs,reference+4,difficulty,upperFloor,range[1],previous,offset+beat,p.bpm);
+          for(const pitch of voicing)add(pitch,beat,step,76+(i===0?9:0),0.8);
+        }else for(let j=0;j<Math.min(3,tones.length);j++){
           const pc=tones[(inversion+j)%tones.length];
           const pitch=closest(pc,reference+j*4,upperFloor,range[1]);
-          // Notate a full beat/slot; gate controls the detached attack.
           add(pitch,beat,step,76+(i===0?9:0),0.8);
         }
       }else{
@@ -690,6 +779,11 @@ export function generate(p:Project):Score {
       const put=(pitch:number,start:number,duration:number,velocity=80,technique?:Note['technique'],gate?:number)=>{
         if(pitch>=0&&pitch<=127&&duration>0&&start>=0&&start<p.beats)
           notes.push({pitch,start:offset+start,duration:Math.min(duration,p.beats-start),velocity:Math.max(35,Math.min(127,Math.round(velocity*dynamicScale+(cfg?.dynamicsOffset??0)))),accent:Math.abs(start-Math.round(start))<0.001&&(p.beats===3?Math.round(start)===0:(profile.strongBeats?Math.round(start)%2===0:true)),technique,source:'generated',...(gate===undefined?{}:{gate})});
+      };
+      const putPianoChord=(pcs:readonly number[],target:number,beat:number,duration:number,velocity:number,gate:number)=>{
+        const floor=Math.max(range[0],p.pianoSplitPitch??60),previous=previousPianoChord(notes,offset+beat,floor);
+        const voicing=choosePlayablePianoVoicing(pcs,target,difficulty,floor,range[1],previous,offset+beat,p.bpm);
+        for(const pitch of voicing)put(pitch,beat,duration,velocity,undefined,gate);
       };
       // Bandoneon chordal playing: limited compact voicings rather than unrestricted piano chords.
       // A 'fill' part may combine a melodic response with short accompaniment chords.
@@ -833,8 +927,7 @@ export function generate(p:Project):Score {
           // Complement the bass habanera: light offbeat chord stabs.
           for(const beat of [0.5,1.5]){
             const pcs=harmony(beat);
-            for(const pc of pcs.slice(0,difficulty==='easy'?2:3))
-              put(closest(pc,68,range[0],range[1]),beat,0.45,beat===0.5?70:64,undefined,0.54);
+            putPianoChord(pcs,68,beat,0.45,beat===0.5?70:64,0.54);
           }
           continue;
         }
@@ -848,14 +941,13 @@ export function generate(p:Project):Score {
           if(notes.length)notes[notes.length-1].accent=true;
           for(const beat of [1,2]){
             const pcs=harmony(beat);
-            for(const pc of pcs.slice(0,difficulty==='easy'?2:3))
-              put(closest(pc,beat===1?65:68,range[0],range[1]),beat,0.8,beat===1?65:62,undefined,0.55);
+            putPianoChord(pcs,beat===1?65:68,beat,0.8,beat===1?65:62,0.55);
           }
           continue;
         }
         const figure=p.pianoFigures?.[bar.section]??'chords_up';
         const variation=p.pianoFigureVariation?.[bar.section]??0;
-        for(const n of figureMeasure(p,inst,b,figure,variation))put(n.pitch,n.start-offset,n.duration,n.velocity,undefined,n.gate);
+        for(const n of figureMeasure(p,inst,b,figure,variation,notes))put(n.pitch,n.start-offset,n.duration,n.velocity,undefined,n.gate);
         continue;
       }
       if(role==='chords'){

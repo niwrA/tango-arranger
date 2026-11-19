@@ -9,7 +9,7 @@ import {version as appVersion} from '../package.json';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -236,6 +236,12 @@ function setNoteOverviewCount(count:number){
   noteLoopFrom.value=from;
   noteLoopTo.value=Math.min(project.value.bars.length,from+count-1);
 }
+const pianoPlayabilityWarnings=computed(()=>{
+  if(!noteInst.value.startsWith('Piano'))return [];
+  const visible=new Set(focusVisibleMeasures.value);
+  return assessPianoPlayability(score.value[noteInst.value]??[],project.value,noteInst.value)
+    .filter(issue=>visible.has(issue.measure));
+});
 const focusVisibleMeasures=computed(()=>{
   const max=project.value.bars.length;
   const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
@@ -3137,6 +3143,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span v-if="project.protectedBars[`${noteInst}:${selectedBar}`]" class="manual-status">Manual · protected</span>
     </div>
 </div>
+    <div v-if="pianoPlayabilityWarnings.length" class="note-playability-warnings" role="status">
+      <strong>Possible piano hand-reach issues ({{pianoPlayabilityWarnings.length}})</strong>
+      <span v-for="(issue,index) in pianoPlayabilityWarnings.slice(0,4)" :key="index">Measure {{issue.measure+1}}, beat {{Number((issue.beat+1).toFixed(2))}}: {{issue.message}}</span>
+      <small v-if="pianoPlayabilityWarnings.length>4">More warnings are available within the selected measure range.</small>
+      <small>Staff split approximates hands; imported and manually edited notes are never moved automatically.</small>
+    </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
 <div class="note-grid-scroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)">
@@ -3439,4 +3451,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range select{width:auto;max-width:120px}
 }
 
+.note-playability-warnings{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#372b21;border:1px solid #a9844b;border-radius:6px;padding:5px 8px;margin:3px 0 5px;font-size:11px}
+.note-playability-warnings strong{color:#f6d39c}
+.note-playability-warnings span{padding:2px 5px;border-radius:3px;background:#4a3626}
+.note-playability-warnings small{color:#d0b79a}
 </style>
