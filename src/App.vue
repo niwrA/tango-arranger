@@ -2,6 +2,7 @@
 import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
+import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
@@ -361,6 +362,9 @@ const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
 const performanceMode=ref(false);
 const performanceView=ref<'ensemble'|'notes'>('ensemble');
+const performanceCardModes=ref<Record<string,'diagram'|'cues'>>({});
+function flipPerformanceCard(inst:Instrument){performanceCardModes.value={...performanceCardModes.value,[inst]:performanceCardModes.value[inst]==='cues'?'diagram':'cues'};}
+function cardShowsDiagram(inst:Instrument){return performanceCardModes.value[inst]!=='cues';}
 const performanceShell=ref<HTMLElement|null>(null);
 const performanceStageCompact=ref(false);
 const performanceFullscreenActive=ref(false);
@@ -404,12 +408,25 @@ const performanceBeatGlow=computed(()=>{
 });
 const performanceSections=computed(()=>sectionSpans(project.value));
 const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
-/** A real upcoming key change may occur several measures from now. */
+/** Harmonic timeline tracks intra-measure chord changes instead of assuming one chord per bar. */
 const performanceHarmony=computed(()=>{
- const p=project.value,bar=performanceBar.value,current=p.bars[bar],key=keyForSection(current?.section??'A');
+ const p=project.value,bar=performanceBar.value,current=p.bars[bar],localBeat=((performanceBeat.value%p.beats)+p.beats)%p.beats;
+ const key=keyForSection(current?.section??'A');
  let upcomingKey=key,changeMeasure:number|null=null;
  for(let i=bar+1;i<p.bars.length;i++){const candidate=keyForSection(p.bars[i].section);if(candidate!==key){upcomingKey=candidate;changeMeasure=i+1;break;}}
- return {key,upcomingKey,changeMeasure,chord:current?.chord||'—',nextChord:p.bars[bar+1]?.chord||'—'};
+ let chord='';try{chord=chordAt(current?.chord??'',p.beats,localBeat);}catch{chord=current?.chord.split(',')[0]?.trim()??'';}
+ let nextChord='',nextChordMeasure:number|null=null,nextChordBeat:number|null=null;
+ outer:for(let i=bar;i<p.bars.length;i++){
+  let changes:{beat:number;chord:string}[];
+  try{changes=parseChordSequence(p.bars[i].chord,p.beats);}catch{changes=[{beat:0,chord:p.bars[i].chord.split(',')[0]?.trim()??''}];}
+  for(const change of changes){
+   if(i===bar&&change.beat<=localBeat+0.0001)continue;
+   if(!change.chord||change.chord===chord)continue;
+   nextChord=change.chord;nextChordMeasure=i+1;nextChordBeat=change.beat+1;
+   break outer;
+  }
+ }
+ return {key,upcomingKey,changeMeasure,chord:chord||'—',nextChord:nextChord||'—',nextChordMeasure,nextChordBeat};
 });
 function performanceDynamic(inst:Instrument,bar:number):string{
  const p=project.value,b=p.bars[bar];
