@@ -155,10 +155,11 @@ export function createMergePlan(project:Project,parsed:ParsedMusicXml,instrument
  });
  const rows=Array.from({length:count},(_,target):AlignmentRow=>{
   const source=mode==='lead'?target:aligned[target].theirs;
-  const matched=mode==='lead'?inverse.get(target):aligned[target];
-  const ours=mode==='lead'?matched?.ours??null:target;
-  const shift=mode==='lead'?-(matched?.shift??0):matched?.shift??0;
-  const confidence=mode==='lead'?matched?.confidence??0:matched?.confidence??0;
+  const inverseMatch=mode==='lead'?inverse.get(target):undefined;
+  const alignedMatch=mode==='lead'?undefined:aligned[target];
+  const ours=mode==='lead'?inverseMatch?.ours??null:target;
+  const shift=mode==='lead'?-(inverseMatch?.shift??0):alignedMatch?.shift??0;
+  const confidence=mode==='lead'?inverseMatch?.confidence??0:alignedMatch?.confidence??0;
   const protectedOriginal=ours!==null&&Boolean(project.protectedBars[instrument+':'+ours]);
   return {target,ours,theirs:source??null,shift,confidence,
    notes:source===null?'ours':mode==='lead'&&!protectedOriginal?'theirs':'ours',
