@@ -37,6 +37,17 @@
 - Focus view shows the measure range chosen by Loop from / To as a scrollable note overview. Click any measure to make it the editable measure below. Playback loops the same measure range.
 - Only the selected measure is directly draggable/resizable; the phrase overview is navigational and does not allow dragging across measure boundaries.
 
+## Milestone 3 — Phrase-level orchestration planning (19 November 2026)
+
+- [x] Introduce a shared, typed phrase-plan model independent of editable instrument note editions.
+- [x] Group contiguous song sections into configurable 1–32-measure phrases; validate complete form coverage.
+- [x] Provide draft, preview, edit, apply and remove workflow in Orchestration, including role, activity, placement, articulation and violin/bass techniques.
+- [x] Update generated note realization, orchestration map and Note Editor contexts to respect phrase plans, explicit per-measure overrides and manual protections.
+- [x] Keep active difficulty editions current after applying a plan, retain other editions unchanged and flag them stale.
+- [x] Add focused regression tests for form/roster changes, explicit rests, instrumental techniques, protected edits, and MusicXML/print-pack compatibility; run these in CI.
+- [ ] Validate touch interaction in Safari on iPad and inspect exported phrase arrangements in MuseScore.
+- [ ] Improve phrase discovery from melodic contour and harmony, cross-part voice leading, advanced violin fingering/double stops, bandoneon/contrabass ergonomic modeling, and historical-corpus comparison.
+
 ## Milestone 2 — Independent difficulty editions (19 November 2026)
 
 - [x] Keep the shared lead sheet, song form, chords and tempo unchanged while

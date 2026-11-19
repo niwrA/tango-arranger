@@ -3,6 +3,7 @@
  * authoritative *active* workspace; other variants are durable snapshots.
  * Keeping this boundary makes old .tango files and existing editors work. */
 import {generate,mergeScores,projectInstruments,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
+import {validatePhrasePlan,type PhrasePlan} from './phrasePlan';
 
 export const EDITION_LEVELS:readonly Difficulty[]=['easy','intermediate','advanced'];
 export type EditionChoice=Partial<Record<Instrument,Difficulty>>;
@@ -23,6 +24,7 @@ export function scoreSourceSignature(p:Project,inst:Instrument):string{
   bars:p.bars.map(b=>[b.section,b.chord,b.melody]),
   beats:p.beats,profile:p.profile,
   sectionKeys:p.sectionKeys,roles:p.roles,measureRoles:p.measureRoles,
+  phrasePlan:p.phrasePlan,
   sectionArticulation:p.articulation,
   pianoFigures:p.pianoFigures,pianoVariation:p.pianoFigureVariation,
   orchestration:p.orchestration,melodyDucking:p.melodyDucking,
@@ -66,6 +68,26 @@ export function snapshotActiveEditions(p:Project):Project{
   partEditions[inst]={...(partEditions[inst]??{}),[level]:activeSnapshot(p,inst,score)};
  }
  return {...p,partEditions};
+}
+/** Applying a reviewed plan updates only active versions. Independently stored
+ * difficulty editions remain intact and become stale until explicitly revised. */
+export function applyPhrasePlan(p:Project,plan?:PhrasePlan):Project{
+ if(plan!==undefined){
+  const errors=validatePhrasePlan(p,plan);
+  if(errors.length)throw Error(errors.join('; '));
+ }
+ const saved=snapshotActiveEditions(p);
+ const next:Project={...saved,phrasePlan:plan===undefined?undefined:JSON.parse(JSON.stringify(plan)) as PhrasePlan};
+ const score=mergeScores(next,generate(next));
+ next.generatedScore=score;
+ const editions:PartEditions={...(saved.partEditions??{})};
+ for(const inst of projectInstruments(next)){
+  const level=activeLevel(next,inst);
+  editions[inst]={...(editions[inst]??{}),[level]:{
+   ...activeSnapshot(next,inst,score),sourceSignature:scoreSourceSignature(next,inst)
+  }};
+ }
+ return {...next,partEditions:editions};
 }
 function generateAtLevel(p:Project,level:Difficulty):Score{
  const settings=Object.fromEntries(projectInstruments(p).map(inst=>

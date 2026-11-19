@@ -133,6 +133,16 @@ review those versions before printing. The three levels remain heuristic
 arrangements, not individually certified technique examinations. Print-ready
 layout is finalized in MuseScore; no native browser PDF engraver is provided.
 
+## Milestone 3 — Editable phrase-aware orchestration (2026-11-19)
+
+Orchestration now includes a **Phrase planner**. Choose a phrase length from 1 to 32 measures (eight by default), then use **Create proposal**. Phrase boundaries follow contiguous song sections, including shortened final phrases. The proposal is an editable draft; it **does not** change the score until **Apply phrase plan**.
+
+For every instrument and phrase, set musical **role**, active-measure **percentage**, placement (**Opening**, **Closing**, **Throughout**), optional articulation, and violin or contrabass playing technique. The editor shows exactly which measures would be active. The result is a shared, explicit phrase-level plan between melody/harmony input and difficulty-aware note generation; existing Easy/Intermediate/Advanced instrument editions remain independent. Choosing **Use section settings** removes the active plan and returns to the previous behavior.
+
+**Precedence and safety:** Explicit instrument-measure role/articulation/technique overrides win over the phrase plan; a valid phrase plan wins over song-section defaults. Notes in protected instrument-measures remain unchanged when planning/regenerating. Stored alternative difficulty editions are preserved and flagged stale when their shared arrangement changes. Source project notes, lyrics and expressive gestures are retained through portable backups. Legacy .tango projects without a phrase plan continue generating as before. Invalid plans (overlapping/out-of-order measures, altered meter, altered form or altered roster) are rejected or treated as inactive until rebuilt.
+
+**What this does not do:** Automatically detect expressive phrases or cadences from recordings; infer physical violin fingerings or bandoneon button layouts; add advanced double stops to free melodic lines; solve full contrapuntal voice leading; or guarantee that every printed part is ergonomically playable. It is a deterministic, editable *orchestration-planning foundation*. The remaining milestones include instrument-specific playability, advanced harmony, violin double stops, and rhythm-snap provenance. Browser/iPad Safari and MuseScore GUI acceptance remain necessary.
+
 ## Known constraints
 
 - The v1.3 note editor is a simple beat-grid piano roll, **not** engraved staff notation or finger-position optimization. Double stops use a conservative adjacent-string/open-low-position heuristic. The editor permits arbitrary manual polyphony; ergonomic playability is not guaranteed.

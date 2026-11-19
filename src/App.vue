@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
+import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import type {PolySynth,Synth} from 'tone';
 import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
@@ -14,7 +15,8 @@ import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,s
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
 import {measureLoopEvents} from './measureLoop';
-import {EDITION_LEVELS,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
+import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
+import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent} from './expressiveAudio';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
@@ -74,6 +76,7 @@ function stopPlayback(){
   capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureRecordedPass=-1;
 }
 function selectProjectInEditor(p:Project){
+  phrasePlanDraft.value=undefined;
   stopPlayback();syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
   overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
@@ -300,7 +303,7 @@ function handleNoteTabKey(event:KeyboardEvent){
 }
 const noteDetailsPopup=ref(false);
 function scrollMapEditPanel(){document.querySelector('.overview-edit')?.scrollIntoView({behavior:'smooth',block:'center'});}
-const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());type WorkspaceTab='structure'|'lead'|'arrange'|'rhythm'|'notes'|'about';
+const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const phrasePlanDraft=ref<PhrasePlan|undefined>();type WorkspaceTab='structure'|'lead'|'arrange'|'rhythm'|'notes'|'about';
 const workspaceTabs:readonly WorkspaceTab[]=['structure','lead','arrange','rhythm','notes','about'];
 function initialWorkspaceTab():WorkspaceTab{
   try{
@@ -1022,6 +1025,15 @@ function gestureMini(n:Note,voice:'primary'|'partner'='primary'):string{
  const min=Math.min(n.pitch,n.slideTo)-1,max=Math.max(n.pitch,n.slideTo)+1;
  return '0,'+(19-(n.pitch-min)/(max-min)*15).toFixed(2)+' 100,'+(19-(n.slideTo-min)/(max-min)*15).toFixed(2);
 }
+function applyReviewedPhrasePlan(plan:PhrasePlan|undefined){
+ try{
+  stopPlayback();
+  project.value=applyPhrasePlan(project.value,plan);
+  phrasePlanDraft.value=undefined;
+  noteSelected.value=-1;noteDetailsPopup.value=false;
+  message.value=plan?'Applied '+plan.phrases.length+' reviewed phrases; protected notes retained and stored alternatives preserved.':'Restored section-based arrangement; protected notes retained.';
+ }catch(err){message.value='Phrase planning failed: '+String(err);}
+}
 function setInstrumentDifficulty(inst:Instrument,e:Event){switchDifficultyEdition(inst,(e.target as HTMLSelectElement).value as Difficulty);}
 function switchDifficultyEdition(inst:Instrument,level:Difficulty){
   try{
@@ -1483,9 +1495,9 @@ const mapVisibleMeasures=computed(()=>project.value.bars.flatMap((bar,index)=>{
 function toggleMapSection(start:number){
   collapsedMapSections.value=collapsedMapSections.value.includes(start)?collapsedMapSections.value.filter(i=>i!==start):[...collapsedMapSections.value,start];
 }
-function effectiveRole(inst:Instrument,i:number):Role{return project.value.measureRoles?.[`${inst}:${i}`]??project.value.roles[project.value.bars[i]?.section]?.[inst]??'rest';}
+function effectiveRole(inst:Instrument,i:number):Role{return plannedEffectiveRole(project.value,inst,i);}
 function roleOverridden(inst:Instrument,i:number){return Object.prototype.hasOwnProperty.call(project.value.measureRoles??{},`${inst}:${i}`);}
-function violinTechnique(inst:Instrument,i:number):ViolinTechnique|undefined{return inst.startsWith('Violin')?(project.value.measureViolinTechniques?.[`${inst}:${i}`]??project.value.orchestration?.violin?.[project.value.bars[i].section]?.[inst as 'Violin I'|'Violin II']??'tango_staccato'):undefined;}
+function violinTechnique(inst:Instrument,i:number):ViolinTechnique|undefined{return inst.startsWith('Violin')?plannedViolinTechnique(project.value,inst,i):undefined;}
 function articulationOverride(inst:Instrument,i:number):Articulation{return project.value.articulation?.overrides?.[`${inst}:${i}`]??'auto';}
 function cellArticulation(inst:Instrument,i:number):string{if(inst==='Contrabass'&&effectiveRole(inst,i)==='bass'&&bassTechniqueFor(project.value,i)!=='traditional')return bassTechniqueFor(project.value,i).replaceAll('_',' ');if(inst.startsWith('Violin')&&effectiveRole(inst,i)==='chords'&&!project.value.articulation?.overrides?.[`${inst}:${i}`]&&['tango_staccato','pizzicato'].includes(violinTechnique(inst,i)??'')){const beats=violinMarcatoBeatsFor(project.value,project.value.bars[i].section,inst as 'Violin I'|'Violin II').map(n=>n+1);return `${violinTechnique(inst,i)==='pizzicato'?'Pizz.':'Stacc.'}${beats.length?' ^'+beats.join(','):''}`;}const mode=measureArticulation(project.value,inst,i);return mode==='marcato_staccato'?'Marc.':mode==='staccato'?'Stacc.':mode==='legato'?(inst.startsWith('Violin')?'Arco':'Legato'):'—';}
 function cellLabel(inst:Instrument,i:number):string{const role=effectiveRole(inst,i);const tech=violinTechnique(inst,i);if(inst==='Contrabass'&&role==='bass')return bassTechniqueFor(project.value,i)==='traditional'?'bass':bassTechniqueFor(project.value,i).replaceAll('_',' ');return role==='chords'&&inst==='Piano'?(project.value.pianoFigures?.[project.value.bars[i].section]??'chords_up').replaceAll('_',' '):role==='chords'&&tech?tech.replaceAll('_',' '):role;}
@@ -2977,6 +2989,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 <button class="secondary lead-add-measure" @click="addBar">+ Add measure to last section</button></section>
 <section v-else-if="active==='arrange'" class="overview-section">
+<PhrasePlanEditor :project="project" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan"/>
 <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
 <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
 </div>

@@ -1,4 +1,5 @@
 import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
+import {effectiveRole,effectiveActivity,effectiveViolinTechnique,effectiveBassTechnique,plannedArticulation,plannedMeasureActive,phraseAt,phraseMeasureMap,type Phrase,type PhrasePlan} from './phrasePlan';
 export type Instrument = string;
 export const FACTORY_INSTRUMENTS: readonly Instrument[] = ['Piano','Contrabass','Violin I','Violin II','Bandoneon I','Bandoneon II','Voice'];
 /** Reactive UI compatibility: mutate in place when switching projects. Engine functions use project roster. */
@@ -88,11 +89,13 @@ export function measureDynamicVelocity(p:Pick<Project,'measureDynamics'|'beats'>
  if(start!==undefined&&end!==undefined){const t=Math.max(0,Math.min(1,(absoluteBeat-bar*p.beats)/p.beats));return Math.max(1,Math.min(127,Math.round(base+(start+(end-start)*t-88))));}
  return Math.max(1,Math.min(127,Math.round(base+(start??end??88)-88)));
 }
-export function melodyDuckingFactor(p:Pick<Project,'melodyDucking'|'roles'|'measureRoles'|'bars'|'beats'>,inst:Instrument,absoluteBeat:number):number {
+export function melodyDuckingFactor(p:Pick<Project,'melodyDucking'|'roles'|'measureRoles'|'bars'|'beats'|'instruments'|'phrasePlan'>,inst:Instrument,absoluteBeat:number):number {
  if(inst.startsWith('Contrabass')||p.melodyDucking?.enabled===false)return 1;
  const b=Math.floor(absoluteBeat/p.beats),bar=p.bars[b];if(!bar)return 1;
- const lead=p.measureRoles?.[`${inst}:${b}`]??p.roles[bar.section]?.[inst];if(lead==='melody')return 1;
- const hasLead=INSTRUMENTS.some(i=>i!==inst&&(p.measureRoles?.[`${i}:${b}`]??p.roles[bar.section]?.[i])==='melody');
+ const phrase=phraseAt(p,b)??null;
+ const lead=effectiveRole(p,inst,b,phrase);if(lead==='melody')return 1;
+ const group=p.phrasePlan?projectInstruments(p):INSTRUMENTS;
+ const hasLead=group.some(i=>i!==inst&&effectiveRole(p,i,b,phrase)==='melody'&&plannedMeasureActive(p,i,b,phrase)!==false);
  return hasLead?Math.max(0.1,Math.min(1,(100-(p.melodyDucking?.reduction??22))/100)):1;
 }
 export type InstrumentSettings = { difficulty?:Difficulty; activity?:number; dynamicsOffset?:number };
@@ -244,13 +247,13 @@ export function resizeSections(p:Project,lengths:number[]):Project {
 
     measureRoles:remap(p.measureRoles),measureViolinTechniques:remap(p.measureViolinTechniques),measureBassTechniques:remap(p.measureBassTechniques),
     articulation:{...(p.articulation??defaultArticulation()),overrides:remap(p.articulation?.overrides)},
-    generatedScore:undefined,importedScore:undefined,baseScore:undefined,protectedBars:{},partEditions:undefined};
+    generatedScore:undefined,importedScore:undefined,baseScore:undefined,protectedBars:{},partEditions:undefined,phrasePlan:undefined};
 }
 export type Bar = { chord:string; melody:Note[]; section:string };
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
-export type Project = { version:1; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
@@ -322,9 +325,11 @@ export function changeSectionKey(p:Project,section:string,toKey:string,mode:Sect
   return next;
 }
 
-export function measureArticulation(p:Project,inst:Instrument,barIndex:number):Exclude<Articulation,'auto'>|undefined {
-  if(!(inst.startsWith('Violin')||inst.startsWith('Bandoneon')))return undefined;
+export function measureArticulation(p:Project,inst:Instrument,barIndex:number,phrase?:Phrase|null):Exclude<Articulation,'auto'>|undefined {
+  const planned=plannedArticulation(p,inst,barIndex,phrase);
+  if(!(inst.startsWith('Violin')||inst.startsWith('Bandoneon'))&&!planned)return undefined;
   const override=p.articulation?.overrides?.[`${inst}:${barIndex}`];if(override)return override;
+  if(planned)return planned;
   if(p.articulation?.enabled===false)return undefined;
   const period=Math.max(1,Math.min(32,p.articulation?.phraseBars??8));
   // Phrase variation: stagger switches between instrument groups without random rests.
@@ -614,7 +619,7 @@ export function convertTwoFourToFour(p:Project):Project {
     const mergedChord=chordSequenceFromBeats(mergedChanges,4);
     bars.push({chord:mergedChord,section:first.section,melody:[...first.melody.map(n=>({...n})),...second.melody.map(n=>({...n,start:n.start+2}))]});
   }
-  return {...p,beats:4,bars,protectedBars:{},partEditions:undefined};
+  return {...p,beats:4,bars,protectedBars:{},partEditions:undefined,phrasePlan:undefined};
 }
 const dynVelocity=DYNAMIC_VELOCITIES;
 export function instrumentActivity(score:Score,inst:Instrument,barCount:number,beats:number):number {
@@ -713,9 +718,9 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
 /** Contrabass articulation/rhythm presets. Starts are local to the measure.
  * These are deterministic arranging options, not a claim about a universal tango style.
  * The existing bass figure is retained by the traditional preset in generate(). */
-export function bassTechniqueFor(p:Project,barIndex:number):BassTechnique {
+export function bassTechniqueFor(p:Project,barIndex:number,inst:Instrument='Contrabass',phrase?:Phrase|null):BassTechnique {
  const bar=p.bars[barIndex];if(!bar)throw Error('Invalid measure');
- return p.measureBassTechniques?.[`Contrabass:${barIndex}`]??p.orchestration?.contrabass?.[bar.section]??'traditional';
+ return effectiveBassTechnique(p,inst,barIndex,phrase);
 }
 export function contrabassStyleNotes(p:Project,barIndex:number,technique:BassTechnique):Note[] {
  const bar=p.bars[barIndex];if(!bar||!BASS_TECHNIQUES.includes(technique))throw Error('Invalid bass technique or measure');
@@ -748,32 +753,34 @@ export function contrabassStyleNotes(p:Project,barIndex:number,technique:BassTec
 }
 export function generate(p:Project):Score {
   const roster=projectInstruments(p);
+  const phrases=phraseMeasureMap(p);
   const score=Object.fromEntries(roster.map(i=>[i,[]])) as unknown as Score;
   const profile=patterns[p.profile]??patterns.traditional;
   const milonga=p.profile==='milonga'&&p.beats===2;
   const settings=p.orchestration??defaultOrchestration();
   const expression=p.expression??defaultExpression();
   for(let b=0;b<p.bars.length;b++){
-    const bar=p.bars[b],offset=b*p.beats,sectionRoles=p.roles[bar.section]??{};
+    const bar=p.bars[b],offset=b*p.beats,phrase=phrases[b];
     if(!bar.chord.trim()&&!bar.melody.length)continue; // A blank measure is genuinely silent.
     const harmony=(beat:number)=>chordTones(chordAt(bar.chord,p.beats,beat));
     const tones=harmony(0),root=tones[0];
     // Generate primary lines first so followers can copy the actual generated notes.
-    const order:Instrument[]=[...roster].sort((left,right)=>{const aLead=left.startsWith('Voice')&&(p.measureRoles?.[`${left}:${b}`]??sectionRoles[left])==='melody';const bLead=right.startsWith('Voice')&&(p.measureRoles?.[`${right}:${b}`]??sectionRoles[right])==='melody';return Number(bLead)-Number(aLead);});
+    const order:Instrument[]=[...roster].sort((left,right)=>{const aLead=left.startsWith('Voice')&&effectiveRole(p,left,b,phrase)==='melody';const bLead=right.startsWith('Voice')&&effectiveRole(p,right,b,phrase)==='melody';return Number(bLead)-Number(aLead);});
     for(const inst of order){
-      const configuredRole=p.measureRoles?.[`${inst}:${b}`]??sectionRoles[inst]??'rest',notes=score[inst],range=instrumentRange(inst);
+      const configuredRole=effectiveRole(p,inst,b,phrase),notes=score[inst],range=instrumentRange(inst);
       if(!bar.chord.trim() && configuredRole!=='melody' && configuredRole!=='variation')continue; // No invented harmony before chord entry.
       const cfg=p.instrumentSettings?.[inst]; const difficulty=cfg?.difficulty??p.difficulty??'advanced';
-      const activity=Math.max(0,Math.min(1,cfg?.activity??(inst.startsWith('Voice')?0:0.9)));
+      const activity=phrase?effectiveActivity(p,inst,b,phrase):Math.max(0,Math.min(1,cfg?.activity??(inst.startsWith('Voice')?0:0.9)));
       const intentionalRest=configuredRole==='rest';
       // Violin II harmony is a real second line to Violin I's melody, not an
       // independently sparse accompaniment. Respect explicit Rest/zero activity.
       const violinDuet=inst==='Violin II'&&configuredRole==='harmony'&&
-        (p.measureRoles?.[`Violin I:${b}`]??sectionRoles['Violin I'])==='melody';
-      const voiceLead=roster.find(i=>i.startsWith('Voice')&&(p.measureRoles?.[`${i}:${b}`]??sectionRoles[i])==='melody');
+        effectiveRole(p,'Violin I',b,phrase)==='melody';
+      const voiceLead=roster.find(i=>i.startsWith('Voice')&&effectiveRole(p,i,b,phrase)==='melody');
       const voiceDuet=inst.startsWith('Voice')&&inst!==voiceLead&&configuredRole==='harmony'&&!!voiceLead;
-      const activeBar=!intentionalRest && activity>0 &&
-        (violinDuet||voiceDuet||((b*7+roster.indexOf(inst)*3)%100)<Math.round(activity*100));
+      const plannedActive=plannedMeasureActive(p,inst,b,phrase);
+      const activeBar=plannedActive??(!intentionalRest && activity>0 &&
+        (violinDuet||voiceDuet||((b*7+roster.indexOf(inst)*3)%100)<Math.round(activity*100)));
       if(!activeBar)continue;
       const role=(configuredRole==='fill' && inst.startsWith('Bandoneon'))?(bar.melody.length?'harmony':'chords'):(configuredRole==='harmony'&&!bar.melody.length&&!violinDuet&&!voiceDuet?'chords':configuredRole);
       const sectionDyn=expression.sections[bar.section]??'mf';
@@ -893,7 +900,7 @@ export function generate(p:Project):Score {
       }
       if(role==='bass'){
         if(inst.startsWith('Contrabass')){
-          const bassStyle=bassTechniqueFor(p,b);
+          const bassStyle=bassTechniqueFor(p,b,inst,phrase);
           if(bassStyle!=='traditional'){
             for(const event of contrabassStyleNotes(p,b,bassStyle)){
               put(event.pitch,event.start-offset,event.duration,event.velocity,event.technique,event.gate);
@@ -957,7 +964,7 @@ export function generate(p:Project):Score {
         const beats=milonga?[0.5,1.5]:p.beats===3?[1,2]:difficulty==='easy'?[0,2]:profile.density>=0.85?[0,1,2,3]:[0,2];
         if(inst.startsWith('Violin')){
           const violin=inst as ViolinPart;
-          const technique=p.measureViolinTechniques?.[`${inst}:${b}`]??settings.violin[bar.section]?.[violin]??'tango_staccato';
+          const technique=phrase?effectiveViolinTechnique(p,inst,b,phrase):p.measureViolinTechniques?.[`${inst}:${b}`]??settings.violin[bar.section]?.[violin]??'tango_staccato';
           if(technique==='pizzicato'||technique==='tango_staccato'){
             // Standard tango chord accompaniment is monophonic and beat-based.
             // The difficulty setting does not remove beats; activity still controls
@@ -1029,8 +1036,9 @@ export function generate(p:Project):Score {
   // Apply phrasing after role generation so follower notes get consistent articulation.
   for(const inst of roster)for(const n of score[inst]){
     const barIndex=Math.floor((n.start+1e-7)/p.beats);
-    const mode=measureArticulation(p,inst,barIndex);
-    const explicit=p.articulation?.overrides?.[`${inst}:${barIndex}`];
+    const phrase=phrases[barIndex]??null;
+    const mode=measureArticulation(p,inst,barIndex,phrase);
+    const explicit=p.articulation?.overrides?.[`${inst}:${barIndex}`]??plannedArticulation(p,inst,barIndex,phrase);
     if(explicit && n.articulation!==undefined){
       // A deliberate measure override takes precedence over the generated
       // violin beat pattern. Remove its custom gate so the override is audible.
@@ -1039,6 +1047,8 @@ export function generate(p:Project):Score {
     }
     if(mode && n.articulation===undefined){
       n.articulation=mode;
+      // A new phrase-level articulation supersedes a previously inferred short gate.
+      if(plannedArticulation(p,inst,barIndex,phrase))n.gate=undefined;
       // Articulation changes playback gate, not the written rhythmic value.
       // Marcato has a longer release and a stronger attack than tango staccato.
       if(mode==='marcato_staccato'){
@@ -1074,12 +1084,13 @@ export function noteEditorContext(p:Project,inst:Instrument,barIndex:number):Not
   const section=p.bars[barIndex].section;
   const key=sectionKey(p,section);
   const mode=parseKeySignature(key).mode;
+  const phrase=phraseAt(p,barIndex)??null;
   return {
-    role:p.measureRoles?.[`${inst}:${barIndex}`]??p.roles[section]?.[inst]??'rest',
+    role:effectiveRole(p,inst,barIndex,phrase),
     key,mode,difficulty:p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'advanced',
-    range:instrumentRange(inst),articulation:measureArticulation(p,inst,barIndex),
-    technique:inst==='Contrabass'?bassTechniqueFor(p,barIndex):inst.startsWith('Violin')?(p.measureViolinTechniques?.[`${inst}:${barIndex}`]??p.orchestration?.violin[section]?.[inst as 'Violin I'|'Violin II']??'tango_staccato'):undefined,
-    activity:p.instrumentSettings?.[inst]?.activity??(inst.startsWith('Voice')?0:0.9),
+    range:instrumentRange(inst),articulation:measureArticulation(p,inst,barIndex,phrase),
+    technique:inst.startsWith('Contrabass')?bassTechniqueFor(p,barIndex,inst,phrase):inst.startsWith('Violin')?effectiveViolinTechnique(p,inst,barIndex,phrase):undefined,
+    activity:effectiveActivity(p,inst,barIndex,phrase),
     dynamic:p.expression?.sections[section]??'mf'
   };
 }

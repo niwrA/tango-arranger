@@ -37,6 +37,9 @@ jobs:
       - name: Test independent difficulty editions and printable export
         run: npm run test:editions
 
+      - name: Test editable phrase planner and protected editions
+        run: npm run test:phrases
+
       - name: Verify production output
         run: |
           test -f dist/index.html

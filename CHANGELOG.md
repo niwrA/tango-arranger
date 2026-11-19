@@ -1,3 +1,12 @@
+## Milestone 3 — Editable phrase planning (2026-11-19)
+
+- Added a shared phrase-level orchestration layer with section-aware phrase segmentation and explicit instrument roles/activity/placement.
+- Added an Orchestration draft editor that previews active measures, violin/contrabass techniques, and articulation before applying changes.
+- Generation now follows the reviewed plan, while per-measure overrides and protected manual notes take priority. Legacy songs remain unchanged without an applied plan.
+- Applying or removing a plan refreshes selected editions while leaving independently saved alternative difficulty levels intact, marked stale for review.
+- Added targeted CI tests for planning, transitions, edition isolation, MuseScore MusicXML/ZIP output, and persistence.
+- Instrument-specific fingering/hand feasibility, advanced double stops, richer contrapuntal harmony and full device/MuseScore testing remain future work.
+
 ## Milestone 2 — Independent instrument difficulty editions (2026-11-19)
 
 - Added independently editable Easy, Intermediate and Advanced versions for
