@@ -3,7 +3,7 @@ import {computed} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
- * exact notes currently being played by this part. Physical stopped-note locations are
+ * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
 const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean}>();
 const family=computed(()=>instrumentFamily(props.instrument));
@@ -44,6 +44,14 @@ const openStrings=computed(()=>{
 });
 const stops=[0,1,2,3,4,5,6,7];
 const isStringInstrument=computed(()=>openStrings.value.length>0);
+/** Actual sounding notes can fall outside the two-octave piano diagram or the
+ * seven-semitone string segment. Show those pitches explicitly instead of
+ * pretending their octave is on the visible keyboard/fingerboard. */
+const unmappedSoundingPitches=computed(()=>props.activePitches.filter(midi=>{
+ if(family.value==='Piano')return !whiteKeys.includes(midi)&&!blackKeys.some(key=>key.midi===midi);
+ if(isStringInstrument.value)return !openStrings.value.some(string=>midi>=string.midi&&midi<string.midi+stops.length);
+ return true;
+}));
 const diagramDescription=computed(()=>{
  if(family.value==='Piano')return 'Two octaves · concert pitches';
  if(isStringInstrument.value)return 'Open strings + chromatic positions · schematic';
@@ -68,18 +76,18 @@ const diagramDescription=computed(()=>{
    <div v-if="family==='Piano'" class="diagram-piano" aria-label="Piano keys highlighted at chord pitch classes">
      <div class="diagram-white-keys">
        <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key"  :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi)}" :title="midiLabel(midi)">
-         <span v-if="isTone(midi)">{{noteName(midi)}}</span>
+         <span v-if="isTone(midi)||isPlayingPitch(midi)">{{noteName(midi)}}</span>
        </div>
      </div>
      <div class="diagram-black-keys" aria-hidden="true">
-       <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"  :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)">{{noteName(key.midi)}}</span></span>
+       <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"  :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)||isPlayingPitch(key.midi)">{{noteName(key.midi)}}</span></span>
      </div>
    </div>
    <div v-else-if="isStringInstrument" class="diagram-fingerboard" :aria-label="family+' open strings and schematic semitone positions'">
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row">
        <span class="diagram-open-label">{{string.name}}</span>
        <span v-for="offset in stops" :key="offset" class="diagram-string-stop"  :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),'is-sounding':isPlayingPitch(string.midi+offset),'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
-         <span v-if="isTone(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
+         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
        </span>
      </div>
    </div>
@@ -94,6 +102,9 @@ const diagramDescription=computed(()=>{
        <template v-else><span>♪ ♫ ♪</span></template>
      </div>
      <div class="diagram-tone-pills"><span v-for="tone in tones" :key="tone" class="diagram-tone-pill"  :class="{'is-root':tone===root,'is-sounding':isPlayingTone(tone),'is-unplayed-chord-tone':shouldDimClass(tone)}">{{noteName(tone)}}</span><span v-if="!tones.length">—</span></div>
+   </div>
+   <div v-if="unmappedSoundingPitches.length" class="diagram-live-pitches" aria-label="Sounding notes outside the depicted positions">
+    <span v-for="pitch in unmappedSoundingPitches" :key="pitch" class="diagram-live-pitch">{{midiLabel(pitch)}}</span>
    </div>
  </div>
 </template>
@@ -165,6 +176,27 @@ const diagramDescription=computed(()=>{
  .diagram-piano{min-height:77px;height:77px}
  .diagram-fingerboard{min-height:94px}
  .diagram-targets{min-height:78px}
+}
+
+/* Aqua means the note is actually sounding in this instrument, rather than
+ * simply belonging to the theoretical chord. Unplayed chord tones are subdued
+ * only for a sounding chord-role voicing. */
+.diagram-white-key.is-unplayed-chord-tone:not(.is-sounding),
+.diagram-black-key.is-unplayed-chord-tone:not(.is-sounding),
+.diagram-string-stop.is-unplayed-chord-tone:not(.is-sounding),
+.diagram-tone-pill.is-unplayed-chord-tone:not(.is-sounding){opacity:.28;filter:saturate(.35)}
+.diagram-white-key.is-sounding,.diagram-black-key.is-sounding,
+.diagram-string-stop.is-sounding,.diagram-tone-pill.is-sounding{
+ background:#79e6d4;color:#132e32;border-color:#c6fff3;
+ box-shadow:0 0 0 2px #8ffdeb88,0 0 12px #5deace80;
+ z-index:2;
+}
+.diagram-white-key.is-sounding{border-color:#317f75}
+.diagram-live-pitches{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:0;min-height:20px}
+.diagram-live-pitch{font-size:12px;font-weight:800;color:#17333b;background:#79e6d4;border:1px solid #b4fff3;border-radius:7px;padding:2px 7px;font-variant-numeric:tabular-nums}
+@media(prefers-reduced-motion:reduce){
+ .diagram-white-key.is-sounding,.diagram-black-key.is-sounding,
+ .diagram-string-stop.is-sounding,.diagram-tone-pill.is-sounding{box-shadow:inset 0 0 0 2px #174940}
 }
 
 </style>
