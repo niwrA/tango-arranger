@@ -6,6 +6,7 @@ const source=fs.readFileSync(path.join(root,'src/performanceCues.ts'),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const mod={exports:{}};vm.runInNewContext(`(function(module,exports){${js}\n})`,{})(mod,mod.exports);
 const split=mod.exports.splitAtMeasureBoundaries;
+const sounding=mod.exports.soundingPitchesAtBeat;
 let count=0;function check(name,fn){fn();count++;console.log('PASS',name);}
 check('one note crossing a bar boundary is sliced without shortening',()=>{
  const n={start:3.5,duration:1.25,pitch:60};
@@ -27,6 +28,29 @@ check('out of window and invalid notes are ignored',()=>{
  const output=split([{start:10,duration:2},{start:0,duration:-1},{start:1,duration:1}],4,0,4);
  assert.equal(output.length,1);assert.equal(output[0].start,1);
  assert.equal(split([{start:0,duration:2}],0,0,4).length,0);
+});
+check('live chord voicing detects overlapping exact pitches without invented notes',()=>{
+ const notes=[{pitch:60,start:0,duration:2,gate:1},{pitch:64,start:0,duration:1,gate:.5},{pitch:67,start:.5,duration:2,gate:1}];
+ const soundingDuration=n=>n.duration*n.gate;
+ assert.deepEqual(Array.from(sounding(notes,.25,soundingDuration)),[60,64]);
+ assert.deepEqual(Array.from(sounding(notes,.75,soundingDuration)),[60,67]);
+ assert.deepEqual(Array.from(sounding(notes,2.25,soundingDuration)),[67]);
+ assert.deepEqual(Array.from(sounding(notes,2.5,soundingDuration)),[]);
+});
+check('instrument note highlights obey gate, repeated voices, rests and the exact beat',()=>{
+ const notes=[{pitch:72,start:2,duration:1,gate:.25},{pitch:72,start:2,duration:.5,gate:1},{pitch:74,start:4,duration:1,gate:1}];
+ const soundingDuration=n=>n.duration*n.gate;
+ assert.deepEqual(Array.from(sounding(notes,1.999,soundingDuration)),[]);
+ assert.deepEqual(Array.from(sounding(notes,2.10,soundingDuration)),[72]);
+ assert.deepEqual(Array.from(sounding(notes,2.4,soundingDuration)),[72]);
+ assert.deepEqual(Array.from(sounding(notes,2.5,soundingDuration)),[]);
+ assert.deepEqual(Array.from(sounding(notes,4,soundingDuration)),[74]);
+ assert.deepEqual(Array.from(sounding(notes,NaN,soundingDuration)),[]);
+});
+check('sounding pitches remain accurate on measure crossings and outside pictured octave',()=>{
+ const notes=[{pitch:40,start:2.75,duration:2,gate:1},{pitch:84,start:3,duration:2,gate:1}];
+ const actual=Array.from(sounding(notes,4.1,n=>n.duration*n.gate));
+ assert.deepEqual(actual,[40,84]);
 });
 const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
 check('difficulty edition controls live in the instrument context only',()=>{
@@ -145,5 +169,20 @@ check('mixed-case Maj7 chord highlights the major seventh rather than dominant s
  const tones=Array.from(musicMod.exports.chordTones('GMaj7'));
  assert.deepEqual(tones,[7,11,2,6]);
  assert.deepEqual(Array.from(musicMod.exports.chordTones('G7')),[7,11,2,5]);
+});
+check('per-part chord diagrams highlight sounding notes and dim only unplayed chord voicings',()=>{
+ const diagram=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
+ assert.ok(app.includes('soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration)'));
+ assert.ok(app.includes('activePitches=playing.value?'));
+ assert.ok(app.includes("part.role==='chords'&&activePitches.length>0"));
+ assert.ok(app.includes(':active-pitches="part.activePitches"'));
+ assert.ok(app.includes(':dim-unplayed-chord-tones="part.dimUnplayedChordTones"'));
+ assert.ok(diagram.includes('activePitches:number[];dimUnplayedChordTones:boolean'));
+ assert.ok(diagram.includes("class="diagram-live-pitches""));
+ assert.ok(diagram.includes("'is-sounding':isPlayingPitch(midi)"));
+ assert.ok(diagram.includes("'is-sounding':isPlayingPitch(string.midi+offset)"));
+ assert.ok(diagram.includes("'is-sounding':isPlayingTone(tone)"));
+ assert.ok(diagram.includes("'is-unplayed-chord-tone':shouldDimTone(midi)"));
+ assert.ok(diagram.includes("is-unplayed-chord-tone:not(.is-sounding)"));
 });
 console.log(count+' performance cue checks passed');
