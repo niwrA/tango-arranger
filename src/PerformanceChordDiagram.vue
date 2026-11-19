@@ -5,7 +5,8 @@ import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;nextMeasure?:number|null;nextBeat?:number|null}>();
+const nextTiming=computed(()=>props.nextMeasure===null||props.nextMeasure===undefined?'':`m. ${props.nextMeasure}${props.nextBeat&&props.nextBeat>1?' · beat '+props.nextBeat:''}`);
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -53,7 +54,7 @@ const diagramDescription=computed(()=>{
  <div class="performance-instrument-diagram" :aria-label="instrument+' chord note reference'">
    <div class="diagram-harmony-pair">
      <div class="diagram-chord-now"><small>Current chord</small><strong>{{chord||'—'}}</strong></div>
-     <div class="diagram-chord-next"><small>Coming chord</small><strong>{{nextChord||'—'}}</strong></div>
+     <div class="diagram-chord-next"><small>Coming chord</small><strong>{{nextChord||'—'}}</strong><em v-if="nextTiming">{{nextTiming}}</em></div>
    </div>
    <div v-if="family==='Piano'" class="diagram-piano" aria-label="Piano keys highlighted at chord pitch classes">
      <div class="diagram-white-keys">
@@ -97,6 +98,7 @@ const diagramDescription=computed(()=>{
 .diagram-harmony-pair small{font-size:10px;color:#b9cbd7;font-weight:700;text-transform:uppercase;letter-spacing:.02em}
 .diagram-harmony-pair strong{font-size:clamp(22px,2.4vw,35px);line-height:1.08;font-weight:850;overflow-wrap:anywhere;color:#ffe0ae}
 .diagram-chord-next strong{color:#e4eef6;font-size:clamp(19px,2vw,30px)}
+.diagram-chord-next em{font-size:10px;font-style:normal;font-weight:650;color:#bed0de}
 .diagram-piano{position:relative;min-height:94px;height:94px;border-radius:8px;overflow:hidden;border:1px solid #8c9eaf;margin-top:8px;background:#d9e0e7}
 .diagram-white-keys{height:100%;display:grid;grid-template-columns:repeat(14,1fr)}
 .diagram-white-key{position:relative;background:#ecf0ef;border-right:1px solid #6a7884;color:#1b3442;min-width:0}
