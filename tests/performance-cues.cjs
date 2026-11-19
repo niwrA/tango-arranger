@@ -178,7 +178,7 @@ check('per-part chord diagrams highlight sounding notes and dim only unplayed ch
  assert.ok(app.includes(':active-pitches="part.activePitches"'));
  assert.ok(app.includes(':dim-unplayed-chord-tones="part.dimUnplayedChordTones"'));
  assert.ok(diagram.includes('activePitches:number[];dimUnplayedChordTones:boolean'));
- assert.ok(diagram.includes("class="diagram-live-pitches""));
+ assert.ok(diagram.includes('class="diagram-live-pitches"'));
  assert.ok(diagram.includes("'is-sounding':isPlayingPitch(midi)"));
  assert.ok(diagram.includes("'is-sounding':isPlayingPitch(string.midi+offset)"));
  assert.ok(diagram.includes("'is-sounding':isPlayingTone(tone)"));
