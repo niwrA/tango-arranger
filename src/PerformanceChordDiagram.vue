@@ -2,6 +2,7 @@
 import {computed} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
+import {fingerboardStrings} from './stringFingerboard';
 
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
@@ -37,12 +38,7 @@ const blackKeys=whiteKeys.flatMap((note,i)=>{
  const next=whiteKeys[i+1];
  return next!==undefined&&next-note===2?[{midi:note+1,left:(i+1)/whiteKeys.length*100}]:[];
 });
-const openStrings=computed(()=>{
- if(family.value==='Violin')return [{name:'G3',midi:55},{name:'D4',midi:62},{name:'A4',midi:69},{name:'E5',midi:76}];
- if(family.value==='Contrabass')return [{name:'E1',midi:28},{name:'A1',midi:33},{name:'D2',midi:38},{name:'G2',midi:43}];
- if(family.value==='Guitar')return [{name:'E2',midi:40},{name:'A2',midi:45},{name:'D3',midi:50},{name:'G3',midi:55},{name:'B3',midi:59},{name:'E4',midi:64}];
- return [];
-});
+const openStrings=computed(()=>fingerboardStrings(family.value));
 const stops=[0,1,2,3,4,5,6,7];
 const displayedStops=computed(()=>family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops);
 const positionText=computed(()=>props.violinPosition

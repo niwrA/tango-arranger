@@ -142,8 +142,11 @@ check('compact instrument-specific diagram rows retain tone labeling and readabl
  const diag=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
  assert.ok(diag.includes('chordTones(symbol)'));
  assert.ok(diag.includes("family.value==='Violin'"));
- assert.ok(diag.includes("family.value==='Contrabass'"));
- assert.ok(diag.includes("family.value==='Guitar'"));
+ assert.ok(diag.includes('fingerboardStrings(family.value)'));
+ const fingerboard=fs.readFileSync(path.join(root,'src/stringFingerboard.ts'),'utf8');
+ assert.ok(fingerboard.includes("inst.startsWith('Violin')"));
+ assert.ok(fingerboard.includes("inst==='Contrabass'"));
+ assert.ok(fingerboard.includes("inst.startsWith('Guitar')"));
  assert.ok(diag.includes("family==='Piano'"));
  assert.ok(diag.includes('Chord tones · no button fingering inferred'));
  assert.ok(diag.includes('Concert pitches · transpose for written part'));

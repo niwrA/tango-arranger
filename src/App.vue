@@ -30,6 +30,7 @@ import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
+import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingPitchesAtBeat} from './performanceCues';
@@ -998,6 +999,17 @@ const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.valu
 const captureBarNumbers=computed(()=>Array.from({length:captureLast.value-captureFirst.value+1},(_,i)=>captureFirst.value+i));
 const capturePitchOptions=computed(()=>keyboardPitchOptions(noteCtx.value.range));
 const captureKeyboardPitches=computed(()=>keyboardPitches(captureStartPitch.value,captureEndPitch.value,noteCtx.value.range));
+const captureInputLayout=ref<'keyboard'|'fingerboard'>('fingerboard');
+const captureFingerboardRows=computed(()=>fingerboardStrings(noteInst.value));
+const captureFretStart=ref(0);
+const captureFretCount=ref<8|12|16|25>(12);
+const captureFrets=computed(()=>visibleFingerboardFrets(captureFretStart.value,captureFretCount.value));
+function updateCaptureFretCount(event:Event){
+ const count=Number((event.target as HTMLSelectElement).value);
+ captureFretCount.value=([8,12,16,25].includes(count)?count:12) as 8|12|16|25;
+ captureFretStart.value=Math.min(captureFretStart.value,MAX_VISUAL_FRET+1-captureFretCount.value);
+}
+function captureStringPitch(openMidi:number,fret:number){return fingerboardMidi(openMidi,fret,noteCtx.value.range);}
 function changeCaptureKeyboardStart(){
   const next=changeKeyboardBoundary('start',captureStartPitch.value,captureEndPitch.value,noteCtx.value.range);
   captureStartPitch.value=next.start;captureEndPitch.value=next.end;
@@ -2897,6 +2909,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   const previousBar=selectedBar.value;
   const previousLoopLength=Math.max(1,noteLoopTo.value-noteLoopFrom.value+1);
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
+   captureInputLayout.value=(inst.startsWith('Violin')||inst==='Contrabass')?'fingerboard':'keyboard';
   overviewFocus.value=selectedBar.value;
   if(arrivingFromAnotherView||previousBar!==selectedBar.value){
     const count=arrivingFromAnotherView?Math.min(2,project.value.bars.length):Math.min(previousLoopLength,project.value.bars.length);
@@ -3770,9 +3783,42 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
   <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} pitched taps</div>
-  <div class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in captureKeyboardPitches" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
-  <p class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
-  <div class="capture-piano" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div v-if="captureFingerboardRows.length&&(noteInst.startsWith('Violin')||noteInst==='Contrabass')" class="capture-layout-switch" role="group" aria-label="Live input layout">
+    <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
+    <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keyboard</button>
+   </div>
+   <template v-if="captureInputLayout==='fingerboard'&&(noteInst.startsWith('Violin')||noteInst==='Contrabass')">
+     <div class="capture-fret-controls" role="group" aria-label="Visible fingerboard section">
+      <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
+      <label>Show<select :value="captureFretCount" @change="updateCaptureFretCount"><option :value="8">8 semitones</option><option :value="12">12 semitones</option><option :value="16">16 semitones</option><option :value="25">Full 2 octaves</option></select></label>
+      <span>Positions {{captureFrets[0]}}–{{captureFrets[captureFrets.length-1]}}</span>
+     </div>
+     <p class="hint">Touch or hold a string position to audition or record a note. Horizontal distances are schematic, not physically to scale. Recording stores the pitch, not a specific fingering. The keyboard remains available as an alternative.</p>
+     <div class="capture-fingerboard-scroll" role="group" :aria-label="`Playable ${noteInst} string positions`">
+      <div class="capture-fingerboard-grid" :style="{'--capture-fret-columns':captureFrets.length}">
+       <div class="capture-fingerboard-header"><span>String</span><span v-for="fret in captureFrets" :key="fret">{{fret===0?'Open':fret}}</span></div>
+       <div v-for="string in captureFingerboardRows" :key="string.name" class="capture-fingerboard-row">
+        <strong>{{string.name}}</strong>
+        <button v-for="fret in captureFrets" :key="fret" type="button" class="capture-fingerboard-key"
+           :class="{selected:capturePitch===string.midi+fret,'is-open':fret===0}"
+           :disabled="captureStringPitch(string.midi,fret)===null"
+           :aria-label="`${string.name} string at ${fret===0?'open':'semitone '+fret}, ${midiName(string.midi+fret)}`"
+           :title="midiName(string.midi+fret)"
+           @pointerdown.prevent="capturePianoKey($event,string.midi+fret)"
+           @pointerup="releaseCapturePianoKey($event)"
+           @pointercancel="releaseCapturePianoKey($event)"
+           @lostpointercapture="releaseCapturePianoKey($event)"
+           @click="capturePianoKeyClick($event,string.midi+fret)">
+           <span>{{captureNoteLabels[(string.midi+fret)%12]}}</span>
+           <small>{{Math.floor((string.midi+fret)/12)-1}}</small>
+        </button>
+       </div>
+      </div>
+     </div>
+   </template>
+   <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
+  <p v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
+  <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
   <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
   <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in melodyFromTaps(captureTaps,b,project.beats)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</span><em v-if="!melodyFromTaps(captureTaps,b,project.beats).length">No taps</em></div></div>
