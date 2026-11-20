@@ -29,6 +29,8 @@ jobs:
         run: npm install
 
       - name: Build Tango Arranger
+        env:
+          VITE_APP_BUILD_SHA: ${{ github.sha }}
         run: npm run build
 
       - name: Test tango gesture expression and export

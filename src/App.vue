@@ -20,6 +20,10 @@ import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
 let Tone:typeof import('tone');
 import {version as appVersion} from '../package.json';
+// A release version changes only when package.json is updated. Identify each
+// deployed build separately so users can verify which commit is running.
+const appBuildId=(import.meta.env.VITE_APP_BUILD_SHA||'').slice(0,7);
+const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
@@ -3819,7 +3823,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
-  <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appVersion}}</small></span></button>
+  <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appDisplayVersion}}</small></span></button>
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'">{{performanceShortTitle}}</div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -4204,7 +4208,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 
  <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
-  <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
+  <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appDisplayVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
   <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
   <div class="about-content-columns">
   <div class="about-grid">
@@ -4213,7 +4217,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, written durations, velocities, articulations and expressive gestures. Audition notes or loop a measure while you work.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
     <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango.json backups, and export native .mscz scores for MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
-  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appVersion}} · Versioned history is loaded from CHANGELOG.md.</p>
+  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appDisplayVersion}} · Versioned history is loaded from CHANGELOG.md.</p>
     <div class="release-entry"><h3>Latest improvements · Not yet assigned a version</h3><p>Native .mscz crescendo and diminuendo hairpins, interactive Dynamics Timeline editing, sampled note audition, compact workspace controls, responsive About layout and restoration of the last selected tab.</p></div>
     <div v-for="release in releaseHistory" :key="release.version" class="release-entry"><h3>v{{release.version}} · {{release.title}}</h3><p>{{release.summary}}</p></div>
     <p class="hint">For the full technical history and verification notes, see CHANGELOG.md in the repository.</p>

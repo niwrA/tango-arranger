@@ -200,6 +200,11 @@ check('printable leadsheet keeps adjacent chord symbols separated from lyrics',(
  assert.ok(!rendered.includes('Fm[C7'),rendered);
  assert.ok(!rendered.includes('careFm]'),rendered);
 });
+check('visible application version includes deployed commit identifier',()=>{
+ assert.ok(app.includes('appDisplayVersion'));
+ assert.ok(app.includes('VITE_APP_BUILD_SHA'));
+ assert.ok(app.includes('v{{appDisplayVersion}}'));
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));
