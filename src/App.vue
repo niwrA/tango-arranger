@@ -972,7 +972,7 @@ async function toggleRhythmLoop(){
       if(rhythmLoopSound.value==='instrument'&&originals.length){
         const notes=retimeMeasure(originals,inst,b,project.value.beats,slots,'rhythm',project.value.pianoSplitPitch??60);
         const events=measureLoopEvents(notes,b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value);
-        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
+        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(Math.max(0,Math.min(127,event.pitch+captureTranspose.value)),'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }else{
         for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/effectivePlaybackBpm.value,slot.accent?0.95:0.55);
       }
@@ -1006,6 +1006,8 @@ const captureCountingIn=ref(false);
 
 // Recording tempo changes transport speed, never the project's written timing.
 const captureSpeed=ref<0.5|0.75|1>(1);
+// Temporary rehearsal key; captured microphone notes are converted back to score pitch.
+const captureTranspose=ref(0);
 const captureQuantize=ref<'auto'|'1'|'0.5'|'0.25'|'0.125'>('auto');
 const captureTakeMode=ref<'replace'|'overdub'>('replace');
 let captureRecordedPass=-1;
@@ -1181,7 +1183,7 @@ async function startCaptureTransport(recording:boolean){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
           if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
+            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,pitch:event.pitch+captureTranspose.value,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
         }
@@ -1208,7 +1210,7 @@ async function startCaptureTransport(recording:boolean){
           const ordered=[...ascending.slice(rootIndex),...ascending.slice(0,rootIndex).map(p=>p+12)];
           const degree=beat%ordered.length;
           const cycle=Math.floor(beat/ordered.length);
-          const pitch=ordered[degree]+12*cycle;
+          const pitch=ordered[degree]+12*cycle+captureTranspose.value;
           captureKeySynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
             Math.min(0.65,0.8*60/(project.value.bpm*captureSpeed.value)),time,0.45);
         }else if(captureMetronome.value){
@@ -1333,8 +1335,8 @@ async function recordFromMicrophone(monitorOnly=false){
    const pitchSamples=new Float32Array(samples.length);
    if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
    const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,32.7,4200):null;
-   const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
-   microphoneDetectedPitch.value=pitch;
+   const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi)-captureTranspose.value)):null;
+   microphoneDetectedPitch.value=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
    const elapsed=monitorOnly?-1:captureElapsedBeats();
    if(elapsed>=0){
     if(pitch!==null){
@@ -1574,6 +1576,7 @@ const captureTakeExport=computed(()=>JSON.stringify({
   measures:{from:captureFirst.value+1,to:captureLast.value+1},
   input:captureInputSource.value,
   sensitivityPercent:captureInputSource.value==='microphone'?microphoneSensitivity.value:null,
+   recordingTransposeSemitones:captureTranspose.value,
   notes:vocalCapturedNotes.value.map(n=>({
     measure:n.bar+1,beat:Number((n.beat+1).toFixed(3)),
     pitchMidi:n.pitch,pitchName:midiName(n.pitch),durationBeats:n.duration??null,
@@ -1588,6 +1591,7 @@ const rawPitchExport=computed(()=>JSON.stringify({
  measures:{from:captureFirst.value+1,to:captureLast.value+1},
  sampleRateHz:microphoneContext?.sampleRate??null,
  sensitivityPercent:microphoneSensitivity.value,
+ recordingTransposeSemitones:captureTranspose.value,
  frames:rawPitchFrames.value
 },null,2));
 const rawPitchCopyStatus=ref('');
@@ -4830,6 +4834,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <template #settings>
           <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label>
           <label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label>
+          <label v-if="captureInputSource==='microphone'">Recording key shift<select v-model.number="captureTranspose" :disabled="capturePlaying"><option v-for="shift in 25" :key="shift" :value="shift-13">{{shift===13?'Original key':(shift>13?'+':'')+(shift-13)+' semitones'}}</option></select></label>
+          <p v-if="captureInputSource==='microphone'&&captureTranspose" class="hint">Backing and count-in play {{Math.abs(captureTranspose)}} semitones {{captureTranspose>0?'higher':'lower'}}. Sing in that key; recorded Voice notes are shifted back to the original key. The song itself is unchanged.</p>
           <label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying"><option :value="1">100%</option><option :value="0.75">75%</option><option :value="0.5">50%</option></select></label>
           <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
           <label v-if="noteInst.startsWith('Violin')&&captureInputLayout==='fingerboard'">Violin finger gesture<select v-model="captureViolinMode"><option value="auto">Auto · note / slide / vibrato / sirena</option><option value="notes">Notes only</option><option value="slide">Slide into final note</option><option value="vibrato">Mark vibrato</option></select></label>
