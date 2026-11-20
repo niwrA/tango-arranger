@@ -998,14 +998,15 @@ function beginMelodyPassOnNote(elapsedBeats:number){
   melodyCaptureTaps.value=[];
   captureRecordedPass=pass;
 }
-type HeldCapture=CapturedTap&{duration?:number;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture};
-type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture};
-const heldCaptureKeys=new Map<number,{pitch:number;started:number}>();
+type HeldCapture=CapturedTap&{duration?:number;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
+type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
+const heldCaptureKeys=new Map<number,{pitch:number;started:number;stringMidi?:number}>();
 const captureMonitorPitches=new Set<number>();
 const captureHeldDisplay=ref<number[]>([]);
 function heldCaptureKeysHasPitch(pitch:number){return [...heldCaptureKeys.values()].some(held=>held.pitch===pitch);}
 function updateCaptureHeldDisplay(){captureHeldDisplay.value=[...heldCaptureKeys.values()].map(held=>held.pitch);}
 const captureViolinMode=ref<ViolinCaptureMode>('auto');
+const captureLargeView=ref(false);
 const captureViolinTraces=new Map<number,{stringMidi:number;samples:ViolinCaptureSample[]}>();
 const captureLastExpression=ref('');
 function monitorCapturePitch(pitch:number){
@@ -1036,7 +1037,7 @@ function capturedMelodyForBar(bar:number){
   const held:CapturedMelodyNote[]=taps.filter(t=>t.duration!==undefined).map(t=>({
    beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:true,
    ...(t.approachSlideFrom!==undefined?{approachSlideFrom:t.approachSlideFrom}:{}),
-   ...(t.vibrato?{vibrato:true}:{}),...(t.gesture?{gesture:t.gesture}:{})
+   ...(t.vibrato?{vibrato:true}:{}),...(t.gesture?{gesture:t.gesture}:{}),...(t.stringMidi!==undefined?{stringMidi:t.stringMidi}:{})
   }));
   return [...quick,...held].sort((a,b)=>a.beat-b.beat||a.pitch-b.pitch);
 }
@@ -1238,7 +1239,10 @@ function capturePianoKey(event:PointerEvent,pitch:number){
  * one string, even when another finger is simultaneously touching another. */
 function captureViolinFingerDown(event:PointerEvent,pitch:number,stringMidi:number){
  capturePianoKey(event,pitch);
- if(!noteInst.value.startsWith('Violin')||!heldCaptureKeys.has(event.pointerId))return;
+ const held=heldCaptureKeys.get(event.pointerId);
+ if(!held)return;
+ held.stringMidi=stringMidi;
+ if(!noteInst.value.startsWith('Violin'))return;
  captureViolinTraces.set(event.pointerId,{
   stringMidi,samples:[{pitch,x:event.clientX,t:event.timeStamp}]
  });
@@ -1306,6 +1310,7 @@ function releaseCapturePianoKey(event:PointerEvent){
   const beat=Number((local%project.value.beats).toFixed(6));
   const segment=Math.min(remaining,project.value.beats-beat);
   const tap:HeldCapture={bar,beat,pitch:writtenPitch,duration:Number(segment.toFixed(6)),
+    ...(held.stringMidi!==undefined?{stringMidi:held.stringMidi}:{}),
    ...(firstSegment&&approachSlideFrom!==undefined?{approachSlideFrom}:{}),
    ...(firstSegment&&vibrato?{vibrato:true}:{}),
    ...(firstSegment&&gesture?{gesture}:{})};
@@ -1377,6 +1382,7 @@ function applyCapturedMelody(){
         if(t.approachSlideFrom!==undefined)note.approachSlideFrom=t.approachSlideFrom;
         if(t.vibrato)note.vibrato=true;
         if(t.gesture)note.gesture=t.gesture;
+        if(t.stringMidi!==undefined)note.stringMidi=t.stringMidi;
         return note;
       });
       next=replaceInstrumentMeasure(next,source,noteInst.value,b,notes);
@@ -2284,6 +2290,17 @@ function resetInstrumentMix(){
  for(const [inst,sampler] of samplePlayers)sampler.volume.value=-5+instrumentGainDb(inst);
  for(const [inst,voice] of instrumentSynths)voice.volume.value=-7+instrumentGainDb(inst);
 }
+// Focus monitoring affects playback only, never the score or stored mix.
+const focusMonitorMode=ref<'all'|'solo'|'mute'>('all');
+function focusInstrumentAudible(inst:string):boolean{
+ const focus=performanceExpandedInstrument.value;
+ return !focus||focusMonitorMode.value==='all'||(focusMonitorMode.value==='solo'?inst===focus:inst!==focus);
+}
+function setFocusMonitorMode(mode:'solo'|'mute'){
+ focusMonitorMode.value=focusMonitorMode.value===mode?'all':mode;
+ for(const [inst,voice] of instrumentSynths)if(!focusInstrumentAudible(inst))voice.releaseAll();
+ for(const [inst,voice] of samplePlayers)if(!focusInstrumentAudible(inst))voice.releaseAll();
+}
 const audioEngine=ref<'samples'|'synth'>('samples');
 const sampleStatus=ref('Samples load when playback starts');
 const samplePlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
@@ -2314,6 +2331,7 @@ async function prepareSamples(instruments:string[]){
  sampleStatus.value=results.every(Boolean)?'Sampled instruments ready':results.some(Boolean)?'Some samples unavailable; using synth fallback':'Samples unavailable; using synth fallback';
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
+ if(!focusInstrumentAudible(inst))return;
  // Finite violin sample tails cannot sustain a bow stroke. Explicit pizzicato
  // remains a percussive sample until separate style banks are licensed.
  const bowedViolin=inst.toLowerCase().includes('violin')&&technique!=='pizzicato';
@@ -3817,6 +3835,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span>Beat <strong>{{Math.floor(performanceMeasureBeat)}}</strong> / {{project.beats}}</span>
          <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
+         <div class="instrument-focus-monitor" role="group" :aria-label="'Playback monitoring for '+part.display">
+           <button type="button" :class="{selected:focusMonitorMode==='solo'}" :aria-pressed="focusMonitorMode==='solo'" :aria-label="'Hear only '+part.display" :title="'Solo '+part.display" @click="setFocusMonitorMode('solo')"><AppIcon name="headphones"/><span>Solo</span></button>
+           <button type="button" :class="{selected:focusMonitorMode==='mute'}" :aria-pressed="focusMonitorMode==='mute'" :aria-label="'Mute '+part.display+' and hear other instruments'" :title="'Mute '+part.display" @click="setFocusMonitorMode('mute')"><AppIcon name="volume-x"/><span>Mute</span></button>
+         </div>
        </div>
        <div v-if="cardShowsDiagram(part.inst)" class="instrument-focus-dynamic-band" role="group"
          :aria-label="'Dynamics now '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
@@ -4167,6 +4189,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
   <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} pitched taps</div>
+  <div class="capture-display-toolbar"><button type="button" class="secondary" :aria-pressed="captureLargeView" @click="captureLargeView=!captureLargeView"><AppIcon :name="captureLargeView?'minimize':'maximize'"/> {{captureLargeView?'Compact instruments':'Enlarge instruments'}}</button></div>
   <div v-if="captureFingerboardRows.length" class="capture-layout-switch" role="group" aria-label="Live input layout">
     <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
     <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keyboard</button>
@@ -4189,7 +4212,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span>Positions {{captureFrets[0]}}–{{captureFrets[captureFrets.length-1]}}</span>
      </div>
      <p class="hint">Instrument-specific strings: touch and hold for a sustained note, or use two fingers for simultaneous notes. On violin, drag along the same string to record a slide into the ending pitch. Repeated motion can mark vibrato; a broad return sweep can suggest a tango sirena. This captures expression markings, not physical vibrato depth or speed. The keyboard remains available.</p>
-     <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin')}" role="group" :aria-label="`Playable ${noteInst} string positions`">
+     <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin'),'capture-large-instrument':captureLargeView}" role="group" :aria-label="`Playable ${noteInst} string positions`">
       <div class="capture-fingerboard-grid" :style="{'--capture-fret-columns':captureFrets.length}">
        <div class="capture-fingerboard-header"><span>String</span><span v-for="fret in captureFrets" :key="fret">{{fret===0?'Open':fret}}</span></div>
        <div v-for="string in captureFingerboardRows" :key="string.name" class="capture-fingerboard-row">
@@ -4219,10 +4242,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
    </div>
    <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
   <p v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
   <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
-  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat<span v-if="n.approachSlideFrom!==undefined"> · port. {{midiName(n.approachSlideFrom)}} → {{midiName(n.pitch)}}</span><span v-if="n.vibrato"> · vibrato</span><span v-if="n.gesture"> · {{gestureLabel(n.gesture)}}</span></span><em v-if="!capturedMelodyForBar(b).length">No taps</em></div></div>
+  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat<span v-if="n.stringMidi!==undefined"> · {{fingerboardStrings(noteInst).find(s=>s.midi===n.stringMidi)?.name??midiName(n.stringMidi)}} string</span><span v-if="n.approachSlideFrom!==undefined"> · port. {{midiName(n.approachSlideFrom)}} → {{midiName(n.pitch)}}</span><span v-if="n.vibrato"> · vibrato</span><span v-if="n.gesture"> · {{gestureLabel(n.gesture)}}</span></span><em v-if="!capturedMelodyForBar(b).length">No taps</em></div></div>
   <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
   <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
 </details>
@@ -5587,5 +5610,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .live-capture-recording-options>.capture-selected-range strong{font-variant-numeric:tabular-nums;color:#f2d6a5}
 .live-capture-recording-options>button{align-self:end;min-height:39px}
 @media(max-width:640px){.live-capture-recording-options>label{flex:1 1 145px;max-width:none}}
+
+.instrument-focus-monitor{margin-left:auto;display:inline-flex;align-items:center;gap:6px}
+.instrument-focus-monitor button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;padding:6px 11px;border:1px solid #667d8d;border-radius:9px;background:#2b4253;color:#e6edf4;cursor:pointer;font:inherit;font-size:12px}
+.instrument-focus-monitor button.selected{background:#5b4936;color:#ffdea9;border-color:#e5b97b}
+.instrument-focus-monitor button:focus-visible{outline:3px solid #f7d3a1}
+.instrument-focus-monitor .app-icon{width:17px;height:17px}
+.capture-display-toolbar{display:flex;justify-content:flex-end;margin:8px 0}
+.capture-display-toolbar button{display:inline-flex;align-items:center;gap:7px}
+.capture-fingerboard-scroll.capture-large-instrument{width:100%;min-height:clamp(300px,48dvh,650px);display:flex;align-items:stretch}
+.capture-large-instrument .capture-fingerboard-grid{width:100%;min-width:100%;display:flex;flex-direction:column;justify-content:stretch}
+.capture-large-instrument .capture-fingerboard-row{flex:1 1 auto;min-height:62px}
+.capture-large-instrument .capture-fingerboard-key{min-height:58px;font-size:clamp(14px,1.7vw,22px)}
+.capture-piano.capture-large-instrument{min-height:clamp(240px,44dvh,560px);align-items:stretch}
+.capture-piano.capture-large-instrument .capture-piano-key{min-height:clamp(220px,41dvh,520px)}
+@media(max-width:520px){.instrument-focus-monitor button{padding:6px 8px}.instrument-focus-monitor button span{display:none}}
 
 </style>

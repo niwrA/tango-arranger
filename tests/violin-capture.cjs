@@ -30,7 +30,7 @@ check('explicit capture modes are predictable',()=>{
 });
 check('invalid traces do not silently generate notation',()=>assert.throws(()=>decide([{pitch:128,x:0,t:0}]),/Invalid/));
 check('editor supports held multi-touch, violin drag, auto-fit and draft expression',()=>{
- for(const f of ['captureViolinFingerMove','captureViolinTraces','classifyViolinCapture','captureHeldDisplay','@pointermove="captureViolinFingerMove($event)"',
+ for(const f of ['captureViolinFingerMove','captureViolinTraces','classifyViolinCapture','captureHeldDisplay','@pointermove.prevent.stop="captureViolinFingerMove($event)"',
   'captureAutoFit.value','applyCapturedMelody','approachSlideFrom','vibrato'])
   assert.ok(app.includes(f),'missing '+f);
  assert.ok(app.includes('heldCaptureKeys.set(id,{pitch,started})'));
@@ -60,5 +60,15 @@ check('recorded violin expression persists, transposes and exports with final wr
  assert.ok(xml.includes('port. from A4 to C5'),'MusicXML must identify both the source and final pitch');
  assert.ok(xml.includes('<words>vibrato</words>'),'Vibrato must survive MusicXML export');
  assert.ok(xml.includes('<step>C</step>'),'Final written pitch is C, not the approach note');
+});
+check('string identity survives capture, draft, and note application',()=>{
+ for(const token of ['held.stringMidi=stringMidi','stringMidi?:number','stringMidi:t.stringMidi','stringMidi:held.stringMidi','note.stringMidi=t.stringMidi'])
+  assert.ok(app.includes(token),'missing string identity path: '+token);
+ assert.ok(app.includes('captureViolinFingerDown($event,string.midi+fret,string.midi)'));
+});
+check('expanded recording surface and focus monitoring are wired',()=>{
+ for(const token of ['captureLargeView','capture-large-instrument','focusMonitorMode','focusInstrumentAudible(inst)','setFocusMonitorMode(\'solo\')','setFocusMonitorMode(\'mute\')'])
+  assert.ok(app.includes(token),'missing '+token);
+ assert.ok(app.includes("if(!focusInstrumentAudible(inst))return;"));
 });
 console.log(count+' violin capture, multitouch, and notation checks passed');
