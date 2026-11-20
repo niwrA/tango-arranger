@@ -13,6 +13,7 @@ import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
+import {readScoreImport} from './scoreImport';
 import {applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
 import type {PolySynth,Synth} from 'tone';
 import {startAudioFromGesture} from './toneSession';
@@ -1614,7 +1615,7 @@ const overviewTechnique=ref<'inherit'|ViolinTechnique>('inherit');
 const overviewBassTechnique=ref<'inherit'|BassTechnique>('inherit');
 const overviewNotice=ref('');
 const newSongOpen=ref(false);
-const newSongStart=ref<'blank'|'lead'|'musicxml'>('blank');
+const newSongStart=ref<'blank'|'lead'|'score'>('blank');
 const newLeadSheetText=ref('');
 const newLeadSheetError=ref('');
 const newLeadMeasuresPerLine=ref(1);
@@ -1658,22 +1659,26 @@ async function createSongFromLeadSheet(){
    message.value=`Created a new song from ${preview.bars.length} provisional measures and ${sections.length} sections. Review section boundaries and melody alignment.`;
  }catch(error){newLeadSheetError.value=String(error);message.value='Lead sheet import failed: '+String(error);}
 }
-async function createSongFromMusicXml(event:Event){
- const input=event.target as HTMLInputElement;
- const file=input.files?.[0];if(!file)return;
+async function createSongFromScore(event:Event){
+ const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file)return;
  try{
-   const raw=await file.text();
-   const parsed=parseMusicXmlDetailed(raw);
-   if(!Number.isInteger(parsed.measureCount)||parsed.measureCount<1||parsed.measureCount>512)throw Error('MusicXML must contain 1–512 measures');
-   if(!window.confirm('Create a separate new song and open the MusicXML merge review? The existing song remains saved.'))return;
-   const fresh=setProjectRoster(blankProject({title:newSongTitle.value,beats:newSongBeats.value,bpm:newSongBpm.value,sections:Math.max(1,Math.ceil(parsed.measureCount/16)),measuresPerSection:Array.from({length:Math.max(1,Math.ceil(parsed.measureCount/16))},(_,i)=>Math.min(16,parsed.measureCount-i*16))}),getDefaultRoster());
+   const result=await readScoreImport(file),parsed=result.parsed;
+   if(!Number.isInteger(parsed.measureCount)||parsed.measureCount<1||parsed.measureCount>512)throw Error('Score must contain 1–512 measures');
+   const meters=[...new Set(parsed.measures.map(m=>m.beats.toFixed(6)))];
+   if(meters.length>1)throw Error('The source contains changing time signatures; a new Tango Arranger song needs one meter. Import into an existing song to review its alignment instead.');
+   const measureBeats=parsed.measures[0]?.beats??newSongBeats.value;
+   if(![2,3,4].includes(measureBeats))throw Error('This source uses '+measureBeats+' quarter beats per measure; new songs support 2/4, 3/4 and 4/4.');
+   if(!window.confirm('Create a separate new song and open the score merge review? Your current song stays saved.'))return;
+   const count=Math.ceil(parsed.measureCount/16);
+   const fresh=setProjectRoster(blankProject({title:newSongTitle.value||parsed.title,beats:measureBeats,bpm:newSongBpm.value,
+     sections:count,measuresPerSection:Array.from({length:count},(_,i)=>Math.min(16,parsed.measureCount-i*16))}),getDefaultRoster());
    await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
-   pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=raw;
+   pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=result.sourceXml;
    pending.value=parsed.parts.map(part=>({name:part.name,notes:part.notes}));
    pendingChords.value=parsed.chords;pendingKeys.value=parsed.keys;importMode.value='merge';
    importDialogOpen.value=true;active.value='lead';
-   message.value=`Created new song; review ${parsed.measureCount} MusicXML measures before applying imported notes and harmony.`;
- }catch(error){message.value='Cannot start from MusicXML: '+String(error);}
+   message.value=`Created a new song with ${parsed.measureCount} ${result.format.toUpperCase()} measures. Review parts, alignment and optional harmony suggestions before applying.`;
+ }catch(error){message.value='Cannot start from score: '+String(error);}
  finally{input.value='';}
 }
 
@@ -2272,15 +2277,12 @@ async function importFile(e:Event){
     if(/\.tango(?:\.json)?$/i.test(file.name)){
       await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);
       structureOpen.value=false;message.value='Portable project imported as a separate local song.';closeImportDialog();
-    }else if(/\.(mid|midi)$/i.test(file.name)){
-      pending.value=importMidi(await file.arrayBuffer());importMode.value='melody';
-      message.value=`Found ${pending.value.length} MIDI tracks. Choose the melody track.`;
     }else{
-      const raw=await file.text(),result=parseMusicXmlDetailed(raw);
-      pendingParsed.value=result;pendingSourceName.value=file.name;pendingSourceXml.value=raw;
-      pending.value=result.parts.map(part=>({name:part.name,notes:part.notes}));
-      pendingChords.value=result.chords;pendingKeys.value=result.keys;importMode.value='merge';
-      message.value=`Parsed ${result.measureCount} measures and ${result.parts.length} MusicXML part(s). Review the alignment and choose Ours, Theirs, or Combine before applying.`;
+      const result=await readScoreImport(file),parsed=result.parsed;
+      pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=result.sourceXml;
+      pending.value=parsed.parts.map(part=>({name:part.name,notes:part.notes}));
+      pendingChords.value=parsed.chords;pendingKeys.value=parsed.keys;importMode.value='merge';
+      message.value=`Parsed ${parsed.measureCount} measures and ${parsed.parts.length} ${result.format.toUpperCase()} part(s). Review alignment, protected notes and optional harmony suggestions before applying.`;
     }
     if(pending.value.length)importDialogOpen.value=true;
   }catch(err){message.value=`Import failed: ${String(err)}`;}
@@ -3946,7 +3948,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label v-if="importMode==='melody'">Track<select v-model.number="selectedTrack"><option v-for="(track,i) in pending" :key="i" :value="i">{{track.name}} ({{track.notes.length}} notes)</option></select></label>
         <button v-if="importMode!=='merge'" type="button" class="primary" @click="applyImport">Apply legacy import</button>
       </div>
-      <p class="hint">MusicXML alignment supports per-measure transposition, harmony proposals, source-measure remapping, and protected-note editing. The original song remains available for Undo. Use the legacy positional import only for compatible round-trips with matching structure and parts.</p>
+      <p class="hint">MusicXML and MIDI alignment support per-measure transposition, harmony proposals, source-measure remapping, and protected-note editing. The original song remains available for Undo. Use the legacy positional import only for compatible round-trips with matching structure and parts.</p>
       <p v-if="message.startsWith('Import failed')" role="alert" class="import-error">{{message}}</p>
     </div>
     <div class="app-modal-actions"><button type="button" class="secondary" @click="closeImportDialog">Close</button></div>
@@ -4088,11 +4090,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="new-song-start-choices" role="group" aria-label="New song starting method">
     <button type="button" :class="newSongStart==='blank'?'primary':'secondary'" :aria-pressed="newSongStart==='blank'" @click="newSongStart='blank'">Start from scratch</button>
     <button type="button" :class="newSongStart==='lead'?'primary':'secondary'" :aria-pressed="newSongStart==='lead'" @click="newSongStart='lead'">Paste a leadsheet</button>
-    <button type="button" :class="newSongStart==='musicxml'?'primary':'secondary'" :aria-pressed="newSongStart==='musicxml'" @click="newSongStart='musicxml'">Import MusicXML</button>
+    <button type="button" :class="newSongStart==='score'?'primary':'secondary'" :aria-pressed="newSongStart==='score'" @click="newSongStart='score'">Import MusicXML / MIDI</button>
   </div>
   <p class="muted" v-if="newSongStart==='blank'">Start with an empty lead sheet: no demo melody, chord symbols or generated accompaniment. Set the sections and measure counts before creating the song.</p>
   <p class="muted" v-else-if="newSongStart==='lead'">Paste chord-over-lyrics or inline [D]chords. Section headings such as [Verse] or [Chorus] create editable section starts. One lyric line initially occupies one provisional measure; adjust boundaries before or after creation.</p>
-  <p class="muted" v-else>Choose an existing MusicXML score. Tango Arranger creates a separate empty song and opens the existing score merge review before applying the imported music.</p>
+  <p class="muted" v-else>Choose a MusicXML or MIDI score. Both use the same measure-aware review for notes, transposition, protected edits and optional chord suggestions. MIDI does not reliably encode lyrics or explicit chords.</p>
   <div v-if="newSongStart==='blank'">
   <div class="two"><label>Song title<input v-model="newSongTitle" placeholder="Untitled Tango"/></label><label>Number of sections (A, B, C…)<input v-model.number="newSongSections" type="number" min="1" max="26"/></label></div>
   <div class="new-song-section-heading"><strong>Measures in each section</strong><span>{{newSongTotal}} measures total · {{newSongLengths.length}} sections · max 512 measures</span></div>
@@ -4134,7 +4136,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div v-else class="new-song-xml-import">
     <label>Song title<input v-model="newSongTitle"/></label>
-    <label class="file-picker">Select MusicXML (.xml or .musicxml)<input type="file" accept=".xml,.musicxml" @change="createSongFromMusicXml"/></label>
+    <label class="file-picker">Select MusicXML or MIDI (.xml, .musicxml, .mid, .midi)<input type="file" accept=".xml,.musicxml,.mid,.midi" @change="createSongFromScore"/></label>
     <p class="hint">The source will be reviewed before it changes the newly created song. Your current arrangement remains in your local library.</p>
   </div>
 </div><nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>

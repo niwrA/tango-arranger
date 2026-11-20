@@ -124,7 +124,7 @@ function jump(delta:number){editPage.value=Math.max(0,Math.min(pageCount.value-1
 function selectSection(value:number){selectedSection.value=value;editPage.value=Math.floor((spans.value[value]?.start??0)/pageSize);}
 </script>
 <template>
- <section class="xml-merge-review" aria-label="MusicXML alignment and merge preview">
+ <section class="xml-merge-review" aria-label="score alignment and merge preview">
   <div class="xml-merge-header"><strong>Import &amp; Align · Compare / Merge</strong><span>Preview only — no changes until Apply</span></div>
   <div class="xml-merge-stats">
     <span>{{parsed.measureCount}} incoming measures</span>
@@ -134,13 +134,13 @@ function selectSection(value:number){selectedSection.value=value;editPage.value=
   </div>
   <div class="xml-merge-config">
     <label>Import mode<select v-model="mode"><option value="fit">Fit imported part to current song</option><option value="lead">Use imported part as song structure</option><option value="reference">Reference and alignment only</option></select></label>
-    <label>Source MusicXML part<select v-model.number="partIndex"><option v-for="(part,i) in parsed.parts" :key="part.id" :value="i">{{part.name}} · {{part.notes.length}} notes · {{part.pitchedMeasures}} sounding measures</option></select></label>
+    <label>Source score part<select v-model.number="partIndex"><option v-for="(part,i) in parsed.parts" :key="part.id" :value="i">{{part.name}} · {{part.notes.length}} notes · {{part.pitchedMeasures}} sounding measures</option></select></label>
     <label>Destination instrument<select v-model="instrument"><option v-for="inst in instruments" :key="inst" :value="inst">{{project.instrumentNames?.[inst]||inst}}</option></select></label>
     <label class="xml-merge-checkbox"><input v-model="inferred" type="checkbox"/> Propose harmony from source notes (estimated, review required)</label>
   </div>
-  <p class="xml-merge-help">Use imported piano as lead to propose its complete measure count and key-signature regions. Existing parts are aligned when evidence permits. A key-signature change never transposes protected notes automatically. Check every low-confidence match before applying.</p>
+  <p class="xml-merge-help">Use the selected source part to propose measure alignment and any available key-signature regions. Existing parts are aligned when evidence permits. A key-signature change never transposes protected notes automatically. Check every low-confidence match before applying.</p>
   <p v-if="mode==='lead'" class="xml-merge-warning">Structural change: the new song will have {{parsed.measureCount}} measures. The complete previous project, protected passages and alternate editions remain recoverable through the saved merge backup. Unmapped edits need review.</p>
-  <div v-if="parsed.warnings.length" class="xml-merge-warning" role="status">MusicXML warnings: {{parsed.warnings.slice(0,3).join('; ')}}</div>
+  <div v-if="parsed.warnings.length" class="xml-merge-warning" role="status">Score import warnings: {{parsed.warnings.slice(0,3).join('; ')}}</div>
   <div class="xml-merge-summary" v-if="preview.result">
     <span><strong>{{preview.result.matched}}</strong> mapped measures</span>
     <span><strong>{{preview.result.uncertain}}</strong> to review</span>

@@ -65,9 +65,9 @@ check('wizard exposes per-line default and editable section-specific overrides',
 });
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
- assert.ok(app.includes("newSongStart==='musicxml'"));
+ assert.ok(app.includes("newSongStart==='score'"));
  assert.ok(app.includes('createSongFromLeadSheet'));
- assert.ok(app.includes('createSongFromMusicXml'));
+ assert.ok(app.includes('createSongFromScore'));
  assert.ok(app.includes('pendingParsed.value=parsed'));
  assert.ok(app.includes('importDialogOpen.value=true'));
 });
