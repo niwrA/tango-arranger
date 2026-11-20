@@ -13,7 +13,7 @@ export const INSTRUMENT_CAPABILITIES:Record<InstrumentFamily,{clef:'G'|'F';stave
   Contrabass:{clef:'F',staves:1,transposition:-12,range:[28,55],polyphonic:false,program:43},
   Violin:{clef:'G',staves:1,transposition:0,range:[55,96],polyphonic:false,program:40},
   Bandoneon:{clef:'G',staves:1,transposition:0,range:[48,88],polyphonic:true,program:21},
-  Voice:{clef:'G',staves:1,transposition:0,range:[36,85],polyphonic:false,program:52},
+  Voice:{clef:'G',staves:1,transposition:0,range:[24,108],polyphonic:false,program:52},
   Guitar:{clef:'G',staves:1,transposition:-12,range:[40,88],polyphonic:true,program:24},
   Clarinet:{clef:'G',staves:1,transposition:-2,range:[50,94],polyphonic:false,program:71},
   Flute:{clef:'G',staves:1,transposition:0,range:[60,96],polyphonic:false,program:73},
