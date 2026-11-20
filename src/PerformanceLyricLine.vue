@@ -7,6 +7,7 @@ const props=withDefaults(defineProps<{
  beat:number;
  beatsPerMeasure:number;
  measureCount:number;
+ lineStarts?:number[];
  effectiveBpm:number;
  instrument:string;
  count?:number|null;
@@ -31,6 +32,19 @@ const page=computed(()=>performanceLyricPage(
  props.notes,props.beat,props.beatsPerMeasure,props.measureCount,
  availableWidth.value,props.effectiveBpm
 ));
+/** Keep original song text lines together while the highlighted onset changes. */
+const lyricRows=computed(()=>{
+ const starts=[...(props.lineStarts??[])].filter(Number.isFinite).sort((a,b)=>a-b);
+ const rows:{line:number;tokens:typeof page.value.tokens}[]=[];
+ for(const token of page.value.tokens){
+   let line=0;
+   for(let i=0;i<starts.length;i++)if(starts[i]<=token.start+1e-7)line=i;else break;
+   const last=rows[rows.length-1];
+   if(last?.line===line)last.tokens.push(token);
+   else rows.push({line,tokens:[token]});
+ }
+ return rows;
+});
 </script>
 
 <template>
@@ -43,8 +57,10 @@ const page=computed(()=>performanceLyricPage(
    </div>
    <div class="stage-lyrics-words" aria-live="off">
      <template v-if="page.tokens.length">
-       <span v-for="(token,i) in page.tokens" :key="token.start+':'+i"
-         class="stage-lyric-token" :class="{'is-current':token.active}">{{token.text}}</span>
+       <span v-for="(row,rowIndex) in lyricRows" :key="'line-'+row.line+'-'+rowIndex" class="stage-lyric-row">
+         <span v-for="(token,i) in row.tokens" :key="token.start+':'+i"
+           class="stage-lyric-token" :class="{'is-current':token.active}">{{token.text}}</span>
+       </span>
      </template>
      <span v-else class="stage-lyrics-rest">Instrumental passage</span>
    </div>
@@ -62,6 +78,7 @@ const page=computed(()=>performanceLyricPage(
 .stage-lyrics-upcoming{color:#c2d4e5;font-size:11px;text-align:right;white-space:nowrap;min-width:0}
 .stage-lyrics-words{display:flex;justify-content:center;align-items:center;align-content:center;flex-wrap:wrap;gap:6px 8px;min-height:42px;
  font-size:clamp(19px,2.35vw,30px);font-weight:650;line-height:1.4;text-align:center}
+.stage-lyric-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 8px;width:100%}
 .stage-lyric-token{display:inline-block;padding:1px 6px;border:1px solid transparent;border-radius:7px;color:#e2e8f0;
  background:transparent;opacity:.94;font-weight:650;transition:background-color .08s linear,color .08s linear,box-shadow .08s linear}
 /* Reserving the same padding and border for all tokens avoids layout shifts. */

@@ -45,3 +45,41 @@ export function exportLeadLyricsTab(source:string):string {
     return (chords.trim()?chords.trimEnd()+'\n':'')+lyric.trimEnd();
   }).join('\n');
 }
+
+/** Original lyric line boundaries mapped onto actual note onsets. Empty lines
+ * are retained in the source, while the karaoke view uses sung line starts.
+ */
+export function lyricLineStarts(plan:LeadLyricPlan,mappedStarts:readonly number[]):number[] {
+ const seen=new Set<number>(),result:number[]=[];
+ plan.notes.forEach((token,i)=>{
+   if(seen.has(token.line))return;
+   seen.add(token.line);
+   const start=mappedStarts[i]??token.start;
+   if(Number.isFinite(start))result.push(start);
+ });
+ return [...new Set(result)].sort((a,b)=>a-b);
+}
+export type PositionedLeadChord={measure:number;beat:number;chord:string;snapped:boolean};
+/** Convert source [chord] anchors into the leadsheet's quarter-note harmony grid.
+ * Mapped note onsets follow the existing melody; missing mappings use the
+ * virtual source timeline. Return only explicitly anchored chord measures.
+ */
+export function positionLeadChords(
+ plan:LeadLyricPlan,beats:number,measureCount:number,mappedStarts:readonly number[]=[]
+):PositionedLeadChord[] {
+ if(!Number.isInteger(beats)||beats<1||!Number.isInteger(measureCount)||measureCount<1)throw Error('Invalid chord timeline');
+ const result:PositionedLeadChord[]=[];
+ for(const anchor of plan.chords){
+   if(!new RegExp('^[A-Ga-g][#b]?[a-zA-Z0-9+#°øΔ()/-]*$').test(anchor.chord))
+     throw Error('Invalid chord marker: '+anchor.chord);
+   const index=plan.notes.findIndex(token=>token.start>=anchor.start);
+   const absolute=index>=0?(mappedStarts[index]??anchor.start):anchor.start;
+   if(!Number.isFinite(absolute)||absolute<0||absolute>=beats*measureCount)throw Error('Chord marker lies beyond the song');
+   const nearest=Math.round(absolute);
+   const snapped=Math.max(0,Math.min(beats*measureCount-1,nearest));
+   result.push({measure:Math.floor(snapped/beats),beat:snapped%beats,
+     chord:anchor.chord[0].toUpperCase()+anchor.chord.slice(1),
+     snapped:Math.abs(absolute-snapped)>1e-7});
+ }
+ return result;
+}

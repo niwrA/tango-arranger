@@ -19,7 +19,7 @@ import {version as appVersion} from '../package.json';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -47,7 +47,7 @@ import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,
 import {suggestViolinPosition} from './violinPositions';
 import {stageInstrumentName} from './stageInstrumentName';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
-import {parseLeadLyrics,exportLeadLyricsTab} from './leadLyrics';
+import {parseLeadLyrics,exportLeadLyricsTab,positionLeadChords,lyricLineStarts} from './leadLyrics';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -582,7 +582,10 @@ const performanceVocalCue=computed(()=>{
  // list. The words themselves are selected by the shared lyric component.
  const firstBar=Math.floor(Math.floor(beat/beats)/2)*2;
  const visible=notes.some(n=>n.start<(firstBar+3)*beats&&n.start+Math.max(.001,n.duration)>firstBar*beats);
- return {instrument,notes,count,visible};
+ const source=project.value.leadLyrics?.['1']?.source??project.value.leadLyrics?.['2']?.source;
+ const plan=source?parseLeadLyrics(source,beats):null;
+ const lineStarts=plan?lyricLineStarts(plan,notes.map(n=>n.start)):[];
+ return {instrument,notes,count,visible,lineStarts};
 });
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
@@ -3371,6 +3374,21 @@ const leadLyricsPreview=computed(()=>leadLyricsPlan.value.notes.map((token,i)=>{
   const existing=leadLyricsUseMelody.value?leadLyricsMatches.value[i]:undefined;
   return {...token,beat:existing?.start??token.start,pitch:existing?.pitch??60,provisional:!existing};
 }));
+const leadLyricsChordPreview=computed(()=>{
+ try{return positionLeadChords(leadLyricsPlan.value,project.value.beats,project.value.bars.length,leadLyricsPreview.value.map(n=>n.beat));}
+ catch{return [];}
+});
+const leadLyricsValidation=computed(()=>{
+ const plan=leadLyricsPlan.value;
+ if(!plan.notes.length)return 'Enter at least one lyric syllable.';
+ const available=project.value.bars.length*project.value.beats;
+ const existing=leadLyricsUseMelody.value?leadLyricsMatches.value:[];
+ if(existing.length&&plan.notes.length>existing.length)return `Only ${existing.length} existing Voice notes for ${plan.notes.length} syllables.`;
+ if(!existing.length&&plan.notes.some(n=>n.start>=available))return 'The lyrics extend beyond the song. Add measures.';
+ try{positionLeadChords(plan,project.value.beats,project.value.bars.length,leadLyricsPreview.value.map(n=>n.beat));}
+ catch(error){return String(error);}
+ return '';
+});
 function openLeadLyrics(){
   const saved=project.value.leadLyrics?.[String(leadLyricsVerse.value)];
   leadLyricsSource.value=saved?.source??leadLyricsSource.value;
@@ -3381,39 +3399,54 @@ watch(leadLyricsVerse,()=>{if(leadLyricsOpen.value)openLeadLyrics();});
 function applyLeadLyrics(){
   const plan=leadLyricsPlan.value,voice=leadLyricsExisting.value;
   if(!voice){message.value='Add a Voice instrument before applying song lyrics.';return;}
-  const total=project.value.bars.length*project.value.beats;
-  const existing=leadLyricsUseMelody.value?leadLyricsMatches.value:[];
-  if(existing.length&&plan.notes.length>existing.length){
-    message.value=`The text needs ${plan.notes.length} note onsets; the existing Voice melody has ${existing.length}. Add notes or disable existing-melody mapping.`;return;
-  }
-  if(!existing.length&&plan.notes.length>total){
-    message.value='More syllables than available beats. Add measures or use an existing melody.';return;
-  }
+  if(leadLyricsValidation.value){message.value=leadLyricsValidation.value;return;}
   const field=leadLyricsVerse.value===1?'lyric':'lyric2';
   const syll=leadLyricsVerse.value===1?'syllabic':'syllabic2';
   const melisma=leadLyricsVerse.value===1?'melisma':'melisma2';
-  let next=project.value;
-  const written=plan.notes.map((token,i)=>{
-    const prior=existing[i];
-    return {...(prior??{pitch:60,start:token.start,duration:1,velocity:80,source:'manual' as const}),
-      [field]:token.text,[syll]:token.syllabic,[melisma]:Boolean(token.melisma)};
-  });
   const all=score.value[voice]??[];
-  const affected=new Set(written.map(n=>Math.floor(n.start/project.value.beats)));
-  if(existing.length)for(const n of existing.slice(0,written.length))affected.add(Math.floor(n.start/project.value.beats));
-  for(const bar of [...affected].sort((a,b)=>a-b)){
-    const start=bar*project.value.beats,end=start+project.value.beats;
-    const oldNotes=all.filter(n=>n.start>=start&&n.start<end);
-    const notes=existing.length
-      ?oldNotes.map(n=>{const index=existing.findIndex(e=>e.start===n.start&&e.pitch===n.pitch&&e.duration===n.duration);return index>=0&&index<written.length?written[index]:n;})
-      :[...oldNotes,...written.filter(n=>n.start>=start&&n.start<end)];
-    next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),voice,bar,notes);
+  const prefix='lead:'+leadLyricsVerse.value+':';
+  const useExisting=leadLyricsUseMelody.value&&all.length>0;
+  const existing=useExisting?[...all].sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
+  const oldGenerated=all.filter(n=>n.leadToken?.startsWith(prefix));
+  const tagged=new Map(oldGenerated.map(n=>[n.leadToken!,n]));
+  const changes=new Map<Note,Note>();
+  const written=plan.notes.map((token,i)=>{
+    const id=prefix+i;
+    const prior=useExisting?existing[i]:tagged.get(id);
+    const original:Note=prior?{...prior}:{pitch:60,start:token.start,duration:1,velocity:80,source:'manual',leadToken:id};
+    const edited={...original,[field]:token.text,[syll]:token.syllabic,[melisma]:Boolean(token.melisma)};
+    if(useExisting&&prior)changes.set(prior,edited);
+    return edited;
+  });
+  // Reapplying a verse updates its tagged notes rather than duplicating them.
+  // Existing Voice melody notes keep their pitch, onset and duration.
+  const updated=all.filter(n=>useExisting||!n.leadToken?.startsWith(prefix)).map(n=>changes.get(n)??{...n});
+  if(!useExisting)updated.push(...written);
+  updated.sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+  const dirty=new Set([...oldGenerated,...written].map(n=>Math.floor(n.start/project.value.beats)));
+  let next=project.value;
+  for(const bar of [...dirty].sort((a,b)=>a-b)){
+    const from=bar*project.value.beats,to=from+project.value.beats;
+    next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),voice,bar,updated.filter(n=>n.start>=from&&n.start<to));
   }
-  // Preserve the source, including line breaks and beat-aligned chord anchors.
-  next={...next,leadLyrics:{...(next.leadLyrics??{}),[String(leadLyricsVerse.value)]:{
+  const chords=positionLeadChords(plan,project.value.beats,project.value.bars.length,written.map(n=>n.start));
+  const anchors=new Map<number,Map<number,string>>();
+  for(const change of chords){
+    if(!anchors.has(change.measure))anchors.set(change.measure,new Map());
+    anchors.get(change.measure)!.set(change.beat,change.chord);
+  }
+  const bars=next.bars.map((bar,index)=>{
+    const edits=anchors.get(index);
+    if(!edits)return bar;
+    const merged=new Map(parseChordSequence(bar.chord,project.value.beats).map(c=>[c.beat,c.chord]));
+    for(const [beat,chord] of edits)merged.set(beat,chord);
+    if(!merged.has(0))merged.set(0,edits.values().next().value!);
+    return {...bar,chord:chordSequenceFromBeats([...merged].map(([beat,chord])=>({beat,chord})),project.value.beats)};
+  });
+  project.value={...next,bars,leadLyrics:{...(next.leadLyrics??{}),[String(leadLyricsVerse.value)]:{
     source:leadLyricsSource.value,useExistingMelody:leadLyricsUseMelody.value}}};
-  project.value=next;
-  message.value=`Saved ${plan.notes.length} syllables for verse ${leadLyricsVerse.value}; the leadsheet source and line breaks were retained.`;
+  const snapped=chords.filter(c=>c.snapped).length;
+  message.value=`Aligned ${plan.notes.length} syllables and ${chords.length} chords; retained ${plan.lines.length} original lyric lines.${snapped?' '+snapped+' chord(s) rounded to the nearest quarter-note beat.':''}`;
 }
 function exportLeadTab(){
   const text=exportLeadLyricsTab(leadLyricsSource.value||project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source||'');
@@ -3858,7 +3891,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
    </div>
    <PerformanceLyricLine v-if="performanceView==='ensemble' && performanceVocalCue && performanceVocalCue.visible"
-     class="stage-ensemble-lyrics" :notes="performanceVocalCue.notes"
+     class="stage-ensemble-lyrics" :notes="performanceVocalCue.notes" :line-starts="performanceVocalCue.lineStarts"
      :instrument="stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))"
      :beat="performanceBeat" :beats-per-measure="project.beats"
      :measure-count="project.bars.length" :effective-bpm="effectivePlaybackBpm"
@@ -3867,7 +3900,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p v-if="performanceFullscreenHint" role="status" class="performance-fullscreen-hint">{{performanceFullscreenHint}}</p>
   <div class="performance-stage-main performance-stage-only">
   <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{stageInstrumentName(rosterDisplayName(performanceDisplayedPart))}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':Boolean(performanceVocalCue?.visible)}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceVocalCue&&performanceVocalCue.visible" class="performance-lyrics-overlay">
-  <PerformanceLyricLine :overlay="true" :notes="performanceVocalCue.notes"
+  <PerformanceLyricLine :overlay="true" :notes="performanceVocalCue.notes" :line-starts="performanceVocalCue.lineStarts"
     :instrument="stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))"
     :beat="performanceBeat" :beats-per-measure="project.beats"
     :measure-count="project.bars.length" :effective-bpm="effectivePlaybackBpm"
@@ -4075,12 +4108,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" class="secondary" @click="exportLeadTab">Export chord / lyrics tab</button>
   </div>
   <label class="lead-lyrics-input">Song text, chords and boundaries<textarea v-model="leadLyricsSource" rows="7" spellcheck="false" placeholder="[Am]Yo | no | sé ||&#10;[E7]por | qué ..."></textarea></label>
-  <p class="hint">{{leadLyricsPlan.notes.length}} syllable positions · {{leadLyricsPlan.chords.length}} chord anchors · {{leadLyricsPlan.lines.length}} original lines. Chord changes remain attached to this source; existing measure chords can still be edited below.</p>
+  <p class="hint">{{leadLyricsPlan.notes.length}} syllable positions · {{leadLyricsPlan.chords.length}} chord anchors · {{leadLyricsPlan.lines.length}} original lines. Applying the text also writes its chord markers to the existing lead-sheet measures.</p>
+  <p v-if="leadLyricsValidation" role="alert" class="hint">{{leadLyricsValidation}}</p>
+  <p v-if="leadLyricsChordPreview.some(c=>c.snapped)" class="hint">Some chord onsets fall between quarter-note beats and will be rounded when saved.</p>
+  <div v-if="leadLyricsChordPreview.length" class="lead-lyrics-chord-preview" aria-label="Chord anchor preview"><span v-for="(chord,i) in leadLyricsChordPreview" :key="i"><strong>{{chord.chord}}</strong> · m{{chord.measure+1}} beat {{chord.beat+1}}</span></div>
   <div class="lead-lyrics-preview" role="group" aria-label="Live lyric and melody preview">
     <div v-for="(token,i) in leadLyricsPreview.slice(0,120)" :key="i" class="lead-lyrics-syllable"><small>m{{Math.floor(token.beat/project.beats)+1}} · {{Number(token.beat%project.beats+1).toFixed(2)}}</small><strong>{{token.text}}</strong><span>{{displayPitch(token.pitch)}}{{token.provisional?'*':''}}</span></div>
     <span v-if="leadLyricsPreview.length>120" class="hint">Showing first 120 positions</span>
   </div>
-  <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="!leadLyricsPlan.notes.length" @click="applyLeadLyrics">Apply lyric alignment to Voice notes</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
+  <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="!!leadLyricsValidation" @click="applyLeadLyrics">Apply lyric alignment to Voice notes</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
 </details>
 <div class="lead-sections">
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
@@ -5772,6 +5808,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .lead-lyrics-input{display:block}
 .lead-lyrics-input textarea{width:100%;box-sizing:border-box;min-height:145px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.55}
 .lead-lyrics-preview{display:flex;flex-wrap:wrap;gap:5px;max-height:235px;overflow:auto;border:1px solid #506c80;border-radius:8px;padding:9px}
+.lead-lyrics-chord-preview{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.lead-lyrics-chord-preview span{font-size:12px;padding:5px 7px;border:1px solid #617f93;border-radius:6px}
+.lead-lyrics-chord-preview strong{color:#eac38f}
 .lead-lyrics-syllable{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 8px;min-width:53px;border:1px solid #57768a;border-radius:7px;background:#243d4c}
 .lead-lyrics-syllable small{font-size:10px;color:#b5c7d5}.lead-lyrics-syllable strong{font-size:15px}.lead-lyrics-syllable span{font-size:11px;color:#edc991}
 
