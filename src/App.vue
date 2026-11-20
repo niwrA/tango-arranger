@@ -1591,6 +1591,22 @@ function applyCapturedMelody(){
       count+=notes.length;
     }
     project.value=next;
+    // Show the applied take rather than leaving the editor on its previous measure/register.
+    const firstRecordedBar=bars.find(b=>capturedMelodyForBar(b).length>0);
+    if(firstRecordedBar!==undefined){
+      selectedBar.value=firstRecordedBar;
+      overviewFocus.value=firstRecordedBar;
+      const recordedPitches=bars.flatMap(b=>capturedMelodyForBar(b).map(n=>n.pitch));
+      if(recordedPitches.length){
+        const low=Math.min(...recordedPitches),high=Math.max(...recordedPitches);
+        const [rangeLow,rangeHigh]=instrumentRange(noteInst.value);
+        noteViewCustom.value=true;
+        noteViewStart.value=Math.max(rangeLow,Math.min(low-2,rangeHigh));
+        noteViewEnd.value=Math.min(rangeHigh,Math.max(high+2,noteViewStart.value));
+        noteCenter.value=Math.round((low+high)/2);
+      }
+      noteEditorTab.value='notes';
+    }
     noteSelected.value=-1;noteStep.value=0.25;
     captureFeedback.value=`Replaced ${noteInst.value} notes in ${bars.length} measures with ${count} recorded notes (${emptyBars.length} cleared measures).`;
     message.value=captureFeedback.value;
