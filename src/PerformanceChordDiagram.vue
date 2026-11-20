@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {computed} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
+import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
 
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -43,13 +44,24 @@ const openStrings=computed(()=>{
  return [];
 });
 const stops=[0,1,2,3,4,5,6,7];
+const displayedStops=computed(()=>family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops);
+const positionText=computed(()=>props.violinPosition
+ ?'Position '+props.violinPosition.position+' · '+props.violinPosition.stringName+' string · finger '+props.violinPosition.finger
+ :'Open / first position');
+function isPlayingStringPitch(stringMidi:number,midi:number){
+ if(!isPlayingPitch(midi))return false;
+ if(family.value!=='Violin')return true;
+ return suggestViolinPosition(midi)?.openMidi===stringMidi;
+}
 const isStringInstrument=computed(()=>openStrings.value.length>0);
 /** Actual sounding notes can fall outside the two-octave piano diagram or the
  * seven-semitone string segment. Show those pitches explicitly instead of
  * pretending their octave is on the visible keyboard/fingerboard. */
 const unmappedSoundingPitches=computed(()=>props.activePitches.filter(midi=>{
  if(family.value==='Piano')return !whiteKeys.includes(midi)&&!blackKeys.some(key=>key.midi===midi);
- if(isStringInstrument.value)return !openStrings.value.some(string=>midi>=string.midi&&midi<string.midi+stops.length);
+ if(isStringInstrument.value)return !openStrings.value.some(string=>
+   displayedStops.value.includes(midi-string.midi)
+   &&(family.value!=='Violin'||suggestViolinPosition(midi)?.openMidi===string.midi));
  return true;
 }));
 /** Live note labels are overlays; they never add flex/grid rows.
@@ -89,10 +101,11 @@ const diagramDescription=computed(()=>{
        <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"  :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)||isPlayingPitch(key.midi)">{{noteName(key.midi)}}</span></span>
      </div>
    </div>
-   <div v-else-if="isStringInstrument" class="diagram-fingerboard" :aria-label="family+' open strings and schematic semitone positions'">
+   <div v-else-if="isStringInstrument" class="diagram-fingerboard" :class="{'diagram-violin-fingerboard':family==='Violin'}" :aria-label="family+' open strings and schematic semitone positions'+(family==='Violin'?', '+positionText:'')">
+     <span v-if="family==='Violin'" class="diagram-violin-position" :title="'Schematic suggestion: '+positionText">{{positionText}}</span>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row">
        <span class="diagram-open-label">{{string.name}}</span>
-       <span v-for="offset in stops" :key="offset" class="diagram-string-stop"  :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),'is-sounding':isPlayingPitch(string.midi+offset),'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
+       <span v-for="offset in displayedStops" :key="offset" class="diagram-string-stop"  :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
          <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
        </span>
      </div>
@@ -225,6 +238,22 @@ const diagramDescription=computed(()=>{
 @media(prefers-reduced-motion:reduce){
  .diagram-white-key.is-sounding,.diagram-black-key.is-sounding,
  .diagram-string-stop.is-sounding,.diagram-tone-pill.is-sounding{box-shadow:inset 0 0 0 2px #174940}
+}
+
+/* Violin positions are deliberate visual shifts within a fixed-size fingerboard,
+ * not extra content rows. A stable measure-level reference is supplied by the
+ * stage so note attacks never resize or reorder this instrument card. */
+.diagram-fingerboard.diagram-violin-fingerboard{position:relative;padding-top:19px;gap:2px}
+.diagram-violin-fingerboard .diagram-string-row{min-height:15px}
+.diagram-violin-position{
+ position:absolute;top:2px;left:5px;right:5px;height:15px;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ display:block;text-align:center;font-size:10px;line-height:15px;
+ font-weight:800;letter-spacing:.01em;color:#ffdaa2;
+}
+@media(max-width:900px){
+ .diagram-violin-position{font-size:9px}
+ .diagram-fingerboard.diagram-violin-fingerboard{padding-top:17px;gap:1px}
 }
 
 </style>
