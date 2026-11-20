@@ -3,11 +3,12 @@ import {computed} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
 import {fingerboardStrings} from './stringFingerboard';
+import {positionWindow,type StringPositionGuide} from './stringPositionGuide';
 
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;focus?:boolean}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;focus?:boolean}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -40,12 +41,24 @@ const blackKeys=whiteKeys.flatMap((note,i)=>{
 });
 const openStrings=computed(()=>fingerboardStrings(family.value));
 const stops=[0,1,2,3,4,5,6,7];
-const displayedStops=computed(()=>family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops);
-const positionText=computed(()=>props.violinPosition
- ?(props.violinPosition.finger===0?'Open '+props.violinPosition.stringName+' string':'Position '+props.violinPosition.position+' · '+props.violinPosition.stringName+' string · finger '+props.violinPosition.finger)
- :'First position');
+const displayedStops=computed(()=>props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops);
+const positionText=computed(()=>props.positionGuide
+ ?'Position '+props.positionGuide.position+' · '+(props.positionGuide.thumb?'thumb':'1st finger')+' '+midiLabel(props.positionGuide.anchorMidi)+' on '+midiLabel(props.positionGuide.anchorStringMidi)+' string'
+ :props.violinPosition
+  ?(props.violinPosition.finger===0?'Open '+props.violinPosition.stringName+' string':'Position '+props.violinPosition.position+' · '+props.violinPosition.stringName+' string · finger '+props.violinPosition.finger)
+  :'First position');
+function fingerFor(openMidi:number,midi:number):string|null{
+ const match=props.positionGuide?.fingerings.find(f=>f.openMidi===openMidi&&f.pitch===midi);
+ return match?.finger??null;
+}
+function isPlannedStringPitch(openMidi:number,midi:number){return fingerFor(openMidi,midi)!==null;}
+function stringAnchorLabel(openMidi:number){
+ const guide=props.positionGuide;
+ return guide?(guide.thumb?'T':'1')+'='+midiLabel(openMidi+guide.firstFingerOffset):'';
+}
 function isPlayingStringPitch(stringMidi:number,midi:number){
  if(!isPlayingPitch(midi))return false;
+ if(props.positionGuide)return isPlannedStringPitch(stringMidi,midi);
  if(family.value!=='Violin')return true;
  return suggestViolinPosition(midi)?.openMidi===stringMidi;
 }
@@ -55,6 +68,8 @@ const isStringInstrument=computed(()=>openStrings.value.length>0);
  * pretending their octave is on the visible keyboard/fingerboard. */
 const unmappedSoundingPitches=computed(()=>props.activePitches.filter(midi=>{
  if(family.value==='Piano')return !whiteKeys.includes(midi)&&!blackKeys.some(key=>key.midi===midi);
+ if(isStringInstrument.value&&props.positionGuide)return !props.positionGuide.fingerings.some(f=>
+   f.pitch===midi&&(f.offset===0||displayedStops.value.includes(f.offset)));
  if(isStringInstrument.value)return !openStrings.value.some(string=>
    displayedStops.value.includes(midi-string.midi)
    &&(family.value!=='Violin'||suggestViolinPosition(midi)?.openMidi===string.midi));
@@ -97,12 +112,24 @@ const diagramDescription=computed(()=>{
        <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"  :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi)}" :style="{left:key.left+'%'}"><span v-if="isTone(key.midi)||isPlayingPitch(key.midi)">{{noteName(key.midi)}}</span></span>
      </div>
    </div>
-   <div v-else-if="isStringInstrument" class="diagram-fingerboard" :class="{'diagram-violin-fingerboard':family==='Violin'}" :aria-label="family+' open strings and schematic semitone positions'+(family==='Violin'?', '+positionText:'')">
-     <span v-if="family==='Violin'" class="diagram-violin-position" :title="'Schematic suggestion: '+positionText">{{positionText}}</span>
-     <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row">
-       <span class="diagram-open-label">{{string.name}}</span>
-       <span v-for="offset in displayedStops" :key="offset" class="diagram-string-stop"  :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}" :title="midiLabel(string.midi+offset)">
-         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)">{{noteName(string.midi+offset)}}</span>
+   <div v-else-if="isStringInstrument" class="diagram-fingerboard"
+     :class="{'diagram-violin-fingerboard':family==='Violin','diagram-bass-fingerboard':family==='Contrabass'&&Boolean(props.positionGuide),'diagram-has-guide':Boolean(props.positionGuide)}"
+     :aria-label="family+' open strings and schematic semitone positions'+(props.positionGuide||family==='Violin'?', '+positionText:'')">
+     <span v-if="family==='Violin'||(family==='Contrabass'&&props.positionGuide)" class="diagram-violin-position"
+       :title="'Schematic suggestion: '+positionText">{{positionText}}</span>
+     <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
+       :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
+       <span class="diagram-open-label" :class="{'is-sounding':isPlayingPitch(string.midi)&&isPlannedStringPitch(string.midi,string.midi)}"
+         :title="'Open '+string.name+(props.positionGuide?' · '+stringAnchorLabel(string.midi):'')">
+         <strong>{{string.name}}</strong><small v-if="props.positionGuide">{{stringAnchorLabel(string.midi)}}</small>
+       </span>
+       <span v-for="offset in displayedStops" :key="offset" class="diagram-string-stop"
+         :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),
+           'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),
+           'is-measure-note':isPlannedStringPitch(string.midi,string.midi+offset),
+           'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}"
+         :title="midiLabel(string.midi+offset)+(fingerFor(string.midi,string.midi+offset)!==null?' · suggested finger '+fingerFor(string.midi,string.midi+offset):'')">
+         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)||isPlannedStringPitch(string.midi,string.midi+offset)">{{fingerFor(string.midi,string.midi+offset)??noteName(string.midi+offset)}}</span>
        </span>
      </div>
    </div>
@@ -282,6 +309,35 @@ const diagramDescription=computed(()=>{
  .performance-instrument-diagram.is-focus .diagram-fingerboard.diagram-violin-fingerboard{height:clamp(150px,30dvh,260px)}
  .performance-instrument-diagram.is-focus .diagram-piano,
  .performance-instrument-diagram.is-focus .diagram-targets{height:clamp(145px,30dvh,260px)}
+}
+
+/* Position symbols and open-string/first-finger anchors fit fixed-height cards. */
+.diagram-fingerboard.diagram-bass-fingerboard{position:relative;padding-top:19px;gap:2px}
+.diagram-bass-fingerboard .diagram-string-row{min-height:15px}
+.diagram-guided-string-row{grid-template-columns:70px repeat(8,minmax(0,1fr));gap:2px}
+.diagram-guided-string-row .diagram-open-label{display:flex;align-items:center;gap:2px;min-width:0;white-space:nowrap;font-size:9px}
+.diagram-guided-string-row .diagram-open-label strong{font-size:10px;font-weight:800;color:#e3eef4}
+.diagram-guided-string-row .diagram-open-label small{font-size:9px;font-weight:700;color:#ffdda8;white-space:nowrap}
+.diagram-guided-string-row .diagram-open-label.is-sounding strong{color:#79e6d4}
+.diagram-guided-string-row .diagram-string-stop span{font-size:10px}
+.diagram-guided-string-row .diagram-string-stop.is-measure-note{box-shadow:inset 0 0 0 1px #e6b778;color:#ffe7b9}
+.diagram-guided-string-row .diagram-string-stop.is-measure-note span{font-weight:900}
+.diagram-guided-string-row .diagram-string-stop.is-sounding{box-shadow:0 0 0 2px #8ffdeb88,0 0 12px #5deace80;color:#132e32}
+.performance-instrument-diagram.is-focus .diagram-guided-string-row{
+ grid-template-columns:clamp(95px,13vw,165px) repeat(8,minmax(0,1fr));gap:clamp(4px,.8vw,12px);
+}
+.performance-instrument-diagram.is-focus .diagram-guided-string-row .diagram-open-label{gap:7px}
+.performance-instrument-diagram.is-focus .diagram-guided-string-row .diagram-open-label strong{font-size:clamp(15px,1.7vw,23px)}
+.performance-instrument-diagram.is-focus .diagram-guided-string-row .diagram-open-label small{font-size:clamp(13px,1.5vw,21px)}
+.performance-instrument-diagram.is-focus .diagram-guided-string-row .diagram-string-stop span{font-size:clamp(14px,1.7vw,24px)}
+.performance-instrument-diagram.is-focus .diagram-fingerboard.diagram-bass-fingerboard{
+ display:flex;flex-direction:column;justify-content:space-around;height:clamp(155px,35dvh,330px);
+ min-height:155px;max-height:none;gap:clamp(3px,1dvh,10px);padding:clamp(34px,6dvh,50px) clamp(10px,2vw,24px) clamp(10px,2vw,24px);
+}
+@media(max-width:900px){
+ .diagram-fingerboard.diagram-bass-fingerboard{padding-top:17px;gap:1px}
+ .diagram-guided-string-row{grid-template-columns:68px repeat(8,minmax(0,1fr))}
+ .diagram-guided-string-row .diagram-string-stop span{font-size:9px}
 }
 
 </style>
