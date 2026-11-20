@@ -1401,12 +1401,66 @@ function applyCapturedRhythm(){
     message.value=captureFeedback.value;
   }catch(error){captureFeedback.value=`Could not apply take: ${String(error)}`;}
 }
+// Vocal phrases are measure ranges, shared with the existing recording loop.
+// Gaps of a full measure and section boundaries suggest phrase endings; the
+// user can still change the Start/End range manually.
+const vocalCapturePhrases=computed(()=>{
+ const voice=projectInstruments(project.value).find(i=>i.startsWith('Voice'));
+ if(!voice)return [] as {start:number;end:number;label:string}[];
+ const notes=(score.value[voice]??[]).filter(n=>Boolean(n.lyric)).sort((a,b)=>a.start-b.start);
+ const phrases:{start:number;end:number;label:string}[]=[];
+ let group:typeof notes=[];
+ const flush=()=>{
+  if(!group.length)return;
+  const start=Math.floor(group[0].start/project.value.beats)+1;
+  const end=Math.min(project.value.bars.length,Math.floor((group.at(-1)!.start+0.000001)/project.value.beats)+1);
+  phrases.push({start,end,label:group.map(n=>n.lyric).join(' ').slice(0,65)});
+  group=[];
+ };
+ for(const note of notes){
+  const bar=Math.floor(note.start/project.value.beats);
+  const previous=group.at(-1);
+  const prevBar=previous?Math.floor(previous.start/project.value.beats):bar;
+  if(previous&&(note.start-(previous.start+previous.duration)>=project.value.beats||
+      project.value.bars[bar]?.section!==project.value.bars[prevBar]?.section||bar-Math.floor(group[0].start/project.value.beats)>=4))flush();
+  group.push(note);
+ }
+ flush();return phrases;
+});
+const vocalPhraseSelection=ref('');
+function selectVocalCapturePhrase(value:string){
+ vocalPhraseSelection.value=value;
+ const phrase=vocalCapturePhrases.value[Number(value)];
+ if(!phrase||capturePlaying.value)return;
+ noteLoopFrom.value=phrase.start;noteLoopTo.value=phrase.end;
+ syncVisibleMeasureSelection();
+ captureFeedback.value='Vocal phrase selected. Record with Keys or Strings, then review lyric alignment before applying.';
+}
+const vocalAlignmentEnabled=ref(true);
+const vocalAlignmentSource=computed(()=>{
+ const voice=projectInstruments(project.value).find(i=>i.startsWith('Voice'));
+ return voice?(score.value[voice]??[]).filter(n=>n.lyric&&n.start>=captureFirst.value*project.value.beats&&n.start<(captureLast.value+1)*project.value.beats).sort((a,b)=>a.start-b.start):[];
+});
+const vocalCapturedNotes=computed(()=>captureBarNumbers.value.flatMap(b=>capturedMelodyForBar(b).map(t=>({bar:b,...t}))).sort((a,b)=>(a.bar-b.bar)*project.value.beats+a.beat-b.beat));
+// A draft index is explicit and editable: never silently claim exact syllable alignment.
+const vocalAlignmentIndices=ref<number[]>([]);
+watch([melodyCaptureTaps,noteLoopFrom,noteLoopTo],()=>{vocalAlignmentIndices.value=[]});
+const vocalAlignmentPreview=computed(()=>vocalCapturedNotes.value.map((note,i)=>({
+ ...note,index:i,lyricIndex:vocalAlignmentIndices.value[i]??Math.min(i,vocalAlignmentSource.value.length-1),
+ lyric:vocalAlignmentSource.value[vocalAlignmentIndices.value[i]??Math.min(i,vocalAlignmentSource.value.length-1)]?.lyric??''
+})));
+function setVocalAlignmentIndex(index:number,value:number){
+ const next=[...vocalAlignmentIndices.value];
+ next[index]=value;vocalAlignmentIndices.value=next;
+}
 function applyCapturedMelody(){
   if(capturePlaying.value){captureFeedback.value='Stop recording before applying the take.';return;}
   const bars=captureBarNumbers.value;
   const recordedCount=bars.reduce((sum,b)=>sum+capturedMelodyForBar(b).length,0);
   if(!recordedCount){captureFeedback.value='Record some pitched notes before applying.';return;}
   const protectedBars=bars.filter(b=>project.value.protectedBars[`${noteInst.value}:${b}`]);
+  const alignVoice=noteInst.value.startsWith('Voice')&&vocalAlignmentEnabled.value&&vocalAlignmentSource.value.length>0;
+  const alignment=new Map(vocalAlignmentPreview.value.map(n=>[`${n.bar}:${n.beat}:${n.pitch}`,n.lyric]));
   const emptyBars=bars.filter(b=>!capturedMelodyForBar(b).length);
   if(!window.confirm(`Replace ALL existing ${noteInst.value} notes in measures ${bars[0]+1}–${bars.at(-1)!+1} with this take? ${emptyBars.length} unrecorded measure(s) will be cleared. ${protectedBars.length} measure(s) contain protected edits. The lead sheet and other instruments are unchanged.`))return;
   try{
@@ -1416,6 +1470,7 @@ function applyCapturedMelody(){
     for(const b of bars){
       const notes=capturedMelodyForBar(b).map(t=>{
         const note=suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration);
+        if(alignVoice){const lyric=alignment.get(`${b}:${t.beat}:${t.pitch}`);if(lyric){note.lyric=lyric;note.syllabic='single';}}
         if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
         if(t.approachSlideFrom!==undefined||t.vibrato||t.gesture){
           note.technique='arco';note.articulation='legato';
@@ -4506,6 +4561,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
+      <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
+        <h3>Vocal phrase → melody</h3>
+        <label>Choose phrase (sets the recording measure range)
+          <select :value="vocalPhraseSelection" :disabled="capturePlaying" @change="selectVocalCapturePhrase(($event.target as HTMLSelectElement).value)">
+            <option value="" disabled>Select a lyric phrase</option>
+            <option v-for="(phrase,i) in vocalCapturePhrases" :key="i" :value="String(i)">Measures {{phrase.start}}–{{phrase.end}} · {{phrase.label}}</option>
+          </select>
+        </label>
+        <p class="hint">Record the selected measures using the keyboard or string input below. You can also adjust the normal Start/End controls.</p>
+        <label><input type="checkbox" v-model="vocalAlignmentEnabled"/> Align recorded notes to existing Voice lyrics on Apply</label>
+        <div v-if="vocalAlignmentEnabled&&vocalCapturedNotes.length" class="capture-vocal-alignment">
+          <h4>Review lyric alignment (draft only)</h4>
+          <p class="hint">Each recorded note is matched in order to a lyric note. Correct the assignment before applying; multiple notes may share a syllable.</p>
+          <p v-if="!vocalAlignmentSource.length" class="hint">No lyric-bearing Voice notes in this range. Record normally or select a phrase containing lyrics.</p>
+          <div v-for="entry in vocalAlignmentPreview" :key="entry.index" class="capture-vocal-alignment-row">
+            <span>{{midiName(entry.pitch)}} · m{{entry.bar+1}} beat {{Number((entry.beat+1).toFixed(2))}}</span>
+            <select :value="entry.lyricIndex" :disabled="!vocalAlignmentSource.length" @change="setVocalAlignmentIndex(entry.index,Number(($event.target as HTMLSelectElement).value))">
+              <option v-for="(lyric,i) in vocalAlignmentSource" :key="i" :value="i">{{i+1}} · {{lyric.lyric}}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
       <LiveCaptureTransport kind="melody" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
         :metronome="captureMetronome" :count-in="captureCountIn"
         :status="captureRecording?(captureCountingIn?'Count-in · '+(capturePlayBeat+1)+'/'+project.beats:'Rec · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1)):capturePlaying?'Play · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1):'Measures '+(captureFirst+1)+'–'+(captureLast+1)+' · '+melodyCaptureTaps.length+' notes'"
