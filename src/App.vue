@@ -405,7 +405,13 @@ function closePerformanceInstrument(){
 function changePerformanceFocusSpeed(event:Event){
  setRehearsalSpeed(normalizeRehearsalSpeed((event.target as HTMLSelectElement).value));
 }
-function playFocusedMeasure(){selectedBar.value=performanceBar.value;void play('selected');}
+function playFocusedFromMeasure(){selectedBar.value=performanceBar.value;void play('selected');}
+watch([performanceMode,performanceView],([enabled,view])=>{
+ if(!enabled||view!=='ensemble'){
+  performanceExpandedInstrument.value=null;
+  performanceExpandTrigger=null;
+ }
+});
 
 const performanceShell=ref<HTMLElement|null>(null);
 const performanceStageCompact=ref(false);
@@ -3409,7 +3415,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
              <button type="button" :class="{selected:cardShowsDiagram(part.inst)}" :aria-pressed="cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
              <button type="button" :class="{selected:!cardShowsDiagram(part.inst)}" :aria-pressed="!cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'cues')">Role &amp; cues</button>
            </div>
-           <button type="button" class="secondary instrument-focus-play" @click="playFocusedMeasure"><AppIcon name="play"/> <span>Play measure</span></button>
+           <button type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
            <button type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
            <label class="instrument-focus-speed">Speed <select :value="rehearsalSpeed" aria-label="Rehearsal speed" @change="changePerformanceFocusSpeed"><option v-for="speed in REHEARSAL_SPEEDS" :key="speed" :value="speed">{{speed}}×</option></select></label>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
