@@ -29,6 +29,8 @@ check('measure dynamics map consistently to restrained background and meter inte
 });
 check('current and next dynamics are visible as text and shaded independently in both modes',()=>{
  assert.ok(app.includes('performance-card-dynamic-rail'));
+ assert.ok(app.includes('instrument-focus-dynamic-band'));
+ assert.ok(app.includes("part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'"));
  assert.ok(app.includes('stageDynamicAlpha(part.dynamics)'));
  assert.ok(app.includes("stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')"));
  assert.ok(app.includes('hasNextMeasure:nextBar>bar'));
