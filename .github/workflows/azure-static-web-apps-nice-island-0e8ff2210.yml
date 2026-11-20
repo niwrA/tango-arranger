@@ -33,6 +33,9 @@ jobs:
           VITE_APP_BUILD_SHA: ${{ github.sha }}
         run: npm run build
 
+      - name: Test leadsheet import and vocal phrase alignment
+        run: node tests/new-song-leadsheet.cjs
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 

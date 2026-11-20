@@ -205,6 +205,28 @@ check('visible application version includes deployed commit identifier',()=>{
  assert.ok(app.includes('VITE_APP_BUILD_SHA'));
  assert.ok(app.includes('v{{appDisplayVersion}}'));
 });
+check('vocal phrase selection follows measure gaps and section boundaries',()=>{
+ const {vocalPhrases}=load('src/vocalPhraseAlignment.ts');
+ const notes=[{start:0,duration:1,lyric:'When'},{start:1,duration:1,lyric:'you'},
+  {start:8,duration:1,lyric:'love'},{start:9,duration:1,lyric:'and'},
+  {start:16,duration:1,lyric:'care'}];
+ assert.deepEqual(vocalPhrases(notes,4,['A','A','A','A','B']).map(p=>[p.start,p.end,p.label]),
+  [[1,1,'When you'],[3,3,'love and'],[5,5,'care']]);
+});
+check('recorded phrase alignment is monotonic, editable, and supports melisma',()=>{
+ const {suggestVocalAlignment,alignedLyric}=load('src/vocalPhraseAlignment.ts');
+ const lyrics=[{start:0,duration:1,lyric:'love'},{start:2,duration:1,lyric:'and'},{start:4,duration:1,lyric:'care'}];
+ const captured=[{bar:0,beat:0,pitch:60,duration:0.5},{bar:0,beat:1,pitch:62,duration:0.5},
+  {bar:0,beat:2,pitch:64,duration:1},{bar:1,beat:0,pitch:65,duration:1}];
+ const indices=suggestVocalAlignment(captured,lyrics,4);
+ assert.deepEqual(indices,[0,0,1,2]);
+ assert.deepEqual(alignedLyric(0,-1,lyrics),{lyric:'love',syllabic:'single'});
+ assert.deepEqual(alignedLyric(0,0,lyrics),{lyric:undefined,syllabic:'middle'});
+ assert.deepEqual(alignedLyric(2,1,lyrics),{lyric:'care',syllabic:'single'});
+ assert.deepEqual(suggestVocalAlignment(captured,[],4),[-1,-1,-1,-1]);
+ assert.ok(app.includes('vocalAlignmentPreview'));
+ assert.ok(app.includes('Object.assign(note,lyricAssignments'));
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));

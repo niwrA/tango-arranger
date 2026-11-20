@@ -5,6 +5,7 @@ import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
+import {vocalPhrases,suggestVocalAlignment,alignedLyric} from './vocalPhraseAlignment';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
@@ -1406,26 +1407,7 @@ function applyCapturedRhythm(){
 // user can still change the Start/End range manually.
 const vocalCapturePhrases=computed(()=>{
  const voice=projectInstruments(project.value).find(i=>i.startsWith('Voice'));
- if(!voice)return [] as {start:number;end:number;label:string}[];
- const notes=(score.value[voice]??[]).filter(n=>Boolean(n.lyric)).sort((a,b)=>a.start-b.start);
- const phrases:{start:number;end:number;label:string}[]=[];
- let group:typeof notes=[];
- const flush=()=>{
-  if(!group.length)return;
-  const start=Math.floor(group[0].start/project.value.beats)+1;
-  const end=Math.min(project.value.bars.length,Math.floor((group.at(-1)!.start+0.000001)/project.value.beats)+1);
-  phrases.push({start,end,label:group.map(n=>n.lyric).join(' ').slice(0,65)});
-  group=[];
- };
- for(const note of notes){
-  const bar=Math.floor(note.start/project.value.beats);
-  const previous=group.at(-1);
-  const prevBar=previous?Math.floor(previous.start/project.value.beats):bar;
-  if(previous&&(note.start-(previous.start+previous.duration)>=project.value.beats||
-      project.value.bars[bar]?.section!==project.value.bars[prevBar]?.section||bar-Math.floor(group[0].start/project.value.beats)>=4))flush();
-  group.push(note);
- }
- flush();return phrases;
+ return voice?vocalPhrases(score.value[voice]??[],project.value.beats,project.value.bars.map(b=>b.section)):[];
 });
 const vocalPhraseSelection=ref('');
 function selectVocalCapturePhrase(value:string){
@@ -1445,10 +1427,11 @@ const vocalCapturedNotes=computed(()=>captureBarNumbers.value.flatMap(b=>capture
 // A draft index is explicit and editable: never silently claim exact syllable alignment.
 const vocalAlignmentIndices=ref<number[]>([]);
 watch([melodyCaptureTaps,noteLoopFrom,noteLoopTo],()=>{vocalAlignmentIndices.value=[]});
-const vocalAlignmentPreview=computed(()=>vocalCapturedNotes.value.map((note,i)=>({
- ...note,index:i,lyricIndex:vocalAlignmentIndices.value[i]??Math.min(i,vocalAlignmentSource.value.length-1),
- lyric:vocalAlignmentSource.value[vocalAlignmentIndices.value[i]??Math.min(i,vocalAlignmentSource.value.length-1)]?.lyric??''
-})));
+const vocalAlignmentSuggested=computed(()=>suggestVocalAlignment(vocalCapturedNotes.value,vocalAlignmentSource.value,project.value.beats));
+const vocalAlignmentPreview=computed(()=>vocalCapturedNotes.value.map((note,i)=>{
+ const lyricIndex=vocalAlignmentIndices.value[i]??vocalAlignmentSuggested.value[i]??-1;
+ return {...note,index:i,lyricIndex,lyric:vocalAlignmentSource.value[lyricIndex]?.lyric??''};
+}));
 function setVocalAlignmentIndex(index:number,value:number){
  const next=[...vocalAlignmentIndices.value];
  next[index]=value;vocalAlignmentIndices.value=next;
@@ -1460,7 +1443,8 @@ function applyCapturedMelody(){
   if(!recordedCount){captureFeedback.value='Record some pitched notes before applying.';return;}
   const protectedBars=bars.filter(b=>project.value.protectedBars[`${noteInst.value}:${b}`]);
   const alignVoice=noteInst.value.startsWith('Voice')&&vocalAlignmentEnabled.value&&vocalAlignmentSource.value.length>0;
-  const alignment=new Map(vocalAlignmentPreview.value.map(n=>[`${n.bar}:${n.beat}:${n.pitch}`,n.lyric]));
+  const lyricAssignments=vocalAlignmentPreview.value.map((n,i)=>alignedLyric(n.lyricIndex,i?vocalAlignmentPreview.value[i-1].lyricIndex:-1,vocalAlignmentSource.value));
+  let appliedAlignmentIndex=0;
   const emptyBars=bars.filter(b=>!capturedMelodyForBar(b).length);
   if(!window.confirm(`Replace ALL existing ${noteInst.value} notes in measures ${bars[0]+1}–${bars.at(-1)!+1} with this take? ${emptyBars.length} unrecorded measure(s) will be cleared. ${protectedBars.length} measure(s) contain protected edits. The lead sheet and other instruments are unchanged.`))return;
   try{
@@ -1470,7 +1454,7 @@ function applyCapturedMelody(){
     for(const b of bars){
       const notes=capturedMelodyForBar(b).map(t=>{
         const note=suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration);
-        if(alignVoice){const lyric=alignment.get(`${b}:${t.beat}:${t.pitch}`);if(lyric){note.lyric=lyric;note.syllabic='single';}}
+        if(alignVoice){Object.assign(note,lyricAssignments[appliedAlignmentIndex]??{});appliedAlignmentIndex++;}
         if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
         if(t.approachSlideFrom!==undefined||t.vibrato||t.gesture){
           note.technique='arco';note.articulation='legato';
