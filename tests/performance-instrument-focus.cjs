@@ -28,7 +28,9 @@ check('large diagram uses the same live measure, note and violin data',()=>{
 check('focus playback and rehearsal speed reuse existing state',()=>{
  assert.ok(app.includes("void play('selected')"));
  assert.ok(app.includes('@click="stopPlayback"'));
- assert.ok(app.includes('setRehearsalSpeed(normalizeRehearsalSpeed('));
+ assert.ok(app.includes('class="topbar-menu playback-speed-menu instrument-focus-speed-menu"'));
+ assert.ok(app.includes('@click="setRehearsalSpeed(speed)"'));
+ assert.ok(!app.includes('changePerformanceFocusSpeed('));
  assert.ok(app.includes('performanceBar+1'));
 });
 check('only focus class enlarges diagrams; normal fixed-height cards remain',()=>{

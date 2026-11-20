@@ -36,6 +36,8 @@ import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {autoPianoCaptureRange,PIANO_LOW,PIANO_HIGH} from './pianoRegisters';
+import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} from './violinCapture';
+import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
@@ -91,7 +93,7 @@ function stopPlayback(){
   synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureKeySynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
-  capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureRecordedPass=-1;
+  capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureMonitorPitches.clear();captureViolinTraces.clear();captureHeldDisplay.value=[];captureRecordedPass=-1;
 }
 function selectProjectInEditor(p:Project){
   closeRhythmMenu();closeDynamicsContext();
@@ -193,7 +195,7 @@ async function initializeLocalLibrary(){
 function onTopbarMenuToggle(event:Event){
   const menu=event.target as HTMLDetailsElement;
   if(!menu.open)return;
-  document.querySelectorAll<HTMLDetailsElement>('.app-topbar .topbar-menu').forEach(other=>{
+  document.querySelectorAll<HTMLDetailsElement>('.app-topbar .topbar-menu,.instrument-focus-toolbar .topbar-menu').forEach(other=>{
     if(other!==menu)other.open=false;
   });
 }
@@ -209,8 +211,8 @@ function closeTopbarMenuFromKey(event:KeyboardEvent){
   menu.querySelector<HTMLElement>('summary')?.focus();
 }
 function closeOpenTopbarMenusOnOutside(event:PointerEvent){
-  if((event.target as Element|null)?.closest?.('.app-topbar .topbar-menu'))return;
-  document.querySelectorAll<HTMLDetailsElement>('.app-topbar .topbar-menu[open]').forEach(menu=>menu.open=false);
+  if((event.target as Element|null)?.closest?.('.app-topbar .topbar-menu,.instrument-focus-toolbar .topbar-menu'))return;
+  document.querySelectorAll<HTMLDetailsElement>('.app-topbar .topbar-menu[open],.instrument-focus-toolbar .topbar-menu[open]').forEach(menu=>menu.open=false);
 }
 const compactHelp=ref(localStorage.getItem('tango-compact-help')!=='false');
 watch(compactHelp,value=>localStorage.setItem('tango-compact-help',String(value)));
@@ -428,9 +430,6 @@ function closePerformanceInstrument(){
  performanceExpandedInstrument.value=null;
  const target=performanceExpandTrigger;performanceExpandTrigger=null;
  void nextTick(()=>{if(target?.isConnected)target.focus();});
-}
-function changePerformanceFocusSpeed(event:Event){
- setRehearsalSpeed(normalizeRehearsalSpeed((event.target as HTMLSelectElement).value));
 }
 function playFocusedFromMeasure(){selectedBar.value=performanceBar.value;void play('selected');}
 watch([performanceMode,performanceView],([enabled,view])=>{
@@ -999,8 +998,28 @@ function beginMelodyPassOnNote(elapsedBeats:number){
   melodyCaptureTaps.value=[];
   captureRecordedPass=pass;
 }
-type HeldCapture=CapturedTap&{duration?:number};
+type HeldCapture=CapturedTap&{duration?:number;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture};
+type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number}>();
+const captureMonitorPitches=new Set<number>();
+const captureHeldDisplay=ref<number[]>([]);
+function heldCaptureKeysHasPitch(pitch:number){return [...heldCaptureKeys.values()].some(held=>held.pitch===pitch);}
+function updateCaptureHeldDisplay(){captureHeldDisplay.value=[...heldCaptureKeys.values()].map(held=>held.pitch);}
+const captureViolinMode=ref<ViolinCaptureMode>('auto');
+const captureViolinTraces=new Map<number,{stringMidi:number;samples:ViolinCaptureSample[]}>();
+const captureLastExpression=ref('');
+function monitorCapturePitch(pitch:number){
+ if(!Tone||captureMonitorPitches.has(pitch))return;
+ captureMonitorPitches.add(pitch);
+ const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+ ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
+}
+function releaseCaptureMonitorPitch(pitch:number){
+ if(heldCaptureKeysHasPitch(pitch)||!captureMonitorPitches.has(pitch))return;
+ captureMonitorPitches.delete(pitch);
+ const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+ if(Tone)captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
+}
 function captureGrid(bar:number):number{
   if(captureQuantize.value!=='auto')return Number(captureQuantize.value);
   const articulation=measureArticulation(project.value,noteInst.value,bar,plannedPhrasesByMeasure.value[bar]??null);
@@ -1013,8 +1032,13 @@ function captureElapsedBeats():number{
 function capturedMelodyForBar(bar:number){
   const taps=(captureTaps.value as HeldCapture[]).filter(t=>t.bar===bar&&Number.isInteger(t.pitch));
   const inferred=melodyFromTaps(taps.filter(t=>t.duration===undefined),bar,project.value.beats,captureGrid(bar));
-  return [...inferred.map(t=>({...t,held:false})),...taps.filter(t=>t.duration!==undefined).map(t=>({beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:true}))]
-    .sort((a,b)=>a.beat-b.beat||a.pitch-b.pitch);
+  const quick:CapturedMelodyNote[]=inferred.map(t=>({...t,held:false}));
+  const held:CapturedMelodyNote[]=taps.filter(t=>t.duration!==undefined).map(t=>({
+   beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:true,
+   ...(t.approachSlideFrom!==undefined?{approachSlideFrom:t.approachSlideFrom}:{}),
+   ...(t.vibrato?{vibrato:true}:{}),...(t.gesture?{gesture:t.gesture}:{})
+  }));
+  return [...quick,...held].sort((a,b)=>a.beat-b.beat||a.pitch-b.pitch);
 }
 
 
@@ -1049,15 +1073,21 @@ watch(capturePianoElement,(element,_previous,onCleanup)=>{
  observer.observe(element);onCleanup(()=>observer.disconnect());
 },{flush:'post'});
 function fitCaptureKeyboardToWidth(){
- if(noteInst.value!=='Piano'||!captureAutoFit.value)return;
+ if(!captureAutoFit.value)return;
  const midpoint=(captureStartPitch.value+captureEndPitch.value)/2;
  const next=autoPianoCaptureRange(midpoint,noteCtx.value.range,capturePianoWidth.value);
  captureStartPitch.value=next.start;captureEndPitch.value=next.end;
 }
 watch(capturePianoWidth,fitCaptureKeyboardToWidth);
 function setCaptureAutoFit(enabled:boolean){captureAutoFit.value=enabled;if(enabled)fitCaptureKeyboardToWidth();}
-function showAllPianoKeys(){captureAutoFit.value=false;captureStartPitch.value=PIANO_LOW;captureEndPitch.value=PIANO_HIGH;}
+function showAllPianoKeys(){
+ captureAutoFit.value=false;
+ const [low,high]=noteCtx.value.range;
+ captureStartPitch.value=noteInst.value==='Piano'?PIANO_LOW:low;
+ captureEndPitch.value=noteInst.value==='Piano'?PIANO_HIGH:high;
+}
 const captureInputLayout=ref<'keyboard'|'fingerboard'>('fingerboard');
+watch(captureInputLayout,layout=>{if(layout==='keyboard')void nextTick(fitCaptureKeyboardToWidth);});
 const captureFingerboardRows=computed(()=>fingerboardStrings(noteInst.value));
 const captureFretStart=ref(0);
 const captureFretCount=ref<8|12|16|25>(12);
@@ -1088,7 +1118,7 @@ function captureSetRangeToCurrent(){
   const b=active.value==='notes'?selectedBar.value+1:Math.max(1,Math.min(project.value.bars.length,rhythmLoopMeasure.value));
   captureFrom.value=b;captureTo.value=b;captureEditBar.value=b;
 }
-function captureClear(){captureTaps.value=[];captureEditedRhythms.value={};captureFeedback.value='Cleared the draft take; the arrangement was not changed.';}
+function captureClear(){captureTaps.value=[];captureEditedRhythms.value={};captureLastExpression.value='';captureFeedback.value='Cleared the draft take; the arrangement was not changed.';}
 function captureUndo(){
   if(!captureTaps.value.length)return;
   const removed=captureTaps.value.at(-1)!;
@@ -1181,30 +1211,84 @@ function ensureCaptureKeySynth(){
  return captureKeySynth;
 }
 function capturePianoKey(event:PointerEvent,pitch:number){
- if(event.button!==0)return;
+ if(event.button!==0||heldCaptureKeys.has(event.pointerId))return;
  capturePitch.value=pitch;
  const started=capturePlaying.value?captureElapsedBeats():-1;
  if(capturePlaying.value&&started<0)return;
  if(started>=0)beginMelodyPassOnNote(started);
  const id=event.pointerId;
  heldCaptureKeys.set(id,{pitch,started});
+ updateCaptureHeldDisplay();
  try{(event.currentTarget as HTMLElement).setPointerCapture(id);}catch{/* Released before capture. */}
- const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
- // Key monitoring is independent of the recording loop and stops on pointerup.
- if(Tone&&captureKeySynth)ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
+ // A sounding voice is owned by pitch, not a particular touch. A second
+ // pointer holding the same note cannot release it prematurely.
+ if(Tone&&captureKeySynth)monitorCapturePitch(pitch);
  else void startAudioFromGesture().then(tone=>{
-   Tone=tone;
-   if(!heldCaptureKeys.has(id))return;
-   ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
- }).catch(error=>{captureFeedback.value='Audio preview unavailable: '+String(error);heldCaptureKeys.delete(id);});
+  Tone=tone;
+  if(!heldCaptureKeys.has(id))return;
+  monitorCapturePitch(heldCaptureKeys.get(id)!.pitch);
+ }).catch(error=>{
+  captureFeedback.value='Audio preview unavailable: '+String(error);
+  heldCaptureKeys.delete(id);captureViolinTraces.delete(id);updateCaptureHeldDisplay();
+ });
+}
+/** Violin strings are an instrument-specific input surface. One pointer tracks
+ * one string, even when another finger is simultaneously touching another. */
+function captureViolinFingerDown(event:PointerEvent,pitch:number,stringMidi:number){
+ capturePianoKey(event,pitch);
+ if(!noteInst.value.startsWith('Violin')||!heldCaptureKeys.has(event.pointerId))return;
+ captureViolinTraces.set(event.pointerId,{
+  stringMidi,samples:[{pitch,x:event.clientX,t:event.timeStamp}]
+ });
+}
+function captureViolinFingerMove(event:PointerEvent){
+ const trace=captureViolinTraces.get(event.pointerId),held=heldCaptureKeys.get(event.pointerId);
+ if(!trace||!held)return;
+ const hit=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLButtonElement>('.capture-fingerboard-key[data-string-midi]');
+ const sameString=hit&&Number(hit.dataset.stringMidi)===trace.stringMidi&&!hit.disabled;
+ const pitch=sameString?Number(hit.dataset.pitch):held.pitch;
+ if(!Number.isInteger(pitch))return;
+ const last=trace.samples[trace.samples.length-1];
+ if(last&&last.pitch===pitch&&Math.abs(last.x-event.clientX)<1&&event.timeStamp-last.t<24)return;
+ trace.samples.push({pitch,x:event.clientX,t:event.timeStamp});
+ if(trace.samples.length>180)trace.samples.splice(1,trace.samples.length-180);
+ if(pitch!==held.pitch){
+  const old=held.pitch;
+  held.pitch=pitch;
+  capturePitch.value=pitch;
+  updateCaptureHeldDisplay();
+  releaseCaptureMonitorPitch(old);
+  if(Tone)monitorCapturePitch(pitch);
+ }
 }
 function releaseCapturePianoKey(event:PointerEvent){
  const held=heldCaptureKeys.get(event.pointerId);
  if(!held)return;
+ // Include the release position, not only transient move events.
+ if(captureViolinTraces.has(event.pointerId)&&event.type==='pointerup')captureViolinFingerMove(event);
+ const trace=captureViolinTraces.get(event.pointerId);
+ captureViolinTraces.delete(event.pointerId);
+ let writtenPitch=held.pitch;
+ let approachSlideFrom:number|undefined,vibrato=false,gesture:TangoGesture|undefined;
+ if(trace&&noteInst.value.startsWith('Violin')&&event.type!=='pointercancel'){
+  const result=classifyViolinCapture(trace.samples,captureViolinMode.value);
+  if(result.kind==='slide'){
+   writtenPitch=result.endPitch;approachSlideFrom=result.startPitch;
+   captureLastExpression.value=`Portamento ${midiName(result.startPitch)} → ${midiName(result.endPitch)}`;
+  }else if(result.kind==='vibrato'){
+   writtenPitch=result.startPitch;vibrato=true;
+   captureLastExpression.value='Vibrato · expression marked';
+  }else if(result.kind==='sirena'){
+   writtenPitch=result.startPitch;
+   gesture={kind:'sirena',contour:result.peakPitch!>=result.startPitch?'rise_fall':'fall_rise',
+    points:[{at:0,pitch:result.startPitch},{at:0.5,pitch:result.peakPitch!},{at:1,pitch:result.startPitch}]};
+   captureLastExpression.value='Tango sirena · return contour marked';
+  }else captureLastExpression.value='';
+ }
  heldCaptureKeys.delete(event.pointerId);
- const transposed=Math.max(0,Math.min(127,held.pitch+(project.value.transposeSemitones??0)));
- if(Tone)captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
- if(!capturePlaying.value||held.started<0)return;
+ updateCaptureHeldDisplay();
+ releaseCaptureMonitorPitch(held.pitch);
+ if(event.type==='pointercancel'||!capturePlaying.value||held.started<0)return;
  const total=(captureLast.value-captureFirst.value+1)*project.value.beats;
  const start=Math.max(0,held.started);
  const end=Math.max(start,captureElapsedBeats());
@@ -1213,17 +1297,20 @@ function releaseCapturePianoKey(event:PointerEvent){
  const grid=captureGrid(startBar);
  const snappedStart=Math.round(position/grid)*grid;
  const duration=Math.max(grid,Math.round((end-start)/grid)*grid);
- let cursor=snappedStart,remaining=duration;
+ let cursor=snappedStart,remaining=duration,firstSegment=true;
  while(remaining>0.00001){
-   const local=((cursor%total)+total)%total;
-   const bar=captureFirst.value+Math.floor(local/project.value.beats);
-   const beat=Number((local%project.value.beats).toFixed(6));
-   const segment=Math.min(remaining,project.value.beats-beat);
-   const tap:HeldCapture={bar,beat,pitch:held.pitch,duration:Number(segment.toFixed(6))};
-   captureTaps.value=addCapturedTap(captureTaps.value,tap,'melody');
-   remaining-=segment;cursor+=segment;
+  const local=((cursor%total)+total)%total;
+  const bar=captureFirst.value+Math.floor(local/project.value.beats);
+  const beat=Number((local%project.value.beats).toFixed(6));
+  const segment=Math.min(remaining,project.value.beats-beat);
+  const tap:HeldCapture={bar,beat,pitch:writtenPitch,duration:Number(segment.toFixed(6)),
+   ...(firstSegment&&approachSlideFrom!==undefined?{approachSlideFrom}:{}),
+   ...(firstSegment&&vibrato?{vibrato:true}:{}),
+   ...(firstSegment&&gesture?{gesture}:{})};
+  captureTaps.value=addCapturedTap(captureTaps.value,tap,'melody');
+  remaining-=segment;cursor+=segment;firstSegment=false;
  }
- captureFeedback.value=`Recorded ${midiName(held.pitch)} for ${duration} beats.`;
+ captureFeedback.value=`Recorded ${midiName(writtenPitch)} for ${duration} beats${captureLastExpression.value?' · '+captureLastExpression.value:''}.`;
 }
 function capturePianoKeyClick(event:MouseEvent,pitch:number){
   if(event.detail!==0)return;
@@ -1282,6 +1369,12 @@ function applyCapturedMelody(){
       const notes=capturedMelodyForBar(b).map(t=>{
         const note=suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration);
         if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
+        if(t.approachSlideFrom!==undefined||t.vibrato||t.gesture){
+          note.technique='arco';note.articulation='legato';
+        }
+        if(t.approachSlideFrom!==undefined)note.approachSlideFrom=t.approachSlideFrom;
+        if(t.vibrato)note.vibrato=true;
+        if(t.gesture)note.gesture=t.gesture;
         return note;
       });
       next=replaceInstrumentMeasure(next,source,noteInst.value,b,notes);
@@ -1331,7 +1424,11 @@ function instrumentSkillShort(inst:Instrument){return ({easy:'Easy',intermediate
 function noteAttackMark(n:Note):string{
  return n.articulation==='marcato_staccato'||n.accent?'›':n.articulation==='staccato'?'·':n.articulation==='legato'?'⌒':'';
 }
-function gestureText(n:Note):string{return n.gesture?gestureLabel(n.gesture):n.slideTo!==undefined?'slide → '+midiName(n.slideTo):'';}
+function gestureText(n:Note):string{
+ return [n.approachSlideFrom!==undefined?'port. '+midiName(n.approachSlideFrom)+' → '+midiName(n.pitch):'',
+ n.gesture?gestureLabel(n.gesture):n.slideTo!==undefined?'slide → '+midiName(n.slideTo):'',
+ n.vibrato?'vibrato':''].filter(Boolean).join(' · ');
+}
 function gestureMini(n:Note,voice:'primary'|'partner'='primary'):string{
  if(n.gesture)return gestureSvgPoints(n.gesture,voice);
  if(voice==='partner'||n.slideTo===undefined)return '';
@@ -3098,7 +3195,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   capturePitch.value=existing[0]?.pitch??Math.max(range[0],Math.min(range[1],typical));
   const keyboard=defaultKeyboardRange(capturePitch.value,range);
   captureStartPitch.value=keyboard.start;captureEndPitch.value=keyboard.end;
-  captureAutoFit.value=inst==='Piano';if(inst==='Piano')fitCaptureKeyboardToWidth();
+  captureAutoFit.value=true;fitCaptureKeyboardToWidth();
   expressionStart.value=selectedBar.value+1;expressionEnd.value=selectedBar.value+1;expressionStartBeat.value=1;expressionEndBeat.value=project.value.beats;
   noteStep.value=0.25; // Editing precision is independent of arrangement difficulty.
   noteLength.value='auto'; // Derive new-note length from the active articulation unless overridden.
@@ -3341,13 +3438,13 @@ function applyLyricBatch(){
   project.value=next;
   message.value=`Aligned verse ${verse} to ${expanded.length} note onsets across ${affected.size} measure(s). Edited measures protected.`;
 }
-function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'swellTo'|'subito',raw:string){
+function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'approachSlideFrom'|'vibrato'|'swellTo'|'subito',raw:string){
   if(!selectedEvent.value)return;
   const events=noteMeasure.value.map(n=>({...n}));const index=noteSelected.value;const old=events[index];
   let value:number|string|boolean=raw;
-  if(['pitch','start','duration','velocity','gate','slideTo','swellTo'].includes(field)&&raw!=='inherit')value=Number(raw);
+  if(['pitch','start','duration','velocity','gate','slideTo','approachSlideFrom','swellTo'].includes(field)&&raw!=='inherit')value=Number(raw);
   if(field==='lyric'||field==='lyric2')value=raw.trim().slice(0,160);
-  if(field==='melisma'||field==='melisma2')value=raw==='true';
+  if(field==='melisma'||field==='melisma2'||field==='vibrato')value=raw==='true';
   if(field==='gate')value=(value as number)/100;
   if(field==='duration'){
     if(!Number.isFinite(value)||Number(value)<0.25){message.value='Duration must be at least 0.25 beats';return;}
@@ -3359,6 +3456,9 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   const next={...old,[field]:value};
   if((field==='start'||field==='duration')&&old.rhythmSource&&(Math.abs(old.start-next.start)>1e-6||Math.abs(old.duration-next.duration)>1e-6))delete next.rhythmSource;
   if(field==='pitch'&&old.gesture&&typeof value==='number')next.gesture=transposeTangoGesture(old.gesture,value-old.pitch);
+  if(field==='pitch'&&old.approachSlideFrom!==undefined&&typeof value==='number')next.approachSlideFrom=old.approachSlideFrom+value-old.pitch;
+  if(field==='approachSlideFrom'&&raw!=='inherit'){next.technique='arco';next.articulation='legato';delete next.gesture;delete next.slideTo;}
+  if(field==='vibrato'&&raw==='true'){next.technique='arco';next.articulation='legato';}
   if(field==='slideTo'&&raw!=='inherit')delete next.gesture;
   if((field==='lyric'||field==='lyric2')&&!raw.trim())delete next[field];
   if(field==='articulation'){
@@ -3367,6 +3467,8 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   }
   if(field==='technique'&&raw==='inherit')delete next.technique;
   if(field==='slideTo'&&raw==='inherit')delete next.slideTo;
+  if(field==='approachSlideFrom'&&raw==='inherit')delete next.approachSlideFrom;
+  if(field==='vibrato'&&raw==='false')delete next.vibrato;
   if(field==='swellTo'&&raw==='inherit')delete next.swellTo;
   if(field==='subito'&&raw==='inherit')delete next.subito;
   try{
@@ -3660,7 +3762,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            </div>
            <button type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
            <button type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
-           <label class="instrument-focus-speed">Speed <select :value="rehearsalSpeed" aria-label="Rehearsal speed" @change="changePerformanceFocusSpeed"><option v-for="speed in REHEARSAL_SPEEDS" :key="speed" :value="speed">{{speed}}×</option></select></label>
+           <details class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+              <summary class="playback-speed-summary" :aria-label="'Playback speed '+rehearsalSpeed+' times; choose rehearsal tempo'">{{rehearsalSpeed}}× <AppIcon name="chevron-down"/></summary>
+              <div class="topbar-menu-panel playback-speed-options" @click="closeTopbarMenuOnAction($event)">
+                <strong class="files-group-title">Rehearsal speed</strong>
+                <span class="playback-speed-tempo">Written {{project.bpm}} BPM · Playback {{Math.round(effectivePlaybackBpm)}} BPM</span>
+                <div class="playback-speed-list">
+                  <button v-for="speed in REHEARSAL_SPEEDS" :key="speed" type="button" :class="{'selected':rehearsalSpeed===speed}" :aria-pressed="rehearsalSpeed===speed" @click="setRehearsalSpeed(speed)">
+                    <span><strong>{{Math.round(speed*100)}}%</strong><small>{{speed}}× tempo</small></span>
+                    <span class="playback-speed-bpm">{{Math.round(project.bpm*speed)}} BPM <b v-if="rehearsalSpeed===speed" aria-label="Selected">✓</b></span>
+                  </button>
+                </div>
+                <span class="playback-speed-note">Rehearsal only · the written BPM is unchanged.</span>
+              </div>
+            </details>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
          </div>
        </header>
@@ -4025,24 +4140,36 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
     <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keyboard</button>
    </div>
-   <template v-if="captureInputLayout==='fingerboard'&&(noteInst.startsWith('Violin')||noteInst==='Contrabass')">
+   <div v-if="noteInst.startsWith('Violin')&&captureInputLayout==='fingerboard'" class="capture-violin-options" role="group" aria-label="Violin finger gesture recording">
+      <label>Held finger expression
+        <select v-model="captureViolinMode" aria-label="How to interpret violin finger motion">
+          <option value="auto">Auto · note / slide / vibrato / sirena</option>
+          <option value="notes">Notes only</option>
+          <option value="slide">Slide into final note</option>
+          <option value="vibrato">Mark vibrato</option>
+        </select>
+      </label>
+      <span v-if="captureLastExpression" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
+    </div>
+    <template v-if="captureInputLayout==='fingerboard'&&(noteInst.startsWith('Violin')||noteInst==='Contrabass')">
      <div class="capture-fret-controls" role="group" aria-label="Visible fingerboard section">
       <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
       <label>Show<select :value="captureFretCount" @change="updateCaptureFretCount"><option :value="8">8 semitones</option><option :value="12">12 semitones</option><option :value="16">16 semitones</option><option :value="25">Full 2 octaves</option></select></label>
       <span>Positions {{captureFrets[0]}}–{{captureFrets[captureFrets.length-1]}}</span>
      </div>
-     <p class="hint">Touch or hold a string position to audition or record a note. Horizontal distances are schematic, not physically to scale. Recording stores the pitch, not a specific fingering. The keyboard remains available as an alternative.</p>
+     <p class="hint">Instrument-specific strings: touch and hold for a sustained note, or use two fingers for simultaneous notes. On violin, drag along the same string to record a slide into the ending pitch. Repeated motion can mark vibrato; a broad return sweep can suggest a tango sirena. This captures expression markings, not physical vibrato depth or speed. The keyboard remains available.</p>
      <div class="capture-fingerboard-scroll" role="group" :aria-label="`Playable ${noteInst} string positions`">
       <div class="capture-fingerboard-grid" :style="{'--capture-fret-columns':captureFrets.length}">
        <div class="capture-fingerboard-header"><span>String</span><span v-for="fret in captureFrets" :key="fret">{{fret===0?'Open':fret}}</span></div>
        <div v-for="string in captureFingerboardRows" :key="string.name" class="capture-fingerboard-row">
         <strong>{{string.name}}</strong>
         <button v-for="fret in captureFrets" :key="fret" type="button" class="capture-fingerboard-key"
-           :class="{selected:capturePitch===string.midi+fret,'is-open':fret===0}"
+           :class="{selected:capturePitch===string.midi+fret,'is-open':fret===0,'is-held':captureHeldDisplay.includes(string.midi+fret)}"
+           :data-string-midi="string.midi" :data-pitch="string.midi+fret"
            :disabled="captureStringPitch(string.midi,fret)===null"
            :aria-label="`${string.name} string at ${fret===0?'open':'semitone '+fret}, ${midiName(string.midi+fret)}`"
            :title="midiName(string.midi+fret)"
-           @pointerdown.prevent="capturePianoKey($event,string.midi+fret)"
+           @pointerdown.prevent="captureViolinFingerDown($event,string.midi+fret,string.midi)" @pointermove="captureViolinFingerMove($event)"
            @pointerup="releaseCapturePianoKey($event)"
            @pointercancel="releaseCapturePianoKey($event)"
            @lostpointercapture="releaseCapturePianoKey($event)"
@@ -4054,18 +4181,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
    </template>
-   <div v-if="noteInst==='Piano'" class="capture-piano-fit-controls" role="group" aria-label="Piano recording keyboard visibility">
+   <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano-fit-controls" role="group" aria-label="Instrument recording keyboard visibility">
      <label><input type="checkbox" :checked="captureAutoFit" @change="setCaptureAutoFit(($event.target as HTMLInputElement).checked)"/> Fit available width</label>
-     <button type="button" class="secondary" @click="showAllPianoKeys">Show all 88 keys (scroll)</button>
-     <span>{{captureKeyboardPitches.length}} keys visible · playable A0–C8</span>
+     <button type="button" class="secondary" @click="showAllPianoKeys">{{noteInst==='Piano'?'Show all 88 keys (scroll)':'Show full instrument range (scroll)'}}</button>
+     <span>{{captureKeyboardPitches.length}} keys visible · playable {{midiName(noteCtx.range[0])}}–{{midiName(noteCtx.range[1])}}</span>
    </div>
    <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
   <p v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':noteInst==='Piano'&&captureAutoFit}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
   <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
-  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in melodyFromTaps(captureTaps,b,project.beats)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</span><em v-if="!melodyFromTaps(captureTaps,b,project.beats).length">No taps</em></div></div>
-  <p class="hint">The captured durations are initial guesses (up to one beat, shortened before the next attack). After applying, use the Note Editor's duration controls and note bars to refine them. Only measures containing recorded notes are replaced; the lead-sheet melody is not modified.</p>
+  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat<span v-if="n.approachSlideFrom!==undefined"> · port. {{midiName(n.approachSlideFrom)}} → {{midiName(n.pitch)}}</span><span v-if="n.vibrato"> · vibrato</span><span v-if="n.gesture"> · {{gestureLabel(n.gesture)}}</span></span><em v-if="!capturedMelodyForBar(b).length">No taps</em></div></div>
+  <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
   <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
 </details>
 </div>
@@ -4291,7 +4418,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div v-if="selectedEvent" class="lyric-selected-editor"><label>Selected syllable · {{displayPitch(selectedEvent.pitch)}} · beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}}<input type="text" maxlength="160" :value="(lyricVerse===1?selectedEvent.lyric:selectedEvent.lyric2)??''" placeholder="Type a syllable" @change="updateSelectedNote(lyricVerse===1?'lyric':'lyric2',($event.target as HTMLInputElement).value)"/></label><label>Syllable position<select :value="(lyricVerse===1?selectedEvent.syllabic:selectedEvent.syllabic2)??'single'" @change="updateSelectedNote(lyricVerse===1?'syllabic':'syllabic2',($event.target as HTMLSelectElement).value)"><option value="single">Single</option><option value="begin">Beginning</option><option value="middle">Middle</option><option value="end">End</option></select></label><label><input type="checkbox" :checked="(lyricVerse===1?selectedEvent.melisma:selectedEvent.melisma2)??false" @change="updateSelectedNote(lyricVerse===1?'melisma':'melisma2',String(($event.target as HTMLInputElement).checked))"/> Extend syllable across following untexted notes</label></div>
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
-    <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{n.gesture?' · '+gestureLabel(n.gesture):n.slideTo!==undefined?' · slide → '+displayPitch(n.slideTo):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}{{rhythmCue(n)?' · ◆ '+rhythmCue(n):''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
+    <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{gestureText(n)?' · '+gestureText(n):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}{{rhythmCue(n)?' · ◆ '+rhythmCue(n):''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
     <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong></div><details class="control-fold selected-note-fold" open><summary>Edit selected note · {{displayPitch(selectedEvent.pitch)}}</summary><div class="note-editor-controls">
       <div class="note-rhythm-inspector" role="group" aria-label="Selected note rhythm source">
         <span v-if="rhythmCue(selectedEvent)">◆ {{rhythmCue(selectedEvent)}} · preset beat {{Number((selectedEvent.rhythmSource!.targetBeat+1).toFixed(2))}}</span>
@@ -4312,7 +4439,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>
       <label>Sounding length (%) · {{Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)}}%<input type="range" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @input="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @change="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/></label>
-      <label v-if="slideSupported">Slide to pitch (MIDI)<select :value="selectedEvent.slideTo??'inherit'" @change="updateSelectedNote('slideTo',($event.target as HTMLSelectElement).value)"><option value="inherit">No slide</option><option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}} ({{pitch}})</option></select></label>
+      <label v-if="noteInst.startsWith('Violin')">Approach slide · from pitch<select :value="selectedEvent.approachSlideFrom??'inherit'" @change="updateSelectedNote('approachSlideFrom',($event.target as HTMLSelectElement).value)"><option value="inherit">None</option><option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}} ({{pitch}})</option></select></label>
+       <label v-if="noteInst.startsWith('Violin')"><input type="checkbox" :checked="selectedEvent.vibrato??false" @change="updateSelectedNote('vibrato',String(($event.target as HTMLInputElement).checked))"/> Mark vibrato (notation only)</label>
+       <label v-if="slideSupported">Slide to pitch (MIDI)<select :value="selectedEvent.slideTo??'inherit'" @change="updateSelectedNote('slideTo',($event.target as HTMLSelectElement).value)"><option value="inherit">No slide</option><option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}} ({{pitch}})</option></select></label>
 
       <div v-if="slideSupported" class="tango-gesture-editor" aria-label="Tango gestures">
         <label>Expressive gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)">
@@ -5354,6 +5483,45 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 @media(max-width:720px){
  .app-topbar .playback-speed-options{position:fixed;top:calc(64px + env(safe-area-inset-top,0px));left:8px!important;right:8px!important;width:auto;max-width:none}
+}
+
+/* Instrument-specific Note Editor input: independently captured fingers, immediate
+ * held-key feedback, and a non-scrolling gesture surface for violin. */
+.capture-violin-options{display:flex;align-items:end;flex-wrap:wrap;gap:10px 18px;margin:10px 0;padding:10px 12px;border:1px solid #607a8c;border-radius:11px;background:linear-gradient(125deg,#243c4d,#1b2c39)}
+.capture-violin-options label{display:flex;flex-direction:column;gap:5px;flex:1 1 220px;font-size:12px;font-weight:750;color:#f0d4ac}
+.capture-violin-options select{min-height:39px;width:100%;max-width:390px;margin:0;color:#eaf1f8;background:#152633}
+.capture-violin-expression{font-size:12px;font-weight:700;color:#f3d5a5;padding:8px 4px}
+.capture-fingerboard-key{touch-action:none;user-select:none;-webkit-user-select:none}
+.capture-fingerboard-key.is-held,.capture-piano-key.is-held{background:#6ec5b2!important;color:#14252b!important;border-color:#e6f7d4!important;box-shadow:inset 0 0 0 2px #203b40,0 0 0 2px #91e0cc;z-index:1}
+.capture-fingerboard-grid{width:max-content;min-width:100%}
+/* A focused performance instrument uses the exact same 1x summary and menu as
+ * regular playback, rather than a differently sized labelled native selector. */
+.instrument-focus-toolbar .instrument-focus-speed-menu{position:relative;display:inline-flex;flex:0 0 auto;align-items:center}
+.instrument-focus-toolbar .instrument-focus-speed-menu>.playback-speed-summary{
+ box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;
+ height:42px;min-height:42px;min-width:65px;padding:7px 9px;margin:0;cursor:pointer;list-style:none;
+ border:1px solid #657c8c;border-radius:9px;background:#263b4b;color:#f6dda7;font-size:13px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums
+}
+.instrument-focus-toolbar .instrument-focus-speed-menu>.playback-speed-summary::-webkit-details-marker{display:none}
+.instrument-focus-toolbar .instrument-focus-speed-menu>.playback-speed-summary .app-icon{width:13px;height:13px}
+.instrument-focus-toolbar .instrument-focus-speed-menu[open]>.playback-speed-summary{background:#31465a;border-color:#e3b77a}
+.instrument-focus-toolbar .instrument-focus-speed-menu .playback-speed-options{
+ display:flex;flex-direction:column;gap:6px;min-width:272px;width:272px;max-width:calc(100vw - 20px);
+ right:0;left:auto;top:calc(100% + 7px);padding:11px;z-index:3000
+}
+.instrument-focus-toolbar .playback-speed-tempo{font-size:11px;color:#c9d7e2;border-bottom:1px solid #405465;padding-bottom:6px}
+.instrument-focus-toolbar .playback-speed-list{display:flex;flex-direction:column;gap:3px;max-height:min(60dvh,390px);overflow-y:auto}
+.instrument-focus-toolbar .playback-speed-list button{
+ display:flex;align-items:center;justify-content:space-between;flex-direction:row;gap:14px;min-height:39px;
+ padding:7px 11px;border:1px solid #526b7e;border-radius:7px;white-space:normal
+}
+.instrument-focus-toolbar .playback-speed-list button>span:first-child{display:flex;align-items:baseline;gap:8px}
+.instrument-focus-toolbar .playback-speed-list button strong{font-size:13px}
+.instrument-focus-toolbar .playback-speed-list button small,.instrument-focus-toolbar .playback-speed-list .playback-speed-bpm{font-size:11px;color:#c9d3db;white-space:nowrap}
+.instrument-focus-toolbar .playback-speed-list button.selected{background:#5b4936;border-color:#e4bb83}
+.instrument-focus-toolbar .playback-speed-note{font-size:11px;color:#b5c9d8;line-height:1.4;padding:5px 2px 0}
+@media(max-width:520px){
+ .instrument-focus-toolbar .instrument-focus-speed-menu>.playback-speed-summary{min-width:56px;padding:6px}
 }
 
 </style>

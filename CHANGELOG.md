@@ -1,3 +1,12 @@
+## Instrument-specific Note Editor capture · phase 1 (2026-11-20)
+
+- Added direct violin finger-trace input on the existing string surface. Holding a note preserves written duration, moving to another fret on the same string can record a portamento **into the final written pitch**, repeated small movements can mark vibrato, and a broad returning sweep can create a tango sirena contour. An explicit Notes/Slide/Vibrato mode and a visible draft marking allow correction when automatic classification is unsuitable.
+- Each pointer has its own hold lifecycle, so simultaneous keyboard and string notes can be recorded without one finger releasing the other finger's note; shared sounding pitches share an audio preview voice. Pointer cancellation does not write a note.
+- New `approachSlideFrom` and `vibrato` fields persist on protected manual notes, in JSON/edition state and in text annotations in MusicXML/MuseScore export. Existing sirena gestures use the validated gesture model. Selected violin notes expose editable portamento-from and vibrato controls.
+- Reused adaptive keyboard auto-fit for any instrument; the full playable instrument range remains available on demand by horizontal scrolling.
+- Replaced expanded performance instrument's labelled speed selector with a compact, unlabelled **1×** dropdown matching the normal playback controls and menu contents.
+- Added independent classifier/notation regression tests. **iPad Safari multigesture tests and engraving review are still outstanding.** Schematic finger distance is not a calibrated vibrato-rate/depth measurement; detailed vibrato synthesis/editing remains a later investigation.
+
 ## Loop-driven dynamics, compact piano and speed menu (2026-11-20)
 
 - Replaced dynamics paint-on-tap with explicit measure selection inside the Note Editor's Start/End loop. Multi-select uses touch toggles, desktop Shift-click, Select loop and Clear selection; no score changes happen on selection.

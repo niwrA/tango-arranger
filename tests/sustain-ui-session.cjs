@@ -35,9 +35,11 @@ check('note-editor capture pointer sustains outside recording and releases on po
  assert.ok(section.includes('heldCaptureKeys.set(id,{pitch,started})'));
  assert.ok(section.includes('startAudioFromGesture().then(tone=>'));
  assert.ok(section.includes('if(!heldCaptureKeys.has(id))return;'));
- assert.ok(section.includes('triggerAttack('));
- assert.ok(section.includes('triggerRelease('));
- assert.ok(section.includes('if(!capturePlaying.value||held.started<0)return;'));
+ assert.ok(section.includes('monitorCapturePitch('));
+ assert.ok(section.includes('releaseCaptureMonitorPitch('));
+ assert.ok(section.includes("if(event.type==='pointercancel'||!capturePlaying.value||held.started<0)return;"));
+ assert.ok(app.includes('const captureMonitorPitches=new Set<number>()'));
+ assert.ok(app.includes('function heldCaptureKeysHasPitch(pitch:number)'));
  assert.ok(!section.includes('void auditionPitch(pitch);return;'));
 });
 check('refresh restores performance and editor location but never restarts playback',()=>{

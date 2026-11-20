@@ -82,7 +82,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
   // makes the MusicXML direction below fail TypeScript compilation.
   const notationNotes=notes.flatMap(n=>n.gesture?.partner?
     [n,{...n,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]:[n]);
-  const events=notationNotes.map(n=>({gesture:n.gesture,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
+  const events=notationNotes.map(n=>({gesture:n.gesture,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
@@ -117,10 +117,14 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         if(isAttack&&j===0){
           const gesture=active.find(n=>n.gesture&&n.start===begin);
           if(gesture?.gesture)out+=`<direction placement="above"><direction-type><words>${esc(gestureLabel(gesture.gesture))}</words></direction-type></direction>`;
+          const approach=sources.find(n=>n.approachSlideFrom!==undefined&&n.start===begin);
+          const vibrato=sources.find(n=>n.vibrato&&n.start===begin);
           const slide=sources.find(n=>n.slideTo!==undefined&&n.start===begin);
           const swell=sources.find(n=>n.swellTo!==undefined&&n.start===begin);
           const subito=sources.find(n=>n.subito&&n.start===begin);
           if(subito)out+=`<direction placement="below"><direction-type><dynamics><${subito.subito}/></dynamics></direction-type><sound dynamics="${({ppp:38,pp:52,p:63,mp:74,mf:88,f:101,ff:112,fff:122} as Record<string,number>)[subito.subito!]??88}"/></direction>`;
+          if(approach)out+=`<direction placement="above"><direction-type><words>${esc('port. from '+midiName(approach.approachSlideFrom!)+' to '+midiName(pitch))}</words></direction-type></direction>`;
+          if(vibrato)out+='<direction placement="above"><direction-type><words>vibrato</words></direction-type></direction>';
           if(slide)out+=`<direction placement="above"><direction-type><words>${esc('gliss. to '+midiName(slide.slideTo!))}</words></direction-type></direction>`;
           if(swell)out+=`<direction placement="below"><direction-type><words>${esc((swell.swellTo!>(swell.velocity??80)?'cresc.':'dim.')+' to velocity '+swell.swellTo)}</words></direction-type></direction>`;
         }
@@ -322,8 +326,11 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
               const forward=tiedForward?`<Spanner type="Tie"><Tie/><next>${location(spanTicks)}</next></Spanner>`:'';
               return `<Note><pitch>${Math.round(note.pitch)}</pitch><tpc>${tpcForPitch(note.pitch,fifths)}</tpc>${backward}${forward}</Note>`;
             }).join('');
-            if(pi===0&&!previous&&n.gesture)
-              events.push(`<StaffText><text>${esc(gestureLabel(n.gesture))}</text></StaffText>`);
+            if(pi===0&&!previous){
+              if(n.gesture)events.push(`<StaffText><text>${esc(gestureLabel(n.gesture))}</text></StaffText>`);
+              if(n.approachSlideFrom!==undefined)events.push(`<StaffText><text>${esc('port. from '+midiName(n.approachSlideFrom)+' to '+midiName(n.pitch))}</text></StaffText>`);
+              if(n.vibrato)events.push('<StaffText><text>vibrato</text></StaffText>');
+            }
             events.push(`<Chord><durationType>${piece.type}</durationType>${articulation}${noteXml}${lyric(n.lyric,n.syllabic,1)}${lyric(n.lyric2,n.syllabic2,2)}</Chord>`);
           }
           cursor=endTick;
