@@ -72,8 +72,8 @@ check('automatic estimates keep a regular four-line chord phrase to four measure
 });
 check('two-line phrases and several chord changes produce explainable proposals',()=>{
  const p=previewLeadSheetImport('[Verse]\n[D]first line\n[G]second line\n[Chorus]\n[C]some [G]lyrics [Am]here [F]again',0);
- assert.deepEqual(p.sections.map(s=>s.measures),[4,4]);
- assert.deepEqual(p.lines.map(l=>l.measures),[2,2,4]);
+ assert.deepEqual(p.sections.map(s=>s.measures),[2,4]);
+ assert.deepEqual(p.lines.map(l=>l.measures),[1,1,4]);
  assert.deepEqual(p.bars.filter(b=>b.chord).map(b=>b.chord),['D','G','C','G','Am','F']);
  assert.ok(p.lines[2].reason.includes('4 distinct chord'));
 });
@@ -155,6 +155,23 @@ check('phrase grouping controls are present in import review',()=>{
  assert.ok(app.includes('newLeadPhraseJoins'));
  assert.ok(app.includes('line.joinedSourceLines'));
  assert.ok(app.includes('Split phrase'));
+});
+check('ii-V-I chord motion shares a measure without losing harmony',()=>{
+ const p=previewLeadSheetImport('[Verse]\n[A#m7]And nothing [D#7sus4]nothing [G#]goes right',0);
+ assert.equal(p.lines[0].measures,2);
+ assert.deepEqual(p.bars.map(b=>b.chord),['A#m7,D#7sus4','G#']);
+ assert.ok(p.lines[0].reason.includes('ii–V–I'));
+ assert.ok(p.bars.every(b=>b.chord));
+});
+check('non-cadential chord rows retain their measure estimates',()=>{
+ const p=previewLeadSheetImport('[Intro]\nG# C#/G# G# Gm7 C7',0);
+ assert.equal(p.lines[0].measures,5);
+ assert.ok(p.bars.every(b=>b.chord));
+});
+check('repeated ii-V-I resolutions group consistently across choruses',()=>{
+ const p=previewLeadSheetImport('[Chorus]\n[C#]call [Cm7]and [Fm7]come [A#m7]back [D#7]home [G#]again\n[Chorus]\n[C#]call [Cm7]and [Fm7]come [A#m7]back [D#7]home [G#]again',0);
+ assert.equal(p.sections[0].measures,p.sections[1].measures);
+ assert.ok(p.bars.some(b=>b.chord==='A#m7,D#7'));
 });
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));

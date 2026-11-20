@@ -30,13 +30,39 @@ function lineChords(text:string):string[]{
  return (text.match(/\[[^\]]+\]/g)??[]).map(t=>t.slice(1,-1)).filter(isChord);
 }
 type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string;phraseEnd:boolean;events:number;joinedSourceLines:number[]};
+/** Harmonic grouping is a proposal, not a transcription of chord timing.
+ * A ii-V pair (roots a fourth apart) resolving by another fourth to I
+ * commonly occupies one measure. Avoid merging a V-I cadence itself.
+ */
+function pitchClass(symbol:string):number|null{
+ const m=symbol.match(/^([A-G])([#b]?)/i);
+ if(!m)return null;
+ const roots:Record<string,number>={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+ return (roots[m[1].toUpperCase()]+(m[2]==='#'?1:m[2]==='b'?-1:0)+12)%12;
+}
+function harmonicGroups(chords:readonly string[]):string[][]{
+ const result:string[][]=[];
+ for(let i=0;i<chords.length;i++){
+  const first=pitchClass(chords[i]),second=pitchClass(chords[i+1]??'');
+  const third=pitchClass(chords[i+2]??'');
+  const fourthUp=first!==null&&second!==null&&(second-first+12)%12===5;
+  const resolves=second!==null&&third!==null&&(third-second+12)%12===5;
+  const dominantNext=/^[A-G][#b]?(?:(?:7|9|11|13)|(?:sus|7sus))/i.test(chords[i+1]??'');
+  if(fourthUp&&resolves&&dominantNext){
+   result.push([chords[i],chords[i+1]]);i++;
+  }else result.push([chords[i]]);
+ }
+ return result;
+}
 function estimate(row:Row,sectionLength:number):{measures:number;reason:string}{
  if(row.barHints>0)return {measures:row.barHints,reason:'Suggested || measure boundaries'};
  const count=row.chords.length;
+ const groups=harmonicGroups(row.chords);
+ if(count>1&&groups.length<count)return {measures:groups.length,reason:count+' chord positions grouped into '+groups.length+' measures using likely ii–V–I motion'};
  if(count>1)return {measures:count,reason:count+' distinct chord positions; provisionally one measure each'};
  if(sectionLength===4||sectionLength===8)return {measures:1,reason:'Regular '+sectionLength+'-line phrase and harmonic pattern'};
- if(sectionLength===2)return {measures:2,reason:'Two-line phrase; provisionally two measures per line'};
- if(count===1)return {measures:1,reason:'One chord position, duration uncertain'};
+ if(count===1)return {measures:1,reason:'One chord position, duration uncertain; avoid unsupported empty measures'};
+ if(sectionLength===2)return {measures:1,reason:'Two-line phrase without chord evidence for extra measures'};
  return {measures:1,reason:'No clear harmonic timing evidence'};
 }
 /** A deterministic, explainable layout of imported chord sheets.
@@ -143,9 +169,12 @@ export function previewLeadSheetImport(
   if(bars.length+measures>512)throw Error('The song exceeds 512 measures');
   const start=bars.length;
   const chordsPerBar=Array.from({length:measures},()=>[] as string[]);
-  row.chords.forEach((chord,k)=>{
-   const bar=Math.min(measures-1,Math.floor(k*measures/row.chords.length));
-   chordsPerBar[bar].push(chord);
+  // Keep a likely ii-V pair together instead of assigning every chord its
+  // own measure. When manually expanded, spread groups without dropping notes.
+  const groups=(!explicit&&row.barHints===0)?harmonicGroups(row.chords):row.chords.map(chord=>[chord]);
+  groups.forEach((group,k)=>{
+   const bar=Math.min(measures-1,Math.floor(k*measures/groups.length));
+   chordsPerBar[bar].push(...group);
   });
   for(let b=0;b<measures;b++)bars.push({chord:chordsPerBar[b].join(','),lyrics:b===0?row.lyrics:'',original:b===0?row.normalized:''});
   lines.push({sourceLine:row.sourceLine,sectionIndex:row.sectionIndex,start,measures,text:row.text,
