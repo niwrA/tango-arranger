@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
+import LeadMelodyGrid from './LeadMelodyGrid.vue';
+import {duplicateProjectSection} from './sectionDuplication';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
@@ -1657,74 +1659,14 @@ function onLeadSectionHeaderClick(i:number){if(copySectionMode.value&&i!==copySo
 function beginSectionCopy(i:number){if(!copySpans.value[i])return;copySourceIndex.value=i;copySectionMode.value=true;copyHarmonyFeedback.value='';}
 function cancelSectionCopy(){copySectionMode.value=false;}
 function duplicateLeadSection(i:number){
-  try{
-    const current=project.value,spans=sectionSpans(current),source=spans[i];
-    if(!source)throw Error('Source section not found');
-    if(spans.length>=26||current.bars.length+source.measures>512)
-      throw Error('Cannot copy: maximum 26 sections and 512 measures');
-    const label=sectionLetter(spans.length),sourceLabel=source.label;
-    const destination=current.bars.length,beatOffset=(destination-source.start)*current.beats;
-    const bars=[...current.bars,...current.bars.slice(source.start,source.start+source.measures).map(bar=>({
-      ...bar,section:label,melody:bar.melody.map(note=>({...note}))
-    }))];
-    const cloneScore=(score:Project['generatedScore']):Project['generatedScore']=>{
-      if(!score)return undefined;
-      const from=source.start*current.beats,to=(source.start+source.measures)*current.beats;
-      return Object.fromEntries(Object.entries(score).map(([inst,notes])=>[
-        inst,[...notes,...notes.filter(note=>note.start>=from&&note.start<to).map(note=>({...note,start:note.start+beatOffset}))]
-      ])) as Project['generatedScore'];
-    };
-    const copyMeasureMap=<T,>(map:Record<string,T>|undefined):Record<string,T>=>{
-      const result={...map};
-      for(const [key,value] of Object.entries(map??{})){
-        const match=key.match(/^(.*):(\\d+)$/);
-        if(!match)continue;
-        const index=Number(match[2]);
-        if(index>=source.start&&index<source.start+source.measures)
-          result[match[1]+':'+(destination+index-source.start)]=structuredClone(value);
-      }
-      return result;
-    };
-    const copySectionMap=<T,>(map:Record<string,T>|undefined):Record<string,T>=>{
-      const result={...map};
-      if(map&&Object.prototype.hasOwnProperty.call(map,sourceLabel))result[label]=structuredClone(map[sourceLabel]);
-      return result;
-    };
-    const next:Project={...current,bars,
-      sectionKeys:{...current.sectionKeys,[label]:sectionKey(current,sourceLabel)},
-      roles:copySectionMap(current.roles),
-      generatedScore:cloneScore(current.generatedScore),
-      importedScore:cloneScore(current.importedScore),
-      baseScore:cloneScore(current.baseScore),
-      protectedBars:copyMeasureMap(current.protectedBars),
-      measureRoles:copyMeasureMap(current.measureRoles),
-      measureViolinTechniques:copyMeasureMap(current.measureViolinTechniques),
-      measureBassTechniques:copyMeasureMap(current.measureBassTechniques),
-      violinMarcatoBeats:copySectionMap(current.violinMarcatoBeats),
-      violinArpeggioDirections:copySectionMap(current.violinArpeggioDirections),
-      pianoFigures:copySectionMap(current.pianoFigures),
-      pianoFigureVariation:copySectionMap(current.pianoFigureVariation),
-      measureDynamics:copyMeasureMap(current.measureDynamics),
-      orchestration:current.orchestration?{
-        ...current.orchestration,
-        violin:copySectionMap(current.orchestration.violin),
-        bandoneon:copySectionMap(current.orchestration.bandoneon),
-        contrabass:copySectionMap(current.orchestration.contrabass)
-      }:undefined,
-      expression:current.expression?{
-        ...current.expression,sections:copySectionMap(current.expression.sections)
-      }:undefined,
-      articulation:current.articulation?{
-        ...current.articulation,overrides:copyMeasureMap(current.articulation.overrides)
-      }:undefined,
-      expressionRanges:current.expressionRanges?.map(range=>structuredClone(range))
-    };
-    project.value=next;
-    selectedBar.value=destination;overviewFocus.value=destination;chosenSection.value=label;
-    overviewStart.value=destination+1;overviewEnd.value=next.bars.length;mapRangeAnchor.value=null;
-    collapsedLeadSections.value=collapsedLeadSections.value.filter(section=>section!==label);
-    message.value='Copied section '+sourceLabel+' to new section '+label+' ('+source.measures+' measures), including orchestral scores and protected edits.';
-  }catch(error){message.value='Section copy failed: '+String(error);}
+ try{
+   const result=duplicateProjectSection(project.value,i);
+   project.value=result.project;
+   selectedBar.value=result.destination;overviewFocus.value=result.destination;chosenSection.value=result.label;
+   overviewStart.value=result.destination+1;overviewEnd.value=result.project.bars.length;mapRangeAnchor.value=null;
+   collapsedLeadSections.value=collapsedLeadSections.value.filter(section=>section!==result.label);
+   message.value=`Copied section ${result.sourceLabel} into independent section ${result.label} (${result.measures} measures), including lyrics, notes, harmony, expression and instrument roles. Edit the reprise separately.`;
+ }catch(error){message.value='Section copy failed: '+String(error);}
 }
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
 const collapsedLeadSections=ref<string[]>([]);
@@ -2171,6 +2113,12 @@ function applyOverviewRange(){const start=Math.max(0,Math.min(project.value.bars
 project.value.generatedScore=mergeScores(project.value,generate(project.value));overviewNotice.value=`Applied settings to ${overviewInstrument.value}, measures ${start+1}–${end+1}. Unprotected notes have been regenerated; protected manual measures are retained.`;selectedBar.value=start;}
 function applyOverviewSection(){const index=project.value.bars.findIndex(b=>b.section===chosenSection.value);const positions=project.value.bars.map((b,i)=>b.section===chosenSection.value?i:-1).filter(i=>i>=0);if(index<0||!positions.length)return;const begin=Math.min(...positions),finish=Math.max(...positions);if(positions.length!==finish-begin+1){overviewNotice.value='Section is non-contiguous. Select a measure range instead.';return;}overviewStart.value=begin+1;overviewEnd.value=finish+1;mapRangeAnchor.value=begin;applyOverviewRange();}
 const bar=computed(()=>project.value.bars[selectedBar.value]);const melodyString=computed(()=>bar.value.melody.map(n=>`${midiName(n.pitch)}:${n.duration}@${n.start}`).join(' '));const melodyText=ref('');watch(selectedBar,()=>melodyText.value=melodyString.value,{immediate:true});watch(()=>project.value.bars[selectedBar.value]?.melody,()=>melodyText.value=melodyString.value,{deep:true});
+function setLeadMelodyNotes(notes:Note[]){
+  const valid=notes.every(n=>Number.isInteger(n.pitch)&&n.pitch>=0&&n.pitch<=127&&
+    Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.start>=0&&n.duration>=0.25&&n.start+n.duration<=project.value.beats+1e-8);
+  if(!valid){message.value='Invalid lead melody note timing';return;}
+  project.value={...project.value,bars:project.value.bars.map((bar,i)=>i===selectedBar.value?{...bar,melody:notes.map(n=>({...n}))}:bar)};
+}
 function setMelody(){const notes:Note[]=[];const tokens=melodyText.value.trim().split(/\s+/).filter(Boolean);let next=0;for(const token of tokens){const m=token.match(/^([A-Ga-g][#b]?-?\d+)(?::([\d.]+))?(?:@([\d.]+))?$/);if(!m){message.value=`Invalid note: ${token}. Example: D5:1@0`;return;}const pitch=parsePitch(m[1]);if(pitch===null)continue;const duration=Number(m[2]??1),start=m[3]===undefined?next:Number(m[3]);if(!Number.isFinite(duration)||duration<=0||start<0||start+duration>project.value.beats+0.00001){message.value=`Invalid timing: ${token}`;return;}notes.push({pitch,start,duration});next=start+duration;}bar.value.melody=notes;message.value=`Updated melody in bar ${selectedBar.value+1}. Regenerate to apply.`;}
 function regenerate(){const fresh=generate(project.value);project.value.generatedScore=mergeScores(project.value,fresh);message.value=`Generated ${scoreStats(project.value.generatedScore)} notes across ${INSTRUMENTS.length} parts. Protected measures retained.`;}
 function setRole(inst:Instrument,e:Event){
@@ -4141,7 +4089,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <div v-if="leadCompletion.measure===span.start+offset-1&&leadCompletion.visible&&leadSuggestions.length" class="chord-suggestions" role="listbox" :aria-label="`Chord completions for measure ${span.start+offset}`"><button v-for="(suggestion,idx) in leadSuggestions" :key="suggestion" type="button" role="option" tabindex="-1" :aria-selected="leadCompletion.highlight===idx" :class="{'is-highlighted':leadCompletion.highlight===idx}" @mousedown.prevent @click="chooseLeadChord(span.start+offset-1,suggestion)">{{suggestion}}</button></div>
         </div>
       </div>
-      <div v-if="selectedBar===span.start+offset-1&&leadMeasureEditorOpen" class="lead-measure-editor" role="region" :aria-label="`Edit melody in measure ${selectedBar+1}`"><div class="lead-measure-editor-heading"><h3>Measure {{selectedBar+1}} · melody</h3><button type="button" class="secondary" @click="leadMeasureEditorOpen=false" aria-label="Close measure editor"><AppIcon name="x"/></button></div><div class="lead-measure-editor-actions"><button type="button" class="secondary" @click="openChordEditor(selectedBar)">Expanded harmony · {{bar.chord||'No chord'}}</button><span class="hint">Section {{bar.section}} · {{keyForSection(bar.section)}} · key editable in the section header</span></div><label>Melody notes<textarea v-model="melodyText" data-lead-melody rows="3" spellcheck="false"/></label><div class="lead-measure-editor-actions"><button class="primary" @click="setMelody">Apply melody</button><button class="secondary" @click="openLeadMelodyNotes(selectedBar)"><AppIcon name="pencil"/> Edit melody-part notes</button></div><p class="hint">Lead-sheet melody remains the generative source; instrument notes are edited separately and protected from regeneration.</p></div></template>
+      <div v-if="selectedBar===span.start+offset-1&&leadMeasureEditorOpen" class="lead-measure-editor" role="region" :aria-label="`Edit melody in measure ${selectedBar+1}`"><div class="lead-measure-editor-heading"><h3>Measure {{selectedBar+1}} · melody</h3><button type="button" class="secondary" @click="leadMeasureEditorOpen=false" aria-label="Close measure editor"><AppIcon name="x"/></button></div><div class="lead-measure-editor-actions"><button type="button" class="secondary" @click="openChordEditor(selectedBar)">Expanded harmony · {{bar.chord||'No chord'}}</button><span class="hint">Section {{bar.section}} · {{keyForSection(bar.section)}} · key editable in the section header</span></div><LeadMelodyGrid :key="selectedBar" :notes="bar.melody" :beats="project.beats" @update:notes="setLeadMelodyNotes"/>
+<details class="lead-melody-advanced-notation"><summary>Advanced · melody text notation</summary><label>Melody notes<textarea v-model="melodyText" data-lead-melody rows="3" spellcheck="false"/></label><button type="button" class="secondary" @click="setMelody">Apply notation</button></details><div class="lead-measure-editor-actions"><button class="primary" @click="regenerate">Regenerate unprotected parts</button><button class="secondary" @click="setMelody">Apply melody</button><button class="secondary" @click="openLeadMelodyNotes(selectedBar)"><AppIcon name="pencil"/> Edit melody-part notes</button></div><p class="hint">Lead-sheet melody remains the generative source; instrument notes are edited separately and protected from regeneration.</p></div></template>
     </div>
   </section>
 </div>
@@ -5814,4 +5763,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .lead-lyrics-syllable{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 8px;min-width:53px;border:1px solid #57768a;border-radius:7px;background:#243d4c}
 .lead-lyrics-syllable small{font-size:10px;color:#b5c7d5}.lead-lyrics-syllable strong{font-size:15px}.lead-lyrics-syllable span{font-size:11px;color:#edc991}
 
+
+.lead-melody-advanced-notation{margin:9px 0;padding:9px;border:1px solid #5c7383;border-radius:8px}
+.lead-melody-advanced-notation>summary{font-weight:750;cursor:pointer;font-size:12px}
 </style>
