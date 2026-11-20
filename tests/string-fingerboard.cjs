@@ -7,7 +7,7 @@ const {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi}=mod.exports;
 let count=0;function check(name,fn){fn();count++;console.log('PASS '+name)}
 check('violin high E string is above A D G',()=>assert.deepEqual(Array.from(fingerboardStrings('Violin I'),x=>x.name),['E5','A4','D4','G3']));
 check('violin II has same string order',()=>assert.deepEqual(Array.from(fingerboardStrings('Violin II'),x=>x.midi),[76,69,62,55]));
-check('contrabass E A D G display is unchanged',()=>assert.deepEqual(Array.from(fingerboardStrings('Contrabass'),x=>x.midi),[28,33,38,43]));
+check('contrabass high G at top and low E at bottom in performance and recording',()=>{assert.deepEqual(Array.from(fingerboardStrings('Contrabass'),x=>x.name),['G2','D2','A1','E1']);assert.deepEqual(Array.from(fingerboardStrings('Contrabass'),x=>x.midi),[43,38,33,28]);});
 check('guitar display and non-string instruments are unchanged',()=>{assert.equal(fingerboardStrings('Piano').length,0);assert.equal(fingerboardStrings('Guitar').length,6)});
 check('window clamps to a maximum of 24 semitones',()=>{assert.deepEqual(Array.from(visibleFingerboardFrets(0,8)),[0,1,2,3,4,5,6,7]);assert.deepEqual(Array.from(visibleFingerboardFrets(20,12)),[13,14,15,16,17,18,19,20,21,22,23,24]);assert.equal(visibleFingerboardFrets(12,25)[0],0);assert.throws(()=>visibleFingerboardFrets(0,26))});
 check('fingerboard maps notes to chromatic MIDI without re-pitching',()=>{assert.equal(fingerboardMidi(76,12,[55,109]),88);assert.equal(fingerboardMidi(28,12,[28,70]),40);assert.equal(fingerboardMidi(55,0,[62,109]),null);assert.equal(fingerboardMidi(76,25,[55,109]),null)});

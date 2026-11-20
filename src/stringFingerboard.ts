@@ -3,7 +3,7 @@ export interface FingerboardString {name:string;midi:number}
 export const MAX_VISUAL_FRET=24;
 export function fingerboardStrings(inst:string):readonly FingerboardString[]{
  if(inst.startsWith('Violin'))return [{name:'E5',midi:76},{name:'A4',midi:69},{name:'D4',midi:62},{name:'G3',midi:55}];
- if(inst==='Contrabass')return [{name:'E1',midi:28},{name:'A1',midi:33},{name:'D2',midi:38},{name:'G2',midi:43}];
+ if(inst.startsWith('Contrabass'))return [{name:'G2',midi:43},{name:'D2',midi:38},{name:'A1',midi:33},{name:'E1',midi:28}];
  if(inst.startsWith('Guitar'))return [{name:'E2',midi:40},{name:'A2',midi:45},{name:'D3',midi:50},{name:'G3',midi:55},{name:'B3',midi:59},{name:'E4',midi:64}];
  return [];
 }

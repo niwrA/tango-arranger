@@ -3,6 +3,8 @@ import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
+import PerformanceRoleCues from './PerformanceRoleCues.vue';
+import {stageDynamicAlpha} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
@@ -534,7 +536,7 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
   :null;
  const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:stageInstrumentName(rosterDisplayName(part.inst)),playingInMeasure,activePitches,measurePitches,registerPitches,violinPosition,positionGuide,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:stageInstrumentName(rosterDisplayName(part.inst)),playingInMeasure,hasNextMeasure:nextBar>bar,activePitches,measurePitches,registerPitches,violinPosition,positionGuide,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -3439,18 +3441,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-card-wrap">
      <button class="performance-cue-panel performance-diagram-card" type="button"
       :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}"
-      :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-label="`${part.display}, current role: ${part.role}. ${cardShowsDiagram(part.inst)?'Chord diagram':'Role and dynamics'}. Tap to switch view`"
+      :style="{'--cue-beat-glow':performanceBeatGlow,'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}" :aria-label="`${part.display}, current role: ${part.role}. ${cardShowsDiagram(part.inst)?'Chord diagram':'Role and dynamics'}. Tap to switch view`"
       :aria-pressed="!cardShowsDiagram(part.inst)" @click="flipPerformanceCard(part.inst)">
       <span class="performance-cue-identity">
         <strong :title="part.display">{{part.display}}</strong>
         <span class="performance-card-role" :title="`Current role: ${part.role}`">{{part.role}}</span>
         <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
-      <template v-else>
-        <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
-        <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
-      </template>
+      <span v-if="cardShowsDiagram(part.inst)" class="performance-card-dynamic-rail" :aria-label="'Current dynamics '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
+        <span class="performance-card-dynamic-now" :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}">Now <strong>{{part.dynamics}}</strong></span>
+        <span class="performance-card-dynamic-next" :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}">Next <strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
+      </span>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
+      <PerformanceRoleCues v-else :role="part.role" :next-role="part.nextRole"
+        :articulation="part.articulation" :next-articulation="part.nextArticulation"
+        :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
+        :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
       <span v-if="!cardShowsDiagram(part.inst)" class="performance-card-mode-hint">⇄</span>
     </button>
     <button type="button" class="performance-instrument-expand" :aria-label="'Expand '+part.display+' instrument'" :title="'Focus on '+part.display" @click="openPerformanceInstrument(part.inst,$event)"><AppIcon name="maximize"/></button>
@@ -3461,7 +3467,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="performanceExpandedInstrument && performanceView==='ensemble'" class="instrument-focus-overlay"
     @keydown.esc.stop.prevent="closePerformanceInstrument" @keydown.tab="trapModalTab">
     <template v-for="part in performanceCueParts" :key="part.inst">
-     <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'">
+     <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
        <header class="instrument-focus-header">
          <div class="instrument-focus-title"><small>Instrument focus · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
          <div class="instrument-focus-toolbar">
@@ -3481,6 +3487,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
        </div>
+       <div v-if="cardShowsDiagram(part.inst)" class="instrument-focus-dynamic-band" role="group"
+         :aria-label="'Dynamics now '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
+         <span :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}"><small>NOW · M{{performanceBar+1}}</small><strong>{{part.dynamics}}</strong></span>
+         <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
+       </div>
        <div class="instrument-focus-content">
          <PianoFocusView v-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
@@ -3491,12 +3502,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
              :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </button>
-         <button v-else type="button" class="instrument-focus-switch-area instrument-focus-cues" @click="flipPerformanceCard(part.inst)"
+         <button v-else type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
-           <span class="instrument-focus-cue"><small>Current role</small><strong>{{part.role}}</strong><span>{{part.articulation}}</span></span>
-           <span class="instrument-focus-cue"><small>Next role</small><strong>{{part.nextRole}}</strong><span>{{part.nextArticulation}}</span></span>
-           <span class="instrument-focus-cue"><small>Dynamics</small><strong>{{part.dynamics}}</strong><span>Next {{part.nextDynamics}}</span></span>
-           <span class="instrument-focus-cue"><small>This measure</small><strong>{{part.cueStatus}}</strong><span>{{part.playingInMeasure?'Notes in this measure':'No notes in this measure'}}</span></span>
+           <PerformanceRoleCues :focus="true" :role="part.role" :next-role="part.nextRole"
+             :articulation="part.articulation" :next-articulation="part.nextArticulation"
+             :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
+             :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
          </button>
        </div>
        <p class="instrument-focus-hint">Tap the large view to switch diagram and cues. Violin and bass positions and fingering numbers are schematic suggestions.</p>
@@ -4984,6 +4995,37 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .instrument-focus-speed select{font-size:13px}
  .instrument-focus-mode-switch button{padding:5px 7px}
  .instrument-focus-cues{gap:6px}
+}
+
+/* Restrained, measure-derived dynamics intensity; live notes stay visually dominant. */
+.performance-live .performance-cue-panel.performance-diagram-card{
+ background:radial-gradient(ellipse at 8% -8%,rgb(245 194 124 / var(--cue-dynamic-alpha,.08)),transparent 68%),
+  linear-gradient(160deg,#293a48,#1b2834);
+}
+.performance-card-dynamic-rail{display:grid;grid-template-columns:1fr 1fr;min-width:0;gap:5px;flex:0 0 auto}
+.performance-card-dynamic-rail>span{display:flex;align-items:center;justify-content:space-between;min-width:0;gap:4px;
+ padding:3px 7px;border-radius:5px;border:1px solid #557184;background:linear-gradient(90deg,rgb(246 192 112 / var(--dyn-alpha)),transparent 93%),#20313d;
+ color:#c5d6e0;font-size:10px;font-weight:700}
+.performance-card-dynamic-rail strong{color:#ffdda8;font-size:11px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.performance-card-dynamic-next{opacity:.84}
+.performance-cue-panel .stage-role-timeline{margin-top:2px}
+.instrument-focus-panel{background:radial-gradient(ellipse at 0 0,rgb(245 194 124 / var(--cue-dynamic-alpha,.08)),transparent 61%)}
+.instrument-focus-role-switch{padding:clamp(9px,1.7vw,23px);justify-content:stretch}
+@media(max-width:900px){
+ .performance-card-dynamic-rail>span{padding:2px 4px;font-size:9px}
+ .performance-card-dynamic-rail strong{font-size:10px}
+}
+
+.instrument-focus-dynamic-band{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.instrument-focus-dynamic-band>span{display:flex;align-items:center;justify-content:space-between;gap:12px;
+ padding:8px 14px;border:1px solid #536b7c;border-radius:9px;
+ background:linear-gradient(100deg,rgb(245 190 110 / var(--dyn-alpha)),transparent 75%),#203442;min-width:0}
+.instrument-focus-dynamic-band small{font-size:12px;color:#c7d8e2;font-weight:800;white-space:nowrap}
+.instrument-focus-dynamic-band strong{font-size:clamp(17px,2.2vw,26px);color:#ffe0af;white-space:nowrap}
+@media(max-width:600px){
+ .instrument-focus-dynamic-band{gap:5px}
+ .instrument-focus-dynamic-band>span{padding:5px 8px;gap:5px}
+ .instrument-focus-dynamic-band small{font-size:10px}
 }
 
 </style>
