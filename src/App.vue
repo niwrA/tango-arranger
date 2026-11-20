@@ -2154,7 +2154,7 @@ async function play(origin:PlaybackOrigin){
       },whenTicks);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
-    audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · audio context ${Tone.getContext().state}`;
+    audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · ${Math.round(effectivePlaybackBpm.value)} BPM (${rehearsalSpeed.value}×) · audio context ${Tone.getContext().state}`;
     transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},beatOffsetTicks((project.value.bars.length-startMeasure)*project.value.beats+0.25,transport.PPQ));
     transport.start();playing.value=true;playbackOrigin.value=origin;
   }catch(error){message.value=`Playback unavailable: ${String(error)}`;stopPlayback();}
@@ -3339,7 +3339,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
      </div>
     </div>
     <div class="performance-top-beat" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo">{{project.bpm}}</span></div>
+      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo" :title="'Effective playback tempo: '+Math.round(effectivePlaybackBpm)+' BPM'">{{Math.round(effectivePlaybackBpm)}}</span></div>
       <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
     </div>
    </div>
