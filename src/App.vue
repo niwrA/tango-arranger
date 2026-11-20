@@ -1589,6 +1589,31 @@ async function copyCaptureTake(){
     captureTakeCopyStatus.value='Clipboard unavailable. Select and copy the JSON text below.';
   }
 }
+
+async function auditionDraft(notes:CapturedMelodyNote[]){
+ if(capturePlaying.value||!notes.length)return;
+ try{Tone=await startAudioFromGesture();const synth=ensureCaptureKeySynth();let time=Tone.now()+0.05;
+ for(const n of notes){const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));const duration=Math.max(0.1,n.duration*60/(project.value.bpm*captureSpeed.value));synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration*0.9,time,0.7);time+=duration;}}
+ catch(e){captureFeedback.value='Playback unavailable: '+String(e);}
+}
+function playDraftMeasure(bar:number){void auditionDraft(capturedMelodyForBar(bar));}
+function playDraftAll(){void auditionDraft(captureBarNumbers.value.flatMap(b=>capturedMelodyForBar(b)));}
+let draftHoldTimer:ReturnType<typeof setTimeout>|undefined;
+let draftHoldFired=false;
+function cancelDraftHold(){if(draftHoldTimer)clearTimeout(draftHoldTimer);draftHoldTimer=undefined;}
+function startDraftHold(bar:number,n:CapturedMelodyNote,e:PointerEvent){cancelDraftHold();draftHoldFired=false;if(e.button!==0||capturePlaying.value)return;draftHoldTimer=setTimeout(()=>{draftHoldFired=true;editDraftNote(bar,n);},550);}
+function tapDraftNote(n:CapturedMelodyNote){if(draftHoldFired){draftHoldFired=false;return;}void auditionDraft([n]);}
+function editDraftNote(bar:number,n:CapturedMelodyNote){
+ if(capturePlaying.value)return;
+ const index=captureTaps.value.findIndex(t=>t.bar===bar&&t.pitch===n.pitch&&Math.abs(t.beat-n.beat)<0.001);
+ if(index<0){captureFeedback.value='Could not locate the original tap for this note.';return;}
+ const p=window.prompt('MIDI pitch (0–127)',String(n.pitch));if(p===null)return;
+ const pitch=Number(p);if(!Number.isInteger(pitch)||pitch<0||pitch>127){captureFeedback.value='Invalid pitch.';return;}
+ const d=window.prompt('Duration in beats',String(n.duration));if(d===null)return;
+ const duration=Number(d);if(!Number.isFinite(duration)||duration<=0||duration>project.value.beats){captureFeedback.value='Invalid duration.';return;}
+ captureTaps.value=captureTaps.value.map((t,i)=>i===index?{...t,pitch,duration}:t);
+ captureFeedback.value='Draft note edited.';
+}
 const captureTakeWarnings=computed(()=>{
   const notes=vocalCapturedNotes.value;
   const issues:string[]=[];
@@ -4838,15 +4863,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <details class="capture-draft-review">
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
       <div v-if="captureTakeWarnings.length" class="capture-feedback" role="status"><strong>Possible cleanup candidates (not changed automatically):</strong><p v-for="warning in captureTakeWarnings" :key="warning">{{warning}}</p></div>
-      <div class="capture-take-export">
-        <p class="hint">Copy the recorded notes as JSON to share for analysis. Includes measure, beat, MIDI pitch, note name and duration; no microphone audio is saved or exported.</p>
-        <button type="button" class="secondary" :disabled="!vocalCapturedNotes.length" @click="copyCaptureTake">Copy recorded notes for analysis</button>
-        <p v-if="captureTakeCopyStatus" role="status">{{captureTakeCopyStatus}}</p>
-        <details><summary>Show / manually copy note data</summary><textarea readonly rows="10" :value="captureTakeExport" aria-label="Recorded note data in JSON" style="width:100%;font-family:monospace"></textarea></details>
-      </div>
-  <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
-  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat<span v-if="n.stringMidi!==undefined"> · {{fingerboardStrings(noteInst).find(s=>s.midi===n.stringMidi)?.name??midiName(n.stringMidi)}} string</span><span v-if="n.approachSlideFrom!==undefined"> · port. {{midiName(n.approachSlideFrom)}} → {{midiName(n.pitch)}}</span><span v-if="n.vibrato"> · vibrato</span><span v-if="n.gesture"> · {{gestureLabel(n.gesture)}}</span></span><em v-if="!capturedMelodyForBar(b).length">No taps</em></div></div>
-  <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
+      <div class="live-capture-actions" role="group" aria-label="Recorded note actions">
+<button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureUndo" title="Undo last note" aria-label="Undo last note"><AppIcon name="undo-2"/></button>
+<button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureClear" title="Clear all notes" aria-label="Clear all notes"><AppIcon name="trash-2"/></button>
+<button type="button" class="secondary icon-action" :disabled="!vocalCapturedNotes.length" @click="copyCaptureTake" title="Copy recorded notes for analysis" aria-label="Copy recorded notes for analysis"><AppIcon name="copy"/></button>
+<button type="button" class="secondary icon-action" :disabled="capturePlaying||!vocalCapturedNotes.length" @click="playDraftAll" title="Play all captured notes" aria-label="Play all captured notes"><AppIcon name="play"/></button>
+<button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody" :title="'Apply notes to '+rosterDisplayName(noteInst)"><AppIcon name="check"/> Apply to {{rosterDisplayName(noteInst)}}</button>
+</div>
+<p v-if="captureTakeCopyStatus" role="status">{{captureTakeCopyStatus}}</p>
+<div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`">
+<div style="display:flex;align-items:center;gap:.5rem"><strong>Measure {{b+1}}</strong><button type="button" class="secondary icon-action" :disabled="capturePlaying||!capturedMelodyForBar(b).length" @click="playDraftMeasure(b)" :title="'Play measure '+(b+1)" :aria-label="'Play measure '+(b+1)"><AppIcon name="play"/></button></div>
+<div class="capture-beat-strip"><button v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`" type="button" class="secondary" :disabled="capturePlaying" :title="'Tap to play, hold to edit '+midiName(n.pitch)" :aria-label="'Play '+midiName(n.pitch)+'; hold to edit'"
+@pointerdown="startDraftHold(b,n,$event)" @pointerup="cancelDraftHold" @pointerleave="cancelDraftHold" @pointercancel="cancelDraftHold"
+@contextmenu.prevent="cancelDraftHold();draftHoldFired=true;editDraftNote(b,n)" @click="tapDraftNote(n)">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</button><em v-if="!capturedMelodyForBar(b).length">No notes</em></div>
+</div>
+<details class="capture-take-export"><summary>Show / manually copy note data</summary><textarea readonly rows="10" :value="captureTakeExport" aria-label="Recorded note data in JSON" style="width:100%;font-family:monospace"></textarea></details>
+<p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
 
       </details>
       <p v-if="captureFeedback" class="capture-feedback" role="status" aria-live="polite">{{captureFeedback}}</p>
