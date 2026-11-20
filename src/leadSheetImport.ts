@@ -203,7 +203,7 @@ function vocalGuide(preview:LeadImportPreview,beats:number):Note[]{
   return (roots[match[1].toUpperCase()]+(match[2]==='#'?1:match[2]==='b'?-1:0)+12)%12;
  };
  for(const line of preview.lines){
-  const words=(line.text.replace(/\[[^\]]+\]/g,' ').replace(/\|+/g,' ').match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)??[]);
+  const words=(preview.bars[line.start]?.lyrics.match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)??[]);
   if(!words.length)continue;
   const total=line.measures*beats;
   const step=total/words.length;
