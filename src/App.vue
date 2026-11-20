@@ -6,6 +6,7 @@ import {duplicateProjectSection} from './sectionDuplication';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import {vocalPhrases,suggestVocalAlignment,alignedLyric} from './vocalPhraseAlignment';
+import {detectMonophonicPitch} from './microphonePitch';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
@@ -98,6 +99,7 @@ async function flushAutosave(){
   await saveQueue;
 }
 function stopPlayback(){
+  stopMicrophoneCapture();
   if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
   const wasPlayingArrangement=playing.value;
   // Invalidate a pending Tone.start() before it can schedule anything.
@@ -1220,12 +1222,100 @@ async function startCaptureTransport(recording:boolean){
     transport.start();
   }catch(error){stopPlayback();captureFeedback.value=`Could not start playback: ${String(error)}`;}
 }
+// Microphone audio is local to the browser; no audio is uploaded.
+const captureInputSource=ref<'instrument'|'microphone'>('instrument');
+const microphoneStatus=ref('');
+const microphoneDetectedPitch=ref<number|null>(null);
+let microphoneStream:MediaStream|null=null;
+let microphoneContext:AudioContext|null=null;
+let microphoneFrame=0;
+let microphoneActive:{pitch:number;start:number;last:number}|null=null;
+let microphoneCandidate:{pitch:number;frames:number}|null=null;
+let microphoneGeneration=0;
+function finishMicrophoneNote(end:number){
+ const activeNote=microphoneActive;microphoneActive=null;
+ if(!activeNote||!captureRecording.value||activeNote.start<0)return;
+ const length=(captureLast.value-captureFirst.value+1)*project.value.beats;
+ const start=Math.max(0,activeNote.start);
+ const duration=Math.max(0,end-start);
+ if(duration<0.12||!length)return;
+ beginMelodyPassOnNote(start);
+ let cursor=Math.round((start%length)/captureGrid(captureFirst.value))*captureGrid(captureFirst.value);
+ let remaining=Math.max(0.125,Math.round(duration/0.25)*0.25);
+ while(remaining>0.00001){
+  const position=((cursor%length)+length)%length;
+  const bar=captureFirst.value+Math.min(captureLast.value-captureFirst.value,Math.floor(position/project.value.beats));
+  const beat=Number((position%project.value.beats).toFixed(6));
+  const segment=Math.min(remaining,project.value.beats-beat);
+  melodyCaptureTaps.value=addCapturedTap(melodyCaptureTaps.value,{bar,beat,pitch:activeNote.pitch,duration:Number(segment.toFixed(6))},'melody');
+  cursor+=segment;remaining-=segment;
+ }
+}
+function stopMicrophoneCapture(){
+ microphoneGeneration++;
+ if(microphoneFrame)cancelAnimationFrame(microphoneFrame);
+ microphoneFrame=0;
+ if(microphoneActive&&captureRecording.value){
+  try{finishMicrophoneNote(captureElapsedBeats());}catch{/* Audio transport may already be disposed. */}
+ }
+ microphoneActive=null;microphoneCandidate=null;microphoneDetectedPitch.value=null;
+ microphoneStream?.getTracks().forEach(track=>track.stop());microphoneStream=null;
+ if(microphoneContext){void microphoneContext.close().catch(()=>{});microphoneContext=null;}
+}
+async function recordFromMicrophone(){
+ if(capturePlaying.value){stopPlayback();return;}
+ if(!navigator.mediaDevices?.getUserMedia){microphoneStatus.value='Microphone capture requires HTTPS and a browser with media device support.';return;}
+ const generation=++microphoneGeneration;
+ microphoneStatus.value='Requesting microphone permission…';
+ try{
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+  if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
+  const context=new AudioContext();
+  microphoneStream=stream;microphoneContext=context;
+  const source=context.createMediaStreamSource(stream);
+  const analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=0;
+  source.connect(analyser);
+  const samples=new Float32Array(analyser.fftSize);
+  microphoneStatus.value='Microphone ready · start singing after the count-in. Headphones recommended.';
+  await startCaptureTransport(true);
+  if(generation!==microphoneGeneration||!captureRecording.value)return;
+  const tick=()=>{
+   if(generation!==microphoneGeneration||!captureRecording.value)return;
+   analyser.getFloatTimeDomainData(samples);
+   const estimate=detectMonophonicPitch(samples,context.sampleRate);
+   const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
+   microphoneDetectedPitch.value=pitch;
+   const elapsed=captureElapsedBeats();
+   if(elapsed>=0){
+    if(pitch!==null){
+     if(microphoneCandidate?.pitch===pitch)microphoneCandidate.frames++;
+     else microphoneCandidate={pitch,frames:1};
+     if(microphoneActive?.pitch===pitch)microphoneActive.last=elapsed;
+     else if(microphoneCandidate.frames>=3){
+      if(microphoneActive)finishMicrophoneNote(microphoneActive.last);
+      microphoneActive={pitch,start:elapsed,last:elapsed};
+     }
+    }else{
+     microphoneCandidate=null;
+     if(microphoneActive&&elapsed-microphoneActive.last>0.2)finishMicrophoneNote(microphoneActive.last);
+    }
+   }
+   microphoneFrame=requestAnimationFrame(tick);
+  };
+  microphoneFrame=requestAnimationFrame(tick);
+ }catch(error){
+  microphoneStatus.value='Microphone unavailable: '+String(error);
+  stopMicrophoneCapture();
+  if(capturePlaying.value)stopPlayback();
+ }
+}
 function toggleCapturePlay(){
   if(capturePlaying.value){stopPlayback();return;}
   void startCaptureTransport(false);
 }
 function toggleCaptureRecord(){
   if(captureRecording.value){stopPlayback();return;}
+  if(active.value==='notes'&&captureInputSource.value==='microphone'){void recordFromMicrophone();return;}
   void startCaptureTransport(true);
 }
 function captureTap(pitch?:number){
@@ -4545,6 +4635,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
+      <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
+        <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
+        <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing or play one note at a time. Use headphones to avoid capturing accompaniment. Detected notes remain a draft until Apply.</p>
+        <p v-if="captureInputSource==='microphone'&&microphoneDetectedPitch!==null" role="status">Detected pitch: {{midiName(microphoneDetectedPitch)}}</p>
+        <p v-if="microphoneStatus" role="status">{{microphoneStatus}}</p>
+      </div>
       <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
         <h3>Vocal phrase → melody</h3>
         <label>Choose phrase (sets the recording measure range)
