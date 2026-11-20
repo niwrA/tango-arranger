@@ -3487,6 +3487,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
        </div>
+       <div v-if="cardShowsDiagram(part.inst)" class="instrument-focus-dynamic-band" role="group"
+         :aria-label="'Dynamics now '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
+         <span :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}"><small>NOW · M{{performanceBar+1}}</small><strong>{{part.dynamics}}</strong></span>
+         <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
+       </div>
        <div class="instrument-focus-content">
          <PianoFocusView v-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
@@ -5009,6 +5014,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 @media(max-width:900px){
  .performance-card-dynamic-rail>span{padding:2px 4px;font-size:9px}
  .performance-card-dynamic-rail strong{font-size:10px}
+}
+
+.instrument-focus-dynamic-band{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.instrument-focus-dynamic-band>span{display:flex;align-items:center;justify-content:space-between;gap:12px;
+ padding:8px 14px;border:1px solid #536b7c;border-radius:9px;
+ background:linear-gradient(100deg,rgb(245 190 110 / var(--dyn-alpha)),transparent 75%),#203442;min-width:0}
+.instrument-focus-dynamic-band small{font-size:12px;color:#c7d8e2;font-weight:800;white-space:nowrap}
+.instrument-focus-dynamic-band strong{font-size:clamp(17px,2.2vw,26px);color:#ffe0af;white-space:nowrap}
+@media(max-width:600px){
+ .instrument-focus-dynamic-band{gap:5px}
+ .instrument-focus-dynamic-band>span{padding:5px 8px;gap:5px}
+ .instrument-focus-dynamic-band small{font-size:10px}
 }
 
 </style>
