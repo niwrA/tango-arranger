@@ -1457,3 +1457,49 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .capture-piano-fit-controls label input{width:18px;height:18px}
 .capture-piano-fit-controls button{min-height:38px;padding:6px 11px}
 .capture-piano-fit-controls span{font-size:12px;color:#bbcedb;font-variant-numeric:tabular-nums}
+
+
+/* Compact, shared live-input transport. Detailed settings are available on demand. */
+.live-capture{padding:9px 11px;margin:9px 0}
+.capture-transport-bar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 8px;border:1px solid #536a7a;border-radius:10px;background:#1e3442;position:relative;z-index:6}
+.capture-transport-buttons{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto}
+.capture-transport-button,.capture-enlarge-button,.capture-settings-menu>summary{width:39px;height:39px;min-width:39px;min-height:39px;box-sizing:border-box;padding:6px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #687f8d;border-radius:8px;background:#2b4351;color:#e7f0f5;cursor:pointer}
+.capture-transport-button .app-icon,.capture-enlarge-button .app-icon,.capture-settings-menu .app-icon{width:20px;height:20px}
+.capture-transport-button.is-on,.capture-enlarge-button[aria-pressed="true"]{background:#476c79;color:#fff3d9;border-color:#d0b079}
+.capture-transport-button.is-recording{background:#a52e35;color:white;border-color:#ffb0a9;box-shadow:0 0 0 2px #f5c2b633}
+.capture-record-button:not(.is-recording){color:#ffb6ae}
+.capture-transport-button:disabled{opacity:.5;cursor:not-allowed}
+.capture-transport-button:focus-visible,.capture-enlarge-button:focus-visible,.capture-settings-menu>summary:focus-visible{outline:3px solid #f3d19a;outline-offset:2px}
+.capture-transport-divider{height:25px;width:1px;background:#748895;margin:0 2px}
+.capture-transport-status{font-size:12px;font-weight:650;color:#d5e6ef;font-variant-numeric:tabular-nums;flex:1 1 130px;min-width:110px}
+.capture-transport-extras{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.capture-transport-extras:empty{display:none}
+.capture-transport-extras .capture-layout-switch{margin:0;padding:2px;gap:2px}
+.capture-transport-extras .capture-layout-switch button{min-height:34px;padding:4px 9px;font-size:12px}
+.capture-settings-menu{position:relative;flex:0 0 auto;margin-left:auto}
+.capture-settings-menu>summary{list-style:none}
+.capture-settings-menu>summary::-webkit-details-marker{display:none}
+.capture-settings-menu[open]>summary{background:#496678;border-color:#d7b784}
+.capture-settings-panel{position:absolute;top:calc(100% + 7px);right:0;z-index:40;width:320px;max-width:calc(100vw - 42px);max-height:min(70dvh,610px);overflow:auto;display:flex;flex-direction:column;gap:9px;padding:13px;background:#213442;border:1px solid #8da4b4;border-radius:10px;box-shadow:0 15px 38px #000a}
+.capture-settings-panel label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:650;color:#e3edf5;margin:0}
+.capture-settings-panel input[type="number"],.capture-settings-panel select{width:100%;min-height:36px;box-sizing:border-box}
+.capture-settings-panel .capture-setting-check{flex-direction:row;align-items:center;gap:8px}
+.capture-settings-panel .capture-setting-check input{width:18px;height:18px}
+.capture-settings-panel .capture-fret-settings,.capture-settings-panel .capture-keyboard-settings{display:flex;flex-direction:column;gap:9px;padding-top:8px;border-top:1px solid #526a7c}
+.capture-settings-panel button{min-height:36px}
+.capture-settings-panel .hint{margin:0;font-size:11px;line-height:1.45}
+.capture-draft-review{margin:7px 0 0;padding:0 9px 7px;border:1px solid #465e6d;border-radius:8px}
+.capture-draft-review>summary{padding:8px 2px;font-size:12px;font-weight:700;color:#d5e6ef;cursor:pointer}
+.capture-draft-review[open]>summary{border-bottom:1px solid #405768}
+.live-capture .capture-tap-pad{min-height:66px;font-size:19px;margin-top:7px}
+.live-capture .capture-tap-pad span{font-size:11px}
+.live-capture .capture-piano,.live-capture .capture-fingerboard-scroll{margin:7px 0}
+.capture-feedback{margin:6px 2px 0;color:#bfd4e1;font-size:12px}
+.note-bar-lyric{white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:12px;font-weight:750}
+@media(max-width:700px){
+ .capture-transport-bar{gap:5px;padding:6px}
+ .capture-transport-button,.capture-enlarge-button,.capture-settings-menu>summary{width:37px;height:39px;min-width:37px}
+ .capture-transport-status{order:4;flex-basis:100%;min-width:0;font-size:11px}
+ .capture-transport-extras{margin-left:auto}
+ .capture-settings-menu{margin-left:0}
+}

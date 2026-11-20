@@ -23,9 +23,12 @@ check('Violin touch gestures cannot pan the board',()=>{
  assert.ok(app.includes('.capture-fingerboard-scroll.capture-violin-gesture-surface'));
  assert.ok(app.includes('touch-action:none!important'));
 });
-check('Live recording controls are compact and keep mode, quantization and tempo',()=>{
- assert.ok(panel.includes('live-capture-recording-options'));
- for(const item of ['captureTakeMode','captureQuantize','captureSpeed','captureMetronome','captureCountIn','toggleCaptureLoop'])assert.ok(panel.includes(item),item);
+check('Live recording transport is compact with advanced settings',()=>{
+ assert.ok(panel.includes('<LiveCaptureTransport kind="melody"'));
+ assert.ok(app.includes('<LiveCaptureTransport kind="rhythm"'));
+ for(const item of ['captureTakeMode','captureQuantize','captureSpeed','captureMetronome','captureCountIn','toggleCaptureRecord','toggleCapturePlay','captureLoopEnabled'])assert.ok(panel.includes(item)||app.includes(item),item);
+ assert.ok(panel.includes('<template #settings>'));
+ assert.ok(panel.includes('capture-draft-review'));
 });
 check('Compact menu does not repeat the song picker',()=>{
  const menu=app.slice(app.indexOf('class="topbar-menu compact-workspace-menu"'),app.indexOf('class="topbar-group topbar-options"'));

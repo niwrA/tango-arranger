@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
+import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
@@ -93,7 +94,7 @@ function stopPlayback(){
   synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureKeySynth?.releaseAll();captureClickSynth?.triggerRelease();
   playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
-  capturePlaying.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureMonitorPitches.clear();captureViolinTraces.clear();captureHeldDisplay.value=[];captureRecordedPass=-1;
+  capturePlaying.value=false;captureRecording.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureMonitorPitches.clear();captureViolinTraces.clear();captureHeldDisplay.value=[];captureRecordedPass=-1;
 }
 function selectProjectInEditor(p:Project){
   closeRhythmMenu();closeDynamicsContext();
@@ -971,6 +972,8 @@ async function toggleRhythmLoop(){
 // Live tap recording is a draft take. A separate full-arrangement loop is shared
 // by the rhythm and note editors; switching tabs or projects cancels the loop.
 const capturePlaying=ref(false);
+const captureRecording=ref(false);
+const captureLoopEnabled=ref(false);
 const rhythmCaptureTaps=ref<CapturedTap[]>([]);
 const melodyCaptureTaps=ref<CapturedTap[]>([]);
 const captureTaps=computed<CapturedTap[]>({
@@ -1027,7 +1030,7 @@ function captureGrid(bar:number):number{
   return articulation==='staccato'||articulation==='marcato_staccato'?0.5:0.25;
 }
 function captureElapsedBeats():number{
-  const lead=(captureCountIn.value?project.value.beats:0)*60/(project.value.bpm*captureSpeed.value);
+  const lead=(captureRecording.value&&captureCountIn.value?project.value.beats:0)*60/(project.value.bpm*captureSpeed.value);
   return (Tone.getTransport().seconds-lead-captureLatency.value/1000)*project.value.bpm*captureSpeed.value/60;
 }
 function capturedMelodyForBar(bar:number){
@@ -1129,8 +1132,7 @@ function captureUndo(){
   delete captureEditedRhythms.value[removed.bar];
   captureFeedback.value='Removed last tap from the draft.';
 }
-async function toggleCaptureLoop(){
-  if(capturePlaying.value){stopPlayback();return;}
+async function startCaptureTransport(recording:boolean){
   if(!project.value.bars.length)return;
   stopPlayback();
   const session=captureSession;
@@ -1148,7 +1150,7 @@ async function toggleCaptureLoop(){
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;transport.bpm.value=project.value.bpm*captureSpeed.value;
-    const countInBeats=captureCountIn.value?project.value.beats:0;
+    const countInBeats=recording&&captureCountIn.value?project.value.beats:0;
     const countInSeconds=countInBeats*60/(project.value.bpm*captureSpeed.value);
     let measure=0;
     transport.scheduleRepeat(time=>{
@@ -1166,7 +1168,7 @@ async function toggleCaptureLoop(){
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
         }
       }
-    },'1m',captureCountIn.value?'1m':0);
+    },'1m',countInBeats?'1m':0);
     let beatCount=0;
     transport.scheduleRepeat(time=>{
       const countIn=beatCount<countInBeats;
@@ -1181,16 +1183,41 @@ async function toggleCaptureLoop(){
       },time);
     },'4n',0);
     capturePlaying.value=true;
-    captureCountingIn.value=captureCountIn.value;
-    captureFeedback.value=`Recording draft taps against full arrangement, measures ${first+1}–${last+1}. Tap the pad or pitch keys; stop to review.`;
+    captureRecording.value=recording;
+    captureCountingIn.value=countInBeats>0;
+    captureFeedback.value=recording
+      ?`Recording draft against the arrangement, measures ${first+1}–${last+1}.`
+      :`Playing measures ${first+1}–${last+1} without recording.`;
+    if(!captureLoopEnabled.value){
+      const totalBeats=countInBeats+(last-first+1)*project.value.beats;
+      const endSeconds=totalBeats*60/(project.value.bpm*captureSpeed.value);
+      transport.scheduleOnce(time=>{
+        Tone.getDraw().schedule(()=>{
+          if(session!==captureSession||!capturePlaying.value)return;
+          // Preserve notes held across the final beat of a one-shot take.
+          if(recording)for(const id of [...heldCaptureKeys.keys()])
+            releaseCapturePianoKey({pointerId:id,type:'transport-end'} as PointerEvent);
+          stopPlayback();
+          captureFeedback.value=recording?'Recording finished · review the draft take.':'Playback finished.';
+        },time);
+      },endSeconds);
+    }
     transport.start();
-  }catch(error){captureFeedback.value=`Could not start arrangement loop: ${String(error)}`;stopPlayback();}
+  }catch(error){stopPlayback();captureFeedback.value=`Could not start playback: ${String(error)}`;}
+}
+function toggleCapturePlay(){
+  if(capturePlaying.value){stopPlayback();return;}
+  void startCaptureTransport(false);
+}
+function toggleCaptureRecord(){
+  if(captureRecording.value){stopPlayback();return;}
+  void startCaptureTransport(true);
 }
 function captureTap(pitch?:number){
-  if(!capturePlaying.value){captureFeedback.value='Start the arrangement loop before tapping.';return;}
+  if(!captureRecording.value){captureFeedback.value='Press Record to capture a take.';return;}
   try{
     const elapsed=Tone.getTransport().seconds;
-    const countInSeconds=(captureCountIn.value?project.value.beats:0)*60/(project.value.bpm*captureSpeed.value);
+    const countInSeconds=(captureRecording.value&&captureCountIn.value?project.value.beats:0)*60/(project.value.bpm*captureSpeed.value);
     if(elapsed<countInSeconds){captureFeedback.value='Count-in: recording begins after the introductory measure.';return;}
     const pos=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,
       captureFirst.value,captureLast.value,captureGrid(captureFirst.value),captureLatency.value);
@@ -1216,8 +1243,8 @@ function ensureCaptureKeySynth(){
 function capturePianoKey(event:PointerEvent,pitch:number){
  if(event.button!==0||heldCaptureKeys.has(event.pointerId))return;
  capturePitch.value=pitch;
- const started=capturePlaying.value?captureElapsedBeats():-1;
- if(capturePlaying.value&&started<0)return;
+ const started=captureRecording.value?captureElapsedBeats():-1;
+ if(captureRecording.value&&started<0)return;
  if(started>=0)beginMelodyPassOnNote(started);
  const id=event.pointerId;
  heldCaptureKeys.set(id,{pitch,started});
@@ -1294,7 +1321,7 @@ function releaseCapturePianoKey(event:PointerEvent){
  heldCaptureKeys.delete(event.pointerId);
  updateCaptureHeldDisplay();
  releaseCaptureMonitorPitch(held.pitch);
- if(event.type==='pointercancel'||!capturePlaying.value||held.started<0)return;
+ if(event.type==='pointercancel'||!captureRecording.value||held.started<0)return;
  const total=(captureLast.value-captureFirst.value+1)*project.value.beats;
  const start=Math.max(0,held.started);
  const end=Math.max(start,captureElapsedBeats());
@@ -1322,7 +1349,7 @@ function releaseCapturePianoKey(event:PointerEvent){
 function capturePianoKeyClick(event:MouseEvent,pitch:number){
   if(event.detail!==0)return;
   capturePitch.value=pitch;
-  if(capturePlaying.value)captureTap(pitch);else void auditionPitch(pitch);
+  if(captureRecording.value)captureTap(pitch);else void auditionPitch(pitch);
 }
 function loadCaptureBarToRhythm(){
   const bar=Math.max(captureFirst.value,Math.min(captureLast.value,Math.floor(captureEditBar.value)-1));
@@ -4074,24 +4101,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span class="hint" role="status">{{rhythmLoopPlaying?`Playing beat ${rhythmLoopBeat+1} of ${project.beats}`:'Stopped · edits can be heard on the next loop'}}</span>
       </div>
       <div class="editor live-capture" aria-label="Tap rhythm recording">
-  <details class="control-fold" open><summary>Live tap recording · full arrangement</summary>
-  <p class="hint">Loop one measure or a phrase with the entire orchestra. Tap along in real time; taps are quantized to the nearest sixteenth note. Each pass can replace or add attacks. Stop and refine the captured measure in the grid above.</p>
-  <div class="live-capture-controls">
-    <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
-    <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
-    <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Use selected measure</button>
-    <label>Tap latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
-    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label><label class="capture-check"><input type="checkbox" v-model="captureCountIn" :disabled="capturePlaying"/> One-measure count-in</label>
-    <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
-  </div>
-  <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} taps in draft</div>
-  <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter on this pad</span></button>
-  <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button></div>
-  <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`rhythm-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div></div>
-  <div class="live-capture-actions"><label>Edit captured measure<select v-model.number="captureEditBar"><option v-for="b in captureBarNumbers" :key="b" :value="b+1">{{b+1}}</option></select></label><button type="button" class="secondary" :disabled="!captureTaps.length" @click="loadCaptureBarToRhythm">Load into rhythm grid ↑</button><button type="button" class="secondary" @click="saveRhythmGridToCapture">Save edited grid to take</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedRhythm">Apply recorded take to selected instruments</button></div>
-  <p class="hint">The recorded take uses the instrument selection and protected-edit setting below. For a single measure, you can instead load its rhythm into the grid and use the normal Apply edited rhythm action. When recording a phrase, save each edited measure back to the take before applying.</p>
-  <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
-</details></div>
+        <LiveCaptureTransport kind="rhythm" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
+          :metronome="captureMetronome" :count-in="captureCountIn"
+          :status="captureRecording?(captureCountingIn?'Count-in · '+(capturePlayBeat+1)+'/'+project.beats:'Rec · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1)):capturePlaying?'Play · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1):'Measures '+(captureFirst+1)+'–'+(captureLast+1)+' · '+captureTaps.length+' taps'"
+          @play="toggleCapturePlay" @record="toggleCaptureRecord" @loop="captureLoopEnabled=!captureLoopEnabled"
+          @metronome="captureMetronome=!captureMetronome" @count-in="captureCountIn=!captureCountIn">
+          <template #settings>
+            <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
+            <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
+            <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Use selected measure</button>
+            <label>Tap latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+            <p class="hint">Play auditions the selected measures without recording. Record starts playback and captures taps; Loop repeats the range when enabled.</p>
+          </template>
+        </LiveCaptureTransport>
+        <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter on this pad</span></button>
+        <details class="capture-draft-review">
+          <summary>Review rhythm take · {{rhythmCaptureTaps.length}} taps</summary>
+          <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button></div>
+          <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`rhythm-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div></div>
+          <div class="live-capture-actions"><label>Edit captured measure<select v-model.number="captureEditBar"><option v-for="b in captureBarNumbers" :key="b" :value="b+1">{{b+1}}</option></select></label><button type="button" class="secondary" :disabled="!captureTaps.length" @click="loadCaptureBarToRhythm">Load into rhythm grid ↑</button><button type="button" class="secondary" @click="saveRhythmGridToCapture">Save edited grid to take</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedRhythm">Apply recorded take to selected instruments</button></div>
+          <p class="hint">Applying the draft uses the selected instruments and protected-edit setting. Edit a captured measure in the grid and save it back before applying a phrase.</p>
+        </details>
+        <p v-if="captureFeedback" class="capture-feedback" role="status" aria-live="polite">{{captureFeedback}}</p>
+      </div>
       <div class="rhythm-ruler" :style="{'--rhythm-beats':project.beats}"><span v-for="beat in project.beats" :key="beat" :class="{'rhythm-current-beat':rhythmLoopPlaying&&rhythmLoopBeat===beat-1}">{{beat}}</span></div>
       <Teleport to="body"><div v-if="rhythmMenuSlot" class="context-sheet-backdrop" @click.self="closeRhythmMenu()">
   <div class="context-sheet-dialog rhythm-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="'Rhythm attack options for beat '+(rhythmMenuSlot.beat+1)" @keydown.esc.stop.prevent="closeRhythmMenu()">
@@ -4178,40 +4210,42 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">◁ Dynamics &amp; expression</button>
   </div>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
-  <div class="editor live-capture" aria-label="Tap melody recording">
-  <div class="section-heading"><h3>Live melody and rhythm input</h3><span>Full orchestra loop · draft take</span></div>
-  <details class="control-fold" open><summary>Recording controls, keyboard &amp; draft take</summary>
-  <p class="hint">Loop a measure or phrase and tap the pitch keys below at the right moment. By default, each new loop pass replaces the previous recorded take; select Overdub to layer notes. Each key tap records both pitch and rhythmic onset, quantized to a sixteenth note. Alternatively, select a pitch and tap the large rhythm pad. Nothing replaces the existing notes until you press Apply captured notes.</p>
-  <div class="live-capture-controls live-capture-recording-options">
-    <span class="capture-selected-range" role="status">Measures <strong>{{captureFirst+1}}–{{captureLast+1}}</strong> · selected above</span>
-    <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label><label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label><label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying" aria-label="Recording playback speed"><option :value="1">Normal (100%)</option><option :value="0.75">Three-quarter speed (75%)</option><option :value="0.5">Half speed (50%)</option></select></label><label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
-    <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label><label class="capture-check"><input type="checkbox" v-model="captureCountIn" :disabled="capturePlaying"/> One-measure count-in</label>
-    <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
-  </div>
-  <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} pitched taps</div>
-  <div class="capture-display-toolbar"><button type="button" class="secondary" :aria-pressed="captureLargeView" @click="captureLargeView=!captureLargeView"><AppIcon :name="captureLargeView?'minimize':'maximize'"/> {{captureLargeView?'Compact instruments':'Enlarge instruments'}}</button></div>
-  <div v-if="captureFingerboardRows.length" class="capture-layout-switch" role="group" aria-label="Live input layout">
-    <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
-    <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keyboard</button>
-   </div>
-   <div v-if="noteInst.startsWith('Violin')&&captureInputLayout==='fingerboard'" class="capture-violin-options" role="group" aria-label="Violin finger gesture recording">
-      <label>Held finger expression
-        <select v-model="captureViolinMode" aria-label="How to interpret violin finger motion">
-          <option value="auto">Auto · note / slide / vibrato / sirena</option>
-          <option value="notes">Notes only</option>
-          <option value="slide">Slide into final note</option>
-          <option value="vibrato">Mark vibrato</option>
-        </select>
-      </label>
-      <span v-if="captureLastExpression" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
-    </div>
+    <div class="editor live-capture" aria-label="Tap melody recording">
+      <LiveCaptureTransport kind="melody" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
+        :metronome="captureMetronome" :count-in="captureCountIn"
+        :status="captureRecording?(captureCountingIn?'Count-in · '+(capturePlayBeat+1)+'/'+project.beats:'Rec · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1)):capturePlaying?'Play · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1):'Measures '+(captureFirst+1)+'–'+(captureLast+1)+' · '+melodyCaptureTaps.length+' notes'"
+        @play="toggleCapturePlay" @record="toggleCaptureRecord" @loop="captureLoopEnabled=!captureLoopEnabled"
+        @metronome="captureMetronome=!captureMetronome" @count-in="captureCountIn=!captureCountIn">
+        <template #extras>
+          <div v-if="captureFingerboardRows.length" class="capture-layout-switch" role="group" aria-label="Live input layout">
+            <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
+            <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keys</button>
+          </div>
+          <button type="button" class="capture-enlarge-button" :aria-pressed="captureLargeView" :aria-label="captureLargeView?'Compact instrument input':'Enlarge instrument input'" :title="captureLargeView?'Compact instrument':'Enlarge instrument'" @click="captureLargeView=!captureLargeView"><AppIcon :name="captureLargeView?'minimize':'maximize'"/></button>
+        </template>
+
+        <template #settings>
+          <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label>
+          <label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label>
+          <label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying"><option :value="1">100%</option><option :value="0.75">75%</option><option :value="0.5">50%</option></select></label>
+          <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+          <label v-if="noteInst.startsWith('Violin')&&captureInputLayout==='fingerboard'">Violin finger gesture<select v-model="captureViolinMode"><option value="auto">Auto · note / slide / vibrato / sirena</option><option value="notes">Notes only</option><option value="slide">Slide into final note</option><option value="vibrato">Mark vibrato</option></select></label>
+          <div v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length" class="capture-fret-settings">
+            <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
+            <label>Visible semitones<select :value="captureFretCount" @change="updateCaptureFretCount"><option :value="8">8</option><option :value="12">12</option><option :value="16">16</option><option :value="25">Full 2 octaves</option></select></label>
+          </div>
+          <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-keyboard-settings">
+            <label class="capture-setting-check"><input type="checkbox" :checked="captureAutoFit" @change="setCaptureAutoFit(($event.target as HTMLInputElement).checked)"/> Fit available width</label>
+            <button type="button" class="secondary" @click="showAllPianoKeys">{{noteInst==='Piano'?'Show all 88 keys (scroll)':'Show full instrument range (scroll)'}}</button>
+            <label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+            <label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+            <label>Rhythm pad pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+          </div>
+          <p class="hint">Play listens without capturing. Record starts playback and records notes; Loop repeats the selected measures. New passes replace the draft unless Overdub is selected. Apply only after reviewing.</p>
+        </template>
+      </LiveCaptureTransport>
+      <span v-if="captureLastExpression&&captureInputLayout==='fingerboard'" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
     <template v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length">
-     <div class="capture-fret-controls" role="group" aria-label="Visible fingerboard section">
-      <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
-      <label>Show<select :value="captureFretCount" @change="updateCaptureFretCount"><option :value="8">8 semitones</option><option :value="12">12 semitones</option><option :value="16">16 semitones</option><option :value="25">Full 2 octaves</option></select></label>
-      <span>Positions {{captureFrets[0]}}–{{captureFrets[captureFrets.length-1]}}</span>
-     </div>
-     <p class="hint">Instrument-specific strings: touch and hold for a sustained note, or use two fingers for simultaneous notes. On violin, drag along the same string to record a slide into the ending pitch. Repeated motion can mark vibrato; a broad return sweep can suggest a tango sirena. This captures expression markings, not physical vibrato depth or speed. The keyboard remains available.</p>
      <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin'),'capture-large-instrument':captureLargeView}" role="group" :aria-label="`Playable ${noteInst} string positions`">
       <div class="capture-fingerboard-grid" :style="{'--capture-fret-columns':captureFrets.length}">
        <div class="capture-fingerboard-header"><span>String</span><span v-for="fret in captureFrets" :key="fret">{{fret===0?'Open':fret}}</span></div>
@@ -4234,22 +4268,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        </div>
       </div>
      </div>
-   </template>
-   <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano-fit-controls" role="group" aria-label="Instrument recording keyboard visibility">
-     <label><input type="checkbox" :checked="captureAutoFit" @change="setCaptureAutoFit(($event.target as HTMLInputElement).checked)"/> Fit available width</label>
-     <button type="button" class="secondary" @click="showAllPianoKeys">{{noteInst==='Piano'?'Show all 88 keys (scroll)':'Show full instrument range (scroll)'}}</button>
-     <span>{{captureKeyboardPitches.length}} keys visible · playable {{midiName(noteCtx.range[0])}}–{{midiName(noteCtx.range[1])}}</span>
-   </div>
-   <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
-  <p v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
+    </template>
   <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
-  <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
+
+      <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
+      <details class="capture-draft-review">
+        <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
   <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat<span v-if="n.stringMidi!==undefined"> · {{fingerboardStrings(noteInst).find(s=>s.midi===n.stringMidi)?.name??midiName(n.stringMidi)}} string</span><span v-if="n.approachSlideFrom!==undefined"> · port. {{midiName(n.approachSlideFrom)}} → {{midiName(n.pitch)}}</span><span v-if="n.vibrato"> · vibrato</span><span v-if="n.gesture"> · {{gestureLabel(n.gesture)}}</span></span><em v-if="!capturedMelodyForBar(b).length">No taps</em></div></div>
   <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
-  <p v-if="captureFeedback" class="hint" role="status" aria-live="polite">{{captureFeedback}}</p>
-</details>
-</div>
+
+      </details>
+      <p v-if="captureFeedback" class="capture-feedback" role="status" aria-live="polite">{{captureFeedback}}</p>
+    </div>
   </section>
   <section id="note-panel-figures" v-show="noteEditorTab==='figures'" role="tabpanel" aria-labelledby="note-tab-figures">
     <div class="figure-workbench" aria-label="Note figure generator"><details class="control-fold" open><summary>Figure generation controls</summary>
@@ -4451,7 +4482,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <template v-for="barIndex in focusVisibleMeasures" :key="barIndex">
           <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
         </template>
-        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
+        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="noteInst.startsWith('Voice')" class="note-bar-label note-bar-lyric" :title="(lyricVerse===1?n.lyric:n.lyric2)||'No lyric assigned'">{{(lyricVerse===1?n.lyric:n.lyric2)?.trim()||((lyricVerse===1?n.melisma:n.melisma2)?'—':'♪')}}</span><span v-else-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
       </div>
     </div>
   </div>
