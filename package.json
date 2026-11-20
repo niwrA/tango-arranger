@@ -13,7 +13,7 @@
     "test:phrases": "node tests/phrase-planning.cjs && node tests/phrase-plan-preservation.cjs && node tests/phrase-plan-render.cjs",
     "test:rhythm-snap": "node tests/rhythm-snap.cjs",
     "test:contextual": "node tests/contextual-editing.cjs",
-    "test:alignment": "node tests/musicxml-alignment.cjs && node tests/performance-cues.cjs && node tests/rehearsal-speed-positions.cjs && node tests/performance-instrument-focus.cjs && node tests/string-fingerboard.cjs && node tests/performance-position-guide.cjs && node tests/piano-88-focus.cjs"
+    "test:alignment": "node tests/musicxml-alignment.cjs && node tests/performance-cues.cjs && node tests/rehearsal-speed-positions.cjs && node tests/performance-instrument-focus.cjs && node tests/string-fingerboard.cjs && node tests/performance-position-guide.cjs && node tests/piano-88-focus.cjs && node tests/sustain-piano-compas.cjs"
   },
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
