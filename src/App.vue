@@ -2116,6 +2116,7 @@ async function play(origin:PlaybackOrigin){
   const session=noteLoopSession;
   const startMeasure=origin==='selected'?selectedBar.value:0;
   performanceBeat.value=startMeasure*project.value.beats;
+  playbackStartBeat.value=startMeasure*project.value.beats;
   const window=arrangementPlaybackWindow(project.value.bars.length,project.value.beats,project.value.bpm,startMeasure);
   try{
     Tone=await startAudioFromGesture();
@@ -2123,30 +2124,32 @@ async function play(origin:PlaybackOrigin){
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     await prepareSamples(projectInstruments(project.value));
     if(session!==noteLoopSession)return;
-    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
+    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
     let noteCount=0;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
     // This is a guide tone, not sung or synthesized speech.
     for(const inst of projectInstruments(project.value)){for(const n of score.value[inst]??[]){
+      // Musical tick positions preserve event timing when rehearsal speed is
+      // changed mid-performance (unlike precomputed absolute seconds).
       const seconds=arrangementEventTime(n.start,window);
-      // The requested measure is a hard start: earlier attacks are not replayed.
       if(seconds===null)continue;
+      const whenTicks=beatOffsetTicks(n.start-window.startBeat,transport.PPQ);
       noteCount++;
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
-        const defaultDuration=noteSoundingDuration(n)*60/project.value.bpm;
+        const defaultDuration=playbackDuration(noteSoundingDuration(n)*60/project.value.bpm,rehearsalSpeed.value);
         const defaultVelocity=noteSoundingVelocity(n);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
-        else triggerInstrument(inst,event.pitch,event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
-      },seconds);
+          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value),velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
+        else triggerInstrument(inst,event.pitch,event.durationSeconds?playbackDuration(event.durationSeconds,rehearsalSpeed.value):defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
+      },whenTicks);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
     audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · audio context ${Tone.getContext().state}`;
-    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},window.durationSeconds+0.2);
+    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},beatOffsetTicks((project.value.bars.length-startMeasure)*project.value.beats+0.25,transport.PPQ));
     transport.start();playing.value=true;playbackOrigin.value=origin;
   }catch(error){message.value=`Playback unavailable: ${String(error)}`;stopPlayback();}
 }
