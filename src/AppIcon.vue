@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'}>();
 const paths:Record<typeof props.name,string>={
   plus:'M12 5v14 M5 12h14',
   save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z M7 3v6h10V4 M7 21v-8h10v8',
@@ -28,7 +28,9 @@ const paths:Record<typeof props.name,string>={
   'presentation':'M3 3h18v14H3z M8 21l4-4 4 4 M12 17v4',
   'arrow-left':'M19 12H5 M12 19l-7-7 7-7',
   maximize:'M8 3H5a2 2 0 0 0-2 2v3 M16 3h3a2 2 0 0 1 2 2v3 M21 16v3a2 2 0 0 1-2 2h-3 M8 21H5a2 2 0 0 1-2-2v-3',
-  minimize:'M8 8H3 M8 8V3 M16 8h5 M16 8V3 M16 16h5 M16 16v5 M8 16H3 M8 16v5'
+  minimize:'M8 8H3 M8 8V3 M16 8h5 M16 8V3 M16 16h5 M16 16v5 M8 16H3 M8 16v5',
+  headphones:'M3 14v-3a9 9 0 0 1 18 0v3 M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Z M21 14h-3a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-5Z',
+  'volume-x':'M11 5 6 9H2v6h4l5 4V5Z M16 9l6 6 M22 9l-6 6'
 };
 </script>
 <template><svg class="app-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="paths[props.name]"/></svg></template>
