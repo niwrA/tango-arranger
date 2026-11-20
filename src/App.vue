@@ -3,6 +3,7 @@ import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
+import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
@@ -49,7 +50,7 @@ import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,
 import {suggestViolinPosition} from './violinPositions';
 import {stageInstrumentName} from './stageInstrumentName';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
-import {parseLeadLyrics,exportLeadLyricsTab,positionLeadChords,lyricLineStarts} from './leadLyrics';
+import {parseLeadLyrics,exportLeadLyricsTab,positionLeadChords,lyricLineStarts,leadLyricsFromSong} from './leadLyrics';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -1667,6 +1668,23 @@ function duplicateLeadSection(i:number){
    collapsedLeadSections.value=collapsedLeadSections.value.filter(section=>section!==result.label);
    message.value=`Copied section ${result.sourceLabel} into independent section ${result.label} (${result.measures} measures), including lyrics, notes, harmony, expression and instrument roles. Edit the reprise separately.`;
  }catch(error){message.value='Section copy failed: '+String(error);}
+}
+function deleteLeadSection(i:number){
+  const span=sectionSpans(project.value)[i];
+  if(!span)return;
+  if(sectionSpans(project.value).length<=1){message.value='Cannot delete the final section.';return;}
+  const label=sectionLetter(i);
+  if(!window.confirm(`Delete section ${label} (measures ${span.start+1}–${span.start+span.measures}) and its notes, lyrics, chords and orchestration? Later measures will move earlier. You can undo this using the leadsheet Undo button.`))return;
+  try{
+    const next=deleteProjectSection(project.value,i);
+    project.value=next;
+    const target=Math.min(span.start,next.bars.length-1);
+    selectedBar.value=target;overviewFocus.value=target;chosenSection.value=next.bars[target].section;
+    overviewStart.value=target+1;overviewEnd.value=Math.min(next.bars.length,target+8);
+    copySectionMode.value=false;leadMeasureEditorOpen.value=false;mapRangeAnchor.value=null;
+    leadLyricsSource.value='';
+    message.value=`Deleted section ${label}; later sections and their score events were shifted. Use Undo to reverse. Load from song to rebuild the Lyrics & Chords workspace.`;
+  }catch(error){message.value='Section deletion failed: '+String(error);}
 }
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
 const collapsedLeadSections=ref<string[]>([]);
@@ -3319,7 +3337,9 @@ const leadLyricsMatches=computed(()=>{
   return voice?(score.value[voice]??[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
 });
 const leadLyricsPreview=computed(()=>leadLyricsPlan.value.notes.map((token,i)=>{
-  const existing=leadLyricsUseMelody.value?leadLyricsMatches.value[i]:undefined;
+  const existing=leadLyricsUseMelody.value?(token.absolute
+    ?leadLyricsMatches.value.find(n=>Math.abs(n.start-token.start)<1e-7)
+    :leadLyricsMatches.value[i]):undefined;
   return {...token,beat:existing?.start??token.start,pitch:existing?.pitch??60,provisional:!existing};
 }));
 const leadLyricsChordPreview=computed(()=>{
@@ -3343,6 +3363,16 @@ function openLeadLyrics(){
   leadLyricsUseMelody.value=saved?.useExistingMelody??Boolean(leadLyricsMatches.value.length);
   // The native <details> element owns its open state; this flag tracks visibility.
 }
+function loadLeadLyricsFromSong(){
+  const voice=leadLyricsExisting.value;
+  if(!voice){message.value='This song has no Voice part. Add Voice before reading back the vocal lyrics.';return;}
+  if(leadLyricsSource.value.trim()&&!window.confirm('Replace the current Lyrics & Chords editor text with the chords and Voice lyrics already stored in this song? The project itself will not change until Apply.'))return;
+  try{
+    leadLyricsSource.value=leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value);
+    leadLyricsUseMelody.value=true;
+    message.value=`Loaded verse ${leadLyricsVerse.value}, chords and Voice note positions from the song into the editor. Review before applying.`;
+  }catch(error){message.value='Cannot load lyrics from song: '+String(error);}
+}
 function onLeadLyricsToggle(event:Event){
   const opened=(event.currentTarget as HTMLDetailsElement).open;
   leadLyricsOpen.value=opened;
@@ -3359,7 +3389,10 @@ function applyLeadLyrics(){
   const all=score.value[voice]??[];
   const prefix='lead:'+leadLyricsVerse.value+':';
   const useExisting=leadLyricsUseMelody.value&&all.length>0;
-  const existing=useExisting?[...all].sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
+  const sorted=useExisting?[...all].sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
+  const existing=useExisting?plan.notes.map((token,i)=>token.absolute
+    ?sorted.find(n=>Math.abs(n.start-token.start)<1e-7)??sorted[i]
+    :sorted[i]):[];
   const oldGenerated=all.filter(n=>n.leadToken?.startsWith(prefix));
   const tagged=new Map(oldGenerated.map(n=>[n.leadToken!,n]));
   const changes=new Map<Note,Note>();
@@ -4058,6 +4091,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="lead-lyrics-toolbar">
     <label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label>
     <label><input type="checkbox" v-model="leadLyricsUseMelody"/> Use existing Voice melody ({{leadLyricsMatches.length}} notes)</label>
+    <button type="button" class="secondary" @click="loadLeadLyricsFromSong">Load from song</button>
     <button type="button" class="secondary" @click="exportLeadTab">Export chord / lyrics tab</button>
   </div>
   <label class="lead-lyrics-input">Song text, chords and boundaries<textarea v-model="leadLyricsSource" rows="7" spellcheck="false" placeholder="[Am]Yo | no | sé ||&#10;[E7]por | qué ..."></textarea></label>
@@ -4075,7 +4109,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
     <div :class="['lead-section-heading',{'lead-copy-source':copySectionMode&&copySourceIndex===si}]">
       <div class="lead-section-title"><button type="button" class="lead-section-collapse" :aria-expanded="!collapsedLeadSections.includes(span.label)" :title="collapsedLeadSections.includes(span.label)?'Expand section':'Collapse section'" @click="toggleLeadSectionCollapsed(span.label)">{{collapsedLeadSections.includes(span.label)?'▸':'▾'}}</button><button type="button" :class="['lead-section-select',{'is-selected':project.bars[selectedBar]?.section===span.label}]" :aria-pressed="project.bars[selectedBar]?.section===span.label" :aria-label="copySectionMode&&copySourceIndex!==si?`Paste copied chords into section ${sectionLetter(si)}`:`Select section ${sectionLetter(si)}, measures ${span.start+1} to ${span.start+span.measures}`" @click="onLeadSectionHeaderClick(si)"><strong class="lead-section-letter">{{sectionLetter(si)}}</strong><span><strong>Section {{span.label}}</strong><small>Measures {{span.start+1}}–{{span.start+span.measures}} · {{span.measures}} measures</small></span></button></div>
-      <div class="lead-section-actions"><button type="button" class="secondary lead-section-copy" :disabled="sectionSpans(project).length>=26||project.bars.length+span.measures>512" :title="`Duplicate section ${sectionLetter(si)} at the end of the song`" @click="duplicateLeadSection(si)"><AppIcon name="copy"/> Copy section</button><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button></div>
+      <div class="lead-section-actions"><button type="button" class="secondary lead-section-copy" :disabled="sectionSpans(project).length>=26||project.bars.length+span.measures>512" :title="`Duplicate section ${sectionLetter(si)} at the end of the song`" @click="duplicateLeadSection(si)"><AppIcon name="copy"/> Copy section</button><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button><button type="button" class="secondary lead-section-copy lead-delete-section" :disabled="sectionSpans(project).length<=1" :aria-label="`Delete section ${sectionLetter(si)}`" @click="deleteLeadSection(si)"><AppIcon name="trash-2"/> Delete section</button></div>
       <label class="lead-key-label">Key signature<select :value="keyForSection(span.label)" :aria-label="`Key for section ${span.label}`" @change="setSectionKey(span.label,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label>
     </div>
     <div v-if="!collapsedLeadSections.includes(span.label)" class="lead-measure-grid">
