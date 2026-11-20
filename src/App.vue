@@ -1200,8 +1200,15 @@ async function startCaptureTransport(recording:boolean){
         const symbol=chordAt(project.value.bars[first]?.chord??'',project.value.beats,0);
         const tones=symbol.trim()?chordTones(symbol):[];
         if(tones.length){
-          const degree=beat%tones.length;
-          const pitch=60+((tones[degree]-0+12)%12);
+          // Ascend continuously: wrap to the next octave instead of dropping
+          // back to the root when a triad fills a four-beat count-in.
+          const ascending=tones.map(pc=>60+((pc%12+12)%12)).sort((a,b)=>a-b);
+          const root=tones[0];
+          const rootIndex=ascending.findIndex(p=>p%12===root);
+          const ordered=[...ascending.slice(rootIndex),...ascending.slice(0,rootIndex).map(p=>p+12)];
+          const degree=beat%ordered.length;
+          const cycle=Math.floor(beat/ordered.length);
+          const pitch=ordered[degree]+12*cycle;
           captureKeySynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
             Math.min(0.65,0.8*60/(project.value.bpm*captureSpeed.value)),time,0.45);
         }else if(captureMetronome.value){
