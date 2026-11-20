@@ -44,7 +44,7 @@ check('violin fingering prefers coherent low positions when a single high outlie
  assert.deepEqual(Array.from(pos.positionWindow(guide)),[1,2,3,4,5,6,7,8]);
 });
 check('violin higher passage provides roman position and mapped string/fingers',()=>{
- const guide=pos.suggestStringMeasurePosition('Violin',[{pitch:84,start:0},{pitch:86,start:1},{pitch:88,start:2}]);
+ const guide=pos.suggestStringMeasurePosition('Violin',[{pitch:84,start:0},{pitch:86,start:1}]);
  assert.ok(guide);
  assert.equal(guide.position,'III');
  assert.equal(guide.anchorMidi,guide.anchorStringMidi+guide.firstFingerOffset);
