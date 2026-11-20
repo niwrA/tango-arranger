@@ -72,7 +72,7 @@ export function projectFromLeadSheet(preview:LeadImportPreview,title:string,beat
  const sections=arrangeImportedSections(preview,starts);
  const p=blankProject({title,beats,bpm,sections:sections.length,measuresPerSection:sections.map(s=>s.measures)});
  p.bars=preview.bars.map((bar,i)=>{
-   const section=sections.findLast(s=>s.start<=i)!;
+   const section=[...sections].reverse().find(s=>s.start<=i)!;
    const tokens=bar.chord.split(',').filter(Boolean);
    // The ordinary lead editor accepts at most one chord slot per beat.
    if(tokens.length>beats)throw Error('Too many chords in measure '+(i+1));
