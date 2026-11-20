@@ -5,8 +5,9 @@ const path=require('node:path');
 const cp=require('node:child_process');
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tango-mic-'));
 try{
- const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(__dirname,'../src/microphonePitch.ts')],{encoding:'utf8'});
- assert.equal(result.status,0,result.stdout+'\\n'+result.stderr);
+ const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(__dirname,'../src/microphonePitch.ts')],{encoding:'utf8'});
+ assert.ifError(result.error);
+ assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
  const {detectMonophonicPitch}=require(path.join(tmp,'microphonePitch.js'));
  const rate=44100;
  function sine(frequency,amplitude=0.5){const samples=new Float32Array(4096);for(let i=0;i<samples.length;i++)samples[i]=amplitude*Math.sin(2*Math.PI*frequency*i/rate);return samples;}
