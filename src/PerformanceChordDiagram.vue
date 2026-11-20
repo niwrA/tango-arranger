@@ -47,6 +47,14 @@ const blackKeys=computed(()=>pianoView.value.blacks.map(key=>({midi:key.pitch,le
 const plannedPianoPitches=computed(()=>new Set(props.measurePitches??[]));
 function isPianoMeasurePitch(midi:number){return plannedPianoPitches.value.has(midi);}
 function isPianoBassMidi(midi:number){return midi<(props.splitPitch??60);}
+function pianoRegisterCaption(bass:boolean):string {
+ const pitches=(props.measurePitches??[]).filter(p=>isPianoBassMidi(p)===bass).sort((a,b)=>a-b);
+ if(!pitches.length)return '—';
+ const first=pitches[0],last=pitches[pitches.length-1];
+ return midiLabel(first)+(last===first?'':'–'+midiLabel(last));
+}
+const pianoBassCaption=computed(()=>pianoRegisterCaption(true));
+const pianoUpperCaption=computed(()=>pianoRegisterCaption(false));
 const pianoPitchesOutOfView=computed(()=>(props.measurePitches??[]).filter(midi=>
  !whiteKeys.value.includes(midi)&&!blackKeys.value.some(key=>key.midi===midi)
 ).length);
@@ -117,8 +125,8 @@ const diagramDescription=computed(()=>{
      <div class="diagram-white-keys">
        <div v-for="midi in whiteKeys" :key="midi" class="diagram-white-key"
          :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi),
-           'is-piano-measure':isPianoMeasurePitch(midi),'is-piano-bass':isPianoBassMidi(midi)&&isPianoMeasurePitch(midi),
-           'is-piano-upper':!isPianoBassMidi(midi)&&isPianoMeasurePitch(midi)}"
+           'is-piano-measure':isPianoMeasurePitch(midi),'is-piano-bass':isPianoBassMidi(midi)&&(isPianoMeasurePitch(midi)||isPlayingPitch(midi)),
+           'is-piano-upper':!isPianoBassMidi(midi)&&(isPianoMeasurePitch(midi)||isPlayingPitch(midi))}"
          :title="midiLabel(midi)+(isPianoMeasurePitch(midi)?(isPianoBassMidi(midi)?' · lower register':' · upper register'):'')">
          <span v-if="isPianoMeasurePitch(midi)||isPlayingPitch(midi)">{{noteName(midi)}}</span>
        </div>
@@ -126,12 +134,13 @@ const diagramDescription=computed(()=>{
      <div class="diagram-black-keys" aria-hidden="true">
        <span v-for="key in blackKeys" :key="key.midi" class="diagram-black-key"
          :class="{'is-chord-tone':isTone(key.midi),'is-root':isRoot(key.midi),'is-sounding':isPlayingPitch(key.midi),'is-unplayed-chord-tone':shouldDimTone(key.midi),
-           'is-piano-measure':isPianoMeasurePitch(key.midi),'is-piano-bass':isPianoBassMidi(key.midi)&&isPianoMeasurePitch(key.midi),
-           'is-piano-upper':!isPianoBassMidi(key.midi)&&isPianoMeasurePitch(key.midi)}"
+           'is-piano-measure':isPianoMeasurePitch(key.midi),'is-piano-bass':isPianoBassMidi(key.midi)&&(isPianoMeasurePitch(key.midi)||isPlayingPitch(key.midi)),
+           'is-piano-upper':!isPianoBassMidi(key.midi)&&(isPianoMeasurePitch(key.midi)||isPlayingPitch(key.midi))}"
          :style="{left:key.left+'%'}" :title="midiLabel(key.midi)">
          <span v-if="isPianoMeasurePitch(key.midi)||isPlayingPitch(key.midi)">{{noteName(key.midi)}}</span>
        </span>
      </div>
+     <span class="diagram-piano-register-labels" aria-hidden="true"><span>LH {{pianoBassCaption}}</span><span>RH {{pianoUpperCaption}}</span></span>
      <span class="diagram-piano-hand-legend" aria-hidden="true"><i class="diagram-piano-hand-bass"/> Bass <i class="diagram-piano-hand-upper"/> Upper
        <span v-if="pianoPitchesOutOfView"> · +{{pianoPitchesOutOfView}} offscreen</span>
      </span>
@@ -379,7 +388,7 @@ const diagramDescription=computed(()=>{
  background:#7eb7fa;color:#12263b;border-color:#cbe4ff;box-shadow:inset 0 0 0 2px #3669ac,0 0 0 2px #8cb6fa88;z-index:3
 }
 .diagram-piano .diagram-white-key.is-piano-upper.is-sounding,.diagram-piano .diagram-black-key.is-piano-upper.is-sounding{
- background:#7ae6d1;color:#15332e;border-color:#c9ffef;box-shadow:inset 0 0 0 2px #258879,0 0 0 2px #78f7e088;z-index:3
+ background:#ffe1a1;color:#2d2111;border-color:#fff0c1;box-shadow:inset 0 0 0 2px #bd8431,0 0 0 2px #f5d083aa;z-index:3
 }
 .diagram-piano .diagram-white-key>span{font-size:clamp(8px,.77vw,10px)}
 .diagram-piano .diagram-black-key>span{font-size:8px}
@@ -392,5 +401,11 @@ const diagramDescription=computed(()=>{
 .diagram-piano-hand-legend i{display:inline-block;width:7px;height:7px;flex:0 0 7px;border-radius:2px}
 .diagram-piano-hand-bass{background:#9ab9e4}.diagram-piano-hand-upper{background:#f1cc89}
 @media(max-width:900px){.diagram-piano-hand-legend{font-size:8px}.diagram-piano .diagram-white-key>span{font-size:8px}}
+
+/* Read actual scored octave ranges for the lower and upper registers,
+ * rather than imply all pitches belong to the keyboard's middle octave. */
+.diagram-piano-register-labels{position:absolute;z-index:5;top:2px;left:3px;right:3px;display:flex;justify-content:space-between;align-items:center;gap:4px;pointer-events:none}
+.diagram-piano-register-labels>span{min-width:0;max-width:50%;padding:1px 4px;border-radius:4px;background:#1b2d3fdb;color:#fff1d8;border:1px solid #8192a3aa;font-size:9px;font-weight:800;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+@media(max-width:800px){.diagram-piano-register-labels>span{font-size:8px;padding:1px 2px}}
 
 </style>

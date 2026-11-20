@@ -4,7 +4,7 @@ import AppIcon from './AppIcon.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
-import {stageDynamicAlpha} from './stageDynamics';
+import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
@@ -172,7 +172,18 @@ async function initializeLocalLibrary(){
     const entries=await listLocalSongs();localSongs.value=entries;
     const previous=lastOpenedSongId();
     const id=entries.some(song=>song.id===previous)?previous!:entries[0]?.id;
-    if(id){const saved=await readLocalSong(id);if(saved){localSongId.value=id;selectProjectInEditor(saved);message.value=`Restored ${saved.title} from this browser's local library.`;}}
+    if(id){const saved=await readLocalSong(id);if(saved){
+       localSongId.value=id;selectProjectInEditor(saved);
+       // Refresh restores the view and measure, but never starts sound automatically.
+       try{
+         const stageMeasure=performanceMode.value?localStorage.getItem('tango-last-performance-measure'):null;
+         const measure=Number(stageMeasure??localStorage.getItem('tango-last-measure'));
+         if(Number.isInteger(measure)&&measure>=0){selectedBar.value=Math.min(saved.bars.length-1,measure);performanceBeat.value=selectedBar.value*saved.beats;}
+         const instrument=localStorage.getItem('tango-last-note-instrument');
+         if(instrument&&projectInstruments(saved).includes(instrument))noteInst.value=instrument;
+       }catch{/* Storage unavailable. */}
+       message.value=`Restored ${saved.title} from this browser's local library.`;
+     }}
     if(!localSongId.value){const fresh=newLocalSongId();await saveLocalSong(fresh,project.value);localSongId.value=fresh;await refreshLocalSongs();}
     rememberOpenedSongId(localSongId.value);libraryReady.value=true;saveStatus.value='Autosave on · stored in this browser';
   }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';}
@@ -203,7 +214,10 @@ function closeOpenTopbarMenusOnOutside(event:PointerEvent){
 const compactHelp=ref(localStorage.getItem('tango-compact-help')!=='false');
 watch(compactHelp,value=>localStorage.setItem('tango-compact-help',String(value)));
 const advancedToolsOpen=ref(false);
-const noteEditorTab=ref<'notes'|'capture'|'figures'|'expression'>('notes');
+const noteEditorTab=ref<'notes'|'capture'|'figures'|'expression'>((()=>{
+ try{const tab=localStorage.getItem('tango-note-editor-subtab');return ['notes','capture','figures','expression'].includes(tab??'')?tab as 'notes'|'capture'|'figures'|'expression':'notes';}catch{return 'notes';}
+})());
+watch(noteEditorTab,tab=>{try{localStorage.setItem('tango-note-editor-subtab',tab);}catch{/* Storage disabled. */}});
 // Focused note editing is a temporary, full-viewport UI state; it is not stored in the song.
 const noteFocusMode=ref(false);
 const noteFocusMore=ref(false);
@@ -366,7 +380,9 @@ const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'ab
 watch(active,tab=>{
   if(!workspaceTabs.includes(tab as WorkspaceTab))return;
   try{localStorage.setItem('tango-active-tab',tab);}catch{/* Keep navigation usable without storage. */}
-});const selectedBar=ref(0);const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'|'merge'>('melody');
+});const selectedBar=ref(0);
+watch(selectedBar,measure=>{try{localStorage.setItem('tango-last-measure',String(measure));}catch{/* Storage disabled. */}});
+const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'|'merge'>('melody');
 const pendingParsed=ref<ParsedMusicXml|null>(null);
 const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
@@ -383,8 +399,10 @@ function setRehearsalSpeed(speed:RehearsalSpeed){
   Tone.getTransport().bpm.value=effectivePlaybackBpm.value;
  }
 }
-const performanceMode=ref(false);
-const performanceView=ref<'ensemble'|'notes'>('ensemble');
+const performanceMode=ref((()=>{try{return localStorage.getItem('tango-performance-mode')==='true';}catch{return false;}})());
+const performanceView=ref<'ensemble'|'notes'>((()=>{try{return localStorage.getItem('tango-performance-view')==='notes'?'notes':'ensemble';}catch{return 'ensemble';}})());
+watch(performanceMode,enabled=>{try{localStorage.setItem('tango-performance-mode',String(enabled));}catch{/* Storage disabled. */}});
+watch(performanceView,view=>{try{localStorage.setItem('tango-performance-view',view);}catch{/* Storage disabled. */}});
 /** A stage title never changes the saved project title. Remove bracketed revision notes,
  * retaining the full name as a tooltip on the displayed heading. */
 const performanceShortTitle=computed(()=> {
@@ -454,6 +472,7 @@ watch(performanceMode,enabled=>{
 const performanceFocus=ref<Instrument|null>(null);
 function togglePerformanceFocus(inst:Instrument){performanceFocus.value=performanceFocus.value===inst?null:inst;}
 const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-1),Math.floor(performanceBeat.value/project.value.beats)));
+watch(performanceBar,bar=>{if(performanceMode.value){try{localStorage.setItem('tango-last-performance-measure',String(bar));}catch{/* Storage disabled. */}}});
 const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.section??'A');
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
 /** Animated cue emphasis follows transport beat position rather than a free-running CSS timer. */
@@ -592,6 +611,8 @@ watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicke
 const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 // Status is event-driven: dismissing a message keeps it hidden until the text changes.
 watch(message,(next,previous)=>{if(next!==previous){statusVisible.value=true;statusDismissed.value=false;}});
+/** Global notifications are reserved for actionable errors, not successful edits. */
+const actionableError=computed(()=>/\b(fail(?:ed|ure)?|error|invalid|cannot|could not|unavailable|rejected|unable|missing|out of range|must|not found)\b/i.test(message.value));
 // Full project snapshots preserve protected measures, lyrics, roles and score edits.
 const undoHistory=ref<Project[]>([]);
 const redoHistory=ref<Project[]>([]);
@@ -920,7 +941,7 @@ async function toggleRhythmLoop(){
     if(session!==rhythmLoopSession||active.value!=='rhythm')return;
     rhythmLoopSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.045,sustain:0.05,release:0.06}}).toDestination();
     rhythmLoopSynth.volume.value=-13;
-    loopSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    loopSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.07,sustain:0.9,release:0.23}}).toDestination();
     loopSynth.volume.value=-9;
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
@@ -993,7 +1014,7 @@ function captureElapsedBeats():number{
 function capturedMelodyForBar(bar:number){
   const taps=(captureTaps.value as HeldCapture[]).filter(t=>t.bar===bar&&Number.isInteger(t.pitch));
   const inferred=melodyFromTaps(taps.filter(t=>t.duration===undefined),bar,project.value.beats,captureGrid(bar));
-  return [...inferred,...taps.filter(t=>t.duration!==undefined).map(t=>({beat:t.beat,pitch:t.pitch!,duration:t.duration!}))]
+  return [...inferred.map(t=>({...t,held:false})),...taps.filter(t=>t.duration!==undefined).map(t=>({beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:true}))]
     .sort((a,b)=>a.beat-b.beat||a.pitch-b.pitch);
 }
 
@@ -1153,46 +1174,57 @@ function captureTap(pitch?:number){
 }
 function capturePointerTap(event:PointerEvent,pitch?:number){if(!event.isPrimary||event.button!==0)return;captureTap(pitch);}
 function captureKeyboardClick(event:MouseEvent,pitch?:number){if(event.detail===0)captureTap(pitch);}
+function ensureCaptureKeySynth(){
+ if(!captureKeySynth){
+   captureKeySynth=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.07,sustain:0.92,release:0.22}}).toDestination();
+   captureKeySynth.volume.value=-11;
+ }
+ return captureKeySynth;
+}
 function capturePianoKey(event:PointerEvent,pitch:number){
-  if(event.button!==0)return;
-  capturePitch.value=pitch;
-  if(!capturePlaying.value){void auditionPitch(pitch);return;}
-  const started=captureElapsedBeats();
-  if(started<0)return;
-  beginMelodyPassOnNote(started);
-  heldCaptureKeys.set(event.pointerId,{pitch,started});
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  // Live key monitoring must follow pointer down/up, not a fixed-length audition.
-  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
-  captureKeySynth?.triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.7);
+ if(event.button!==0)return;
+ capturePitch.value=pitch;
+ const started=capturePlaying.value?captureElapsedBeats():-1;
+ if(capturePlaying.value&&started<0)return;
+ if(started>=0)beginMelodyPassOnNote(started);
+ const id=event.pointerId;
+ heldCaptureKeys.set(id,{pitch,started});
+ try{(event.currentTarget as HTMLElement).setPointerCapture(id);}catch{/* Released before capture. */}
+ const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+ // Key monitoring is independent of the recording loop and stops on pointerup.
+ if(Tone&&captureKeySynth)ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
+ else void startAudioFromGesture().then(tone=>{
+   Tone=tone;
+   if(!heldCaptureKeys.has(id))return;
+   ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
+ }).catch(error=>{captureFeedback.value='Audio preview unavailable: '+String(error);heldCaptureKeys.delete(id);});
 }
 function releaseCapturePianoKey(event:PointerEvent){
-  const held=heldCaptureKeys.get(event.pointerId);
-  if(!held)return;
-  heldCaptureKeys.delete(event.pointerId);
-  const transposed=Math.max(0,Math.min(127,held.pitch+(project.value.transposeSemitones??0)));
-  captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
-  if(!capturePlaying.value)return;
-  const total=(captureLast.value-captureFirst.value+1)*project.value.beats;
-  const start=Math.max(0,held.started);
-  const end=Math.max(start,captureElapsedBeats());
-  let position=((start%total)+total)%total;
-  const startBar=captureFirst.value+Math.floor(position/project.value.beats);
-  const grid=captureGrid(startBar);
-  const snappedStart=Math.round(position/grid)*grid;
-  const duration=Math.max(grid,Math.round((end-start)/grid)*grid);
-  // Split held notes across measures; the score model stores measure-local notes.
-  let cursor=snappedStart,remaining=duration;
-  while(remaining>0.00001){
-    const local=((cursor%total)+total)%total;
-    const bar=captureFirst.value+Math.floor(local/project.value.beats);
-    const beat=Number((local%project.value.beats).toFixed(6));
-    const segment=Math.min(remaining,project.value.beats-beat);
-    const tap:HeldCapture={bar,beat,pitch:held.pitch,duration:Number(segment.toFixed(6))};
-    captureTaps.value=addCapturedTap(captureTaps.value,tap,'melody');
-    remaining-=segment;cursor+=segment;
-  }
-  captureFeedback.value=`Recorded ${midiName(held.pitch)} for ${duration} beats.`;
+ const held=heldCaptureKeys.get(event.pointerId);
+ if(!held)return;
+ heldCaptureKeys.delete(event.pointerId);
+ const transposed=Math.max(0,Math.min(127,held.pitch+(project.value.transposeSemitones??0)));
+ if(Tone)captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
+ if(!capturePlaying.value||held.started<0)return;
+ const total=(captureLast.value-captureFirst.value+1)*project.value.beats;
+ const start=Math.max(0,held.started);
+ const end=Math.max(start,captureElapsedBeats());
+ let position=((start%total)+total)%total;
+ const startBar=captureFirst.value+Math.floor(position/project.value.beats);
+ const grid=captureGrid(startBar);
+ const snappedStart=Math.round(position/grid)*grid;
+ const duration=Math.max(grid,Math.round((end-start)/grid)*grid);
+ let cursor=snappedStart,remaining=duration;
+ while(remaining>0.00001){
+   const local=((cursor%total)+total)%total;
+   const bar=captureFirst.value+Math.floor(local/project.value.beats);
+   const beat=Number((local%project.value.beats).toFixed(6));
+   const segment=Math.min(remaining,project.value.beats-beat);
+   const tap:HeldCapture={bar,beat,pitch:held.pitch,duration:Number(segment.toFixed(6))};
+   captureTaps.value=addCapturedTap(captureTaps.value,tap,'melody');
+   remaining-=segment;cursor+=segment;
+ }
+ captureFeedback.value=`Recorded ${midiName(held.pitch)} for ${duration} beats.`;
 }
 function capturePianoKeyClick(event:MouseEvent,pitch:number){
   if(event.detail!==0)return;
@@ -1248,8 +1280,11 @@ function applyCapturedMelody(){
     // captured notes. Never append to the previous generated/imported score.
     let next=project.value,source=score.value,count=0;
     for(const b of bars){
-      const notes=capturedMelodyForBar(b).map(t=>
-        suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration));
+      const notes=capturedMelodyForBar(b).map(t=>{
+        const note=suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration);
+        if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
+        return note;
+      });
       next=replaceInstrumentMeasure(next,source,noteInst.value,b,notes);
       source=next.generatedScore??source;
       count+=notes.length;
@@ -2120,7 +2155,7 @@ function instrumentSynth(inst:string):PolySynth{
   const oscillator=name.includes('violin')||name.includes('voice')?'sawtooth':name.includes('bandoneon')?'square':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
   const attack=name.includes('violin')?0.08:name.includes('bandoneon')?0.035:name.includes('voice')?0.09:0.008;
   const release=name.includes('violin')?0.32:name.includes('bandoneon')?0.17:name.includes('bass')?0.18:0.12;
-  const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:0.12,sustain:0.65,release}}).toDestination();
+  const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:name.includes('violin')?0.045:0.12,sustain:name.includes('violin')?0.93:0.72,release}}).toDestination();
   voice.volume.value=-7+instrumentGainDb(inst);
   instrumentSynths.set(inst,voice);
   return voice;
@@ -2180,10 +2215,11 @@ async function prepareSamples(instruments:string[]){
  const results=await Promise.all(instruments.map(loadSamples));
  sampleStatus.value=results.every(Boolean)?'Sampled instruments ready':results.some(Boolean)?'Some samples unavailable; using synth fallback':'Samples unavailable; using synth fallback';
 }
-function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number){
- // One-shot sample buffers cannot reliably sustain beyond their recorded tail.
- // Keep the sample attack for short notes, use a proper ADSR voice for long ones.
- const sampler=audioEngine.value==='samples'&&!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
+function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
+ // Finite violin sample tails cannot sustain a bow stroke. Explicit pizzicato
+ // remains a percussive sample until separate style banks are licensed.
+ const bowedViolin=inst.toLowerCase().includes('violin')&&technique!=='pizzicato';
+ const sampler=audioEngine.value==='samples'&&!bowedViolin&&!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
  if(sampler)sampler.triggerAttackRelease(Tone.Frequency(pitch,'midi').toNote(),duration,time,velocity);
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }
@@ -2230,8 +2266,8 @@ async function play(origin:PlaybackOrigin){
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value),velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
-        else triggerInstrument(inst,event.pitch,event.durationSeconds?playbackDuration(event.durationSeconds,rehearsalSpeed.value):defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
+          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:defaultDuration,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
+        else triggerInstrument(inst,event.pitch,defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127,n.technique);
       },whenTicks);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
@@ -2303,7 +2339,7 @@ async function toggleNoteLoop(){
   try{
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession||active.value!=='notes')return;
-    loopSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    loopSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.07,sustain:0.9,release:0.23}}).toDestination();
     loopSynth.volume.value=-9;
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
@@ -2663,6 +2699,7 @@ function setDuckingReduction(e:Event){project.value.melodyDucking??={enabled:tru
 const currentExpressionRanges=computed(()=>project.value.expressionRanges?.map((r,index)=>({...r,index})).filter(r=>r.instrument===noteInst.value)??[]);
 const slideSupported=computed(()=>noteInst.value!=='Piano'&&selectedEvent.value?.technique!=='pizzicato');
 const noteInst=ref<Instrument>('Violin I');
+watch(noteInst,inst=>{try{localStorage.setItem('tango-last-note-instrument',inst);}catch{/* Storage disabled. */}});
 const noteEditorRegion=ref<HTMLElement|null>(null);
 const noteStep=ref(0.5);
 const noteRhythmPreset=ref<'off'|RhythmPreset>('off');
@@ -3343,19 +3380,75 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
     </details>
     <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
-    <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span class="header-save-status" role="status">{{audioEngine==='samples'?sampleStatus:'Original synthesizer selected'}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span class="header-save-status" role="status">{{audioStatus}}</span></div></details>
+    <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span v-if="audioEngine==='samples'&&/unavailable/i.test(sampleStatus)" class="header-save-status" role="status">{{sampleStatus}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span v-if="/fail|unavailable|error/i.test(audioStatus)" class="header-save-status" role="alert">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
     <label class="sr-only" for="header-song-picker">Song</label><select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
     <button class="secondary icon-action" type="button" title="Create new blank song" aria-label="New blank song" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/></button>
     <button class="secondary icon-action" type="button" title="Save current song now" aria-label="Save song now" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/></button>
-    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span class="header-save-status" role="status">{{saveStatus}}</span></div></details>
+    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
   <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Import and export">
-    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import / MuseScore round-trip</button><button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> Export MusicXML</button><button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Export compressed MusicXML (.mxl)</button><button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> Experimental MuseScore (.mscz)</button>
-      <button type="button" class="secondary" @click="exportDifficultyEditionPack"><AppIcon name="file-down"/> Printable difficulty editions (.zip)</button>
-      <button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge">Undo last MusicXML merge</button><label>Single-instrument MuseScore (.mscz) <select @change="($event.target as HTMLSelectElement).value && exportMscz(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).value=''"><option value="">Choose instrument to export…</option><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label><button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> Export ABC lead sheet</button><button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> Export for MobileSheets (ABC parts ZIP)</button><button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Export .tango.json backup</button></div></details>
+    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+      <summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions">
+        <div class="files-action-group"><strong class="files-group-title">Bring music in</strong>
+          <button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import project, MusicXML or MIDI…</button>
+          <button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button>
+        </div>
+        <div class="files-action-group"><strong class="files-group-title">Scores for notation software</strong>
+          <button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> MusicXML (.musicxml)</button>
+          <button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Compressed MusicXML (.mxl)</button>
+          <button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> MuseScore (.mscz) · experimental</button>
+          <label>Export one instrument (.mscz)
+            <select aria-label="Choose instrument to export as MuseScore" @change="($event.target as HTMLSelectElement).value && exportMscz(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).value=''">
+              <option value="">Choose instrument…</option>
+              <option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option>
+            </select>
+          </label>
+          <button type="button" class="secondary" @click="exportDifficultyEditionPack"><AppIcon name="file-down"/> Difficulty editions (.zip)</button>
+        </div>
+        <div class="files-action-group"><strong class="files-group-title">Lead sheets &amp; project backup</strong>
+          <button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> ABC lead sheet</button>
+          <button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> MobileSheets parts (.zip)</button>
+          <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Portable project (.tango.json)</button>
+        </div>
+      </div>
+    </details>
+  </div>
+  <div class="topbar-compact-actions" role="group" aria-label="Additional workspace actions">
+    <details class="topbar-menu compact-workspace-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+      <summary class="icon-action compact-workspace-summary" title="More workspace actions" aria-label="More workspace actions"><AppIcon name="ellipsis"/></summary>
+      <div class="topbar-menu-panel compact-workspace-panel" @click="closeTopbarMenuOnAction($event)">
+        <template v-if="!performanceMode">
+          <strong class="files-group-title">Song &amp; workspace</strong>
+          <label>Current song<select :value="localSongId" :disabled="!libraryReady" @change="chooseSongFromPicker" aria-label="Choose song from local library">
+            <option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option>
+          </select></label>
+          <button type="button" class="secondary" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/> New blank song</button>
+          <button type="button" class="secondary" @click="saveNow"><AppIcon name="save"/> Save current song</button>
+          <button type="button" class="secondary" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button>
+          <button type="button" class="secondary" @click="regenerate"><AppIcon name="refresh-cw"/> Generate orchestra</button>
+          <button type="button" class="secondary" @click="performanceMode=true"><AppIcon name="presentation"/> Performance mode</button>
+          <button type="button" class="secondary" @click="projectDrawerOpen=true"><AppIcon name="settings"/> Song settings</button>
+          <button type="button" class="secondary" @click="compactHelp=!compactHelp"><AppIcon name="circle-help"/> {{compactHelp?'Show explanations':'Hide explanations'}}</button>
+          <div class="compact-audio-group" @click.stop>
+            <strong class="files-group-title">Audio</strong>
+            <label>Playback engine<select v-model="audioEngine" @change="stopPlayback"><option value="samples">Samples</option><option value="synth">Synth</option></select></label>
+            <details><summary>Instrument mix</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="compact-instrument-mix"><label :for="'compact-mix-'+inst">{{rosterDisplayName(inst)}}</label><input :id="'compact-mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)"/><output>{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button></details>
+          </div>
+          <button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button>
+        </template>
+        <template v-else>
+          <strong class="files-group-title">Performance display</strong>
+          <button type="button" class="secondary" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble diagrams</button>
+          <button type="button" class="secondary" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
+          <button type="button" class="secondary" @click="togglePerformanceFullscreen"><AppIcon name="maximize"/> {{performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Full screen'}}</button>
+          <button type="button" class="secondary" @click="performanceMode=false"><AppIcon name="arrow-left"/> Return to editor</button>
+        </template>
+      </div>
+    </details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-options" role="group" aria-label="Song settings and view">
     <button class="secondary icon-action header-settings" type="button" :aria-expanded="projectDrawerOpen" aria-controls="song-settings-modal" title="Settings for selected song" aria-label="Song settings" @click="projectDrawerOpen=!projectDrawerOpen"><AppIcon name="settings"/></button>
@@ -3376,7 +3469,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
   </div>
 </header>
-<div v-if="statusVisible && !statusDismissed && !performanceMode" class="topbar-status" :style="/\b(failed|error|invalid|cannot|could not)\b/i.test(message)?{background:'#fff0f0',color:'#9b1c1c',borderColor:'#e9a2a2'}:undefined" role="status" aria-live="polite"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
+<div v-if="statusVisible && !statusDismissed && !performanceMode && actionableError" class="topbar-status topbar-error-only" role="alert" aria-live="assertive"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
 <div v-if="projectDrawerOpen" class="app-modal-backdrop" @click.self="closeSongSettings" @keydown.esc.stop.prevent="closeSongSettings" @keydown.tab="trapModalTab">
   <section id="song-settings-modal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="song-settings-title">
     <div class="app-modal-heading"><div><h2 id="song-settings-title">Song settings</h2><p>{{project.title||'Untitled tango'}}</p></div><button class="secondary icon-action modal-close" type="button" title="Close song settings" aria-label="Close song settings" @click="closeSongSettings"><AppIcon name="x"/></button></div>
@@ -3900,26 +3993,35 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
   <section id="note-panel-expression" v-show="noteEditorTab==='expression'" role="tabpanel" aria-labelledby="note-tab-expression">
     <div class="figure-workbench" aria-label="Visual dynamics editor">
-      <h3>Dynamics timeline</h3>
-      <p class="hint">Edit by current musical role, individual instrument or whole orchestra. Role membership follows each section; instrument markings remain individually editable.</p>
+      <div class="dynamics-workbench-intro"><div><h3>Dynamics · shape the phrase</h3><p>Choose the musicians, then paint a measure. Use a hairpin when the loudness should evolve between notes.</p></div><div class="dynamics-current-measure">Editing <strong>M{{selectedBar+1}}</strong></div></div>
+      <p class="dynamics-workflow-step"><strong>1 · Who and how loud?</strong><span>Roles follow the orchestration; an instrument is always edited independently.</span></p>
       <div class="figure-controls">
         <label>Apply to<select v-model="dynamicsScope"><option value="role">Musical role</option><option value="instrument">Selected instrument</option><option value="all">Entire orchestra</option></select></label>
         <label v-if="dynamicsScope==='role'">Role<select v-model="dynamicsRole"><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></label>
         <label v-if="dynamicsScope==='instrument'">Instrument <strong>{{noteInst}}</strong></label>
         <label>Dynamic<select v-model="dynamicsMark"><option v-for="mark in dynamicMarks" :key="mark" :value="mark">{{mark}}</option></select></label>
       </div>
-      <div class="expression-range-row" style="display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">
-        <span>Tap a measure to set</span><button class="secondary" @click="applyDynamicsGesture('constant')">Level across range</button>
+      <div class="dynamics-quick-paint" role="group" aria-label="Set dynamics at the selected measure">
+        <span>Set M{{selectedBar+1}}:</span>
+        <button v-for="mark in ['pp','p','mp','mf','f','ff']" :key="mark" type="button" class="secondary"
+          :class="{'selected':dynamicsMark===mark}" :aria-label="'Set '+mark+' at measure '+(selectedBar+1)"
+          @click="dynamicsMark=mark as DynamicMark;applyDynamicsMarkToBar(selectedBar,mark)">{{mark}}</button>
+        <button type="button" class="secondary" @click="applyDynamicsMarkToBar(selectedBar,'')">Clear</button>
+      </div>
+      <p class="dynamics-workflow-step"><strong>2 · Tap a measure to paint</strong><span>Long press or use ⋯ for more options.</span></p>
+      <div class="expression-range-row dynamics-gesture-actions">
+        <span>Across selected range</span><button class="secondary" @click="applyDynamicsGesture('constant')">Level across range</button>
         <button class="secondary" @click="beginDynamicsHairpin('crescendo')">〈 Crescendo</button>
         <button class="secondary" @click="beginDynamicsHairpin('diminuendo')">〉 Diminuendo</button>
         <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:.4rem;margin:.75rem 0">
+      <div class="dynamics-timeline-tiles" role="group" aria-label="Dynamics of nearby measures">
         <div v-for="barIndex in dynamicsPreviewBars" :key="barIndex" class="dynamics-measure-tile">
-        <button type="button" class="secondary dynamics-measure-main" :style="{borderColor:barIndex===selectedBar?'var(--accent, #579d93)':undefined}" :aria-label="'Dynamics in measure '+(barIndex+1)+'; long press or right click for options'" :title="'Measure '+(barIndex+1)+' · right-click, long press or Shift+F10 for options'" @pointerdown="startDynamicsContextHold($event,'measure',barIndex)" @pointermove="dynamicsPress.move($event)" @pointerup="dynamicsPress.end($event)" @pointercancel="dynamicsPress.cancel()" @contextmenu.prevent.stop="openDynamicsContext('measure',barIndex)" @keydown="dynamicsContextKey($event,'measure',barIndex)" @click="clickDynamicsMeasure(barIndex)">
+        <button type="button" class="secondary dynamics-measure-main" :class="{'is-selected':barIndex===selectedBar}" :style="{'--dyn-alpha':stageDynamicAlpha(dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).find(Boolean)||'—')}" :aria-pressed="barIndex===selectedBar" :aria-label="'Dynamics in measure '+(barIndex+1)+'; long press or right click for options'" :title="'Measure '+(barIndex+1)+' · right-click, long press or Shift+F10 for options'" @pointerdown="startDynamicsContextHold($event,'measure',barIndex)" @pointermove="dynamicsPress.move($event)" @pointerup="dynamicsPress.end($event)" @pointercancel="dynamicsPress.cancel()" @contextmenu.prevent.stop="openDynamicsContext('measure',barIndex)" @keydown="dynamicsContextKey($event,'measure',barIndex)" @click="clickDynamicsMeasure(barIndex)">
           <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
           <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
           <small>{{dynamicsTargets(barIndex).length}} parts</small>
+          <span class="dynamics-tile-meter" aria-hidden="true"><span :style="{width:stageDynamicMeter(dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).find(Boolean)||'—')}"/></span>
         </button>
         <button type="button" class="secondary dynamics-more" :aria-label="'More dynamics options for measure '+(barIndex+1)" @click="openDynamicsContext('measure',barIndex)">⋯</button>
         </div>
@@ -5026,6 +5128,70 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .instrument-focus-dynamic-band{gap:5px}
  .instrument-focus-dynamic-band>span{padding:5px 8px;gap:5px}
  .instrument-focus-dynamic-band small{font-size:10px}
+}
+
+/* One-row transport. The existing full menus collapse into a compact workspace
+ * menu rather than forcing extra header rows on iPad/phone Safari. */
+.topbar-compact-actions{display:none}
+.files-organized-panel{min-width:min(340px,calc(100vw - 20px));max-height:min(75dvh,720px);overflow:auto}
+.files-action-group{display:flex;flex-direction:column;gap:4px;padding:5px 2px}
+.files-action-group+.files-action-group{border-top:1px solid #445b6e;padding-top:10px}
+.files-group-title{display:block;font-size:11px;font-weight:850;color:#eec991;letter-spacing:.04em;margin:3px 0;text-transform:uppercase}
+.files-organized-panel label,.compact-workspace-panel label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:#d4e2eb}
+.files-organized-panel select,.compact-workspace-panel select{max-width:100%;min-height:36px}
+.topbar-error-only{background:#3e272c!important;color:#ffdfdf!important;border-color:#c8797e!important}
+.dynamics-workbench-intro{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dynamics-workbench-intro h3{margin:0;font-size:clamp(18px,2.1vw,25px)}
+.dynamics-workbench-intro p{font-size:12px;color:#bed1de;margin:4px 0}
+.dynamics-current-measure{border-radius:8px;border:1px solid #687e8c;background:#273c4c;padding:9px;color:#c7d8e0;font-size:12px}
+.dynamics-current-measure strong{color:#ffe1ae;font-size:17px}
+.dynamics-workflow-step{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin:16px 0 8px;color:#d6e3ed}
+.dynamics-workflow-step strong{font-size:14px;color:#f3d4a0}
+.dynamics-workflow-step span{font-size:12px;color:#b4cad8}
+.dynamics-quick-paint{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:9px;border:1px solid #567083;border-radius:10px;background:#1d303e}
+.dynamics-quick-paint>span{font-size:12px;color:#cedfe9;font-weight:700;margin-right:7px}
+.dynamics-quick-paint button{min-width:42px;min-height:39px;font-size:16px;font-weight:750;font-style:italic;padding:4px 9px}
+.dynamics-quick-paint button.selected{background:#b99766;border-color:#efd29c;color:#182938}
+.dynamics-gesture-actions{padding:7px 0}
+.dynamics-timeline-tiles{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(108px,1fr);overflow-x:auto;overscroll-behavior-x:contain;gap:8px;margin:12px 0;padding-bottom:9px}
+.dynamics-timeline-tiles .dynamics-measure-tile{min-width:0}
+.dynamics-measure-tile .dynamics-measure-main{background:linear-gradient(140deg,rgb(244 188 113 / var(--dyn-alpha,.07)),transparent 82%),#283c4a;min-height:100px;width:100%;padding:9px 6px 15px}
+.dynamics-measure-tile .dynamics-measure-main.is-selected{border:2px solid #f0c88c!important;box-shadow:inset 0 0 0 1px #efd39f80}
+.dynamics-measure-main strong{font-size:clamp(16px,1.7vw,23px)!important;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dynamics-tile-meter{display:block;width:100%;height:6px;overflow:hidden;background:#172834;border:1px solid #4e667a;border-radius:99px;margin-top:5px}
+.dynamics-tile-meter span{display:block;height:100%;background:#e7bf87}
+@media(max-width:1120px){
+ .app-topbar,.performance-live .app-topbar{display:flex!important;flex-wrap:nowrap!important;align-items:center;gap:5px!important;padding:6px 8px!important;min-height:55px;max-width:100%;overflow:visible}
+ .app-topbar .brand,.app-topbar .topbar-song,.app-topbar .topbar-arrange,.app-topbar .topbar-options{display:none!important}
+ .app-topbar .topbar-playback{display:flex!important;flex:0 0 auto!important;order:0!important;grid-area:auto!important;width:auto!important;min-width:0;padding:0!important;border:0!important;margin:0!important;gap:4px}
+ .app-topbar .topbar-playback .playback-menu{display:none!important}
+ .app-topbar .topbar-files{display:flex!important;flex:0 0 auto!important;order:3!important;grid-area:auto!important;padding:0!important;border:0!important}
+ .app-topbar .topbar-files .files-label{display:none!important}
+ .app-topbar .topbar-files .files-summary{min-width:39px!important;min-height:42px!important}
+ .app-topbar .topbar-compact-actions{display:flex;flex:0 0 auto;order:4!important;margin-left:auto;min-width:0}
+ .app-topbar .compact-workspace-summary{min-width:41px;min-height:42px;justify-content:center}
+ .app-topbar .compact-workspace-panel{min-width:min(310px,calc(100vw - 16px));max-height:min(75dvh,700px);overflow-y:auto}
+ .compact-workspace-panel .compact-audio-group{display:grid;gap:8px;border-top:1px solid #4d6476;padding-top:8px}
+ .compact-workspace-panel .compact-instrument-mix{display:grid;grid-template-columns:minmax(90px,1fr) 95px auto;align-items:center;gap:5px}
+ .compact-instrument-mix output{font-size:11px}
+ .app-topbar .topbar-playback .performance-topbar-button{display:none!important}
+ .app-topbar .performance-topbar-song-title{display:block;order:1!important;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0!important;font-size:clamp(12px,1.5vw,18px)}
+ .app-topbar .performance-topbar-actions{display:none!important}
+ .app-topbar .playback-speed-menu{display:block!important;order:2!important}
+ .app-topbar .topbar-playback .transport-play,.app-topbar .topbar-playback .transport-stop{width:39px!important;min-width:39px!important;height:42px!important;min-height:42px!important}
+ .app-topbar .playback-speed-summary{min-width:63px!important;min-height:42px!important}
+}
+@media(max-width:640px){
+ .app-topbar .performance-topbar-song-title{display:none!important}
+ .app-topbar .topbar-playback .transport-play,.app-topbar .topbar-playback .transport-stop{width:36px!important;min-width:36px!important}
+ .app-topbar .topbar-playback{gap:2px!important}
+ .app-topbar .playback-speed-summary{min-width:56px!important;padding:4px 6px!important}
+ .app-topbar .topbar-files .files-summary{min-width:36px!important}
+ .app-topbar .compact-workspace-summary{min-width:38px!important}
+}
+@media(max-width:400px){
+ .app-topbar .topbar-playback .selected-play-measure{display:none}
+ .app-topbar .topbar-playback .transport-play,.app-topbar .topbar-playback .transport-stop{width:34px!important;min-width:34px!important;padding:4px!important}
 }
 
 </style>

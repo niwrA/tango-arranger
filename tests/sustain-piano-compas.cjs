@@ -21,12 +21,12 @@ check('other sustaining voices have synth fallback; piano remains percussive',()
 });
 check('sample routing applies only to tone generation; note timing is unchanged',()=>{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
- assert.ok(app.includes("audioEngine.value==='samples'&&!needsSustainingSynth(inst,duration)"));
+ assert.ok(app.includes("audioEngine.value==='samples'&&!bowedViolin&&!needsSustainingSynth(inst,duration)"));
  assert.ok(app.includes("instrumentSynth(inst).triggerAttackRelease"));
  assert.ok(app.includes("sampler.triggerAttackRelease"));
  assert.ok(app.includes('playbackDuration(event.durationSeconds,rehearsalSpeed.value)'));
  assert.ok(app.includes('captureKeySynth?.triggerRelease('));
- assert.ok(app.includes('captureKeySynth?.triggerAttack('));
+ assert.ok(app.includes('ensureCaptureKeySynth().triggerAttack('));
  assert.ok(app.includes('sustain:0.85,release:0.25'));
 });
 function make(beats,profile='traditional'){
