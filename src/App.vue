@@ -1173,6 +1173,7 @@ async function startCaptureTransport(recording:boolean){
     transport.scheduleRepeat(time=>{
       const b=first+measure%(last-first+1);measure++;
       const currentScore=score.value;
+       if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
       for(const inst of INSTRUMENTS){
         const events=measureLoopEvents(currentScore[inst]??[],b,project.value.beats,project.value.bpm,
           project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value);
@@ -1224,6 +1225,7 @@ async function startCaptureTransport(recording:boolean){
 }
 // Microphone audio is local to the browser; no audio is uploaded.
 const captureInputSource=ref<'instrument'|'microphone'>('instrument');
+const captureMuteBacking=ref(true);
 const microphoneStatus=ref('');
 const microphoneDetectedPitch=ref<number|null>(null);
 let microphoneStream:MediaStream|null=null;
@@ -4639,7 +4641,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="editor live-capture" aria-label="Tap melody recording">
       <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
         <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
-        <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing or play one note at a time. Use headphones to avoid capturing accompaniment. Detected notes remain a draft until Apply.</p>
+        <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
+        <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
         <p v-if="captureInputSource==='microphone'&&microphoneDetectedPitch!==null" role="status">Detected pitch: {{midiName(microphoneDetectedPitch)}}</p>
         <p v-if="microphoneStatus" role="status">{{microphoneStatus}}</p>
       </div>
