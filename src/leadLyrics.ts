@@ -23,6 +23,10 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
       }
       if(part.startsWith('[')&&part.endsWith(']')){
         const chord=part.slice(1,-1).trim();
+        // Section headings are document structure, not musical harmony.
+        if(/^(?:verse|chorus|refrain|bridge|intro|outro|instrumental|interlude|solo|pre-chorus|coda|ending|section)\b/i.test(chord)){
+          explicitBeat=false;continue;
+        }
         if(chord)chords.push({chord,line:lineNumber,start:beat,...(explicitBeat?{absolute:true}:{})});
         explicitBeat=false;
         continue;
@@ -125,4 +129,37 @@ export function leadLyricsFromSong(project:Project,score:Score,voice:Instrument,
    lines.push(line.trim()+(bar<project.bars.length-1?' ||':''));
  }
  return lines.join('\n');
+}
+
+/** Build a readable text projection of the source. Collapse consecutive
+ * chord-only measures as an instrumental passage instead of repeating blank
+ * lyric lines. This is a presentation transform; source timing is untouched.
+ */
+export function readableLeadSheet(source:string):string {
+ const lines=source.replace(/\r\n?/g,'\n').split('\n');
+ const out:string[]=[];
+ let instrumental:string[]=[];
+ const flush=()=>{
+   if(!instrumental.length)return;
+   out.push('[Instrumental · '+instrumental.length+' measure'+(instrumental.length===1?'':'s')+']');
+   out.push(instrumental.map(line=>line.replace(/\[([^\]]+)\]/g,'$1').replace(/\|\|/g,'').trim()).join('  |  '));
+   out.push('');
+   instrumental=[];
+ };
+ for(const original of lines){
+   const line=original.replace(/\|\|/g,'').trim();
+   const withoutChords=line.replace(/\[[^\]]+\]/g,'').trim();
+   const chordOnly=line&&/\[[A-Ga-g][^\]]*\]/.test(line)&&!withoutChords;
+   if(chordOnly){instrumental.push(line);continue;}
+   flush();
+   // Standalone [Verse] / [Chorus] headings are document labels.
+   if(/^\[(?:verse|chorus|bridge|intro|outro|instrumental|interlude|solo|pre-chorus|coda|ending|section)[^\]]*\]$/i.test(line)){
+     if(out.length&&out[out.length-1]!=='')out.push('');
+     out.push(line);continue;
+   }
+   const converted=exportLeadLyricsTab(line);
+   out.push(converted.replace(/\s+\|\s*$/,'').trimEnd());
+ }
+ flush();
+ return out.join('\n').replace(/\n{3,}/g,'\n\n').trim();
 }

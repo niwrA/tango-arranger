@@ -50,7 +50,8 @@ import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,
 import {suggestViolinPosition} from './violinPositions';
 import {stageInstrumentName} from './stageInstrumentName';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
-import {parseLeadLyrics,exportLeadLyricsTab,positionLeadChords,lyricLineStarts,leadLyricsFromSong} from './leadLyrics';
+import {parseLeadLyrics,exportLeadLyricsTab,positionLeadChords,lyricLineStarts,leadLyricsFromSong,readableLeadSheet} from './leadLyrics';
+import {moveLeadSectionStart} from './leadSectionBoundary';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -1688,6 +1689,35 @@ function deleteLeadSection(i:number){
 }
 function copyChordsToSection(i:number){if(!copySectionMode.value||i===copySourceIndex.value)return;copyTargetIndex.value=i;applySectionChordCopy();}
 const collapsedLeadSections=ref<string[]>([]);
+function editLeadSectionStart(index:number,newStart:number){
+ try{
+   const current=sectionSpans(project.value)[index];
+   if(!current)return;
+   const updated=moveLeadSectionStart(project.value,index,newStart);
+   if(updated===project.value)return;
+   project.value=updated;
+   selectedBar.value=newStart;chosenSection.value=current.label;
+   message.value=`Moved the start of section ${current.label} to measure ${newStart+1}. Existing notes, chords and protected measure edits retain their absolute positions.`;
+ }catch(error){message.value='Cannot move section boundary: '+String(error);}
+}
+const leadDisplayMode=ref<'edit'|'sheet'>('edit');
+const leadPrintableSource=computed(()=>{
+ const stored=leadLyricsSource.value.trim()||project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source?.trim();
+ if(stored)return stored;
+ const voice=leadLyricsExisting.value;
+ return voice?leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value):'';
+});
+const leadPrintableText=computed(()=>readableLeadSheet(leadPrintableSource.value));
+function exportReadableLeadSheet(){
+ if(!leadPrintableText.value.trim()){message.value='No leadsheet text to export.';return;}
+ const filename=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();
+ download(project.value.title+'\n\n'+leadPrintableText.value,filename+'-leadsheet.txt','text/plain;charset=utf-8');
+}
+function printReadableLeadSheet(){
+ if(!leadPrintableText.value.trim()){message.value='No leadsheet text to print.';return;}
+ window.print();
+}
+
 function toggleLeadSectionCollapsed(label:string){
   collapsedLeadSections.value=collapsedLeadSections.value.includes(label)
     ?collapsedLeadSections.value.filter(x=>x!==label)
@@ -4073,6 +4103,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
 <section v-else-if="active==='lead'">
 <div class="lead-command-bar" role="group" aria-label="Lead sheet controls">
+  <div class="lead-display-switch" role="group" aria-label="Lead sheet view">
+    <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Edit measures</button>
+    <button type="button" :class="leadDisplayMode==='sheet'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='sheet'" @click="leadDisplayMode='sheet'">Readable leadsheet</button>
+  </div>
   <div class="lead-preview-controls" role="group" aria-label="Chord preview">
     <button type="button" class="secondary" title="Preview chords from the beginning" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button>
     <button type="button" class="secondary" title="Preview chords from the selected measure" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button>
@@ -4084,8 +4118,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <span class="lead-measure-count" aria-label="Number of measures">{{project.bars.length}} measures</span>
 </div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
-<div v-if="copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
-<details class="lead-lyrics-workspace" @toggle="onLeadLyricsToggle">
+<section v-if="leadDisplayMode==='sheet'" class="lead-printable" aria-label="Printable lead sheet">
+  <div class="lead-print-actions"><button type="button" class="secondary" @click="exportReadableLeadSheet">Export text</button><button type="button" class="primary" @click="printReadableLeadSheet">Print / Save as PDF</button></div>
+  <h2>{{project.title}}</h2>
+  <p class="lead-print-meta">{{project.beats}}/4 · {{project.bpm}} BPM · {{project.bars.length}} measures</p>
+  <pre v-if="leadPrintableText.trim()" class="lead-sheet-typography">{{leadPrintableText}}</pre>
+  <p v-else class="muted">No lyrics entered yet. Open the editable Lyrics &amp; Chords workspace, paste a leadsheet or load existing Voice lyrics.</p>
+</section>
+<div v-if="leadDisplayMode==='edit'&&copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
+<details v-if="leadDisplayMode==='edit'" class="lead-lyrics-workspace" @toggle="onLeadLyricsToggle">
   <summary>Lyrics &amp; chords · editable song source</summary>
   <p class="hint">Paste ordinary song lyrics with chords in square brackets, such as [D]Donde el río se queda. Line breaks are preserved but do not end a measure. The editor aligns words to existing Voice notes automatically; add | only to clarify note-group boundaries and || only to force a measure boundary. Hyphens split sung syllables. Existing melody pitches and timing are preserved when selected; otherwise C4 notes are editable placeholders.</p>
   <div class="lead-lyrics-toolbar">
@@ -4105,11 +4146,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="!!leadLyricsValidation" @click="applyLeadLyrics">Apply lyric alignment to Voice notes</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
 </details>
-<div class="lead-sections">
+<div v-if="leadDisplayMode==='edit'" class="lead-sections">
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
     <div :class="['lead-section-heading',{'lead-copy-source':copySectionMode&&copySourceIndex===si}]">
       <div class="lead-section-title"><button type="button" class="lead-section-collapse" :aria-expanded="!collapsedLeadSections.includes(span.label)" :title="collapsedLeadSections.includes(span.label)?'Expand section':'Collapse section'" @click="toggleLeadSectionCollapsed(span.label)">{{collapsedLeadSections.includes(span.label)?'▸':'▾'}}</button><button type="button" :class="['lead-section-select',{'is-selected':project.bars[selectedBar]?.section===span.label}]" :aria-pressed="project.bars[selectedBar]?.section===span.label" :aria-label="copySectionMode&&copySourceIndex!==si?`Paste copied chords into section ${sectionLetter(si)}`:`Select section ${sectionLetter(si)}, measures ${span.start+1} to ${span.start+span.measures}`" @click="onLeadSectionHeaderClick(si)"><strong class="lead-section-letter">{{sectionLetter(si)}}</strong><span><strong>Section {{span.label}}</strong><small>Measures {{span.start+1}}–{{span.start+span.measures}} · {{span.measures}} measures</small></span></button></div>
-      <div class="lead-section-actions"><button type="button" class="secondary lead-section-copy" :disabled="sectionSpans(project).length>=26||project.bars.length+span.measures>512" :title="`Duplicate section ${sectionLetter(si)} at the end of the song`" @click="duplicateLeadSection(si)"><AppIcon name="copy"/> Copy section</button><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button><button type="button" class="secondary lead-section-copy lead-delete-section" :disabled="sectionSpans(project).length<=1" :aria-label="`Delete section ${sectionLetter(si)}`" @click="deleteLeadSection(si)"><AppIcon name="trash"/> Delete section</button></div>
+      <div class="lead-section-actions"><label v-if="si>0" class="lead-section-start-control">Starts at measure <input type="number" :min="sectionSpans(project)[si-1].start+2" :max="span.start+span.measures" :value="span.start+1" :aria-label="`Start measure for section ${span.label}`" @change="editLeadSectionStart(si,Number(($event.target as HTMLInputElement).value)-1)"/></label><button type="button" class="secondary lead-section-copy" :disabled="sectionSpans(project).length>=26||project.bars.length+span.measures>512" :title="`Duplicate section ${sectionLetter(si)} at the end of the song`" @click="duplicateLeadSection(si)"><AppIcon name="copy"/> Copy section</button><button v-if="!copySectionMode" type="button" class="secondary lead-section-copy" :aria-label="`Copy chords from section ${sectionLetter(si)}`" :title="`Copy chords from section ${sectionLetter(si)}`" @click="beginSectionCopy(si)"><AppIcon name="copy"/> Copy chords</button><button v-else-if="copySourceIndex===si" type="button" class="secondary lead-section-copy" @click="cancelSectionCopy">Cancel copy</button><button v-else type="button" class="primary lead-section-copy" :aria-label="`Copy chords into section ${sectionLetter(si)}`" @click="copyChordsToSection(si)"><AppIcon name="copy"/> Paste into {{sectionLetter(si)}}</button><button type="button" class="secondary lead-section-copy lead-delete-section" :disabled="sectionSpans(project).length<=1" :aria-label="`Delete section ${sectionLetter(si)}`" @click="deleteLeadSection(si)"><AppIcon name="trash"/> Delete section</button></div>
       <label class="lead-key-label">Key signature<select :value="keyForSection(span.label)" :aria-label="`Key for section ${span.label}`" @change="setSectionKey(span.label,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label>
     </div>
     <div v-if="!collapsedLeadSections.includes(span.label)" class="lead-measure-grid">
@@ -5805,4 +5846,21 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 
 .lead-melody-advanced-notation{margin:9px 0;padding:9px;border:1px solid #5c7383;border-radius:8px}
 .lead-melody-advanced-notation>summary{font-weight:750;cursor:pointer;font-size:12px}
+/* A readable, exportable document shares the editor's lyrics and harmony. */
+.lead-display-switch{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.lead-section-start-control{display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+.lead-section-start-control input{width:74px;min-width:60px;min-height:36px;margin:0;padding:5px 7px}
+.lead-printable{color:#202934;background:#faf9f5;border:1px solid #bac2c8;border-radius:12px;padding:clamp(18px,4vw,48px);max-width:900px;margin:18px auto}
+.lead-printable h2{color:#202934;margin:0;font-size:27px}
+.lead-print-meta{color:#526170;font-size:13px;margin:6px 0 20px}
+.lead-print-actions{display:flex;justify-content:flex-end;gap:8px;margin-bottom:14px}
+.lead-sheet-typography{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:clamp(13px,1.55vw,17px);font-weight:500;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;color:#202934;tab-size:4}
+@media print {
+ @page{margin:17mm}
+ body *{visibility:hidden!important}
+ .lead-printable,.lead-printable *{visibility:visible!important}
+ .lead-printable{position:absolute;top:0;left:0;width:100%;max-width:none;box-shadow:none;border:0;padding:0;margin:0;background:white;color:black}
+ .lead-print-actions{display:none!important}
+ .lead-sheet-typography{font-size:11pt;line-height:1.5;white-space:pre-wrap;overflow-wrap:normal}
+}
 </style>
