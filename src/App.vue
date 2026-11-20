@@ -3341,7 +3341,12 @@ function openLeadLyrics(){
   const saved=project.value.leadLyrics?.[String(leadLyricsVerse.value)];
   leadLyricsSource.value=saved?.source??leadLyricsSource.value;
   leadLyricsUseMelody.value=saved?.useExistingMelody??Boolean(leadLyricsMatches.value.length);
-  leadLyricsOpen.value=true;
+  // The native <details> element owns its open state; this flag tracks visibility.
+}
+function onLeadLyricsToggle(event:Event){
+  const opened=(event.currentTarget as HTMLDetailsElement).open;
+  leadLyricsOpen.value=opened;
+  if(opened)openLeadLyrics();
 }
 watch(leadLyricsVerse,()=>{if(leadLyricsOpen.value)openLeadLyrics();});
 function applyLeadLyrics(){
@@ -4047,8 +4052,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <span class="lead-measure-count" aria-label="Number of measures">{{project.bars.length}} measures</span>
 </div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
 <div v-if="copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
-<details class="lead-lyrics-workspace" :open="leadLyricsOpen" @toggle="leadLyricsOpen=($event.target as HTMLDetailsElement).open">
-  <summary @click="!leadLyricsOpen&&openLeadLyrics()">Lyrics &amp; chords · editable song source</summary>
+<details class="lead-lyrics-workspace" @toggle="onLeadLyricsToggle">
+  <summary>Lyrics &amp; chords · editable song source</summary>
   <p class="hint">Paste the full song. Put chords in square brackets (for example [Am]), use a hyphen to split syllables, a vertical bar between note positions and || to start the next measure. Original line breaks are kept for karaoke and text export. Preview uses existing Voice melody pitches when enabled; otherwise C4 is an editable placeholder.</p>
   <div class="lead-lyrics-toolbar">
     <label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label>

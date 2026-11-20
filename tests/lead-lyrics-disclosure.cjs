@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const app=fs.readFileSync('src/App.vue','utf8');
+const section=app.slice(app.indexOf('<details class="lead-lyrics-workspace"'),app.indexOf('<div class="lead-sections">'));
+assert.ok(section.startsWith('<details class="lead-lyrics-workspace" @toggle="onLeadLyricsToggle">'),'native details must control its own open state');
+assert.ok(section.includes('<summary>Lyrics &amp; chords · editable song source</summary>'));
+assert.ok(!section.includes(':open="leadLyricsOpen"'),'do not bind open reactively');
+assert.ok(!section.includes('<summary @click='),'do not toggle state from summary click');
+assert.ok(app.includes('leadLyricsOpen.value=opened;'),'Vue tracks browser visibility');
+assert.ok(app.includes('if(opened)openLeadLyrics();'),'restore saved lyrics when opening');
+assert.ok(app.includes('watch(leadLyricsVerse,()=>{if(leadLyricsOpen.value)openLeadLyrics();});'),'verse switching remains supported');
+console.log('PASS native Lyrics & Chords disclosure opens without Vue click race');
