@@ -42,10 +42,11 @@ async function check(label,task){await task();checks++;console.log('PASS',label)
 
 (async()=>{
  await check('legacy songs without a phrase plan retain their exact generated notes',()=>{
-  // Recorded from main 83933c03e43e9cb2644cc4a8146357e7b74b5975 before
-  // planner integration, including every instrument, articulation and gate.
+  // Baseline updated after Piano acquired its full A0-C8 range. The previous
+  // fingerprint covered an artificially restricted range (MIDI 43-85), so
+  // different piano voicings are expected while generation remains deterministic.
   assert.equal(fingerprint(music.generate(music.demoProject())),
-   '7aa529c4d1d4f57a13715ba118ef3b8d36f600bac295839aa71cd5726c41b93a');
+   '7d883b0eae374a5a6135f56f2bc0ba0ad94487f2ddb6e122cece7768dc147405');
   const p=song([3]);assert.equal(planning.phraseAt(p,0),undefined);
   assert.equal(planning.effectiveRole(p,'Violin I',0),'melody');
   assert.deepEqual(music.generate({...p,phrasePlan:undefined}),music.generate(p));
