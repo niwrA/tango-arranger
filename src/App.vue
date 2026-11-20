@@ -1305,9 +1305,9 @@ async function recordFromMicrophone(monitorOnly=false){
    microphoneInputDb.value=rms>0?Math.max(-90,Math.round(20*Math.log10(rms))):-90;
    microphoneInputLevel.value=Math.max(0,Math.min(100,Math.round((microphoneInputDb.value+60)/60*100)));
    // Sensitivity controls the minimum usable input level, independently of the display meter.
-   // -60 dBFS at maximum sensitivity; -30 dBFS at minimum sensitivity.
-   const minimumRms=Math.pow(10,(-30-microphoneSensitivity.value*0.3)/20);
-   const gain=rms>=minimumRms?Math.min(32,0.08/rms):0;
+   // -80 dBFS at maximum sensitivity; -30 dBFS at minimum sensitivity.
+   const minimumRms=Math.pow(10,(-30-microphoneSensitivity.value*0.5)/20);
+   const gain=rms>=minimumRms?Math.min(128,0.08/rms):0;
    const pitchSamples=new Float32Array(samples.length);
    if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
    const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,32.7,4200):null;
@@ -1545,6 +1545,37 @@ const vocalAlignmentSource=computed(()=>{
  return voice?(score.value[voice]??[]).filter(n=>n.lyric&&n.start>=captureFirst.value*project.value.beats&&n.start<(captureLast.value+1)*project.value.beats).sort((a,b)=>a.start-b.start):[];
 });
 const vocalCapturedNotes=computed(()=>captureBarNumbers.value.flatMap(b=>capturedMelodyForBar(b).map(t=>({bar:b,...t}))).sort((a,b)=>(a.bar-b.bar)*project.value.beats+a.beat-b.beat));
+// Portable diagnostic take: only musical events and capture settings, never microphone audio.
+const captureTakeExport=computed(()=>JSON.stringify({
+  format:'tango-arranger-melody-take',version:1,
+  instrument:noteInst.value,tempoBpm:project.value.bpm,beatsPerMeasure:project.value.beats,
+  measures:{from:captureFirst.value+1,to:captureLast.value+1},
+  input:captureInputSource.value,
+  sensitivityPercent:captureInputSource.value==='microphone'?microphoneSensitivity.value:null,
+  notes:vocalCapturedNotes.value.map(n=>({
+    measure:n.bar+1,beat:Number((n.beat+1).toFixed(3)),
+    pitchMidi:n.pitch,pitchName:midiName(n.pitch),durationBeats:n.duration??null,
+    ...(n.stringMidi!==undefined?{stringMidi:n.stringMidi}:{})
+  }))
+},null,2));
+const captureTakeCopyStatus=ref('');
+async function copyCaptureTake(){
+  try{
+    await navigator.clipboard.writeText(captureTakeExport.value);
+    captureTakeCopyStatus.value='Copied note data. Paste it into ChatGPT for analysis.';
+  }catch{
+    captureTakeCopyStatus.value='Clipboard unavailable. Select and copy the JSON text below.';
+  }
+}
+const captureTakeWarnings=computed(()=>{
+  const notes=vocalCapturedNotes.value;
+  const issues:string[]=[];
+  const short=notes.filter(n=>n.duration!==undefined&&n.duration<=0.25).length;
+  if(short>=3)issues.push(short+' short notes (≤ 0.25 beat) may include pitch-tracking fragments.');
+  const jumps=notes.slice(1).filter((n,i)=>Math.abs(n.pitch-notes[i].pitch)>=12).length;
+  if(jumps)issues.push(jumps+' octave-or-larger jumps: check for harmonic or octave detection errors.');
+  return issues;
+});
 // A draft index is explicit and editable: never silently claim exact syllable alignment.
 const vocalAlignmentIndices=ref<number[]>([]);
 watch([melodyCaptureTaps,noteLoopFrom,noteLoopTo],()=>{vocalAlignmentIndices.value=[]});
@@ -4686,7 +4717,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
         <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
         <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Microphone sensitivity: {{microphoneSensitivity}}% <input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
-        <p v-if="captureInputSource==='microphone'" class="hint">Increase sensitivity for quiet singing or whistling; reduce it if background noise produces false notes. Changes take effect immediately.</p>
+        <p v-if="captureInputSource==='microphone'" class="hint">Increase sensitivity for quiet singing or whistling (up to −80 dBFS); reduce it if background noise produces false notes. At very high sensitivity, noise may create spurious notes. Changes take effect immediately.</p>
         <button v-if="captureInputSource==='microphone'" type="button" class="secondary" :disabled="capturePlaying" @click="microphoneMonitoring?(stopMicrophoneCapture(),microphoneStatus='Microphone monitoring stopped.'):recordFromMicrophone(true)">{{microphoneMonitoring?'Stop microphone test':'Test microphone'}}</button>
         <p v-if="captureInputSource==='microphone'" class="hint">Use Test microphone to adjust sensitivity before recording, without starting playback or capturing notes. Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
         <div v-if="captureInputSource==='microphone'" class="capture-mic-monitor" aria-label="Microphone input monitor">
@@ -4783,6 +4814,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" class="capture-tap-pad" :disabled="!captureRecording||(active==='notes'&&captureInputSource==='microphone')" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
       <details class="capture-draft-review">
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
+      <div v-if="captureTakeWarnings.length" class="capture-feedback" role="status"><strong>Possible cleanup candidates (not changed automatically):</strong><p v-for="warning in captureTakeWarnings" :key="warning">{{warning}}</p></div>
+      <div class="capture-take-export">
+        <p class="hint">Copy the recorded notes as JSON to share for analysis. Includes measure, beat, MIDI pitch, note name and duration; no microphone audio is saved or exported.</p>
+        <button type="button" class="secondary" :disabled="!vocalCapturedNotes.length" @click="copyCaptureTake">Copy recorded notes for analysis</button>
+        <p v-if="captureTakeCopyStatus" role="status">{{captureTakeCopyStatus}}</p>
+        <details><summary>Show / manually copy note data</summary><textarea readonly rows="10" :value="captureTakeExport" aria-label="Recorded note data in JSON" style="width:100%;font-family:monospace"></textarea></details>
+      </div>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
   <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat<span v-if="n.stringMidi!==undefined"> · {{fingerboardStrings(noteInst).find(s=>s.midi===n.stringMidi)?.name??midiName(n.stringMidi)}} string</span><span v-if="n.approachSlideFrom!==undefined"> · port. {{midiName(n.approachSlideFrom)}} → {{midiName(n.pitch)}}</span><span v-if="n.vibrato"> · vibrato</span><span v-if="n.gesture"> · {{gestureLabel(n.gesture)}}</span></span><em v-if="!capturedMelodyForBar(b).length">No taps</em></div></div>
   <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
