@@ -14,7 +14,7 @@ import {version as appVersion} from '../package.json';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -483,9 +483,15 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
  const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
  const activePitches=playing.value?soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration):[];
+ // Keep the violin chart at one suggested hand position per measure rather
+ // than jumping to another string position on every note attack.
+ const violinMeasurePitches=instrumentFamily(part.inst)==='Violin'
+  ?notes.filter(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats).map(n=>n.pitch)
+  :[];
+ const violinPosition=violinMeasurePitches.length?suggestViolinPosition(Math.max(...violinMeasurePitches)):null;
  const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:rosterDisplayName(part.inst),playingInMeasure,activePitches,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:rosterDisplayName(part.inst),playingInMeasure,activePitches,violinPosition,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -3358,7 +3364,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span class="performance-card-role" :title="`Current role: ${part.role}`">{{part.role}}</span>
         <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones"/>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition"/>
       <template v-else>
         <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
         <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
