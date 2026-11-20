@@ -82,7 +82,7 @@ export function previewLeadSheetImport(
  const warnings:string[]=[],rows:Row[]=[],sourceLines:string[]=[];
  const titles:string[]=[];
  let activeSection=0,nextTitle:string|null=null,removedPages=0,joinedWraps=0,joinedChordWraps=0;
- const phraseContinuation=/\b(?:a|an|the|and|or|but|to|of|for|with|from|in|on|at|some|my|your|you|I|we|they|it|is|are|was|were|will|would|could|should|can|be|been|have|has|had|do|does|did|so|if|when|where|wherever|that|who|which|all|just|even|very|more|most|not)\s*$/i;
+ const phraseContinuation=/(?<![\p{L}\p{N}])(?:a|an|the|and|or|but|to|of|for|with|from|in|on|at|some|my|your|you|I|we|they|it|is|are|was|were|will|would|could|should|can|be|been|have|has|had|do|does|did|so|if|when|where|wherever|that|who|which|all|just|even|very|more|most|not)\s*$/iu;
  const addRow=(normalized:string,sourceLine:number)=>{
   const chosen=lineChords(normalized);
   const bracketed=normalized.match(/\[[^\]]+\]/g)??[];
