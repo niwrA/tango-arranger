@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import {computed,ref} from 'vue';
 import PianoKeyboardStrip from './PianoKeyboardStrip.vue';
-import {pianoWindow,movePianoWindow,PIANO_LOW,PIANO_HIGH} from './pianoRegisters';
+import {pianoWindow,movePianoWindow} from './pianoRegisters';
+import {chordTones} from './music';
 const props=defineProps<{
- measurePitches:number[];activePitches:number[];chordTones:number[];splitPitch:number
+ measurePitches:number[];rangePitches:number[];activePitches:number[];chord:string;splitPitch:number
 }>();
 const emit=defineEmits<{(event:'switch-mode'):void}>();
 const layout=ref<'split'|'single'>('split');
+const chordPitchClasses=computed(()=>/^[A-Ga-g][#b]?[a-zA-Z0-9+#°øΔ()\\/-]*$/.test(props.chord.trim())?chordTones(props.chord):[]);
 const lockedUpper=ref<number|null>(null);
 const lockedLower=ref<number|null>(null);
 const lockedSingle=ref<number|null>(null);
-const upper=computed(()=>pianoWindow(props.measurePitches,'upper',props.splitPitch,21,lockedUpper.value??undefined));
-const lower=computed(()=>pianoWindow(props.measurePitches,'lower',props.splitPitch,21,lockedLower.value??undefined));
-const single=computed(()=>pianoWindow(props.measurePitches,'all',props.splitPitch,30,lockedSingle.value??undefined));
+const upper=computed(()=>pianoWindow(props.rangePitches,'upper',props.splitPitch,21,lockedUpper.value??undefined));
+const lower=computed(()=>pianoWindow(props.rangePitches,'lower',props.splitPitch,21,lockedLower.value??undefined));
+const single=computed(()=>pianoWindow(props.rangePitches,'all',props.splitPitch,30,lockedSingle.value??undefined));
 function move(which:'upper'|'lower'|'single',steps:number){
  const current=which==='upper'?upper.value:which==='lower'?lower.value:single.value;
  const count=which==='single'?30:21;
@@ -48,7 +50,7 @@ function label(pitch:number){return ['C','C♯','D','D♯','E','F','F♯','G','G
       </div>
      </div>
      <button class="piano-focus-keyboard-button" type="button" :aria-label="'Show role and cues from '+reg.title" @click="emit('switch-mode')">
-      <PianoKeyboardStrip :window="reg.view" :active-pitches="activePitches" :measure-pitches="measurePitches" :chord-tones="chordTones" :label="reg.title"/>
+      <PianoKeyboardStrip :window="reg.view" :active-pitches="activePitches" :measure-pitches="measurePitches" :chord-tones="chordPitchClasses" :label="reg.title"/>
      </button>
     </div>
    </template>
