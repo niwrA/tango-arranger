@@ -3163,7 +3163,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   const previousBar=selectedBar.value;
   const previousLoopLength=Math.max(1,noteLoopTo.value-noteLoopFrom.value+1);
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
-   captureInputLayout.value=(inst.startsWith('Violin')||inst==='Contrabass')?'fingerboard':'keyboard';
+   captureInputLayout.value=fingerboardStrings(inst).length?'fingerboard':'keyboard';
   overviewFocus.value=selectedBar.value;
   if(arrivingFromAnotherView||previousBar!==selectedBar.value){
     const count=arrivingFromAnotherView?Math.min(2,project.value.bars.length):Math.min(previousLoopLength,project.value.bars.length);
@@ -3440,6 +3440,40 @@ function applyLyricBatch(){
   project.value=next;
   message.value=`Aligned verse ${verse} to ${expanded.length} note onsets across ${affected.size} measure(s). Edited measures protected.`;
 }
+
+// Explicit fingering overrides are stored on each note. Otherwise derive a
+// provisional suggestion from the existing measure-wide position guide.
+const noteStringRows=computed(()=>fingerboardStrings(noteInst.value));
+const suggestedStringGuide=computed(()=>noteInst.value.startsWith('Violin')||noteInst.value==='Contrabass'
+ ?suggestStringMeasurePosition(noteInst.value.startsWith('Violin')?'Violin':'Contrabass',noteMeasure.value):null);
+const selectedStringSuggestion=computed(()=>{
+ const note=selectedEvent.value;
+ if(!note)return null;
+ const guide=suggestedStringGuide.value;
+ const candidate=guide?.fingerings.find(f=>f.pitch===note.pitch&&(note.stringMidi===undefined||note.stringMidi===f.openMidi));
+ if(candidate)return {stringMidi:candidate.openMidi,position:guide!.position,finger:candidate.finger};
+ const string=noteStringRows.value.filter(s=>s.midi<=note.pitch).sort((a,b)=>Number(b.midi===note.stringMidi)-Number(a.midi===note.stringMidi)||b.midi-a.midi)[0];
+ return string?{stringMidi:string.midi,position:'',finger:(string.midi===note.pitch?'0':'1') as '0'|'1'}:null;
+});
+function updateSelectedFingering(field:'stringMidi'|'handPosition'|'finger',raw:string){
+ if(!selectedEvent.value)return;
+ const notes=noteMeasure.value.map(n=>({...n}));
+ const note=notes[noteSelected.value];
+ if(!note)return;
+ if(raw===''){
+  delete note[field];
+ }else if(field==='stringMidi'){
+  const stringMidi=Number(raw);
+  if(!noteStringRows.value.some(s=>s.midi===stringMidi&&stringMidi<=note.pitch)){
+   message.value='That string cannot play the selected pitch.';return;
+  }
+  note.stringMidi=stringMidi;
+ }else if(field==='handPosition')note.handPosition=raw;
+ else note.finger=raw as NonNullable<Note['finger']>;
+ try{project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,notes);}
+ catch(error){message.value='Fingering edit rejected: '+String(error);}
+}
+
 function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'approachSlideFrom'|'vibrato'|'swellTo'|'subito',raw:string){
   if(!selectedEvent.value)return;
   const events=noteMeasure.value.map(n=>({...n}));const index=noteSelected.value;const old=events[index];
@@ -4133,7 +4167,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
   </div>
   <div class="live-capture-status" role="status">{{capturePlaying?(captureCountingIn?`Count-in · beat ${capturePlayBeat+1} of ${project.beats}`:`Playing measure ${capturePlayBar+1}, beat ${capturePlayBeat+1}`):'Stopped'}} · {{captureTaps.length}} pitched taps</div>
-  <div v-if="captureFingerboardRows.length&&(noteInst.startsWith('Violin')||noteInst==='Contrabass')" class="capture-layout-switch" role="group" aria-label="Live input layout">
+  <div v-if="captureFingerboardRows.length" class="capture-layout-switch" role="group" aria-label="Live input layout">
     <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
     <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keyboard</button>
    </div>
@@ -4148,7 +4182,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </label>
       <span v-if="captureLastExpression" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
     </div>
-    <template v-if="captureInputLayout==='fingerboard'&&(noteInst.startsWith('Violin')||noteInst==='Contrabass')">
+    <template v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length">
      <div class="capture-fret-controls" role="group" aria-label="Visible fingerboard section">
       <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
       <label>Show<select :value="captureFretCount" @change="updateCaptureFretCount"><option :value="8">8 semitones</option><option :value="12">12 semitones</option><option :value="16">16 semitones</option><option :value="25">Full 2 octaves</option></select></label>
@@ -4433,6 +4467,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label v-if="noteInst.startsWith('Voice')"><input type="checkbox" :checked="selectedEvent.melisma??false" @change="updateSelectedNote('melisma',String(($event.target as HTMLInputElement).checked))"/> Verse 1: extend this syllable over following untexted notes</label>
       <label v-if="noteInst.startsWith('Voice')"><input type="checkbox" :checked="selectedEvent.melisma2??false" @change="updateSelectedNote('melisma2',String(($event.target as HTMLInputElement).checked))"/> Verse 2: extend this syllable over following untexted notes</label>
       <p v-if="noteInst.startsWith('Voice')" class="hint">Attach one sung syllable to each note. For multi-syllable words use begin / middle / end. MusicXML exports lyric elements to MuseScore; tied fragments do not repeat the syllable. Lyrics are saved with protected manual notes.</p>
+      <div v-if="noteStringRows.length" class="note-string-fingering" role="group" aria-label="String and fingering">
+        <strong>String &amp; fingering</strong>
+        <label>String<select :value="selectedEvent.stringMidi??''" @change="updateSelectedFingering('stringMidi',($event.target as HTMLSelectElement).value)">
+          <option value="">Auto · {{noteStringRows.find(s=>s.midi===selectedStringSuggestion?.stringMidi)?.name??'unavailable'}}</option>
+          <option v-for="string in noteStringRows.filter(s=>s.midi<=selectedEvent.pitch)" :key="string.midi" :value="string.midi">{{string.name}}</option>
+        </select></label>
+        <label>Hand position<select :value="selectedEvent.handPosition??''" @change="updateSelectedFingering('handPosition',($event.target as HTMLSelectElement).value)">
+          <option value="">Auto · {{selectedStringSuggestion?.position||'not determined'}}</option>
+          <option v-for="position in (noteInst.startsWith('Violin')?['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV']:noteInst==='Contrabass'?['½','I','II','II½','III','III½','IV','V','V½','VI','VI½','VII · thumb','Thumb + II','Thumb + IV','Thumb + VI','Thumb + VIII']:['I','II','III','IV','V','VI','VII','VIII','IX','XII'])" :key="position" :value="position">{{position}}</option>
+        </select></label>
+        <label>Finger<select :value="selectedEvent.finger??''" @change="updateSelectedFingering('finger',($event.target as HTMLSelectElement).value)">
+          <option value="">Auto · {{selectedStringSuggestion?.finger??'?'}}</option>
+          <option v-for="finger in (noteInst==='Contrabass'?['0','1','2','3','4','T']:['0','1','2','3','4'])" :key="finger" :value="finger">{{finger==='0'?'0 · open':finger==='T'?'T · thumb':finger}}</option>
+        </select></label>
+        <small class="hint">Auto suggestions use the surrounding measure; explicit selections are retained. Check double stops, chords and shifts manually.</small>
+      </div>
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>
       <label>Sounding length (%) · {{Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)}}%<input type="range" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @input="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @change="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/></label>

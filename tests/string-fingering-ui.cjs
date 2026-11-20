@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const root=path.join(__dirname,'..'),app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8'),music=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
+assert.match(music,/stringMidi\?:number; handPosition\?:string; finger\?:/);
+assert.match(app,/captureInputLayout\.value=fingerboardStrings\(inst\)\.length\?'fingerboard':'keyboard'/);
+assert.match(app,/noteStringRows=computed/);
+assert.match(app,/suggestStringMeasurePosition\(/);
+assert.match(app,/updateSelectedFingering\('stringMidi'/);
+assert.match(app,/updateSelectedFingering\('handPosition'/);
+assert.match(app,/updateSelectedFingering\('finger'/);
+assert.match(app,/noteInst\.startsWith\('Violin'\)\?\['I'/);
+assert.match(app,/noteInst==='Contrabass'\?\['½'/);
+assert.match(app,/captureInputLayout==='keyboard'/);
+console.log('PASS string fingering metadata, auto suggestions and instrument input defaults');
