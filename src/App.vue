@@ -4639,7 +4639,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           </template>
         </LiveCaptureTransport>
         <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter on this pad</span></button>
-        <details class="capture-draft-review">
+          <div v-if="vocalAlignmentEnabled&&vocalCapturedNotes.length&&!captureRecording" class="capture-vocal-alignment">
+          <h4>Review lyric alignment (draft only)</h4>
+          <p class="hint">Each recorded note is matched in order to a lyric note. Correct the assignment before applying; multiple notes may share a syllable.</p>
+          <p v-if="!vocalAlignmentSource.length" class="hint">No lyric-bearing Voice notes in this range. Record normally or select a phrase containing lyrics.</p>
+          <div v-for="entry in vocalAlignmentPreview" :key="entry.index" class="capture-vocal-alignment-row">
+            <span>{{midiName(entry.pitch)}} · m{{entry.bar+1}} beat {{Number((entry.beat+1).toFixed(2))}}</span>
+            <select :value="entry.lyricIndex" :disabled="!vocalAlignmentSource.length" @change="setVocalAlignmentIndex(entry.index,Number(($event.target as HTMLSelectElement).value))">
+              <option v-for="(lyric,i) in vocalAlignmentSource" :key="i" :value="i">{{i+1}} · {{lyric.lyric}}</option>
+            </select>
+          </div>
+        </div>
+      <details class="capture-draft-review">
           <summary>Review rhythm take · {{rhythmCaptureTaps.length}} taps</summary>
           <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button></div>
           <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`rhythm-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div></div>
@@ -4760,17 +4771,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         </label>
         <p class="hint">Record the selected measures using the keyboard or string input below. You can also adjust the normal Start/End controls.</p>
         <label><input type="checkbox" v-model="vocalAlignmentEnabled"/> Align recorded notes to existing Voice lyrics on Apply</label>
-        <div v-if="vocalAlignmentEnabled&&vocalCapturedNotes.length" class="capture-vocal-alignment">
-          <h4>Review lyric alignment (draft only)</h4>
-          <p class="hint">Each recorded note is matched in order to a lyric note. Correct the assignment before applying; multiple notes may share a syllable.</p>
-          <p v-if="!vocalAlignmentSource.length" class="hint">No lyric-bearing Voice notes in this range. Record normally or select a phrase containing lyrics.</p>
-          <div v-for="entry in vocalAlignmentPreview" :key="entry.index" class="capture-vocal-alignment-row">
-            <span>{{midiName(entry.pitch)}} · m{{entry.bar+1}} beat {{Number((entry.beat+1).toFixed(2))}}</span>
-            <select :value="entry.lyricIndex" :disabled="!vocalAlignmentSource.length" @change="setVocalAlignmentIndex(entry.index,Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="(lyric,i) in vocalAlignmentSource" :key="i" :value="i">{{i+1}} · {{lyric.lyric}}</option>
-            </select>
-          </div>
-        </div>
+
       </div>
       
       <LiveCaptureTransport kind="melody" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
