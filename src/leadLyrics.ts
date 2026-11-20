@@ -122,7 +122,7 @@ export function leadLyricsFromSong(project:Project,score:Score,voice:Instrument,
      if(event.kind===0){if(line&&!line.endsWith(' '))line+=' ';line+=event.content;}
      else {if(line&&!line.endsWith(']'))line+=' ';line+=event.content;}
    }
-   lines.push(line.trim()+(bar<project.bars.length-1&&!sung.length?' ||':''));
+   lines.push(line.trim()+(bar<project.bars.length-1?' ||':''));
  }
- return lines.join('\\n');
+ return lines.join('\n');
 }

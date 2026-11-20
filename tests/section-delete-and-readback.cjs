@@ -68,7 +68,11 @@ check('read existing Voice note and chord markers with precise bar positions',()
  const parsed=parseLeadLyrics(source,p.beats);
  assert.equal(source.split('\n').length,p.bars.length);
  assert.deepEqual(parsed.notes.map(n=>n.text),['pequeña','tango']);
- assert.deepEqual(parsed.notes.map(n=>n.start),[16,17.5]);
+ // Human-readable source retains bar boundaries; the existing melody retains
+ // sub-beat timing instead of emitting @2.5 into user-visible song text.
+ assert.deepEqual(parsed.notes.map(n=>n.start),[16,17]);
+ assert.ok(!source.includes('@'));
+ assert.deepEqual(notes.Voice.map(n=>n.start),[16,17.5]);
  const mapped=positionLeadChords(parsed,p.beats,p.bars.length,parsed.notes.map(n=>n.start));
  assert.deepEqual(mapped.filter(c=>c.measure===4).map(c=>[c.beat,c.chord]),[[0,'Dm'],[2,'A7']]);
  assert.ok(mapped.some(c=>c.measure===6&&c.chord==='Gm'));
