@@ -1,0 +1,78 @@
+<script setup lang="ts">
+import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
+
+/** Read-only presentation inside the existing tap-to-toggle card/button.
+ * No nested buttons: the entire cue surface remains one accessible action.
+ */
+defineProps<{
+ role:string;nextRole:string;articulation:string;nextArticulation:string;
+ dynamics:string;nextDynamics:string;cueStatus:string;
+ currentMeasure:number;nextMeasure:number|null;focus?:boolean
+}>();
+</script>
+
+<template>
+ <span class="stage-role-timeline" :class="{'is-focus':focus}">
+  <span class="stage-role-current" :style="{'--dyn-alpha':stageDynamicAlpha(dynamics)}">
+   <span class="stage-role-eyebrow"><span>NOW · M{{currentMeasure}}</span><span class="stage-role-status">{{cueStatus}}</span></span>
+   <strong class="stage-role-name">{{role}}</strong>
+   <span class="stage-role-articulation">{{articulation||'—'}}</span>
+   <span class="stage-role-dynamic">
+    <span class="stage-dynamic-label">Dynamic <strong>{{dynamics}}</strong></span>
+    <span class="stage-dynamic-track" aria-hidden="true"><span :style="{width:stageDynamicMeter(dynamics)}"/></span>
+   </span>
+  </span>
+  <span class="stage-role-upcoming" :style="{'--dyn-alpha':stageDynamicAlpha(nextDynamics)}">
+   <span class="stage-role-eyebrow"><span>{{nextMeasure===null?'END OF SCORE':'NEXT · M'+nextMeasure}}</span></span>
+   <strong class="stage-role-next-name">{{nextMeasure===null?'—':nextRole}}</strong>
+   <span class="stage-role-next-articulation">{{nextMeasure===null?'':nextArticulation}}</span>
+   <span class="stage-role-dynamic">
+    <span class="stage-dynamic-label">Dynamic <strong>{{nextMeasure===null?'—':nextDynamics}}</strong></span>
+    <span class="stage-dynamic-track" aria-hidden="true"><span :style="{width:nextMeasure===null?'0%':stageDynamicMeter(nextDynamics)}"/></span>
+   </span>
+  </span>
+ </span>
+</template>
+
+<style scoped>
+.stage-role-timeline{width:100%;flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:8px;text-align:left;color:#ebf3f8}
+.stage-role-current,.stage-role-upcoming{display:flex;flex-direction:column;min-width:0;min-height:0;gap:4px;padding:10px;border:1px solid #516b7d;border-radius:11px;overflow:hidden}
+.stage-role-current{background:linear-gradient(155deg,rgb(244 191 113 / var(--dyn-alpha)),transparent 78%),#243848;border-color:#b6906259}
+.stage-role-upcoming{background:linear-gradient(155deg,rgb(244 191 113 / var(--dyn-alpha)),transparent 82%),#1e3240}
+.stage-role-eyebrow{display:flex;justify-content:space-between;align-items:center;gap:5px;color:#b4cede;font-size:10px;letter-spacing:.055em;text-transform:uppercase;font-weight:800}
+.stage-role-status{font-size:9px;color:#f5d6a9;white-space:nowrap;letter-spacing:0}
+.stage-role-name{font-size:clamp(22px,2.3vw,33px);line-height:1.05;color:#ffe0a9;text-transform:capitalize;overflow-wrap:anywhere}
+.stage-role-next-name{font-size:clamp(17px,1.8vw,26px);line-height:1.12;color:#e8f0f6;text-transform:capitalize;overflow-wrap:anywhere}
+.stage-role-articulation,.stage-role-next-articulation{font-size:clamp(11px,1.05vw,14px);color:#d1e0e9;overflow-wrap:anywhere}
+.stage-role-dynamic{display:flex;flex-direction:column;gap:5px;margin-top:auto;min-width:0}
+.stage-dynamic-label{display:flex;align-items:baseline;justify-content:space-between;gap:4px;color:#bcd0dd;font-size:11px}
+.stage-dynamic-label strong{color:#f5d6a1;font-size:clamp(12px,1.3vw,17px);font-weight:850;white-space:nowrap}
+.stage-dynamic-track{height:6px;width:100%;display:block;overflow:hidden;background:#132633;border-radius:100px;border:1px solid #4a6575}
+.stage-dynamic-track>span{display:block;height:100%;min-width:0;background:linear-gradient(90deg,#bf9b66,#ffdc9f);border-radius:100px}
+.stage-role-timeline.is-focus{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:clamp(10px,2vw,27px)}
+.stage-role-timeline.is-focus .stage-role-current,.stage-role-timeline.is-focus .stage-role-upcoming{padding:clamp(16px,3vw,40px);gap:clamp(11px,2vh,26px);justify-content:center;border-radius:18px}
+.stage-role-timeline.is-focus .stage-role-current{border-color:#caa36e88}
+.stage-role-timeline.is-focus .stage-role-eyebrow{font-size:clamp(13px,1.4vw,20px)}
+.stage-role-timeline.is-focus .stage-role-status{font-size:clamp(11px,1.1vw,16px)}
+.stage-role-timeline.is-focus .stage-role-name{font-size:clamp(42px,7vw,108px);line-height:1;letter-spacing:-.025em}
+.stage-role-timeline.is-focus .stage-role-next-name{font-size:clamp(30px,4.5vw,65px)}
+.stage-role-timeline.is-focus .stage-role-articulation,.stage-role-timeline.is-focus .stage-role-next-articulation{font-size:clamp(17px,2.1vw,30px)}
+.stage-role-timeline.is-focus .stage-role-dynamic{margin-top:auto;gap:11px}
+.stage-role-timeline.is-focus .stage-dynamic-label{font-size:clamp(14px,1.5vw,22px)}
+.stage-role-timeline.is-focus .stage-dynamic-label strong{font-size:clamp(20px,3vw,37px)}
+.stage-role-timeline.is-focus .stage-dynamic-track{height:clamp(10px,1.4vh,19px)}
+@media(max-width:850px){
+ .stage-role-timeline{gap:5px}
+ .stage-role-current,.stage-role-upcoming{padding:7px;gap:3px}
+ .stage-role-name{font-size:clamp(17px,3vw,25px)}
+ .stage-role-next-name{font-size:clamp(15px,2.5vw,21px)}
+ .stage-role-timeline.is-focus{grid-template-columns:1fr 1fr}
+}
+@media(max-width:550px){
+ .stage-role-timeline.is-focus{grid-template-columns:1fr;grid-template-rows:minmax(0,1.2fr) minmax(0,.8fr)}
+ .stage-role-timeline.is-focus .stage-role-current,.stage-role-timeline.is-focus .stage-role-upcoming{padding:14px;gap:6px}
+ .stage-role-timeline.is-focus .stage-role-name{font-size:clamp(36px,10vw,60px)}
+ .stage-role-timeline.is-focus .stage-role-next-name{font-size:clamp(24px,7vw,40px)}
+ .stage-role-timeline.is-focus .stage-role-articulation,.stage-role-timeline.is-focus .stage-role-next-articulation{font-size:16px}
+}
+</style>
