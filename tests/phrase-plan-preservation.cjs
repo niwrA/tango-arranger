@@ -42,11 +42,12 @@ async function check(label,task){await task();checks++;console.log('PASS',label)
 
 (async()=>{
  await check('legacy songs without a phrase plan retain their exact generated notes',()=>{
-  // Baseline updated after Piano acquired its full A0-C8 range. The previous
-  // fingerprint covered an artificially restricted range (MIDI 43-85), so
-  // different piano voicings are expected while generation remains deterministic.
+  // Deterministic fingerprint updated for piano left-hand compas following
+  // contrabass roots/fifths in the A0-C8 instrument model. Musical changes to
+  // generated piano bass notes are intentional; phrase planner must not alter
+  // the newly generated score when no phrase plan is applied.
   assert.equal(fingerprint(music.generate(music.demoProject())),
-   '7d883b0eae374a5a6135f56f2bc0ba0ad94487f2ddb6e122cece7768dc147405');
+   '65d7e737af64658cde8c792ff0c933c77b9b242eea5870170528b2e6e5eddea2');
   const p=song([3]);assert.equal(planning.phraseAt(p,0),undefined);
   assert.equal(planning.effectiveRole(p,'Violin I',0),'melody');
   assert.deepEqual(music.generate({...p,phrasePlan:undefined}),music.generate(p));

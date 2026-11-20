@@ -23,6 +23,7 @@ import {measureLoopEvents} from './measureLoop';
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent} from './expressiveAudio';
+import {needsSustainingSynth} from './sampleSustain';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel,clearRhythmSourceIfRetimed} from './rhythmSnap';
@@ -1083,9 +1084,9 @@ async function toggleCaptureLoop(){
   try{
     Tone=await startAudioFromGesture();
     if(session!==captureSession||active.value!==editor)return;
-    captureSynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    captureSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.09,sustain:0.85,release:0.25}}).toDestination();
     captureSynth.volume.value=-13;
-    captureKeySynth??=new Tone.PolySynth(Tone.Synth).toDestination();
+    captureKeySynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.09,sustain:0.85,release:0.25}}).toDestination();
     captureKeySynth.volume.value=-11;
     captureClickSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.04,sustain:0,release:0.04}}).toDestination();
     captureClickSynth.volume.value=-18;
@@ -2178,7 +2179,9 @@ async function prepareSamples(instruments:string[]){
  sampleStatus.value=results.every(Boolean)?'Sampled instruments ready':results.some(Boolean)?'Some samples unavailable; using synth fallback':'Samples unavailable; using synth fallback';
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number){
- const sampler=audioEngine.value==='samples'?samplePlayers.get(inst):undefined;
+ // One-shot sample buffers cannot reliably sustain beyond their recorded tail.
+ // Keep the sample attack for short notes, use a proper ADSR voice for long ones.
+ const sampler=audioEngine.value==='samples'&&!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
  if(sampler)sampler.triggerAttackRelease(Tone.Frequency(pitch,'midi').toNote(),duration,time,velocity);
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }

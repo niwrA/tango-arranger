@@ -525,6 +525,19 @@ export function pianoStaffForPitch(pitch:number,splitPitch=60):1|2 {
   return pitch>=splitPitch?1:2;
 }
 
+/** The piano accompanies, rather than replaces, the double bass.
+ * Select the same root/fifth pitch class as the contrabass part but normally
+ * an octave higher, in a comfortable left-hand F-clef register. A0-C8 remains
+ * available to the editor; automated tango compás should not use its extremes.
+ * MIDI 28-55 reflects the current generated contrabass's played register.
+ */
+export function pianoBassReinforcement(pc:number,contrabassReference:number,pianoLow=21,pianoHigh=55):number{
+ const floor=Math.max(36,pianoLow),ceiling=Math.min(55,pianoHigh);
+ if(ceiling<floor)throw Error('No playable piano bass register');
+ const bass=closest(pc,contrabassReference,28,55);
+ const octaveTarget=bass+12;
+ return closest(pc,octaveTarget,floor,ceiling);
+}
 /** Conservative piano heuristics, not a substitute for individual hand sizing or fingering. */
 export function pianoHandLimits(difficulty:Difficulty='advanced'){
  return {rightSpan:difficulty==='easy'?7:difficulty==='intermediate'?10:12,rightNotes:difficulty==='easy'?2:3,leftNotes:1};
@@ -706,11 +719,10 @@ export function figureMeasure(p:Project,inst:Instrument,barIndex:number,figure:F
     const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
     for(let beat=0;beat<p.beats;beat+=p.beats===3?3:2){
       const tones=harmony(beat),pc=beat===0?tones[0]:(tones[2]??tones[0]);
-      const pitch=closest(pc,beat===0?43:45,range[0],bassCeiling);
+      const pitch=pianoBassReinforcement(pc,beat===0?40:42,range[0],bassCeiling);
       // Argentine tango piano: a clear, percussive left-hand attack reinforces
-      // (but does not duplicate the octave of) the contrabass. Beat 1 carries
-      // the strongest weight; beat 3 answers with a firm fifth/root pulse.
-      // These are separate bass-clef notes, not extra right-hand chord tones.
+      // the contrabass root/fifth with the same pitch class, normally one
+      // octave higher. Keep it monophonic and within the bass staff.
       result.push({pitch,start:offset+beat,duration:Math.min(1,p.beats-beat),
         velocity:beat===0?114:105,accent:true,gate:0.74,source:'generated'});
     }
@@ -940,7 +952,16 @@ export function generate(p:Project):Score {
       }
       if(inst.startsWith('Piano')&&role==='chords'){
         if(milonga){
-          // Complement the bass habanera: light offbeat chord stabs.
+          // Milonga in 2/4: piano bass reinforces contrabass root attacks
+          // on both beats while upper chord stabs answer on the offbeats.
+          // Preserve the same pitch class as the contrabass; do not force
+          // every 3+1+2+2 bass articulation into the piano left hand.
+          const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
+          for(const beat of [0,1]){
+            const pcs=harmony(beat);
+            const pitch=pianoBassReinforcement(pcs[0],40,range[0],bassCeiling);
+            put(pitch,beat,Math.min(0.75,p.beats-beat),beat===0?108:96,undefined,beat===0?0.74:0.63);
+          }
           for(const beat of [0.5,1.5]){
             const pcs=harmony(beat);
             putPianoChord(pcs,68,beat,0.45,beat===0.5?70:64,0.54);
@@ -953,7 +974,7 @@ export function generate(p:Project):Score {
           // beats 2 and 3. Keep the bass in the F clef, not in chord voicings.
           const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
           const bassRoot=harmony(0)[0];
-          put(closest(bassRoot,43,range[0],bassCeiling),0,0.95,114,undefined,0.74);
+          put(pianoBassReinforcement(bassRoot,40,range[0],bassCeiling),0,0.95,114,undefined,0.74);
           if(notes.length)notes[notes.length-1].accent=true;
           for(const beat of [1,2]){
             const pcs=harmony(beat);
