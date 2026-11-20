@@ -9,7 +9,7 @@ export const INSTRUMENTS: Instrument[] = [...FACTORY_INSTRUMENTS];
 export type InstrumentFamily = 'Piano'|'Contrabass'|'Violin'|'Bandoneon'|'Voice'|'Guitar'|'Clarinet'|'Flute'|'Trumpet'|'Trombone';
 export const INSTRUMENT_FAMILIES:readonly InstrumentFamily[]=['Violin','Voice','Bandoneon','Piano','Contrabass','Guitar','Clarinet','Flute','Trumpet','Trombone'];
 export const INSTRUMENT_CAPABILITIES:Record<InstrumentFamily,{clef:'G'|'F';staves:1|2;transposition:number;range:[number,number];polyphonic:boolean;program:number}>={
-  Piano:{clef:'G',staves:2,transposition:0,range:[43,85],polyphonic:true,program:0},
+  Piano:{clef:'G',staves:2,transposition:0,range:[21,108],polyphonic:true,program:0},
   Contrabass:{clef:'F',staves:1,transposition:-12,range:[28,55],polyphonic:false,program:43},
   Violin:{clef:'G',staves:1,transposition:0,range:[55,96],polyphonic:false,program:40},
   Bandoneon:{clef:'G',staves:1,transposition:0,range:[48,88],polyphonic:true,program:21},
