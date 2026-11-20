@@ -100,6 +100,39 @@ check('automatic importer reveals editable per-line allocation and rationale',()
  assert.ok(app.includes('line.reason'));
  assert.ok(app.includes('Automatic · analyse chords and phrases'));
 });
+check('page markers are excluded from normalized lyrics and never create measures',()=>{
+ const text=['[Intro]','G#    C#/G#   G#    Gm7   C7','[Verse 1]','Page 1/5',
+ '            Fm       C7                Fm','When you are down and troubled and you need some',
+ 'C7         Fm C7 Fm','love and care','[Chorus]','Page 2 of 5',
+ 'G#     G#maj7      C#','You just call out my name','Page 3/5'].join('\n');
+ const p=previewLeadSheetImport(text,0);
+ assert.deepEqual(p.sections.map(x=>x.title),['Intro','Verse 1','Chorus']);
+ assert.ok(!p.source.includes('Page 1/5'));
+ assert.ok(!p.source.includes('Page 2 of 5'));
+ assert.ok(!p.source.includes('Page 3/5'));
+ assert.ok(!p.lines.some(x=>/Page \\d/.test(x.text)));
+ assert.ok(p.warnings.some(x=>x.includes('Removed 3 page markers')));
+ assert.ok(p.bars.some(x=>x.chord.includes('G#')));
+ assert.ok(p.bars.some(x=>x.chord.includes('C#/G#')));
+});
+check('wrapped unchorded lyrics are joined without creating a new measure',()=>{
+ const p=previewLeadSheetImport('[Verse]\n[Fm]When you are down and you need some\nlove and care\n[C7]Another phrase',0);
+ assert.equal(p.lines.length,2);
+ assert.ok(p.lines[0].text.includes('some love and care'));
+ assert.ok(p.warnings.some(w=>w.includes('Joined 1 wrapped lyric line')));
+});
+check('pipe hints distinguish events, measures and phrase endings',()=>{
+ const p=previewLeadSheetImport('[Verse]\n[Fm]When | [C7]troubled || [Fm]care |||\n[G#]and | [D#7sus4]there',0);
+ assert.equal(p.lines[0].measures,2);
+ assert.equal(p.lines[0].estimated,false);
+ assert.ok(p.lines[0].reason.includes('Suggested ||'));
+ assert.ok(p.bars.some(b=>b.chord.includes('D#7sus4')));
+ assert.ok(p.source.includes('|||'));
+});
+check('compound and slash chord symbols from pasted sheets are recognized',()=>{
+ const p=previewLeadSheetImport('[Intro]\nGm7add11   D#7sus4   G#maj7   C#/G#   A#m7',0);
+ assert.deepEqual(p.bars.filter(b=>b.chord).map(b=>b.chord),['Gm7add11','D#7sus4','G#maj7','C#/G#','A#m7']);
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));

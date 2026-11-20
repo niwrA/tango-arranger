@@ -4117,7 +4117,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </select>
     </label>
     <label>Paste your lyrics and chord sheet<textarea v-model="newLeadSheetText" rows="12" spellcheck="false" placeholder="[Verse 1]&#10;D            A7&#10;Donde el río se queda&#10;[Chorus]&#10;[Em]Y la luna se va"></textarea></label>
-    <p class="hint">Automatic estimates use explicit barlines, chord positions and regular section phrases; they do not reconstruct the original rhythm. You can override the overall setting, any section or individual lyric lines.</p>
+    <p class="hint">Pipes are optional hints: | suggests a note/event split, || suggests a measure boundary, and ||| suggests a musical phrase ending. Ordinary line breaks may be formatting. Page 1/5-style markers are removed; wrapped lyric text is joined when identifiable. Estimates remain editable for the song, each section and each lyric line.</p>
     <p v-if="newLeadSheetPreviewError" role="alert">{{newLeadSheetPreviewError}}</p>
     <div v-if="newLeadSheetPreview" class="new-lead-section-review">
       <strong>{{newLeadSheetPreview.bars.length}} detected measures · {{newLeadSheetPreview.sections.length}} sections</strong>

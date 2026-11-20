@@ -3,24 +3,35 @@ export type LeadImportSection={title:string;start:number;measures:number};
 export type LeadImportBar={chord:string;lyrics:string;original:string};
 export type LeadImportLine={sourceLine:number;sectionIndex:number;start:number;measures:number;text:string;reason:string;estimated:boolean};
 export type LeadImportPreview={sections:LeadImportSection[];bars:LeadImportBar[];lines:LeadImportLine[];source:string;warnings:string[]};
-const chord=/^[A-G](?:#|b)?(?:(?:maj|min|dim|aug|sus|add|m|M|ø|°)?(?:\d+)?(?:[#b]\d+)?(?:\/[A-G](?:#|b)?)?)$/;
+const chord=/^[A-G](?:#|b)?(?:(?:maj|min|dim|aug|sus|add|m|M|ø|°|alt|no)\d*|\d+)*(?:[#b]\d+)*(?:\/[A-G](?:#|b)?)?$/i;
+const pageMarker=/^(?:page|pagina|seite|página)\s*[:#.-]?\s*\d+\s*(?:(?:\/|of|van|de)\s*\d+)?$/i;
 const heading=/^\[(verse|chorus|bridge|intro|outro|pre-chorus|instrumental|solo|interlude|refrain|coda|ending|section)(?:[^\]]*)\]$/i;
 function isChord(t:string){return chord.test(t);}
-function addChordMarkers(chords:string,lyrics:string):string {
+function chordRow(line:string):boolean{
+ const parts=line.trim().split(/\s+/).filter(x=>x!=='|'&&x!=='||'&&x!=='|||');
+ return parts.length>0&&parts.every(isChord);
+}
+function addChordMarkers(chords:string,lyrics:string):string{
  const found:{at:number;chord:string}[]=[];
  const re=/\S+/g;let match:RegExpExecArray|null;
  while((match=re.exec(chords))!==null)if(isChord(match[0]))found.push({at:match.index,chord:match[0]});
  let result=lyrics;
- for(const entry of found.reverse()){const at=Math.min(result.length,entry.at);result=result.slice(0,at)+'['+entry.chord+']'+result.slice(at);}
+ for(const entry of found.reverse()){
+  const at=Math.min(result.length,entry.at);
+  result=result.slice(0,at)+'['+entry.chord+']'+result.slice(at);
+ }
  return result;
 }
-function chordRow(line:string):boolean{
- const parts=line.trim().split(/\s+/);
- return parts.length>0&&parts.every(isChord);
+function normalizeChordOnly(line:string):string{
+ return line.replace(/(^|\s)([A-G](?:#|b)?[^\s|]*)(?=\s|\||$)/g,(_all,prefix,token)=>
+  prefix+(isChord(token)?'['+token+']':token));
 }
-type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string};
+function lineChords(text:string):string[]{
+ return (text.match(/\[[^\]]+\]/g)??[]).map(t=>t.slice(1,-1)).filter(isChord);
+}
+type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string;phraseEnd:boolean;events:number};
 function estimate(row:Row,sectionLength:number):{measures:number;reason:string}{
- if(row.barHints>0)return {measures:row.barHints,reason:'Explicit || measure boundaries'};
+ if(row.barHints>0)return {measures:row.barHints,reason:'Suggested || measure boundaries'};
  const count=row.chords.length;
  if(count>1)return {measures:count,reason:count+' distinct chord positions; provisionally one measure each'};
  if(sectionLength===4||sectionLength===8)return {measures:1,reason:'Regular '+sectionLength+'-line phrase and harmonic pattern'};
@@ -44,10 +55,29 @@ export function previewLeadSheetImport(
  const inputs=input.replace(/\r\n?/g,'\n').split('\n');
  const warnings:string[]=[],rows:Row[]=[],sourceLines:string[]=[];
  const titles:string[]=[];
- let activeSection=0,nextTitle:string|null=null;
+ let activeSection=0,nextTitle:string|null=null,removedPages=0,joinedWraps=0;
+ const addRow=(normalized:string,sourceLine:number)=>{
+  const chosen=lineChords(normalized);
+  const bracketed=normalized.match(/\[[^\]]+\]/g)??[];
+  if(chosen.length!==bracketed.length)warnings.push('Unrecognized bracket token at line '+(sourceLine+1));
+  const lyrics=normalized.replace(/\[[^\]]+\]/g,'').replace(/\|+/g,'').trim();
+  if(!rows.length||nextTitle!==null){
+   if(rows.length&&rows[rows.length-1].sectionIndex===activeSection)activeSection++;
+   titles[activeSection]=nextTitle??'Section '+sectionLetter(activeSection);
+   nextTitle=null;
+  }
+  const pipes=normalized.match(/\|{1,3}/g)??[];
+  const barHints=pipes.filter(p=>p.length>=2).length+
+   (pipes.some(p=>p.length>=2)&&!/\|{2,3}\s*$/.test(normalized)?1:0);
+  rows.push({sourceLine,sectionIndex:activeSection,normalized,lyrics,chords:chosen,
+   barHints,phraseEnd:/\|\|\|\s*$/.test(normalized),
+   events:pipes.filter(p=>p==='|').length,text:normalized});
+  sourceLines.push(normalized);
+ };
  for(let i=0;i<inputs.length;i++){
   const raw=inputs[i].replace(/\t/g,'    '),trimmed=raw.trim();
   if(!trimmed){sourceLines.push('');continue;}
+  if(pageMarker.test(trimmed)){removedPages++;continue;}
   if(heading.test(trimmed)){nextTitle=trimmed.slice(1,-1);sourceLines.push(trimmed);continue;}
   if(/^\{(?:start_of_|end_of_|soc|eoc)/i.test(trimmed)){
    const h=trimmed.match(/^\{(?:start_of_)?(verse|chorus|bridge)(?::([^}]+))?\}/i);
@@ -56,25 +86,27 @@ export function previewLeadSheetImport(
   }
   const sourceLine=i;
   let normalized=trimmed;
-  const separateChords=trimmed.split(/\s*\|+\s*/).filter(Boolean);
-  if(separateChords.length>1&&separateChords.every(isChord)){
-   normalized=separateChords.map(c=>'['+c+']').join(' || ');
-  }else if(chordRow(trimmed)&&i+1<inputs.length&&inputs[i+1].trim()&&!chordRow(inputs[i+1].trim())&&!heading.test(inputs[i+1].trim())){
-   normalized=addChordMarkers(raw,inputs[++i]);
-  }else if(chordRow(trimmed))normalized='['+trimmed.split(/\s+/).join('] [')+']';
-  const bracketed=normalized.match(/\[[^\]]+\]/g)??[];
-  const chosen=bracketed.map(c=>c.slice(1,-1)).filter(isChord);
-  if(bracketed.length!==chosen.length)warnings.push('Unrecognized bracket token at line '+(sourceLine+1));
-  const lyrics=normalized.replace(/\[[^\]]+\]/g,'').replace(/\|+/g,'').trim();
-  if(!rows.length||nextTitle!==null){
-   if(rows.length&&rows[rows.length-1].sectionIndex===activeSection)activeSection++;
-   titles[activeSection]=nextTitle??'Section '+sectionLetter(activeSection);
-   nextTitle=null;
+  // A chord row belongs to the following lyric row. Preserve horizontal
+  // spacing while anchoring chords to their approximate lyric positions.
+  if(chordRow(trimmed)&&i+1<inputs.length&&inputs[i+1].trim()&&!pageMarker.test(inputs[i+1].trim())&&
+   !chordRow(inputs[i+1].trim())&&!heading.test(inputs[i+1].trim())){
+   normalized=addChordMarkers(raw,inputs[++i].trimEnd());
+  }else if(chordRow(trimmed))normalized=normalizeChordOnly(trimmed);
+  // A wrapped lyric line is joined to the previous musical line when it
+  // contains no new chords, headings, or explicit phrase boundary.
+  const hasChord=lineChords(normalized).length>0;
+  const previous=rows[rows.length-1];
+  const canJoin=previous&&nextTitle===null&&previous.sectionIndex===activeSection&&
+    !previous.phraseEnd&&!/\|{2,3}\s*$/.test(previous.normalized);
+  if(canJoin&&!hasChord&&!/[.!?;:]$/.test(previous.lyrics)&&!chordRow(trimmed)){
+   const joined=previous.normalized+' '+normalized.trim();
+   previous.normalized=joined;previous.text=joined;previous.lyrics=(previous.lyrics+' '+normalized.trim()).trim();
+   sourceLines[sourceLines.length-1]=joined;joinedWraps++;continue;
   }
-  rows.push({sourceLine,sectionIndex:activeSection,normalized,lyrics,chords:chosen,
-    barHints:(normalized.match(/\|\|/g)??[]).length+(normalized.includes('||')&&!normalized.trimEnd().endsWith('||')?1:0),text:normalized});
-  sourceLines.push(normalized);
+  addRow(normalized,sourceLine);
  }
+ if(removedPages)warnings.push('Removed '+removedPages+' page marker'+(removedPages===1?'':'s'));
+ if(joinedWraps)warnings.push('Joined '+joinedWraps+' wrapped lyric line'+(joinedWraps===1?'':'s'));
  if(!rows.length)throw Error('No chords or lyric lines detected');
  if(activeSection>=26)throw Error('The song exceeds 26 sections');
  const bars:LeadImportBar[]=[],lines:LeadImportLine[]=[],sections:LeadImportSection[]=[];
@@ -92,7 +124,7 @@ export function previewLeadSheetImport(
   const start=bars.length;
   const chordsPerBar=Array.from({length:measures},()=>[] as string[]);
   row.chords.forEach((chord,k)=>{
-   const bar=row.barHints>0?Math.min(measures-1,k):Math.min(measures-1,Math.floor(k*measures/row.chords.length));
+   const bar=Math.min(measures-1,Math.floor(k*measures/row.chords.length));
    chordsPerBar[bar].push(chord);
   });
   for(let b=0;b<measures;b++)bars.push({chord:chordsPerBar[b].join(','),lyrics:b===0?row.lyrics:'',original:b===0?row.normalized:''});
