@@ -1270,6 +1270,9 @@ async function recordFromMicrophone(){
  try{
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
   if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
+  await startCaptureTransport(true);
+  if(!captureRecording.value){stream.getTracks().forEach(t=>t.stop());return;}
+  const activeGeneration=++microphoneGeneration;
   const context=new AudioContext();
   microphoneStream=stream;microphoneContext=context;
   const source=context.createMediaStreamSource(stream);
@@ -1277,10 +1280,8 @@ async function recordFromMicrophone(){
   source.connect(analyser);
   const samples=new Float32Array(analyser.fftSize);
   microphoneStatus.value='Microphone ready · start singing after the count-in. Headphones recommended.';
-  await startCaptureTransport(true);
-  if(generation!==microphoneGeneration||!captureRecording.value)return;
   const tick=()=>{
-   if(generation!==microphoneGeneration||!captureRecording.value)return;
+   if(activeGeneration!==microphoneGeneration||!captureRecording.value)return;
    analyser.getFloatTimeDomainData(samples);
    const estimate=detectMonophonicPitch(samples,context.sampleRate);
    const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
