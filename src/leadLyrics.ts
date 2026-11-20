@@ -12,7 +12,7 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
   lines.forEach((line,lineNumber)=>{
     const parts=line.match(/\[[^\]]+\]|\|\||\||[^\s|\[\]]+/g)??[];
     for(const part of parts){
-      if(part==='||'){measureStart=Math.max(measureStart+beats,(Math.floor(beat/beats)+1)*beats);beat=measureStart;explicitBeat=false;continue;}
+      if(part==='||'){measureStart=Math.max(measureStart+beats,Math.ceil((beat-1e-8)/beats)*beats);beat=measureStart;explicitBeat=false;continue;}
       if(part==='|')continue; // explicit note separator; the following syllable gets its own onset
       if(/^@\d+(?:\.\d+)?$/.test(part)){
         const at=Number(part.slice(1))-1;
