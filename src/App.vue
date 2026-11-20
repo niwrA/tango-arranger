@@ -1310,7 +1310,7 @@ async function recordFromMicrophone(monitorOnly=false){
    const gain=rms>=minimumRms?Math.min(32,0.08/rms):0;
    const pitchSamples=new Float32Array(samples.length);
    if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
-   const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,75,3000):null;
+   const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,32.7,4200):null;
    const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
    microphoneDetectedPitch.value=pitch;
    const elapsed=monitorOnly?-1:captureElapsedBeats();
