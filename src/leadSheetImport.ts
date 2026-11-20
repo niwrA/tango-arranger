@@ -1,4 +1,4 @@
-import {blankProject,parseChordSequence,sectionLetter,type Project} from './music';
+import {blankProject,parseChordSequence,sectionLetter,type Note,type Project} from './music';
 export type LeadImportSection={title:string;start:number;measures:number};
 export type LeadImportBar={chord:string;lyrics:string;original:string};
 export type LeadImportLine={sourceLine:number;sectionIndex:number;start:number;measures:number;text:string;reason:string;estimated:boolean;joinedSourceLines:number[]};
@@ -189,6 +189,43 @@ export function arrangeImportedSections(preview:LeadImportPreview,starts:readonl
   throw Error('Section starts must be strictly increasing and inside the song');
  return preview.sections.map((section,i)=>({...section,start:starts[i],measures:(starts[i+1]??preview.bars.length)-starts[i]}));
 }
+/** Create an explicitly provisional vocal guide. A leadsheet has words and
+ * harmony but no recoverable sung pitches or rhythm. These editable notes are
+ * chord-tone placeholders, never a claim about the original recording.
+ */
+function vocalGuide(preview:LeadImportPreview,beats:number):Note[]{
+ const notes:Note[]=[];
+ let previousPitch=67;
+ const pitchClassOf=(chord:string):number=>{
+  const match=chord.match(/^([A-G])([#b]?)/i);
+  if(!match)return 0;
+  const roots:Record<string,number>={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+  return (roots[match[1].toUpperCase()]+(match[2]==='#'?1:match[2]==='b'?-1:0)+12)%12;
+ };
+ for(const line of preview.lines){
+  const words=(line.text.replace(/\[[^\]]+\]/g,' ').replace(/\|+/g,' ').match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu)??[]);
+  if(!words.length)continue;
+  const total=line.measures*beats;
+  const step=total/words.length;
+  for(let i=0;i<words.length;i++){
+   const start=line.start*beats+i*step;
+   const bar=Math.min(preview.bars.length-1,Math.floor(start/beats));
+   const changes=preview.bars[bar]?.chord.split(',').filter(Boolean)??[];
+   const within=(start%beats)/beats;
+   const chord=changes[Math.min(changes.length-1,Math.floor(within*changes.length))]??'';
+   const root=pitchClassOf(chord);
+   const minor=/^[A-G][#b]?(?:m(?!aj)|min|dim|ø)/i.test(chord);
+   const intervals=minor?[0,3,7]:[0,4,7];
+   const candidates=intervals.flatMap(interval=>[60,72,84].map(octave=>octave+((root+interval)%12)))
+    .filter(pitch=>pitch>=60&&pitch<=81);
+   const pitch=candidates.sort((a,b)=>Math.abs(a-previousPitch)-Math.abs(b-previousPitch)||a-b)[0]??67;
+   previousPitch=pitch;
+   notes.push({pitch,start,duration:Math.min(step*0.9,beats-(start%beats)),velocity:76,
+    lyric:words[i],syllabic:'single',source:'generated'});
+  }
+ }
+ return notes;
+}
 export function projectFromLeadSheet(preview:LeadImportPreview,title:string,beats:number,bpm:number,starts=preview.sections.map(s=>s.start)):Project{
  const sections=arrangeImportedSections(preview,starts);
  const p=blankProject({title,beats,bpm,sections:sections.length,measuresPerSection:sections.map(s=>s.measures)});
@@ -199,6 +236,11 @@ export function projectFromLeadSheet(preview:LeadImportPreview,title:string,beat
   for(const symbol of tokens)parseChordSequence(symbol,beats);
   return {chord:bar.chord,melody:[],section:sectionLetter(sections.indexOf(section))};
  });
+ const voice=vocalGuide(preview,beats);
+ if(voice.length){
+  p.importedScore={Voice:voice};
+  p.protectedBars=Object.fromEntries(voice.map(n=>['Voice:'+Math.floor((n.start+1e-7)/beats),true]));
+ }
  p.leadLyrics={'1':{source:preview.source,useExistingMelody:false}};
  return p;
 }

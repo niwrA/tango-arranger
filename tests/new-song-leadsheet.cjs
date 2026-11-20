@@ -173,6 +173,24 @@ check('repeated ii-V-I resolutions group consistently across choruses',()=>{
  assert.equal(p.sections[0].measures,p.sections[1].measures);
  assert.ok(p.bars.some(b=>b.chord==='A#m7,D#7'));
 });
+check('leadsheet creates editable provisional Voice notes carrying lyrics',()=>{
+ const p=previewLeadSheetImport('[Verse]\n[Fm]When you are down\n[C7]and troubled\n[Chorus]\n[G#]call my name',0);
+ const song=projectFromLeadSheet(p,'Guide',4,120);
+ const voice=song.importedScore?.Voice??[];
+ assert.deepEqual(voice.map(n=>n.lyric),['When','you','are','down','and','troubled','call','my','name']);
+ assert.ok(voice.every(n=>n.source==='generated'&&n.pitch>=60&&n.pitch<=81&&n.duration>0));
+ assert.ok(voice.every(n=>song.protectedBars['Voice:'+Math.floor(n.start/4)]));
+ assert.ok(song.bars.every(b=>b.melody.length===0));
+});
+check('vocal guide aligns syllables within measures and handles wrapped chord rows',()=>{
+ const p=previewLeadSheetImport('[Verse]\nFm C7 Fm\nWhen you are down and you need some\nC7 Fm C7 Fm\nlove and care',0);
+ const song=projectFromLeadSheet(p,'Guide',4,120);
+ const notes=song.importedScore.Voice;
+ assert.equal(notes.length,11);
+ assert.ok(notes.every((n,i)=>i===0||n.start>notes[i-1].start));
+ assert.ok(notes.every(n=>n.duration<=4-(n.start%4)+1e-7));
+ assert.equal(notes.at(-1).lyric,'care');
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));

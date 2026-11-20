@@ -1660,7 +1660,7 @@ async function createSongFromLeadSheet(){
    if(!window.confirm('Create a new song from this leadsheet? The current song remains in your local library.'))return;
    await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
    active.value='lead';leadLyricsSource.value=preview.source;leadLyricsUseMelody.value=false;leadDisplayMode.value='sheet';
-   message.value=`Created a new song from ${preview.bars.length} provisional measures and ${sections.length} sections. Review section boundaries and melody alignment.`;
+   message.value=`Created ${preview.bars.length} provisional measures and an editable Voice guide with lyric-bearing notes. Vocal pitches and rhythm are estimates, not the original melody. Review and correct them in Note Editor.`;
  }catch(error){newLeadSheetError.value=String(error);message.value='Lead sheet import failed: '+String(error);}
 }
 async function createSongFromScore(event:Event){
