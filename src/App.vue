@@ -1194,7 +1194,22 @@ async function startCaptureTransport(recording:boolean){
       const recordedBeat=Math.max(0,beatCount-countInBeats);
       const bar=first+Math.floor(recordedBeat/project.value.beats)%(last-first+1);
       beatCount++;
-      if(captureMetronome.value)captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
+      if(countIn&&editor==='notes'){
+        // Introduce the harmony of the first recorded measure, even when backing is muted.
+        // Use the first chord's root, third, fifth and (when present) seventh.
+        const symbol=chordAt(project.value.bars[first]?.chord??'',project.value.beats,0);
+        const tones=symbol.trim()?chordTones(symbol):[];
+        if(tones.length){
+          const degree=beat%tones.length;
+          const pitch=60+((tones[degree]-0+12)%12);
+          captureKeySynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
+            Math.min(0.65,0.8*60/(project.value.bpm*captureSpeed.value)),time,0.45);
+        }else if(captureMetronome.value){
+          captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
+        }
+      }else if(captureMetronome.value){
+        captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
+      }
       Tone.getDraw().schedule(()=>{
         if(session!==captureSession||!capturePlaying.value)return;
         captureCountingIn.value=countIn;capturePlayBar.value=countIn?-1:bar;capturePlayBeat.value=beat;
