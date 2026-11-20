@@ -1232,6 +1232,7 @@ const microphoneInputLevel=ref(0);
 // 0 = reject quiet signals, 100 = accept very quiet signals (and potentially more noise).
 const microphoneSensitivity=ref(70);
 const microphoneInputDb=ref<number|null>(null);
+const microphoneMonitoring=ref(false);
 let microphoneStream:MediaStream|null=null;
 let microphoneContext:AudioContext|null=null;
 let microphoneFrame=0;
@@ -1266,30 +1267,34 @@ function stopMicrophoneCapture(){
   try{finishMicrophoneNote(captureElapsedBeats());}catch{/* Audio transport may already be disposed. */}
  }
  microphoneActive=null;microphoneCandidate=null;microphoneDetectedPitch.value=null;
- microphoneInputLevel.value=0;microphoneInputDb.value=null;
+ microphoneInputLevel.value=0;microphoneInputDb.value=null;microphoneMonitoring.value=false;
  microphoneStream?.getTracks().forEach(track=>track.stop());microphoneStream=null;
  if(microphoneContext){void microphoneContext.close().catch(()=>{});microphoneContext=null;}
 }
-async function recordFromMicrophone(){
+async function recordFromMicrophone(monitorOnly=false){
  if(capturePlaying.value){stopPlayback();return;}
+ if(microphoneMonitoring.value){stopMicrophoneCapture();microphoneStatus.value='Microphone monitoring stopped.';return;}
  if(!navigator.mediaDevices?.getUserMedia){microphoneStatus.value='Microphone capture requires HTTPS and a browser with media device support.';return;}
  const generation=++microphoneGeneration;
  microphoneStatus.value='Requesting microphone permission…';
  try{
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
   if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
-  await startCaptureTransport(true);
-  if(!captureRecording.value){stream.getTracks().forEach(t=>t.stop());return;}
+  if(!monitorOnly){
+   await startCaptureTransport(true);
+   if(!captureRecording.value){stream.getTracks().forEach(t=>t.stop());return;}
+  }
   const activeGeneration=++microphoneGeneration;
   const context=new AudioContext();
   microphoneStream=stream;microphoneContext=context;
+  microphoneMonitoring.value=monitorOnly;
   const source=context.createMediaStreamSource(stream);
   const analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=0;
   source.connect(analyser);
   const samples=new Float32Array(analyser.fftSize);
-  microphoneStatus.value='Microphone ready · sing or whistle after the count-in. Watch Detected pitch below.';
+  microphoneStatus.value=monitorOnly?'Microphone test active · adjust sensitivity while watching the meter and pitch. No notes are recorded.':'Microphone ready · sing or whistle after the count-in. Watch Detected pitch below.';
   const tick=()=>{
-   if(activeGeneration!==microphoneGeneration||!captureRecording.value)return;
+   if(activeGeneration!==microphoneGeneration||(!monitorOnly&&!captureRecording.value))return;
    analyser.getFloatTimeDomainData(samples);
    // Whistles are often above 1.2 kHz and quieter than voiced singing.
    // Normalize only sufficiently audible frames; the detector still checks periodicity.
@@ -1308,7 +1313,7 @@ async function recordFromMicrophone(){
    const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,75,3000):null;
    const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
    microphoneDetectedPitch.value=pitch;
-   const elapsed=captureElapsedBeats();
+   const elapsed=monitorOnly?-1:captureElapsedBeats();
    if(elapsed>=0){
     if(pitch!==null){
      if(microphoneCandidate?.pitch===pitch)microphoneCandidate.frames++;
@@ -1329,7 +1334,7 @@ async function recordFromMicrophone(){
  }catch(error){
   microphoneStatus.value='Microphone unavailable: '+String(error);
   stopMicrophoneCapture();
-  if(capturePlaying.value)stopPlayback();
+  if(!monitorOnly&&capturePlaying.value)stopPlayback();
  }
 }
 function toggleCapturePlay(){
@@ -4666,7 +4671,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
         <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Microphone sensitivity: {{microphoneSensitivity}}% <input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
         <p v-if="captureInputSource==='microphone'" class="hint">Increase sensitivity for quiet singing or whistling; reduce it if background noise produces false notes. Changes take effect immediately.</p>
-        <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
+        <button v-if="captureInputSource==='microphone'" type="button" class="secondary" :disabled="capturePlaying" @click="microphoneMonitoring?(stopMicrophoneCapture(),microphoneStatus='Microphone monitoring stopped.'):recordFromMicrophone(true)">{{microphoneMonitoring?'Stop microphone test':'Test microphone'}}</button>
+        <p v-if="captureInputSource==='microphone'" class="hint">Use Test microphone to adjust sensitivity before recording, without starting playback or capturing notes. Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
         <div v-if="captureInputSource==='microphone'" class="capture-mic-monitor" aria-label="Microphone input monitor">
           <label for="capture-mic-level">Microphone input level: {{microphoneInputDb===null?'Not monitoring':microphoneInputDb+' dBFS'}}</label>
           <progress id="capture-mic-level" :value="microphoneInputLevel" max="100" style="width:100%;max-width:320px"></progress>
