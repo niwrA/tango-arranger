@@ -56,7 +56,7 @@ check('compact piano window follows current-measure bass and upper pitches, not 
  assert.ok(diagram.includes("'all',props.splitPitch??60,23"));
  assert.ok(diagram.includes('const whiteKeys=computed(()=>pianoView.value.whites)'));
  assert.ok(diagram.includes('const blackKeys=computed(()=>pianoView.value.blacks'));
- assert.ok(diagram.includes(':measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"'));
+ assert.ok(app.includes(':measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"'));
  const window=piano.pianoWindow([40,43,64,72],'all',60,23);
  assert.equal(window.whites.length,23);
  assert.ok(window.start<=40&&window.end>=72);
