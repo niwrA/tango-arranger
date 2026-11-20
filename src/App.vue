@@ -1580,6 +1580,21 @@ const captureTakeExport=computed(()=>JSON.stringify({
     ...(n.stringMidi!==undefined?{stringMidi:n.stringMidi}:{})
   }))
 },null,2));
+type RawPitchFrame={timeSeconds:number;beat:number|null;frequencyHz:number|null;midi:number|null;clarity:number|null;levelDbfs:number;};
+const rawPitchFrames=ref<RawPitchFrame[]>([]);
+const rawPitchExport=computed(()=>JSON.stringify({
+ format:'tango-arranger-raw-pitch',version:1,
+ instrument:noteInst.value,tempoBpm:project.value.bpm,beatsPerMeasure:project.value.beats,
+ measures:{from:captureFirst.value+1,to:captureLast.value+1},
+ sampleRateHz:microphoneContext?.sampleRate??null,
+ sensitivityPercent:microphoneSensitivity.value,
+ frames:rawPitchFrames.value
+},null,2));
+const rawPitchCopyStatus=ref('');
+async function copyRawPitch(){
+ try{await navigator.clipboard.writeText(rawPitchExport.value);rawPitchCopyStatus.value='Raw pitch timeline copied.';}
+ catch{rawPitchCopyStatus.value='Clipboard unavailable. Copy from the expanded JSON below.';}
+}
 const captureTakeCopyStatus=ref('');
 async function copyCaptureTake(){
   try{
@@ -4876,6 +4891,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="capture-beat-strip"><button v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`" type="button" class="secondary" :disabled="capturePlaying" :title="'Tap to play, hold to edit '+midiName(n.pitch)" :aria-label="'Play '+midiName(n.pitch)+'; hold to edit'"
 @pointerdown="startDraftHold(b,n,$event)" @pointerup="cancelDraftHold" @pointerleave="cancelDraftHold" @pointercancel="cancelDraftHold"
 @contextmenu.prevent="cancelDraftHold();draftHoldFired=true;editDraftNote(b,n)" @click="tapDraftNote(n)">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</button><em v-if="!capturedMelodyForBar(b).length">No notes</em></div>
+</div>
+<div v-if="captureInputSource==='microphone'" class="capture-take-export">
+  <button type="button" class="secondary icon-action" :disabled="!rawPitchFrames.length" @click="copyRawPitch" title="Copy raw pitch timeline for analysis" aria-label="Copy raw pitch timeline for analysis"><AppIcon name="copy"/></button>
+  <span>Raw pitch timeline · {{rawPitchFrames.length}} frames</span>
+  <p v-if="rawPitchCopyStatus" role="status">{{rawPitchCopyStatus}}</p>
+  <details><summary>Show raw pitch JSON</summary><textarea readonly rows="10" :value="rawPitchExport" aria-label="Raw microphone pitch timeline JSON" style="width:100%;font-family:monospace"></textarea></details>
 </div>
 <details class="capture-take-export"><summary>Show / manually copy note data</summary><textarea readonly rows="10" :value="captureTakeExport" aria-label="Recorded note data in JSON" style="width:100%;font-family:monospace"></textarea></details>
 <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>
