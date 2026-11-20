@@ -3,6 +3,7 @@ import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
+import PianoFocusView from './PianoFocusView.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
@@ -30,6 +31,7 @@ import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
+import {autoPianoCaptureRange,PIANO_LOW,PIANO_HIGH} from './pianoRegisters';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
@@ -516,6 +518,9 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  // Keep the violin chart at one suggested hand position per measure rather
  // than jumping to another string position on every note attack.
  const measureNotes=notes.filter(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
+ const measurePitches=measureNotes.map(n=>n.pitch);
+ const nextRangePitches=notes.filter(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats).map(n=>n.pitch);
+ const registerPitches=[...measurePitches,...(nextBar===bar?[]:nextRangePitches)];
  // Retain legacy one-note suggestion as fallback for diagram consumers.
  const violinMeasurePitches=instrumentFamily(part.inst)==='Violin'
   ?measureNotes.map(n=>n.pitch)
@@ -528,7 +533,7 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
   :null;
  const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:stageInstrumentName(rosterDisplayName(part.inst)),playingInMeasure,activePitches,violinPosition,positionGuide,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:stageInstrumentName(rosterDisplayName(part.inst)),playingInMeasure,activePitches,measurePitches,registerPitches,violinPosition,positionGuide,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -1008,6 +1013,27 @@ const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.valu
 const captureBarNumbers=computed(()=>Array.from({length:captureLast.value-captureFirst.value+1},(_,i)=>captureFirst.value+i));
 const capturePitchOptions=computed(()=>keyboardPitchOptions(noteCtx.value.range));
 const captureKeyboardPitches=computed(()=>keyboardPitches(captureStartPitch.value,captureEndPitch.value,noteCtx.value.range));
+/** Adaptive piano capture fits as many playable keys as are touch-friendly. */
+const captureAutoFit=ref(true);
+const capturePianoWidth=ref(460);
+const capturePianoElement=ref<HTMLElement|null>(null);
+watch(capturePianoElement,(element,_previous,onCleanup)=>{
+ if(!element||typeof ResizeObserver==='undefined')return;
+ const observer=new ResizeObserver(entries=>{
+  const width=entries[0]?.contentRect.width??0;
+  if(width>0)capturePianoWidth.value=width;
+ });
+ observer.observe(element);onCleanup(()=>observer.disconnect());
+},{flush:'post'});
+function fitCaptureKeyboardToWidth(){
+ if(noteInst.value!=='Piano'||!captureAutoFit.value)return;
+ const midpoint=(captureStartPitch.value+captureEndPitch.value)/2;
+ const next=autoPianoCaptureRange(midpoint,noteCtx.value.range,capturePianoWidth.value);
+ captureStartPitch.value=next.start;captureEndPitch.value=next.end;
+}
+watch(capturePianoWidth,fitCaptureKeyboardToWidth);
+function setCaptureAutoFit(enabled:boolean){captureAutoFit.value=enabled;if(enabled)fitCaptureKeyboardToWidth();}
+function showAllPianoKeys(){captureAutoFit.value=false;captureStartPitch.value=PIANO_LOW;captureEndPitch.value=PIANO_HIGH;}
 const captureInputLayout=ref<'keyboard'|'fingerboard'>('fingerboard');
 const captureFingerboardRows=computed(()=>fingerboardStrings(noteInst.value));
 const captureFretStart=ref(0);
@@ -1020,11 +1046,13 @@ function updateCaptureFretCount(event:Event){
 }
 function captureStringPitch(openMidi:number,fret:number){return fingerboardMidi(openMidi,fret,noteCtx.value.range);}
 function changeCaptureKeyboardStart(){
+  captureAutoFit.value=false;
   const next=changeKeyboardBoundary('start',captureStartPitch.value,captureEndPitch.value,noteCtx.value.range);
   captureStartPitch.value=next.start;captureEndPitch.value=next.end;
   capturePitch.value=clampKeyboardPitch(capturePitch.value,next);
 }
 function changeCaptureKeyboardEnd(){
+  captureAutoFit.value=false;
   const next=changeKeyboardBoundary('end',captureStartPitch.value,captureEndPitch.value,noteCtx.value.range);
   captureStartPitch.value=next.start;captureEndPitch.value=next.end;
   capturePitch.value=clampKeyboardPitch(capturePitch.value,next);
@@ -2952,6 +2980,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   capturePitch.value=existing[0]?.pitch??Math.max(range[0],Math.min(range[1],typical));
   const keyboard=defaultKeyboardRange(capturePitch.value,range);
   captureStartPitch.value=keyboard.start;captureEndPitch.value=keyboard.end;
+  captureAutoFit.value=inst==='Piano';if(inst==='Piano')fitCaptureKeyboardToWidth();
   expressionStart.value=selectedBar.value+1;expressionEnd.value=selectedBar.value+1;expressionStartBeat.value=1;expressionEndBeat.value=project.value.beats;
   noteStep.value=0.25; // Editing precision is independent of arrangement difficulty.
   noteLength.value='auto'; // Derive new-note length from the active articulation unless overridden.
@@ -3450,7 +3479,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
        </div>
        <div class="instrument-focus-content">
-         <button v-if="cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
+         <PianoFocusView v-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
+           :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
+           :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="flipPerformanceCard(part.inst)"/>
+         <button v-else-if="cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show role and dynamics for '+part.display" title="Tap to show role and dynamics">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
@@ -3825,9 +3857,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
    </template>
+   <div v-if="noteInst==='Piano'" class="capture-piano-fit-controls" role="group" aria-label="Piano recording keyboard visibility">
+     <label><input type="checkbox" :checked="captureAutoFit" @change="setCaptureAutoFit(($event.target as HTMLInputElement).checked)"/> Fit available width</label>
+     <button type="button" class="secondary" @click="showAllPianoKeys">Show all 88 keys (scroll)</button>
+     <span>{{captureKeyboardPitches.length}} keys visible · playable A0–C8</span>
+   </div>
    <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="live-capture-controls" aria-label="Melody keyboard note range"><label>Start note<select v-model.number="captureStartPitch" @change="changeCaptureKeyboardStart"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label><label>Selected pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label></div>
   <p v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="hint capture-range-summary">Keyboard: {{midiName(captureStartPitch)}}–{{midiName(captureEndPitch)}} · {{captureKeyboardPitches.length}} semitone keys. Scroll horizontally for wider ranges. Changing the keyboard range does not remove recorded taps.</p>
-  <div v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':noteInst==='Piano'&&captureAutoFit}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
   <button type="button" class="capture-tap-pad" :disabled="!capturePlaying" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
   <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="(n,i) in melodyFromTaps(captureTaps,b,project.beats)" :key="`${i}-${n.beat}`">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</span><em v-if="!melodyFromTaps(captureTaps,b,project.beats).length">No taps</em></div></div>
