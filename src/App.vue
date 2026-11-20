@@ -1229,6 +1229,8 @@ const captureMuteBacking=ref(true);
 const microphoneStatus=ref('');
 const microphoneDetectedPitch=ref<number|null>(null);
 const microphoneInputLevel=ref(0);
+// 0 = reject quiet signals, 100 = accept very quiet signals (and potentially more noise).
+const microphoneSensitivity=ref(70);
 const microphoneInputDb=ref<number|null>(null);
 let microphoneStream:MediaStream|null=null;
 let microphoneContext:AudioContext|null=null;
@@ -1297,7 +1299,10 @@ async function recordFromMicrophone(){
    // A logarithmic meter makes quiet microphone signals visible without playing them through speakers.
    microphoneInputDb.value=rms>0?Math.max(-90,Math.round(20*Math.log10(rms))):-90;
    microphoneInputLevel.value=Math.max(0,Math.min(100,Math.round((microphoneInputDb.value+60)/60*100)));
-   const gain=rms>=0.003?Math.min(4,0.06/rms):0;
+   // Sensitivity controls the minimum usable input level, independently of the display meter.
+   // -60 dBFS at maximum sensitivity; -30 dBFS at minimum sensitivity.
+   const minimumRms=Math.pow(10,(-30-microphoneSensitivity.value*0.3)/20);
+   const gain=rms>=minimumRms?Math.min(32,0.08/rms):0;
    const pitchSamples=new Float32Array(samples.length);
    if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
    const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,75,3000):null;
@@ -4659,6 +4664,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
         <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
         <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
+        <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Microphone sensitivity: {{microphoneSensitivity}}% <input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
+        <p v-if="captureInputSource==='microphone'" class="hint">Increase sensitivity for quiet singing or whistling; reduce it if background noise produces false notes. Changes take effect immediately.</p>
         <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
         <div v-if="captureInputSource==='microphone'" class="capture-mic-monitor" aria-label="Microphone input monitor">
           <label for="capture-mic-level">Microphone input level: {{microphoneInputDb===null?'Not monitoring':microphoneInputDb+' dBFS'}}</label>
