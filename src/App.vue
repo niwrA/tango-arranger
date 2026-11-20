@@ -1337,6 +1337,7 @@ function toggleCaptureRecord(){
   void startCaptureTransport(true);
 }
 function captureTap(pitch?:number){
+  if(active.value==='notes'&&captureRecording.value&&captureInputSource.value==='microphone')return;
   if(!captureRecording.value){captureFeedback.value='Press Record to capture a take.';return;}
   try{
     const elapsed=Tone.getTransport().seconds;
@@ -1364,6 +1365,7 @@ function ensureCaptureKeySynth(){
  return captureKeySynth;
 }
 function capturePianoKey(event:PointerEvent,pitch:number){
+  if(captureRecording.value&&captureInputSource.value==='microphone')return;
  if(event.button!==0||heldCaptureKeys.has(event.pointerId))return;
  capturePitch.value=pitch;
  const started=captureRecording.value?captureElapsedBeats():-1;
@@ -1470,6 +1472,7 @@ function releaseCapturePianoKey(event:PointerEvent){
  captureFeedback.value=`Recorded ${midiName(writtenPitch)} for ${duration} beats${captureLastExpression.value?' · '+captureLastExpression.value:''}.`;
 }
 function capturePianoKeyClick(event:MouseEvent,pitch:number){
+  if(captureRecording.value&&captureInputSource.value==='microphone')return;
   if(event.detail!==0)return;
   capturePitch.value=pitch;
   if(captureRecording.value)captureTap(pitch);else void auditionPitch(pitch);
@@ -4731,7 +4734,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <button v-for="fret in captureFrets" :key="fret" type="button" class="capture-fingerboard-key"
            :class="{selected:capturePitch===string.midi+fret,'is-open':fret===0,'is-held':captureHeldDisplay.includes(string.midi+fret)}"
            :data-string-midi="string.midi" :data-pitch="string.midi+fret"
-           :disabled="captureStringPitch(string.midi,fret)===null"
+           :disabled="captureStringPitch(string.midi,fret)===null||(captureRecording&&captureInputSource==='microphone')"
            :aria-label="`${string.name} string at ${fret===0?'open':'semitone '+fret}, ${midiName(string.midi+fret)}`"
            :title="midiName(string.midi+fret)"
            @pointerdown.prevent.stop="captureViolinFingerDown($event,string.midi+fret,string.midi)" @pointermove.prevent.stop="captureViolinFingerMove($event)"
@@ -4746,9 +4749,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
     </template>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" :disabled="captureRecording&&captureInputSource==='microphone'" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
 
-      <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
+      <button type="button" class="capture-tap-pad" :disabled="!captureRecording||(active==='notes'&&captureInputSource==='microphone')" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
       <details class="capture-draft-review">
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
   <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody">Apply captured notes to {{rosterDisplayName(noteInst)}}</button></div>
