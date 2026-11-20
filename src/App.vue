@@ -1282,11 +1282,19 @@ async function recordFromMicrophone(){
   const analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=0;
   source.connect(analyser);
   const samples=new Float32Array(analyser.fftSize);
-  microphoneStatus.value='Microphone ready · start singing after the count-in. Headphones recommended.';
+  microphoneStatus.value='Microphone ready · sing or whistle after the count-in. Watch Detected pitch below.';
   const tick=()=>{
    if(activeGeneration!==microphoneGeneration||!captureRecording.value)return;
    analyser.getFloatTimeDomainData(samples);
-   const estimate=detectMonophonicPitch(samples,context.sampleRate);
+   // Whistles are often above 1.2 kHz and quieter than voiced singing.
+   // Normalize only sufficiently audible frames; the detector still checks periodicity.
+   let energy=0;
+   for(const sample of samples)energy+=sample*sample;
+   const rms=Math.sqrt(energy/samples.length);
+   const gain=rms>=0.003?Math.min(4,0.06/rms):0;
+   const pitchSamples=new Float32Array(samples.length);
+   if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
+   const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,75,3000):null;
    const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
    microphoneDetectedPitch.value=pitch;
    const elapsed=captureElapsedBeats();
@@ -4642,7 +4650,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
         <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
         <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
-        <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
+        <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
         <p v-if="captureInputSource==='microphone'&&microphoneDetectedPitch!==null" role="status">Detected pitch: {{midiName(microphoneDetectedPitch)}}</p>
         <p v-if="microphoneStatus" role="status">{{microphoneStatus}}</p>
       </div>
