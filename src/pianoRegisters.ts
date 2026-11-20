@@ -33,6 +33,24 @@ export function pianoWindow(
    ?[{pitch:note+1,left:(index+1)/whites.length*100}]:[]);
  return {whites,blacks,start:whites[0],end:whites[whites.length-1]};
 }
+/** A compact keyboard should cover every scored/sounding pitch in its register.
+ * A fixed-width, center-following window can silently omit one hand; this grows
+ * only as far as the actual pitch span requires (up to the full 88-key range).
+ * Black notes need both neighboring white keys to be visible. */
+export function pianoWindowCovering(
+ pitches:readonly number[],register:PianoRegister='all',split=60,minimumWhiteCount=12
+):PianoWindow{
+ const allowed=pitches.filter(p=>Number.isInteger(p)&&p>=PIANO_LOW&&p<=PIANO_HIGH
+  &&(register==='all'||(register==='upper'?p>=split:p<split)));
+ if(!allowed.length)return pianoWindow([],register,split,minimumWhiteCount);
+ const lo=Math.min(...allowed),hi=Math.max(...allowed);
+ const firstNeeded=clamp(PIANO_WHITES.findIndex((p,i)=>i===PIANO_WHITES.length-1||PIANO_WHITES[i+1]>lo),0,PIANO_WHITES.length-1);
+ const lastNeeded=clamp(PIANO_WHITES.findIndex(p=>p>=hi),firstNeeded,PIANO_WHITES.length-1);
+ const required=lastNeeded-firstNeeded+1;
+ const count=clamp(Math.max(Math.round(minimumWhiteCount),required),1,PIANO_WHITES.length);
+ const first=clamp(firstNeeded-Math.floor((count-required)/2),0,PIANO_WHITES.length-count);
+ return pianoWindow(allowed,register,split,count,PIANO_WHITES[first]);
+}
 export function movePianoWindow(start:number,deltaSemitones:number,count=21):number{
  return pianoWindow([], 'all',60,count,start+deltaSemitones).start;
 }

@@ -49,9 +49,10 @@ check('refresh restores performance and editor location but never restarts playb
  const to=app.indexOf('// Keep topical menus',from);
  assert.ok(!app.slice(from,to).includes("void play("));
 });
-check('compact piano identifies both octaves and uses a single warm upper-note color family',()=>{
- for(const token of ['pianoBassCaption','pianoUpperCaption','class="diagram-piano-register-labels"','LH {{pianoBassCaption}}','RH {{pianoUpperCaption}}','background:#ffe1a1','is-piano-upper'])
+check('compact piano identifies both hands with actual note ranges and preserves upper-note colors',()=>{
+ for(const token of ['pianoBassCaption','pianoUpperCaption','class="diagram-piano-register-badge"','class="diagram-piano diagram-piano-split"',"'LH'","'RH'",'background:#ffe1a1','is-piano-upper'])
    assert.ok(diagram.includes(token),token);
+ assert.ok(diagram.includes("hand.id==='bass'?pianoBassCaption:pianoUpperCaption"));
  assert.ok(diagram.includes("isPianoMeasurePitch(midi)||isPlayingPitch(midi)"));
 });
 check('header is single row with responsive overflow and grouped complete file formats',()=>{
@@ -67,7 +68,7 @@ check('header is single row with responsive overflow and grouped complete file f
 check('global status is error-only; dynamics editor exposes direct paint, scope and tone level',()=>{
  assert.ok(app.includes('&& actionableError" class="topbar-status topbar-error-only"'));
  assert.ok(app.includes('class="dynamics-quick-paint"'));
- assert.ok(app.includes("applyDynamicsMarkToBar(selectedBar,mark)"));
+ assert.ok(app.includes("applyDynamicsMarkToSelection(mark)"));
  assert.ok(app.includes('class="dynamics-timeline-tiles"'));
  assert.ok(app.includes('dynamics-measure-main" :class='));
  assert.ok(app.includes('stageDynamicMeter('));

@@ -52,24 +52,73 @@ check('expanded role view gives the present measure more space and preserves tap
  assert.ok(app.includes(':next-measure="part.hasNextMeasure?performanceBar+2:null"'));
  assert.ok(app.includes('height:270px!important;min-height:270px!important;max-height:270px!important'));
 });
-check('compact piano window follows current-measure bass and upper pitches, not only fixed C3',()=>{
- assert.ok(diagram.includes("pianoWindow("));
- assert.ok(diagram.includes('props.measurePitches?.length?props.measurePitches'));
- assert.ok(diagram.includes("'all',props.splitPitch??60,23"));
- assert.ok(diagram.includes('const whiteKeys=computed(()=>pianoView.value.whites)'));
- assert.ok(diagram.includes('const blackKeys=computed(()=>pianoView.value.blacks'));
+check('two compact piano registers cover both hands and sounding pitches',()=>{
+ assert.ok(diagram.includes('pianoWindowCovering('));
+ assert.ok(diagram.includes('const pianoHands=computed('));
+ assert.ok(diagram.includes("pianoWindowCovering(relevant,'lower',split,12)"));
+ assert.ok(diagram.includes("pianoWindowCovering(relevant,'upper',split,12)"));
+ assert.ok(diagram.includes('class="diagram-piano diagram-piano-split"'));
+ assert.ok(diagram.includes('v-for="hand in pianoHands"'));
+ assert.ok(diagram.includes('pianoPitchVisible(midi)'));
+ assert.ok(!diagram.includes('+{{pianoPitchesOutOfView}} offscreen'));
  assert.ok(app.includes(':measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"'));
- const window=piano.pianoWindow([40,43,64,72],'all',60,23);
- assert.equal(window.whites.length,23);
- assert.ok(window.start<=40&&window.end>=72);
+ for(const part of ['lower','upper']){
+   const pitches=part==='lower'?[27,30,40,53,58]:[60,64,72,85,96];
+   const view=piano.pianoWindowCovering(pitches,part,60,12);
+   const visible=new Set([...view.whites,...view.blacks.map(key=>key.pitch)]);
+   for(const pitch of pitches)assert.ok(visible.has(pitch),part+' missing '+pitch);
+ }
+ const overlap=[34,37,61,64,76,93];
+ for(const part of ['lower','upper']){
+   const view=piano.pianoWindowCovering(overlap,part,60,12);
+   const visible=new Set([...view.whites,...view.blacks.map(key=>key.pitch)]);
+   for(const pitch of overlap.filter(p=>part==='lower'?p<60:p>=60))
+    assert.ok(visible.has(pitch),part+' missing '+pitch);
+ }
+ const full=piano.pianoWindowCovering([21,108],'all',60,12);
+ assert.equal(full.start,21);
+ assert.equal(full.end,108);
 });
-check('piano planned bass and upper notes have separate colors and actual sounding notes keep priority',()=>{
+check('piano planned bass and upper notes retain separate colors and active priorities',()=>{
  for(const fragment of ['isPianoBassMidi(midi)','isPianoMeasurePitch(midi)','is-piano-bass','is-piano-upper',
-   'diagram-piano-hand-legend','pianoPitchesOutOfView','is-sounding','pianoView.start'])
+   'diagram-piano-hand-legend','pianoPitchesOutOfView','is-sounding','pianoHands[0].view.start'])
   assert.ok(diagram.includes(fragment),fragment);
  assert.ok(diagram.includes('.diagram-piano .diagram-white-key.is-piano-bass.is-sounding'));
  assert.ok(diagram.includes('.diagram-piano .diagram-white-key.is-piano-upper.is-sounding'));
- assert.ok(diagram.includes('.diagram-white-keys{grid-template-columns:repeat(var(--piano-white-count,14)'));
+ assert.ok(diagram.includes('.diagram-piano-split .diagram-white-keys{grid-template-columns:repeat(var(--piano-white-count,12)'));
  assert.ok(diagram.includes('height:80px;min-height:80px;max-height:80px'));
+});
+check('dynamics editor is loop-bound and uses explicit multi-selection',()=>{
+ for(const fragment of [
+  'const dynamicsPreviewBars=computed(()=>focusVisibleMeasures.value)',
+  'function clickDynamicsMeasure(bar:number,event:MouseEvent)',
+  'dynamicsSelectedBars.value=[...selected].sort',
+  'function selectDynamicsLoop()',
+  'function clearDynamicsSelection()',
+  'function applyDynamicsMarkToSelection(mark:string)',
+  'const dynamicsSelectionMark=computed(',
+  "'Current: '+dynamicsSelectionMark.value",
+  "if(!selected.has(bar))continue;",
+  'const dynamicsSelectedSpan=computed(',
+  "const dynamicsShapeSuggestion=computed",
+  '@click="clickDynamicsMeasure(barIndex,$event)"',
+  '@click="selectDynamicsLoop"',
+  'Apply to selection:',
+  "applyDynamicsGesture('crescendo')"
+ ])assert.ok(app.includes(fragment),fragment);
+ assert.ok(!app.includes("function clickDynamicsMeasure(bar:number){if(!dynamicsPress.consumeClick())openDynamicPopup(bar);}"));
+ assert.ok(app.includes(':aria-pressed="dynamicsSelectedBars.includes(barIndex)"'));
+ assert.ok(app.includes(':disabled="!dynamicsSelectedSpan"'));
+});
+check('speed menu is Files-style and wide iPad layout avoids two transport rows',()=>{
+ for(const fragment of [
+  'class="playback-speed-list"',
+  'class="playback-speed-bpm"',
+  'class="files-group-title">Rehearsal speed',
+  '@click="setRehearsalSpeed(speed)"',
+  'flex-wrap:nowrap!important;min-width:0;column-gap:6px',
+  '.app-topbar .playback-speed-options{display:flex;flex-direction:column;',
+  '.app-topbar .topbar-playback .playback-speed-menu>summary{box-sizing:border-box;'
+ ])assert.ok(app.includes(fragment),fragment);
 });
 console.log(count+' stage dynamics, role and compact piano checks passed');

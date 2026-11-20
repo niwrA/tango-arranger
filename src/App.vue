@@ -2527,7 +2527,18 @@ function dynamicsContextKey(event:KeyboardEvent,kind:'measure'|'hairpin',value:n
  if(!isContextMenuKey(event))return;
  event.preventDefault();event.stopPropagation();openDynamicsContext(kind,value);
 }
-function clickDynamicsMeasure(bar:number){if(!dynamicsPress.consumeClick())openDynamicPopup(bar);}
+/** Tap to toggle a measure; Shift-click extends the selection on desktop. */
+function clickDynamicsMeasure(bar:number,event:MouseEvent){
+ if(dynamicsPress.consumeClick())return;
+ const selected=new Set(dynamicsSelectedBars.value);
+ if(event.shiftKey&&dynamicsSelectedBars.value.length){
+  const anchor=dynamicsSelectedBars.value[dynamicsSelectedBars.value.length-1];
+  for(let i=Math.min(anchor,bar);i<=Math.max(anchor,bar);i++)selected.add(i);
+ }else if(selected.has(bar))selected.delete(bar);
+ else selected.add(bar);
+ dynamicsSelectedBars.value=[...selected].sort((a,b)=>a-b);
+ selectedBar.value=bar;
+}
 function clickDynamicsHairpin(index:number){if(!dynamicsPress.consumeClick())openHairpinEditor(index);}
 function dynamicsMenuAction(action:'edit'|'mf'|'f'|'clear'|'crescendo'|'diminuendo'|'start'|'end'|'delete'){
  const target=dynamicsContext.value;
@@ -2607,7 +2618,68 @@ function dynamicsRangeEndpoints(bar:number){
   return entries;
  });
 }
-const dynamicsPreviewBars=computed(()=>Array.from({length:Math.min(12,project.value.bars.length)},(_,i)=>Math.max(0,Math.min(project.value.bars.length-1,selectedBar.value-2))+i).filter(b=>b<project.value.bars.length));
+/** Timeline and loop share the same measure window. Selection stays local to it. */
+const dynamicsPreviewBars=computed(()=>focusVisibleMeasures.value);
+const dynamicsSelectedBars=ref<number[]>([]);
+const dynamicsSelectedSpan=computed(()=>{
+ const bars=dynamicsSelectedBars.value;
+ return bars.length>=2&&bars.every((bar,i)=>i===0||bar===bars[i-1]+1)
+  ?{first:bars[0],last:bars[bars.length-1]}:null;
+});
+const dynamicsSelectionLabel=computed(()=>{
+ const bars=dynamicsSelectedBars.value;
+ if(!bars.length)return 'No measures selected';
+ const span=dynamicsSelectedSpan.value;
+ if(span)return `M${span.first+1}–M${span.last+1} · ${bars.length} selected`;
+ return bars.length===1?`M${bars[0]+1} selected`:`${bars.length} selected: ${bars.map(bar=>'M'+(bar+1)).join(', ')}`;
+});
+/** Read the actual markings from every selected instrument/measure, so the
+ * quick buttons never imply that a merely chosen default is already applied. */
+const dynamicsSelectionMark=computed(()=>{
+ const marks=dynamicsSelectedBars.value.flatMap(bar=>dynamicsTargets(bar).map(inst=>dynamicsAt(inst,bar)));
+ if(!marks.length)return '';
+ return marks.every(mark=>mark===marks[0])?marks[0]:'mixed';
+});
+const dynamicsSelectionStatus=computed(()=>dynamicsSelectionMark.value==='mixed'
+ ?'Mixed dynamics':dynamicsSelectionMark.value
+ ?'Current: '+dynamicsSelectionMark.value:'No single dynamic assigned');
+watch([noteLoopFrom,noteLoopTo,noteEditorTab],()=>{
+ if(noteEditorTab.value!=='expression')return;
+ const visible=new Set(dynamicsPreviewBars.value);
+ dynamicsSelectedBars.value=dynamicsSelectedBars.value.filter(bar=>visible.has(bar));
+});
+function selectDynamicsLoop(){dynamicsSelectedBars.value=[...dynamicsPreviewBars.value];}
+function clearDynamicsSelection(){dynamicsSelectedBars.value=[];}
+/** Suggest a ramp only when explicit endpoint dynamics agree about its direction. */
+const dynamicsShapeSuggestion=computed<'crescendo'|'diminuendo'|null>(()=>{
+ const span=dynamicsSelectedSpan.value;
+ if(!span)return null;
+ const shared=dynamicsTargets(span.first).filter(inst=>dynamicsTargets(span.last).includes(inst));
+ const directions=new Set<number>();
+ for(const inst of shared){
+  const start=dynamicsAt(inst,span.first),end=dynamicsAt(inst,span.last);
+  if(!start||!end||start===end)continue;
+  const from=DYNAMIC_MARKS.indexOf(start as DynamicMark),to=DYNAMIC_MARKS.indexOf(end as DynamicMark);
+  if(from>=0&&to>=0)directions.add(Math.sign(to-from));
+ }
+ if(directions.size!==1)return null;
+ return directions.has(1)?'crescendo':'diminuendo';
+});
+function applyDynamicsMarkToSelection(mark:string){
+ const bars=dynamicsSelectedBars.value;
+ if(!bars.length){message.value='Select one or more measures first.';return;}
+ project.value.measureDynamics??={};
+ let assignments=0;
+ for(const bar of bars)for(const inst of dynamicsTargets(bar)){
+  const key=`${inst}:${bar}`;
+  const entry={...(project.value.measureDynamics[key]??{})};
+  if(mark)entry.start=mark as DynamicMark;else delete entry.start;
+  if(!entry.start&&!entry.end)delete project.value.measureDynamics[key];
+  else project.value.measureDynamics[key]=entry;
+  assignments++;
+ }
+ message.value=`${mark?'Set '+mark:'Cleared dynamic'} in ${bars.length} selected measure(s) · ${assignments} part assignments.`;
+}
 function dynamicsTargets(barIndex:number):Instrument[]{
   const roster=projectInstruments(project.value);
   if(dynamicsScope.value==='all')return roster;
@@ -2631,8 +2703,12 @@ function applyDynamicsMarkToBar(barIndex:number,mark:string){
   message.value=`Updated dynamics in measure ${barIndex+1} for ${targets.length} instrument(s).`;
 }
 function applyDynamicsGesture(shape:'crescendo'|'diminuendo'|'swell'|'constant'){
-  const first=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(expressionStart.value)-1));
-  const last=Math.max(first,Math.min(project.value.bars.length-1,Math.floor(expressionEnd.value)-1));
+  const bars=dynamicsSelectedBars.value;
+  if(!bars.length){message.value='Select measures before applying a dynamic shape.';return;}
+  if(shape!=='constant'&&(!dynamicsSelectedSpan.value||(shape==='swell'&&bars.length<3))){
+   message.value='Select consecutive measures (at least three for a swell) to shape a phrase.';return;
+  }
+  const first=bars[0],last=bars[bars.length-1],selected=new Set(bars);
   const velocity:Record<DynamicMark,number>={ppp:24,pp:36,p:48,mp:64,mf:80,f:96,ff:112,fff:124};
   const base=velocity[dynamicsMark.value];
   const start=shape==='crescendo'?Math.max(1,base-35):shape==='diminuendo'?Math.min(127,base+30):shape==='swell'?Math.max(1,base-25):base;
@@ -2641,6 +2717,7 @@ function applyDynamicsGesture(shape:'crescendo'|'diminuendo'|'swell'|'constant')
   project.value.expressionRanges??=[];
   project.value.measureDynamics??={};
   for(let bar=first;bar<=last;bar++){
+    if(!selected.has(bar))continue;
     const active=dynamicsTargets(bar);
     for(const inst of active)targets.add(inst);
     const ratio=last===first?1:(bar-first)/(last-first);
@@ -3374,8 +3451,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <details class="topbar-menu playback-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="playback-speed-summary" :title="'Playback speed '+Math.round(rehearsalSpeed*100)+'% · '+Math.round(effectivePlaybackBpm)+' BPM'" :aria-label="'Playback speed '+rehearsalSpeed+' times song tempo. Tap to adjust'">{{rehearsalSpeed}}×<AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel playback-speed-options" role="group" aria-label="Rehearsal playback speed" @click="closeTopbarMenuOnAction($event)">
-        <button v-for="speed in REHEARSAL_SPEEDS" :key="speed" type="button" :class="{'selected':rehearsalSpeed===speed}" :aria-pressed="rehearsalSpeed===speed" @click="setRehearsalSpeed(speed)"><strong>{{speed}}×</strong><small>{{Math.round(project.bpm*speed)}} BPM</small></button>
-        <span class="playback-speed-note">Changes playback tempo, not the song's BPM.</span>
+        <strong class="files-group-title">Rehearsal speed</strong>
+        <span class="playback-speed-tempo">Written {{project.bpm}} BPM · Playback {{Math.round(effectivePlaybackBpm)}} BPM</span>
+        <div class="playback-speed-list">
+          <button v-for="speed in REHEARSAL_SPEEDS" :key="speed" type="button" :class="{'selected':rehearsalSpeed===speed}" :aria-pressed="rehearsalSpeed===speed" @click="setRehearsalSpeed(speed)">
+            <span><strong>{{Math.round(speed*100)}}%</strong><small>{{speed}}× tempo</small></span>
+            <span class="playback-speed-bpm">{{Math.round(project.bpm*speed)}} BPM <b v-if="rehearsalSpeed===speed" aria-label="Selected">✓</b></span>
+          </button>
+        </div>
+        <span class="playback-speed-note">Rehearsal only · the written song tempo does not change.</span>
       </div>
     </details>
     <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
@@ -3999,39 +4083,52 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
   <section id="note-panel-expression" v-show="noteEditorTab==='expression'" role="tabpanel" aria-labelledby="note-tab-expression">
     <div class="figure-workbench" aria-label="Visual dynamics editor">
-      <div class="dynamics-workbench-intro"><div><h3>Dynamics · shape the phrase</h3><p>Choose the musicians, then paint a measure. Use a hairpin when the loudness should evolve between notes.</p></div><div class="dynamics-current-measure">Editing <strong>M{{selectedBar+1}}</strong></div></div>
-      <p class="dynamics-workflow-step"><strong>1 · Who and how loud?</strong><span>Roles follow the orchestration; an instrument is always edited independently.</span></p>
+      <div class="dynamics-workbench-intro"><div><h3>Dynamics · shape the phrase</h3><p>Select measures in the playback loop, then assign a dynamic level or shape a continuous phrase.</p></div><div class="dynamics-current-measure">Visible loop <strong>M{{noteLoopFrom}}–M{{noteLoopTo}}</strong></div></div>
+      <p class="dynamics-workflow-step"><strong>1 · Select measures</strong><span>Tap to toggle, Shift-click to extend, or select the entire loop. Use ⋯ for precise editing.</span></p>
+      <div class="dynamics-selection-actions" role="group" aria-label="Dynamics measure selection">
+        <button type="button" class="secondary" @click="selectDynamicsLoop">Select loop · {{dynamicsPreviewBars.length}} measures</button>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedBars.length" @click="clearDynamicsSelection">Clear selection</button>
+        <span>Measures follow the Start / End selectors above.</span>
+      </div>
+      <div class="dynamics-timeline-tiles" role="group" aria-label="Select measures for dynamic assignment">
+        <div v-for="barIndex in dynamicsPreviewBars" :key="barIndex" class="dynamics-measure-tile">
+          <button type="button" class="secondary dynamics-measure-main" :class="{'is-selected':dynamicsSelectedBars.includes(barIndex),'is-current':barIndex===selectedBar}" :style="{'--dyn-alpha':stageDynamicAlpha(dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).find(Boolean)||'—')}" :aria-pressed="dynamicsSelectedBars.includes(barIndex)" :aria-label="'Select dynamics measure '+(barIndex+1)+'; long press or use more options for precise editing'" :title="'Measure '+(barIndex+1)+' · tap to select; long press, right click or Shift+F10 for options'" @pointerdown="startDynamicsContextHold($event,'measure',barIndex)" @pointermove="dynamicsPress.move($event)" @pointerup="dynamicsPress.end($event)" @pointercancel="dynamicsPress.cancel()" @contextmenu.prevent.stop="openDynamicsContext('measure',barIndex)" @keydown="dynamicsContextKey($event,'measure',barIndex)" @click="clickDynamicsMeasure(barIndex,$event)">
+            <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
+            <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
+            <small>{{dynamicsTargets(barIndex).length}} parts</small>
+            <span class="dynamics-tile-meter" aria-hidden="true"><span :style="{width:stageDynamicMeter(dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).find(Boolean)||'—')}"/></span>
+          </button>
+          <button type="button" class="secondary dynamics-more" :aria-label="'More dynamics options for measure '+(barIndex+1)" @click="openDynamicsContext('measure',barIndex)">⋯</button>
+        </div>
+      </div>
+      <p class="dynamics-selection-status" role="status">{{dynamicsSelectionLabel}} · {{dynamicsSelectionStatus}}</p>
+      <p class="dynamics-workflow-step"><strong>2 · Choose who and how loud</strong><span>Roles follow orchestration changes; an instrument can still be edited independently.</span></p>
       <div class="figure-controls">
         <label>Apply to<select v-model="dynamicsScope"><option value="role">Musical role</option><option value="instrument">Selected instrument</option><option value="all">Entire orchestra</option></select></label>
         <label v-if="dynamicsScope==='role'">Role<select v-model="dynamicsRole"><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></label>
         <label v-if="dynamicsScope==='instrument'">Instrument <strong>{{noteInst}}</strong></label>
         <label>Dynamic<select v-model="dynamicsMark"><option v-for="mark in dynamicMarks" :key="mark" :value="mark">{{mark}}</option></select></label>
       </div>
-      <div class="dynamics-quick-paint" role="group" aria-label="Set dynamics at the selected measure">
-        <span>Set M{{selectedBar+1}}:</span>
+      <div class="dynamics-quick-paint" role="group" aria-label="Apply dynamic to selected measures">
+        <span>Apply to selection:</span>
         <button v-for="mark in ['pp','p','mp','mf','f','ff']" :key="mark" type="button" class="secondary"
-          :class="{'selected':dynamicsMark===mark}" :aria-label="'Set '+mark+' at measure '+(selectedBar+1)"
-          @click="dynamicsMark=mark as DynamicMark;applyDynamicsMarkToBar(selectedBar,mark)">{{mark}}</button>
-        <button type="button" class="secondary" @click="applyDynamicsMarkToBar(selectedBar,'')">Clear</button>
+          :class="{'selected':dynamicsSelectionMark===mark}" :disabled="!dynamicsSelectedBars.length"
+          :aria-label="'Set '+mark+' on '+dynamicsSelectedBars.length+' selected measures'"
+          @click="dynamicsMark=mark as DynamicMark;applyDynamicsMarkToSelection(mark)">{{mark}}</button>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedBars.length" @click="applyDynamicsMarkToSelection('')">Clear dynamic</button>
       </div>
-      <p class="dynamics-workflow-step"><strong>2 · Tap a measure to paint</strong><span>Long press or use ⋯ for more options.</span></p>
+      <p class="dynamics-workflow-step"><strong>3 · Shape the phrase</strong><span>Curves require consecutive measures, and never bridge gaps in your selection.</span></p>
       <div class="expression-range-row dynamics-gesture-actions">
-        <span>Across selected range</span><button class="secondary" @click="applyDynamicsGesture('constant')">Level across range</button>
-        <button class="secondary" @click="beginDynamicsHairpin('crescendo')">〈 Crescendo</button>
-        <button class="secondary" @click="beginDynamicsHairpin('diminuendo')">〉 Diminuendo</button>
-        <button class="secondary" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
+        <span>{{dynamicsSelectionLabel}}</span>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedBars.length" @click="applyDynamicsGesture('constant')">Keep level</button>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedSpan" @click="applyDynamicsGesture('crescendo')">〈 Crescendo</button>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedSpan" @click="applyDynamicsGesture('diminuendo')">〉 Diminuendo</button>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedSpan||dynamicsSelectedBars.length<3" @click="applyDynamicsGesture('swell')">〈〉 Swell</button>
+        <button type="button" class="secondary" :disabled="!dynamicsSelectedBars.length" @click="selectedBar=dynamicsSelectedBars[0];beginDynamicsHairpin('crescendo')">Precise hairpin…</button>
       </div>
-      <div class="dynamics-timeline-tiles" role="group" aria-label="Dynamics of nearby measures">
-        <div v-for="barIndex in dynamicsPreviewBars" :key="barIndex" class="dynamics-measure-tile">
-        <button type="button" class="secondary dynamics-measure-main" :class="{'is-selected':barIndex===selectedBar}" :style="{'--dyn-alpha':stageDynamicAlpha(dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).find(Boolean)||'—')}" :aria-pressed="barIndex===selectedBar" :aria-label="'Dynamics in measure '+(barIndex+1)+'; long press or right click for options'" :title="'Measure '+(barIndex+1)+' · right-click, long press or Shift+F10 for options'" @pointerdown="startDynamicsContextHold($event,'measure',barIndex)" @pointermove="dynamicsPress.move($event)" @pointerup="dynamicsPress.end($event)" @pointercancel="dynamicsPress.cancel()" @contextmenu.prevent.stop="openDynamicsContext('measure',barIndex)" @keydown="dynamicsContextKey($event,'measure',barIndex)" @click="clickDynamicsMeasure(barIndex)">
-          <span style="display:block;font-size:.75rem">M{{barIndex+1}}</span>
-          <strong style="display:block;font-size:1.2rem;font-style:italic">{{dynamicsTargets(barIndex).length ? (dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).filter(Boolean).join(' / ')||'—') : 'no role'}}</strong>
-          <small>{{dynamicsTargets(barIndex).length}} parts</small>
-          <span class="dynamics-tile-meter" aria-hidden="true"><span :style="{width:stageDynamicMeter(dynamicsTargets(barIndex).map(inst=>dynamicsAt(inst,barIndex)).find(Boolean)||'—')}"/></span>
-        </button>
-        <button type="button" class="secondary dynamics-more" :aria-label="'More dynamics options for measure '+(barIndex+1)" @click="openDynamicsContext('measure',barIndex)">⋯</button>
-        </div>
-      </div>
+      <p v-if="dynamicsShapeSuggestion" class="dynamics-suggestion">Existing endpoint markings suggest a {{dynamicsShapeSuggestion}}.
+        <button type="button" class="secondary" @click="dynamicsShapeSuggestion && applyDynamicsGesture(dynamicsShapeSuggestion)">Apply suggested {{dynamicsShapeSuggestion}}</button>
+      </p>
       <Teleport to="body"><div v-if="dynamicsContext" class="context-sheet-backdrop" @click.self="closeDynamicsContext()">
         <div class="context-sheet-dialog dynamics-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="dynamicsContext.kind==='measure'?'Dynamics measure options':'Hairpin options'" @keydown.esc.stop.prevent="closeDynamicsContext()">
           <div class="context-sheet-header"><strong>{{dynamicsContext.kind==='measure'?'Dynamics · measure '+(dynamicsContext.bar+1):'Hairpin · '+dynamicsContextRange?.instrument}}</strong><button type="button" class="secondary" @click="closeDynamicsContext()">✕ Close</button></div>
@@ -4083,7 +4180,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label>Or exact beat position (absolute beats from beginning, zero-based)<input type="number" step="0.25" min="0" :max="project.bars.length*project.beats" v-model="dynamicsPopupPosition"/></label></template>
         <div class="expression-range-row"><button type="button" class="primary" @click="saveDynamicPopup">Save</button><button type="button" class="secondary" @click="removeDynamicPopup">{{dynamicsPopupRange===null?'Clear dynamic':'Delete hairpin'}}</button></div>
       </div></div>
-      <p class="hint">Tap a measure or hairpin to edit it; use ⋯, long press, right-click or Shift+F10 for contextual settings and endpoint shortcuts. Measure actions use the current scope. Exact beat positions remain editable in the existing dialogs.</p>
+      <p class="hint">Tap tiles to select or deselect multiple measures in the visible loop. Dynamics buttons apply to that selection; ⋯, long press, right-click or Shift+F10 open precise measure and hairpin settings. Selecting never modifies the score.</p>
     </div>
     <div class="figure-workbench" aria-label="Expression ranges"><details class="control-fold" open><summary>Dynamics and expression controls</summary>
       <h3>Expression across measures</h3><div class="two"><label>Start of this measure<select :value="currentMeasureDynamic('start')" @change="setMeasureDynamic('start',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label>End of this measure<select :value="currentMeasureDynamic('end')" @change="setMeasureDynamic('end',($event.target as HTMLSelectElement).value)"><option value="">Inherit</option><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label></div><p class="hint">Set both endpoints for a crescendo or diminuendo hairpin. A single endpoint sets an immediate dynamic marking.</p><p class="hint">Set an instrument-specific crescendo or decrescendo, including across section boundaries. Intensity offsets are applied relative to a neutral value of 80, preserving note accents; written durations do not change. MusicXML exports hairpin wedges.</p>
@@ -5208,6 +5305,55 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 @media(max-width:650px){
  .performance-lyrics-overlay{padding:5px}
  .performance-lyrics-overlay .stage-lyrics-overlay{min-height:0}
+}
+
+/* Dynamics selection follows the visible loop; selection and edits are separate. */
+.dynamics-selection-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:8px 0}
+.dynamics-selection-actions button{min-height:36px;padding:6px 12px}
+.dynamics-selection-actions span{font-size:11px;color:#b7cad7}
+.dynamics-selection-status{margin:0 0 12px;padding:6px 10px;border-left:3px solid #dfb77c;background:#203442;border-radius:4px;color:#f5dcad;font-size:12px;font-weight:750}
+.dynamics-measure-tile .dynamics-measure-main.is-selected{border:2px solid #efc483!important;box-shadow:inset 0 0 0 1px #efd39f80;background:linear-gradient(145deg,#66543a,#2b4352)!important}
+.dynamics-measure-tile .dynamics-measure-main.is-current:not(.is-selected){border-color:#77a1ba}
+.dynamics-gesture-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.dynamics-gesture-actions>span{margin-right:auto;flex:1 1 150px;min-width:0}
+.dynamics-gesture-actions button{flex:0 0 auto}
+.dynamics-gesture-actions button:disabled,.dynamics-quick-paint button:disabled{opacity:.42;cursor:not-allowed}
+.dynamics-suggestion{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#e9d3aa;font-size:12px;background:#263a46;border:1px solid #7d755f;border-radius:9px;padding:8px 12px}
+.dynamics-suggestion button{margin-left:auto;min-height:36px}
+/* Unified control alignment; list-style speed menu matches Files. */
+.app-topbar .topbar-playback .playback-speed-menu>summary{box-sizing:border-box;height:36px!important;min-height:36px!important;min-width:65px;vertical-align:middle;margin:0!important;border-radius:8px}
+.app-topbar .playback-speed-options{display:flex;flex-direction:column;gap:6px;min-width:272px;width:272px;max-width:calc(100vw - 18px);right:0;left:auto;padding:11px}
+.app-topbar .playback-speed-tempo{font-size:11px;color:#c9d7e2;padding-bottom:6px;border-bottom:1px solid #405465}
+.app-topbar .playback-speed-list{display:flex;flex-direction:column;gap:3px;max-height:min(60dvh,390px);overflow-y:auto}
+.app-topbar .playback-speed-list button{display:flex;flex-direction:row;justify-content:space-between;align-items:center;gap:14px;min-height:39px;padding:7px 11px;border-radius:7px;white-space:normal}
+.app-topbar .playback-speed-list button>span:first-child{display:flex;align-items:baseline;gap:8px}
+.app-topbar .playback-speed-list button strong{font-size:13px}
+.app-topbar .playback-speed-list button small{font-size:11px;font-weight:500;color:#b9cedc}
+.app-topbar .playback-speed-list .playback-speed-bpm{font-size:11px;white-space:nowrap;color:#c1d2df}
+.app-topbar .playback-speed-list button.selected{background:#5b4936;border-color:#e4bb83}
+.app-topbar .playback-speed-list button.selected .playback-speed-bpm{color:#ffe2af}
+.app-topbar .playback-speed-bpm b{padding-left:3px;color:#f9d394}
+.app-topbar .playback-speed-note{display:block;font-size:11px;line-height:1.45;color:#b5c9d8;padding:5px 2px 0}
+@media(min-width:1121px){
+ .app-topbar{flex-wrap:nowrap!important;min-width:0;column-gap:6px}
+ .app-topbar .topbar-song{flex:1 1 220px;min-width:120px;max-width:none;margin-right:0}
+ .app-topbar .topbar-song .header-song-picker{flex:1 1 auto;min-width:0;width:100%;max-width:100%;text-overflow:ellipsis}
+ .app-topbar .topbar-group{flex-shrink:0;padding-right:6px}
+ .app-topbar .topbar-song{flex-shrink:1}
+ .app-topbar .topbar-options{margin-left:0}
+}
+@media(min-width:1121px) and (max-width:1350px){
+ .app-topbar{gap:4px;padding:6px 9px}
+ .app-topbar .brand{margin-right:0}
+ .app-topbar .brand strong{font-size:13px}
+ .app-topbar .topbar-group{gap:3px;padding-right:4px}
+ .app-topbar .topbar-song{min-width:105px}
+}
+@media(max-width:1120px){
+ .app-topbar .topbar-playback .playback-speed-menu>summary{height:42px!important;min-height:42px!important}
+}
+@media(max-width:720px){
+ .app-topbar .playback-speed-options{position:fixed;top:calc(64px + env(safe-area-inset-top,0px));left:8px!important;right:8px!important;width:auto;max-width:none}
 }
 
 </style>

@@ -1,3 +1,12 @@
+## Loop-driven dynamics, compact piano and speed menu (2026-11-20)
+
+- Replaced dynamics paint-on-tap with explicit measure selection inside the Note Editor's Start/End loop. Multi-select uses touch toggles, desktop Shift-click, Select loop and Clear selection; no score changes happen on selection.
+- Quick dynamics apply to the selected measures and current instrument/role/orchestra scope. Phrase gestures use consecutive selected bars only; unrelated bars are never included. Context menus and exact hairpin endpoint editors remain available.
+- Added a conservative crescendo/diminuendo suggestion when explicit dynamics at the selected phrase's endpoints agree on a direction. Suggestions are optional until applied.
+- Split the compact performance piano into independent LH/RH views. Each adjusts its pitch span to cover the scored and sounding notes for its hand, retaining colors and the fixed card height.
+- Kept the wide workspace topbar on one row, aligned the rehearsal speed control with adjacent buttons, and replaced the four-column speed popup with a Files-style list showing percent and effective BPM.
+- Updated regression checks. **Physical iPad Safari QA remains outstanding** for wrapping, keyboard readability, dropdown placement and touch gestures.
+
 ## Phrase planner reliability (2026-11-19)
 
 - New manual violin notes inherit reviewed phrase articulation before automatic beat-pattern defaults; explicit measure overrides still win.
