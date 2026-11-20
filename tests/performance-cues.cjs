@@ -255,7 +255,7 @@ check('violin chart remains fixed-size and displays the measure-level suggested 
  assert.ok(app.includes(':violin-position="part.violinPosition"'));
  assert.ok(diagram.includes('violinStopOffsets(props.violinPosition??null)'));
  assert.ok(diagram.includes('class="diagram-violin-position"'));
- assert.ok(diagram.includes('Position \' + "'"+' + props.violinPosition.position') || diagram.includes("Position '+props.violinPosition.position")); 
+ assert.ok(diagram.includes("'Position '+props.violinPosition.position"));
  assert.ok(diagram.includes('.diagram-fingerboard.diagram-violin-fingerboard{position:relative;padding-top:19px;gap:2px}'));
 });
 console.log(count+' performance cue checks passed');
