@@ -64,21 +64,21 @@ check('wizard exposes per-line default and editable section-specific overrides',
  assert.ok(app.includes('newLeadSheetPreviewError'));
 });
 check('automatic estimates keep a regular four-line chord phrase to four measures',()=>{
- const p=previewLeadSheetImport('[Verse]\\n[D]line one\\n[B7]line two\\n[Em]line three\\n[A7]line four',0);
+ const p=previewLeadSheetImport('[Verse]\n[D]line one\n[B7]line two\n[Em]line three\n[A7]line four',0);
  assert.deepEqual(p.sections.map(s=>s.measures),[4]);
  assert.deepEqual(p.lines.map(l=>l.measures),[1,1,1,1]);
  assert.ok(p.lines.every(l=>l.estimated));
  assert.ok(p.lines.every(l=>l.reason.includes('Regular 4-line phrase')));
 });
 check('two-line phrases and several chord changes produce explainable proposals',()=>{
- const p=previewLeadSheetImport('[Verse]\\n[D]first line\\n[G]second line\\n[Chorus]\\n[C]some [G]lyrics [Am]here [F]again',0);
+ const p=previewLeadSheetImport('[Verse]\n[D]first line\n[G]second line\n[Chorus]\n[C]some [G]lyrics [Am]here [F]again',0);
  assert.deepEqual(p.sections.map(s=>s.measures),[4,4]);
  assert.deepEqual(p.lines.map(l=>l.measures),[2,2,4]);
  assert.deepEqual(p.bars.filter(b=>b.chord).map(b=>b.chord),['D','G','C','G','Am','F']);
  assert.ok(p.lines[2].reason.includes('4 distinct chord'));
 });
 check('explicit measure separators outrank inference; manual line and section rules outrank both',()=>{
- const src='[Verse]\\n[D]one || [G]two ||\\n[Am]third line\\n[Chorus]\\n[C]fourth';
+ const src='[Verse]\n[D]one || [G]two ||\n[Am]third line\n[Chorus]\n[C]fourth';
  const auto=previewLeadSheetImport(src,0);
  assert.equal(auto.lines[0].measures,2);
  assert.equal(auto.lines[0].estimated,false);
@@ -90,7 +90,7 @@ check('explicit measure separators outrank inference; manual line and section ru
  assert.equal(projectFromLeadSheet(modified,'Test',4,124).bars.length,8);
 });
 check('chord-only sequences separated by bars retain distinct measure harmony',()=>{
- const p=previewLeadSheetImport('[Intro]\\nD | B7 | Em | A7',0);
+ const p=previewLeadSheetImport('[Intro]\nD | B7 | Em | A7',0);
  assert.deepEqual(p.bars.map(b=>b.chord),['D','B7','Em','A7']);
  assert.equal(p.lines[0].measures,4);
 });
