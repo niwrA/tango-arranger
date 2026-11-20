@@ -68,7 +68,7 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
  for(let index=0;index<positions.length;index++){
   const pos=positions[index];
   const assignments:PositionFingering[]=[];
-  let covered=0,score=-index*2.5,priorString:number|null=null;
+  let covered=0,score=-index*6,priorString:number|null=null;
   for(const note of notes){
    const options:PositionFingering[]=[];
    for(const string of strings){
@@ -89,7 +89,7 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
    const weight=Math.max(1,Math.min(4,Number.isFinite(note.duration)?note.duration!:1));
    if(!chosen){score-=8*weight;continue;}
    covered++;
-   score+=50+weight*7+(chosen.finger==='0'?3:0);
+   score+=50+weight*7+(chosen.finger==='0'?3:-chosen.offset*2.5);
    if(priorString!==null&&priorString!==chosen.openMidi)score-=2;
    priorString=chosen.openMidi;
    if(!assignments.some(item=>item.pitch===chosen.pitch))assignments.push(chosen);
