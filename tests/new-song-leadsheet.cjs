@@ -133,6 +133,29 @@ check('compound and slash chord symbols from pasted sheets are recognized',()=>{
  const p=previewLeadSheetImport('[Intro]\nGm7add11   D#7sus4   G#maj7   C#/G#   A#m7',0);
  assert.deepEqual(p.bars.filter(b=>b.chord).map(b=>b.chord),['Gm7add11','D#7sus4','G#maj7','C#/G#','A#m7']);
 });
+check('chord-bearing visual wraps become one musical phrase and remain reversible',()=>{
+ const src='[Verse]\nFm C7 Fm\nWhen you are down and you need some\nC7 Fm C7 Fm\nlove and care\n[A#m7]And nothing is going right';
+ const auto=previewLeadSheetImport(src,0);
+ assert.equal(auto.lines.length,2);
+ assert.ok(auto.lines[0].text.includes('love and care'));
+ assert.ok(auto.lines[0].joinedSourceLines.includes(3));
+ assert.ok(auto.warnings.some(w=>w.includes('Grouped 1 chord-bearing')));
+ assert.deepEqual(auto.bars.filter(b=>b.chord).flatMap(b=>b.chord.split(',')),['Fm','C7','Fm','C7','Fm','C7','Fm','A#m7']);
+ const split=previewLeadSheetImport(src,0,[],{}, {3:false});
+ assert.equal(split.lines.length,3);
+ assert.ok(!split.lines[0].joinedSourceLines.length);
+});
+check('phrase hints and section boundaries prevent unsafe joins',()=>{
+ const p=previewLeadSheetImport('[Verse]\n[Fm]I need some |||\n[C7]love and care\n[Chorus]\n[G]and\n[D]then',0);
+ assert.equal(p.lines.length,3);
+ assert.equal(p.sections.length,2);
+ assert.ok(!p.lines[0].joinedSourceLines.length);
+});
+check('phrase grouping controls are present in import review',()=>{
+ assert.ok(app.includes('newLeadPhraseJoins'));
+ assert.ok(app.includes('line.joinedSourceLines'));
+ assert.ok(app.includes('Split phrase'));
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));

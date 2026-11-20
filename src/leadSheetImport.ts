@@ -1,7 +1,7 @@
 import {blankProject,parseChordSequence,sectionLetter,type Project} from './music';
 export type LeadImportSection={title:string;start:number;measures:number};
 export type LeadImportBar={chord:string;lyrics:string;original:string};
-export type LeadImportLine={sourceLine:number;sectionIndex:number;start:number;measures:number;text:string;reason:string;estimated:boolean};
+export type LeadImportLine={sourceLine:number;sectionIndex:number;start:number;measures:number;text:string;reason:string;estimated:boolean;joinedSourceLines:number[]};
 export type LeadImportPreview={sections:LeadImportSection[];bars:LeadImportBar[];lines:LeadImportLine[];source:string;warnings:string[]};
 const chord=/^[A-G](?:#|b)?(?:(?:maj|min|dim|aug|sus|add|m|M|ø|°|alt|no)\d*|\d+)*(?:[#b]\d+)*(?:\/[A-G](?:#|b)?)?$/i;
 const pageMarker=/^(?:page|pagina|seite|página)\s*[:#.-]?\s*\d+\s*(?:(?:\/|of|van|de)\s*\d+)?$/i;
@@ -29,7 +29,7 @@ function normalizeChordOnly(line:string):string{
 function lineChords(text:string):string[]{
  return (text.match(/\[[^\]]+\]/g)??[]).map(t=>t.slice(1,-1)).filter(isChord);
 }
-type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string;phraseEnd:boolean;events:number};
+type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string;phraseEnd:boolean;events:number;joinedSourceLines:number[]};
 function estimate(row:Row,sectionLength:number):{measures:number;reason:string}{
  if(row.barHints>0)return {measures:row.barHints,reason:'Suggested || measure boundaries'};
  const count=row.chords.length;
@@ -46,7 +46,7 @@ function estimate(row:Row,sectionLength:number):{measures:number;reason:string}{
  */
 export function previewLeadSheetImport(
  input:string,defaultMeasuresPerLine=1,sectionMeasuresPerLine:readonly number[]=[],
- lineMeasures:Readonly<Record<number,number>>={}
+ lineMeasures:Readonly<Record<number,number>>={},phraseJoins:Readonly<Record<number,boolean>>={}
 ):LeadImportPreview{
  const valid=(n:number)=>Number.isInteger(n)&&n>=1&&n<=32;
  if(defaultMeasuresPerLine!==0&&!valid(defaultMeasuresPerLine))throw Error('Measures per line must be between 1 and 32 or Automatic');
@@ -55,7 +55,8 @@ export function previewLeadSheetImport(
  const inputs=input.replace(/\r\n?/g,'\n').split('\n');
  const warnings:string[]=[],rows:Row[]=[],sourceLines:string[]=[];
  const titles:string[]=[];
- let activeSection=0,nextTitle:string|null=null,removedPages=0,joinedWraps=0;
+ let activeSection=0,nextTitle:string|null=null,removedPages=0,joinedWraps=0,joinedChordWraps=0;
+ const phraseContinuation=/\b(?:a|an|the|and|or|but|to|of|for|with|from|in|on|at|some|my|your|you|I|we|they|it|is|are|was|were|will|would|could|should|can|be|been|have|has|had|do|does|did|so|if|when|where|wherever|that|who|which|all|just|even|very|more|most|not)\s*$/i;
  const addRow=(normalized:string,sourceLine:number)=>{
   const chosen=lineChords(normalized);
   const bracketed=normalized.match(/\[[^\]]+\]/g)??[];
@@ -71,7 +72,7 @@ export function previewLeadSheetImport(
    (pipes.some(p=>p.length>=2)&&!/\|{2,3}\s*$/.test(normalized)?1:0);
   rows.push({sourceLine,sectionIndex:activeSection,normalized,lyrics,chords:chosen,
    barHints,phraseEnd:/\|\|\|\s*$/.test(normalized),
-   events:pipes.filter(p=>p==='|').length,text:normalized});
+   events:pipes.filter(p=>p==='|').length,text:normalized,joinedSourceLines:[]});
   sourceLines.push(normalized);
  };
  for(let i=0;i<inputs.length;i++){
@@ -98,15 +99,34 @@ export function previewLeadSheetImport(
   const previous=rows[rows.length-1];
   const canJoin=previous&&nextTitle===null&&previous.sectionIndex===activeSection&&
     !previous.phraseEnd&&!/\|{2,3}\s*$/.test(previous.normalized);
-  if(canJoin&&!hasChord&&!/[.!?;:]$/.test(previous.lyrics)&&!chordRow(trimmed)){
+  // Chord-bearing continuations can also be a website's visual wrap.
+  // Only merge when the preceding lyric ends in an unfinished grammatical
+  // connector, and never across blank lines, section headings or pipe hints.
+  const adjacent=sourceLine>0&&inputs.slice(previous?.sourceLine??sourceLine,sourceLine).every(
+   (part,k)=>k===0||Boolean(part.trim())&&!heading.test(part.trim())&&!pageMarker.test(part.trim()));
+  const hasExplicitBoundary=/\|{2,3}\s*$/.test(previous?.normalized??'');
+  const shouldJoin=phraseJoins[sourceLine]??Boolean(
+   canJoin&&adjacent&&!hasExplicitBoundary&&!/[.!?;:]$/.test(previous.lyrics)&&
+   (hasChord?phraseContinuation.test(previous.lyrics):!chordRow(trimmed)));
+  if(shouldJoin&&previous&&nextTitle===null&&previous.sectionIndex===activeSection&&!hasExplicitBoundary){
    const joined=previous.normalized+' '+normalized.trim();
-   previous.normalized=joined;previous.text=joined;previous.lyrics=(previous.lyrics+' '+normalized.trim()).trim();
-   sourceLines[sourceLines.length-1]=joined;joinedWraps++;continue;
+   previous.normalized=joined;previous.text=joined;
+   previous.lyrics=(previous.lyrics+' '+normalized.replace(/\[[^\]]+\]/g,'').replace(/\|+/g,'').trim()).trim();
+   previous.chords.push(...lineChords(normalized));
+   previous.joinedSourceLines.push(sourceLine);
+   const pipes=joined.match(/\|{1,3}/g)??[];
+   previous.barHints=pipes.filter(p=>p.length>=2).length+
+    (pipes.some(p=>p.length>=2)&&!/\|{2,3}\s*$/.test(joined)?1:0);
+   previous.phraseEnd=/\|\|\|\s*$/.test(joined);
+   sourceLines[sourceLines.length-1]=joined;
+   if(hasChord)joinedChordWraps++;else joinedWraps++;
+   continue;
   }
   addRow(normalized,sourceLine);
  }
  if(removedPages)warnings.push('Removed '+removedPages+' page marker'+(removedPages===1?'':'s'));
  if(joinedWraps)warnings.push('Joined '+joinedWraps+' wrapped lyric line'+(joinedWraps===1?'':'s'));
+ if(joinedChordWraps)warnings.push('Grouped '+joinedChordWraps+' chord-bearing wrapped line'+(joinedChordWraps===1?'':'s')+' into musical phrases');
  if(!rows.length)throw Error('No chords or lyric lines detected');
  if(activeSection>=26)throw Error('The song exceeds 26 sections');
  const bars:LeadImportBar[]=[],lines:LeadImportLine[]=[],sections:LeadImportSection[]=[];
@@ -129,7 +149,7 @@ export function previewLeadSheetImport(
   });
   for(let b=0;b<measures;b++)bars.push({chord:chordsPerBar[b].join(','),lyrics:b===0?row.lyrics:'',original:b===0?row.normalized:''});
   lines.push({sourceLine:row.sourceLine,sectionIndex:row.sectionIndex,start,measures,text:row.text,
-   reason,estimated:!explicit&&row.barHints===0});
+   reason,estimated:!explicit&&row.barHints===0,joinedSourceLines:row.joinedSourceLines});
  }
  for(let i=0;i<sections.length;i++)sections[i].measures=(sections[i+1]?.start??bars.length)-sections[i].start;
  return {sections,bars,lines,source:sourceLines.join('\n'),warnings};

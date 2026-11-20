@@ -1620,6 +1620,7 @@ const newLeadSheetText=ref('');
 const newLeadSheetError=ref('');
 const newLeadMeasuresPerLine=ref(0);
 const newLeadLineMeasures=ref<Record<number,number>>({});
+const newLeadPhraseJoins=ref<Record<number,boolean>>({});
 const newLeadSectionMeasuresPerLine=ref<number[]>([]);
 const newLeadBasePreview=computed<LeadImportPreview|null>(()=>{
  if(!newLeadSheetText.value.trim())return null;
@@ -1628,18 +1629,19 @@ const newLeadBasePreview=computed<LeadImportPreview|null>(()=>{
 });
 const newLeadSheetPreview=computed<LeadImportPreview|null>(()=>{
  if(!newLeadSheetText.value.trim())return null;
- try{return previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value);}
+ try{return previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value,newLeadPhraseJoins.value);}
  catch{return null;}
 });
 const newLeadSheetPreviewError=computed(()=>{
  if(!newLeadSheetText.value.trim())return '';
- try{previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value);return '';}
+ try{previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value,newLeadPhraseJoins.value);return '';}
  catch(error){return String(error);}
 });
 const newLeadSectionStarts=ref<number[]>([]);
 watch(newLeadSheetText,()=>{
  newLeadSectionMeasuresPerLine.value=[];
  newLeadLineMeasures.value={};
+ newLeadPhraseJoins.value={};
 });
 watch(newLeadSheetPreview,plan=>{
  newLeadSectionStarts.value=plan?plan.sections.map(section=>section.start):[];
@@ -1652,7 +1654,7 @@ const newLeadSections=computed(()=>{
 });
 async function createSongFromLeadSheet(){
  try{
-   const preview=previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value);
+   const preview=previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value,newLeadPhraseJoins.value);
    const sections=arrangeImportedSections(preview,newLeadSectionStarts.value);
    const fresh=setProjectRoster(projectFromLeadSheet(preview,newSongTitle.value,newSongBeats.value,newSongBpm.value,sections.map(s=>s.start)),getDefaultRoster());
    if(!window.confirm('Create a new song from this leadsheet? The current song remains in your local library.'))return;
@@ -4117,7 +4119,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </select>
     </label>
     <label>Paste your lyrics and chord sheet<textarea v-model="newLeadSheetText" rows="12" spellcheck="false" placeholder="[Verse 1]&#10;D            A7&#10;Donde el río se queda&#10;[Chorus]&#10;[Em]Y la luna se va"></textarea></label>
-    <p class="hint">Pipes are optional hints: | suggests a note/event split, || suggests a measure boundary, and ||| suggests a musical phrase ending. Ordinary line breaks may be formatting. Page 1/5-style markers are removed; wrapped lyric text is joined when identifiable. Estimates remain editable for the song, each section and each lyric line.</p>
+    <p class="hint">Wrapped chord-and-lyric rows are grouped into phrases when their text clearly continues; use the phrase boundary controls to split them. Pipes are optional hints: | suggests a note/event split, || suggests a measure boundary, and ||| suggests a musical phrase ending. Ordinary line breaks may be formatting. Page 1/5-style markers are removed; wrapped lyric text is joined when identifiable. Estimates remain editable for the song, each section and each lyric line.</p>
     <p v-if="newLeadSheetPreviewError" role="alert">{{newLeadSheetPreviewError}}</p>
     <div v-if="newLeadSheetPreview" class="new-lead-section-review">
       <strong>{{newLeadSheetPreview.bars.length}} detected measures · {{newLeadSheetPreview.sections.length}} sections</strong>
@@ -4139,6 +4141,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <div v-for="line in newLeadSheetPreview.lines" :key="line.sourceLine" class="new-lead-line-row">
           <div class="new-lead-line-text"><strong>Measure {{line.start+1}}–{{line.start+line.measures}}</strong>
             <span>{{line.text}}</span><small>{{line.reason}}</small></div>
+          <label v-for="sourceLine in line.joinedSourceLines" :key="'join-'+sourceLine">Phrase boundary before source line {{sourceLine+1}}
+            <select :value="newLeadPhraseJoins[sourceLine]===false?'split':'join'" @change="newLeadPhraseJoins[sourceLine]=($event.target as HTMLSelectElement).value==='join'">
+              <option value="join">Keep joined</option><option value="split">Split phrase</option>
+            </select>
+          </label>
           <label>Measures
             <select :value="newLeadLineMeasures[line.sourceLine]??0" @change="newLeadLineMeasures[line.sourceLine]=Number(($event.target as HTMLSelectElement).value)">
               <option :value="0">Inherit / estimate ({{line.measures}})</option>
