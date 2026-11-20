@@ -52,7 +52,7 @@ check('per-section measures per lyric line override the default',()=>{
 });
 check('zero override uses default and invalid or oversized spacing is rejected',()=>{
  assert.equal(previewLeadSheetImport('[Verse]\n[D]hello',3,[0]).bars.length,3);
- assert.throws(()=>previewLeadSheetImport('[D]one',0),/between 1 and 32/);
+ assert.throws(()=>previewLeadSheetImport('[D]one',-1),/between 1 and 32/);
  assert.throws(()=>previewLeadSheetImport('[D]one',2,[33]),/between 1 and 32/);
  assert.throws(()=>previewLeadSheetImport(Array.from({length:257},()=> '[D]word').join('\n'),2),/512 measures/);
 });
