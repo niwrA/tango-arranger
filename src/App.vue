@@ -1247,7 +1247,8 @@ function finishMicrophoneNote(end:number){
   const bar=captureFirst.value+Math.min(captureLast.value-captureFirst.value,Math.floor(position/project.value.beats));
   const beat=Number((position%project.value.beats).toFixed(6));
   const segment=Math.min(remaining,project.value.beats-beat);
-  melodyCaptureTaps.value=addCapturedTap(melodyCaptureTaps.value,{bar,beat,pitch:activeNote.pitch,duration:Number(segment.toFixed(6))},'melody');
+  const tap:HeldCapture={bar,beat,pitch:activeNote.pitch,duration:Number(segment.toFixed(6))};
+  melodyCaptureTaps.value=addCapturedTap(melodyCaptureTaps.value,tap,'melody');
   cursor+=segment;remaining-=segment;
  }
 }
