@@ -46,8 +46,8 @@ const openStrings=computed(()=>{
 const stops=[0,1,2,3,4,5,6,7];
 const displayedStops=computed(()=>family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops);
 const positionText=computed(()=>props.violinPosition
- ?'Position '+props.violinPosition.position+' · '+props.violinPosition.stringName+' string · finger '+props.violinPosition.finger
- :'Open / first position');
+ ?(props.violinPosition.finger===0?'Open '+props.violinPosition.stringName+' string':'Position '+props.violinPosition.position+' · '+props.violinPosition.stringName+' string · finger '+props.violinPosition.finger)
+ :'First position');
 function isPlayingStringPitch(stringMidi:number,midi:number){
  if(!isPlayingPitch(midi))return false;
  if(family.value!=='Violin')return true;
