@@ -23,10 +23,12 @@ function chordRow(line:string):boolean {
 }
 /** Accept ChordPro-style inline chords, chords-above-lyrics, and common
  * square-bracketed section headings. Ordinary lyric line breaks are preserved
- * in the editable source. One line becomes one provisional measure; no melody
- * pitch or duration is inferred from the text.
+ * in the editable source. The default and per-section measures-per-line
+ * settings allocate provisional space; no melody timing is inferred.
  */
-export function previewLeadSheetImport(input:string):LeadImportPreview {
+export function previewLeadSheetImport(input:string,defaultMeasuresPerLine=1,sectionMeasuresPerLine:readonly number[]=[]):LeadImportPreview {
+ if(!Number.isInteger(defaultMeasuresPerLine)||defaultMeasuresPerLine<1||defaultMeasuresPerLine>32)throw Error('Measures per line must be between 1 and 32');
+ if(sectionMeasuresPerLine.some(n=>n!==0&&(!Number.isInteger(n)||n<1||n>32)))throw Error('Section measures per line must be between 1 and 32');
  const lines=input.replace(/\r\n?/g,'\n').split('\n');
  const bars:LeadImportBar[]=[],sections:LeadImportSection[]=[];
  const warnings:string[]=[];
@@ -58,7 +60,11 @@ export function previewLeadSheetImport(input:string):LeadImportPreview {
   if(extracted.length!==chosen.length)warnings.push('Unrecognized bracket token at line '+(i+1));
   const lyrics=normalized.replace(/\[[^\]]+\]/g,'').replace(/\|\|/g,'').trim();
   startSection();
+  const sectionIndex=sections.length-1;
+  const span=sectionMeasuresPerLine[sectionIndex]||defaultMeasuresPerLine;
+  if(bars.length+span>512)throw Error('The song exceeds 512 measures');
   bars.push({chord:chosen.length?chosen.join(','):'',lyrics,original:normalized});
+  for(let j=1;j<span;j++)bars.push({chord:'',lyrics:'',original:''});
   sourceLines.push(normalized);
  }
  if(!bars.length)throw Error('No chords or lyric lines detected');

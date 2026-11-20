@@ -31,6 +31,38 @@ check('section boundary adjustments affect only section assignment, not song tex
  assert.deepEqual(p.bars.map(b=>b.section),['A','B','B','B']);
  assert.equal(p.leadLyrics['1'].source,preview.source);
 });
+check('default two measures per lyric line expands provisional arrangement space',()=>{
+ const preview=previewLeadSheetImport('[Verse]\n[D]First lyric\n[A7]Second lyric\n[Chorus]\n[Em]Third lyric',2);
+ assert.deepEqual(preview.sections.map(s=>[s.start,s.measures]),[[0,4],[4,2]]);
+ assert.deepEqual(preview.bars.map(b=>b.chord),['D','','A7','','Em','']);
+ assert.equal(preview.source,'[Verse]\n[D]First lyric\n[A7]Second lyric\n[Chorus]\n[Em]Third lyric');
+ const p=projectFromLeadSheet(preview,'Two measures',4,120);
+ assert.equal(p.bars.length,6);
+ assert.deepEqual(p.bars.map(b=>b.section),['A','A','A','A','B','B']);
+ assert.equal(p.leadLyrics['1'].source,preview.source);
+});
+check('per-section measures per lyric line override the default',()=>{
+ const preview=previewLeadSheetImport('[Verse]\n[D]one\n[A7]two\n[Chorus]\n[Em]three\n[F]four',2,[1,4]);
+ assert.deepEqual(preview.sections.map(s=>[s.start,s.measures]),[[0,2],[2,8]]);
+ const p=projectFromLeadSheet(preview,'Mixed',4,120);
+ assert.equal(p.bars.length,10);
+ assert.deepEqual(p.bars.map(b=>b.section),['A','A','B','B','B','B','B','B','B','B']);
+ assert.equal(preview.bars[2].chord,'Em');
+ assert.equal(preview.bars[6].chord,'F');
+});
+check('zero override uses default and invalid or oversized spacing is rejected',()=>{
+ assert.equal(previewLeadSheetImport('[Verse]\n[D]hello',3,[0]).bars.length,3);
+ assert.throws(()=>previewLeadSheetImport('[D]one',0),/between 1 and 32/);
+ assert.throws(()=>previewLeadSheetImport('[D]one',2,[33]),/between 1 and 32/);
+ assert.throws(()=>previewLeadSheetImport(Array.from({length:257},()=> '[D]word').join('\n'),2),/512 measures/);
+});
+check('wizard exposes per-line default and editable section-specific overrides',()=>{
+ assert.ok(app.includes('newLeadMeasuresPerLine'));
+ assert.ok(app.includes('newLeadSectionMeasuresPerLine'));
+ assert.ok(app.includes('Default measures per lyric line'));
+ assert.ok(app.includes('Measures per line'));
+ assert.ok(app.includes('newLeadSheetPreviewError'));
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='musicxml'"));
