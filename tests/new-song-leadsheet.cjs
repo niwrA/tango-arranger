@@ -137,7 +137,7 @@ check('chord-bearing visual wraps become one musical phrase and remain reversibl
  const src='[Verse]\nFm C7 Fm\nWhen you are down and you need some\nC7 Fm C7 Fm\nlove and care\n[A#m7]And nothing is going right';
  const auto=previewLeadSheetImport(src,0);
  assert.equal(auto.lines.length,2);
- assert.ok(auto.lines[0].text.includes('love and care'));
+ assert.ok(auto.lines[0].text.replace(/\[[^\]]+\]/g,'').includes('love and care'));
  assert.ok(auto.lines[0].joinedSourceLines.includes(3));
  assert.ok(auto.warnings.some(w=>w.includes('Grouped 1 chord-bearing')));
  assert.deepEqual(auto.bars.filter(b=>b.chord).flatMap(b=>b.chord.split(',')),['Fm','C7','Fm','C7','Fm','C7','Fm','A#m7']);
