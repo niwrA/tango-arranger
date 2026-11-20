@@ -46,19 +46,27 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
 }
 /** A readable chord-over-text export with original lyric line breaks. */
 export function exportLeadLyricsTab(source:string):string {
-  return source.replace(/\r\n?/g,'\n').split('\n').map(line=>{
-    let lyric='',chords='';
-    for(let i=0;i<line.length;){
-      if(line[i]==='['){
-        const end=line.indexOf(']',i+1);
-        if(end>i){const chord=line.slice(i+1,end);chords=chords.padEnd(lyric.length,' ')+chord;i=end+1;continue;}
-      }
-      if(line.slice(i,i+2)==='||'){lyric+=' | ';i+=2;continue;}
-      if(line[i]==='|'){i++;continue;}
-      lyric+=line[i++];
+ return source.replace(/\r\n?/g,'\n').split('\n').map(line=>{
+  let lyric='',chordLine='',cursor=0;
+  for(let i=0;i<line.length;){
+   if(line[i]==='['){
+    const end=line.indexOf(']',i+1);
+    if(end>i){
+     const chord=line.slice(i+1,end);
+     // Place each chord at or after its lyric anchor. Chord names must
+     // never touch or overlap, even when several changes are close together.
+     const at=Math.max(lyric.length,cursor);
+     chordLine=chordLine.padEnd(at,' ')+chord;
+     cursor=at+chord.length+1;
+     i=end+1;continue;
     }
-    return (chords.trim()?chords.trimEnd()+'\n':'')+lyric.trimEnd();
-  }).join('\n');
+   }
+   if(line.slice(i,i+2)==='||'){lyric+=' | ';i+=2;continue;}
+   if(line[i]==='|'){i++;continue;}
+   lyric+=line[i++];
+  }
+  return (chordLine.trim()?chordLine.trimEnd()+'\n':'')+lyric.trimEnd();
+ }).join('\n');
 }
 
 /** Original lyric line boundaries mapped onto actual note onsets. Empty lines

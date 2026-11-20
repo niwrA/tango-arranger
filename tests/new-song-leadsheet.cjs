@@ -191,6 +191,15 @@ check('vocal guide aligns syllables within measures and handles wrapped chord ro
  assert.ok(notes.every(n=>n.duration<=4-(n.start%4)+1e-7));
  assert.equal(notes.at(-1).lyric,'care');
 });
+check('printable leadsheet keeps adjacent chord symbols separated from lyrics',()=>{
+ const {readableLeadSheet}=load('src/leadLyrics.ts');
+ const rendered=readableLeadSheet('[Verse]\n[Fm][C7]love and care[Fm]');
+ const lines=rendered.split('\n');
+ assert.ok(lines.some(line=>/\bFm\s+C7\s+Fm\b/.test(line)),rendered);
+ assert.ok(lines.some(line=>line==='love and care'),rendered);
+ assert.ok(!rendered.includes('Fm[C7'),rendered);
+ assert.ok(!rendered.includes('careFm]'),rendered);
+});
 check('new song wizard exposes three starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));
