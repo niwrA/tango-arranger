@@ -1425,3 +1425,26 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
   max-width:112px;gap:2px
  }
 }
+
+/* Optional string-input surface for violin and contrabass. */
+.capture-layout-switch{display:inline-flex;gap:3px;padding:4px;border:1px solid #718798;border-radius:10px;margin:8px 0}
+.capture-layout-switch button{min-height:40px;padding:6px 14px;border:0;border-radius:7px;background:transparent;color:#dee9f1}
+.capture-layout-switch button.selected{background:#e8bf86;color:#172935;font-weight:800}
+.capture-fret-controls{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:7px 0}
+.capture-fret-controls label{display:flex;flex-direction:column;min-width:135px;gap:4px;font-size:12px}
+.capture-fret-controls select{min-height:40px}
+.capture-fret-controls>span{font-size:12px;color:#bed1dd;padding-bottom:6px}
+.capture-fingerboard-scroll{overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;margin:10px 0 14px;padding-bottom:8px}
+.capture-fingerboard-grid{display:flex;flex-direction:column;gap:4px;min-width:max-content;background:#192f3d;border:1px solid #607889;border-radius:11px;padding:8px}
+.capture-fingerboard-header,.capture-fingerboard-row{display:grid;grid-template-columns:58px repeat(var(--capture-fret-columns),minmax(43px,1fr));gap:4px;align-items:center}
+.capture-fingerboard-header{font-size:11px;color:#bdd0de;text-align:center}
+.capture-fingerboard-row>strong{text-align:center;font-size:13px;color:#f4d7a9}
+.capture-fingerboard-key{min-height:62px;min-width:43px;padding:3px;border:1px solid #738d9e;border-top:3px solid #abbac5;border-radius:6px;background:#294451;color:#ebf2f7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;touch-action:manipulation;user-select:none}
+.capture-fingerboard-key span{font-size:15px;font-weight:800}
+.capture-fingerboard-key small{font-size:11px;color:inherit}
+.capture-fingerboard-key.is-open{border-left:3px solid #e7d6b6}
+.capture-fingerboard-key.selected{background:#e9bd7c;color:#182d38}
+.capture-fingerboard-key:active:not(:disabled){background:#76c9bc;color:#142b32}
+.capture-fingerboard-key:disabled{opacity:.18;cursor:default}
+.capture-fingerboard-key:focus-visible,.capture-layout-switch button:focus-visible{outline:3px solid #f3d19a;outline-offset:2px}
+@media(max-width:640px){.capture-fingerboard-key{min-height:56px}.capture-fingerboard-row,.capture-fingerboard-header{gap:3px}}
