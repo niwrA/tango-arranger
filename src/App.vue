@@ -874,7 +874,7 @@ async function toggleRhythmLoop(){
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
-    transport.bpm.value=project.value.bpm;
+    transport.bpm.value=effectivePlaybackBpm.value;
     transport.scheduleRepeat(time=>{
       // The pattern is read on every repetition so edits are audible immediately.
       const slots=rhythmPattern.value;
@@ -884,9 +884,9 @@ async function toggleRhythmLoop(){
       if(rhythmLoopSound.value==='instrument'&&originals.length){
         const notes=retimeMeasure(originals,inst,b,project.value.beats,slots,'rhythm',project.value.pianoSplitPitch??60);
         const events=measureLoopEvents(notes,b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value);
-        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds,time+event.onsetSeconds,event.velocity/127);
+        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }else{
-        for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/project.value.bpm,slot.accent?0.95:0.55);
+        for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/effectivePlaybackBpm.value,slot.accent?0.95:0.55);
       }
     },'1m',0);
     let beat=0;
@@ -2167,8 +2167,9 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     await prepareSamples(kind==='lead'?['Piano']:[instrument??overviewInstrument.value]);
     if(session!==noteLoopSession)return;
-    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
-    const beatSeconds=60/project.value.bpm;
+    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
+    playbackStartBeat.value=from*beats;performanceBeat.value=from*beats;
+    
     let count=0;
     if(kind==='lead'){
       for(let bar=from;bar<=to;bar++){
@@ -2177,10 +2178,10 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
           const change=changes[i];
           if(!change.chord.trim())continue;
           const next=changes[i+1]?.beat??beats;
-          const duration=Math.max(0.1,(next-change.beat)*beatSeconds*0.88);
+          const durationBeats=Math.max(0.1,(next-change.beat)*0.88);
           const pitches=chordTones(change.chord).map(pc=>60+pc);
-          const time=((bar-from)*beats+change.beat)*beatSeconds;
-          transport.schedule(t=>synth?.triggerAttackRelease(pitches.map(p=>Tone.Frequency(p,'midi').toFrequency()),duration,t,0.55),time);
+          const cueBeat=(bar-from)*beats+change.beat;
+          transport.schedule(t=>synth?.triggerAttackRelease(pitches.map(p=>Tone.Frequency(p,'midi').toFrequency()),durationBeats*60/effectivePlaybackBpm.value,t,0.55),beatOffsetTicks(cueBeat,transport.PPQ));
           count++;
         }
       }
@@ -2188,16 +2189,16 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
       const inst=instrument??overviewInstrument.value;
       for(const n of score.value[inst]??[]){
         if(n.start<from*beats||n.start>=(to+1)*beats)continue;
-        const time=(n.start-from*beats)*beatSeconds;
-        const duration=Math.max(0.04,noteSoundingDuration(n)*beatSeconds);
+        const cueBeat=n.start-from*beats;
+        const durationBeats=noteSoundingDuration(n);
         const pitch=n.pitch+(project.value.transposeSemitones??0);
-        transport.schedule(t=>triggerInstrument(inst,pitch,duration,t,noteSoundingVelocity(n)/127),time);
+        transport.schedule(t=>triggerInstrument(inst,pitch,Math.max(0.04,durationBeats*60/effectivePlaybackBpm.value),t,noteSoundingVelocity(n)/127),beatOffsetTicks(cueBeat,transport.PPQ));
         count++;
       }
     }
     if(!count){message.value=kind==='lead'?'No chords to preview in this range.':'No generated notes for this instrument in the selected range.';return;}
     audioStatus.value=`Previewing ${kind==='lead'?'lead-sheet chords':(instrument??overviewInstrument.value)} · measures ${from+1}–${to+1}`;
-    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;transport.stop();synth?.releaseAll();audioStatus.value='Preview finished';},(to-from+1)*beats*beatSeconds+0.1);
+    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;transport.stop();synth?.releaseAll();audioStatus.value='Preview finished';},beatOffsetTicks((to-from+1)*beats+0.25,transport.PPQ));
     transport.start();playing.value=true;playbackOrigin.value='selected';
   }catch(error){message.value=`Preview unavailable: ${String(error)}`;stopPlayback();}
 }
@@ -2220,7 +2221,7 @@ async function toggleNoteLoop(){
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
-    transport.bpm.value=project.value.bpm;
+    transport.bpm.value=effectivePlaybackBpm.value;
     // Both editor modes loop the visible user-selected measure range.
     let loopPass=0;
     let lastRangeKey='';
@@ -2234,8 +2235,8 @@ async function toggleNoteLoop(){
       const events=measureLoopEvents(score.value[noteInst.value]??[],bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value);
       for(const event of events){
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,event,time+event.onsetSeconds);
-        else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds,time+event.onsetSeconds,event.velocity/127);
+          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
+        else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }
     },'1m',0);
     let beat=0;
