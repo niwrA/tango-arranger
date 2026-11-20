@@ -96,7 +96,6 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
   }
   if(!covered)continue;
   const firstStop=Math.max(0,pos.first-1);
-  const stopped=assignments.filter(f=>f.finger!=='0');
   const byString=new Map<number,number>();
   for(const note of notes){
    const finger=assignments.find(a=>a.pitch===note.pitch);
