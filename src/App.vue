@@ -3370,7 +3370,7 @@ function loadLeadLyricsFromSong(){
   try{
     leadLyricsSource.value=leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value);
     leadLyricsUseMelody.value=true;
-    message.value=`Loaded verse ${leadLyricsVerse.value}, chords and Voice note positions from the song into the editor. Review before applying.`;
+    message.value=`Loaded readable lyrics and chords for verse ${leadLyricsVerse.value}. Existing Voice notes supply precise pitches and timing when you apply.`;
   }catch(error){message.value='Cannot load lyrics from song: '+String(error);}
 }
 function onLeadLyricsToggle(event:Event){
@@ -4087,14 +4087,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div v-if="copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
 <details class="lead-lyrics-workspace" @toggle="onLeadLyricsToggle">
   <summary>Lyrics &amp; chords · editable song source</summary>
-  <p class="hint">Paste the full song. Put chords in square brackets (for example [Am]), use a hyphen to split syllables, a vertical bar between note positions and || to start the next measure. Original line breaks are kept for karaoke and text export. Preview uses existing Voice melody pitches when enabled; otherwise C4 is an editable placeholder.</p>
+  <p class="hint">Paste ordinary song lyrics with chords in square brackets, such as [D]Donde el río se queda. Line breaks are preserved but do not end a measure. The editor aligns words to existing Voice notes automatically; add | only to clarify note-group boundaries and || only to force a measure boundary. Hyphens split sung syllables. Existing melody pitches and timing are preserved when selected; otherwise C4 notes are editable placeholders.</p>
   <div class="lead-lyrics-toolbar">
     <label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label>
     <label><input type="checkbox" v-model="leadLyricsUseMelody"/> Use existing Voice melody ({{leadLyricsMatches.length}} notes)</label>
     <button type="button" class="secondary" @click="loadLeadLyricsFromSong">Load from song</button>
     <button type="button" class="secondary" @click="exportLeadTab">Export chord / lyrics tab</button>
   </div>
-  <label class="lead-lyrics-input">Song text, chords and boundaries<textarea v-model="leadLyricsSource" rows="7" spellcheck="false" placeholder="[Am]Yo | no | sé ||&#10;[E7]por | qué ..."></textarea></label>
+  <label class="lead-lyrics-input">Song text, chords and boundaries<textarea v-model="leadLyricsSource" rows="7" spellcheck="false" placeholder="[D]Donde el río se queda&#10;[B7]y la luna se va&#10;[Em]donde nadie ha llegado&#10;[A7]ni puede llegar"></textarea></label>
   <p class="hint">{{leadLyricsPlan.notes.length}} syllable positions · {{leadLyricsPlan.chords.length}} chord anchors · {{leadLyricsPlan.lines.length}} original lines. Applying the text also writes its chord markers to the existing lead-sheet measures.</p>
   <p v-if="leadLyricsValidation" role="alert" class="hint">{{leadLyricsValidation}}</p>
   <p v-if="leadLyricsChordPreview.some(c=>c.snapped)" class="hint">Some chord onsets fall between quarter-note beats and will be rounded when saved.</p>

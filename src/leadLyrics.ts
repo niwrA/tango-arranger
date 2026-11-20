@@ -12,7 +12,7 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
   lines.forEach((line,lineNumber)=>{
     const parts=line.match(/\[[^\]]+\]|\|\||\||[^\s|\[\]]+/g)??[];
     for(const part of parts){
-      if(part==='||'){measureStart+=beats;beat=measureStart;explicitBeat=false;continue;}
+      if(part==='||'){measureStart=Math.max(measureStart+beats,(Math.floor(beat/beats)+1)*beats);beat=measureStart;explicitBeat=false;continue;}
       if(part==='|')continue; // explicit note separator; the following syllable gets its own onset
       if(/^@\d+(?:\.\d+)?$/.test(part)){
         const at=Number(part.slice(1))-1;
@@ -95,32 +95,34 @@ export function positionLeadChords(
  return result;
 }
 
-/** Read an existing song back into editable Lyrics & Chords notation.
- * @1, @2.5 etc are exact (one-based) in-measure beat positions; notes still
- * refer to the existing Voice score for their actual pitch and duration.
- * One measure per line preserves bar positions, including instrumental rests.
+/** Read a song as human-readable chord-over-lyrics text.
+ * No @beat markers: the existing Voice score remains the source of exact
+ * pitches and onset times when the user chooses "Use existing Voice melody".
+ * Bar markers are emitted only for instrumental measures without lyric notes.\n * Line breaks remain presentation-only; sung measures follow the Voice melody.
  */
 export function leadLyricsFromSong(project:Project,score:Score,voice:Instrument,verse:1|2=1):string {
  if(!project.bars.length)throw Error('Song has no measures');
  const notes=(score[voice]??[]).filter(n=>Boolean((verse===1?n.lyric:n.lyric2)?.trim()))
    .sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
- const beats=project.beats;
- const result:string[]=[];
- const at=(beat:number)=>'@'+Number((beat+1).toFixed(4));
- for(let barIndex=0;barIndex<project.bars.length;barIndex++){
-   const offset=barIndex*beats;
-   const events:{at:number;kind:0|1;content:string}[]=[];
-   const chords=parseChordSequence(project.bars[barIndex].chord,beats);
-   for(const chord of chords)events.push({at:chord.beat,kind:0,content:'['+chord.chord+']'});
-   for(const note of notes){
-     const local=note.start-offset;
-     if(local<-1e-8||local>=beats-1e-8)continue;
-     const lyric=(verse===1?note.lyric:note.lyric2)!.trim().replace(/[\[\]|]/g,'');
-     if(lyric)events.push({at:local,kind:1,content:lyric+((verse===1?note.melisma:note.melisma2)?'_':'')});
+ const beats=project.beats,lines:string[]=[];
+ for(let bar=0;bar<project.bars.length;bar++){
+   const offset=bar*beats;
+   const chords=parseChordSequence(project.bars[bar].chord,beats);
+   const sung=notes.filter(n=>n.start>=offset-1e-8&&n.start<offset+beats-1e-8);
+   const events:{beat:number;kind:0|1;content:string}[]=[];
+   for(const chord of chords)events.push({beat:chord.beat,kind:0,content:'['+chord.chord+']'});
+   for(const note of sung){
+     const lyric=(verse===1?note.lyric:note.lyric2)!.trim().replace(/[\\[\\]|]/g,'');
+     if(lyric)events.push({beat:note.start-offset,kind:1,content:lyric+((verse===1?note.melisma:note.melisma2)?'_':'')});
    }
-   events.sort((a,b)=>a.at-b.at||a.kind-b.kind);
-   const chunks=events.map(event=>at(event.at)+' '+event.content);
-   result.push(chunks.join(' | ')+(barIndex<project.bars.length-1?' ||':''));
+   events.sort((a,b)=>a.beat-b.beat||a.kind-b.kind);
+   // Chord markers are attached to the following word, not separate words.
+   let line='';
+   for(const event of events){
+     if(event.kind===0){if(line&&!line.endsWith(' '))line+=' ';line+=event.content;}
+     else {if(line&&!line.endsWith(']'))line+=' ';line+=event.content;}
+   }
+   lines.push(line.trim()+(bar<project.bars.length-1&&!sung.length?' ||':''));
  }
- return result.join('\n');
+ return lines.join('\\n');
 }
