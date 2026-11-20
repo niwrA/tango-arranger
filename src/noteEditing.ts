@@ -35,3 +35,18 @@ export function dragWrittenNoteLeftEdge(initialStart:number,initialDuration:numb
 function validateDragGeometry(cellWidth:number,gridStep:number,deltaPixels:number):void {
   if(!Number.isFinite(cellWidth)||cellWidth<=0||!Number.isFinite(gridStep)||gridStep<=0||!Number.isFinite(deltaPixels))throw Error('Invalid note grid geometry');
 }
+
+
+/** The continuous grid operates in absolute beats, not measure-local coordinates. */
+export function dragAbsoluteNotePosition(start:number,duration:number,deltaPixels:number,cellWidth:number,gridStep:number,totalBeats:number):number {
+  validateDragGeometry(cellWidth,gridStep,deltaPixels);
+  if(!Number.isFinite(start)||!Number.isFinite(duration)||!Number.isFinite(totalBeats)||duration<0.25||start<0||start+duration>totalBeats+1e-8)throw Error('Invalid note position');
+  return Number(Math.max(0,Math.min(totalBeats-duration,start+Math.round(deltaPixels/cellWidth)*gridStep)).toFixed(4));
+}
+export function dragAbsoluteNoteLeftEdge(start:number,duration:number,deltaPixels:number,cellWidth:number,gridStep:number):{start:number;duration:number} {
+  validateDragGeometry(cellWidth,gridStep,deltaPixels);
+  if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<0.25)throw Error('Invalid note endpoints');
+  const end=start+duration;
+  const next=Number(Math.max(0,Math.min(end-0.25,start+Math.round(deltaPixels/cellWidth)*gridStep)).toFixed(4));
+  return {start:next,duration:Number((end-next).toFixed(4))};
+}

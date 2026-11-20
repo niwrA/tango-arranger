@@ -19,7 +19,7 @@ import {version as appVersion} from '../package.json';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -28,7 +28,7 @@ import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regene
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent} from './expressiveAudio';
 import {needsSustainingSynth} from './sampleSustain';
-import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge} from './noteEditing';
+import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel,clearRhythmSourceIfRetimed} from './rhythmSnap';
 import {createLongPressMenu,isContextMenuKey} from './contextPress';
@@ -47,6 +47,7 @@ import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,
 import {suggestViolinPosition} from './violinPositions';
 import {stageInstrumentName} from './stageInstrumentName';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
+import {parseLeadLyrics,exportLeadLyricsTab} from './leadLyrics';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -2968,9 +2969,11 @@ watch(selectedBar,()=>{writtenDurationDraft.value='';});
 type NoteDrag={
   index:number;mode:'move'|'resize-left'|'resize-right';pointerId:number;
   startX:number;startY:number;startPitch:number;startLocal:number;startDuration:number;
-  cellWidth:number;rowHeight:number;moved:boolean;longPress:ReturnType<typeof setTimeout>|null
+  cellWidth:number;rowHeight:number;moved:boolean;longPress:ReturnType<typeof setTimeout>|null;
+  original:Note;latest:Note;sourceBar:number
 };
 let noteDrag:NoteDrag|null=null;
+let noteDragBaseScore:typeof score.value|null=null;
 let suppressNoteClick=false;
 /** Three gestures share the same stable grid coordinates: the center moves a note
  * horizontally and vertically; the left/right grips adjust its written endpoints.
@@ -2991,7 +2994,9 @@ function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
   dragHistoryStart=snapshotProject(project.value);
   noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
     startPitch:note.pitch,startLocal:note.start-selectedBar.value*project.value.beats,
-    startDuration:note.duration,cellWidth,rowHeight:gridRect.height,moved:false,longPress:null};
+    startDuration:note.duration,cellWidth,rowHeight:gridRect.height,moved:false,longPress:null,
+    original:{...note},latest:{...note},sourceBar:selectedBar.value};
+  noteDragBaseScore=score.value;
   scroller.setPointerCapture(event.pointerId);
   noteDrag.longPress=setTimeout(()=>{if(noteDrag&&!noteDrag.moved){if(noteFocusMode.value)noteFocusMore.value=true;else noteDetailsPopup.value=true;suppressNoteClick=true;}},600);
 }
@@ -2999,32 +3004,31 @@ function moveNoteDrag(event:PointerEvent){
   const drag=noteDrag;if(!drag||event.pointerId!==drag.pointerId)return;
   if(Math.abs(event.clientX-drag.startX)+Math.abs(event.clientY-drag.startY)<5)return;
   drag.moved=true;if(drag.longPress){clearTimeout(drag.longPress);drag.longPress=null;}
-  const note=noteMeasure.value[drag.index];if(!note)return;
   const dx=event.clientX-drag.startX;
-  const beats=project.value.beats;
-  let localStart=drag.startLocal;
+  const beats=project.value.beats,total=project.value.bars.length*beats;
+  let absoluteStart=drag.original.start;
   let duration=drag.startDuration;
   let pitch=drag.startPitch;
   if(drag.mode==='resize-right'){
-    duration=Math.max(0.25,Math.min(project.value.bars.length*beats-(selectedBar.value*beats+drag.startLocal),Math.round((drag.startDuration+dx/drag.cellWidth*noteStep.value)/noteStep.value)*noteStep.value));
+    duration=Math.max(0.25,Math.min(total-drag.original.start,Number((drag.startDuration+Math.round(dx/drag.cellWidth)*noteStep.value).toFixed(4))));
   }else if(drag.mode==='resize-left'){
-    const geometry=dragWrittenNoteLeftEdge(drag.startLocal,drag.startDuration,dx,drag.cellWidth,noteStep.value,beats);
-    localStart=geometry.start;duration=geometry.duration;
+    const geometry=dragAbsoluteNoteLeftEdge(drag.original.start,drag.startDuration,dx,drag.cellWidth,noteStep.value);
+    absoluteStart=geometry.start;duration=geometry.duration;
   }else{
-    localStart=dragWrittenNotePosition(drag.startLocal,drag.startDuration,dx,drag.cellWidth,noteStep.value,beats);
+    absoluteStart=dragAbsoluteNotePosition(drag.original.start,drag.startDuration,dx,drag.cellWidth,noteStep.value,total);
     const deltaPitch=Math.round((drag.startY-event.clientY)/drag.rowHeight);
     const [lo,hi]=noteCtx.value.range;
     pitch=Math.max(lo,Math.min(hi,drag.startPitch+deltaPitch));
   }
-  const absoluteStart=selectedBar.value*beats+localStart;
-  if(note.pitch===pitch&&Math.abs(note.start-absoluteStart)<1e-8&&Math.abs(note.duration-duration)<1e-8)return;
-  const events=noteMeasure.value.map(n=>({...n}));
-  events[drag.index]=clearRhythmSourceIfRetimed(events[drag.index],{...events[drag.index],pitch,start:absoluteStart,duration},beats);
+  if(drag.latest.pitch===pitch&&Math.abs(drag.latest.start-absoluteStart)<1e-8&&Math.abs(drag.latest.duration-duration)<1e-8)return;
+  const edited=clearRhythmSourceIfRetimed(drag.original,{...drag.original,pitch,start:absoluteStart,duration},beats);
   try{
-    project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
-    // Replacing the score sorts by onset and pitch, so follow the edited note.
-    const newIndex=noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-absoluteStart)<1e-8&&Math.abs(n.duration-duration)<1e-8);
-    if(newIndex>=0){drag.index=newIndex;noteSelected.value=newIndex;}
+    // Rebase each pointer move on the gesture's original project; moving into another
+    // measure must not duplicate the original note or lose it on the next move.
+    project.value=replaceInstrumentNoteAcrossMeasures(dragHistoryStart??project.value,noteDragBaseScore??score.value,noteInst.value,drag.original,edited);
+    drag.latest=edited;
+    const current=noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-absoluteStart)<1e-8);
+    noteSelected.value=current;
   }catch(error){message.value=`Cannot move or resize note: ${String(error)}`;}
 }
 function endNoteDrag(event:PointerEvent){
@@ -3032,8 +3036,10 @@ function endNoteDrag(event:PointerEvent){
   if(noteDrag.longPress)clearTimeout(noteDrag.longPress);
   if(noteDrag.moved){
     suppressNoteClick=true;
-    const note=noteMeasure.value[noteDrag.index];
-    if(note){auditionEvent(note);message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-selectedBar.value*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;}
+    const note=noteDrag.latest;
+    if(note){const bar=Math.floor(note.start/project.value.beats);selectedBar.value=bar;
+      noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===note.pitch&&Math.abs(n.start-note.start)<1e-8);
+      auditionEvent(note);message.value=`${noteInst.value} · measure ${bar+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-bar*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;}
   }
   if(dragHistoryStart){
     const before=dragHistoryStart;
@@ -3045,7 +3051,7 @@ function endNoteDrag(event:PointerEvent){
       historyBaseline=snapshotProject(project.value);
     }
   }
-  noteDrag=null;
+  noteDrag=null;noteDragBaseScore=null;
   setTimeout(()=>{suppressNoteClick=false;},80);
 }
 function nudgeSelectedNote(delta:number){
@@ -3347,6 +3353,75 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
     message.value=`Moved verse ${lyricVerse.value} ${throughPhrase?'phrase':'syllable'} ${direction<0?'left':'right'} by one note onset. Pitches and timing unchanged.`;
   }catch(error){message.value=`Lyric shift failed: ${String(error)}`;}
 }
+
+/** A persisted editable lyrics source is shared by the lead sheet and the Voice score.
+ * Chord anchors and original line breaks remain in the source for export and karaoke.
+ */
+const leadLyricsOpen=ref(false);
+const leadLyricsSource=ref('');
+const leadLyricsUseMelody=ref(true);
+const leadLyricsVerse=ref<1|2>(1);
+const leadLyricsPlan=computed(()=>parseLeadLyrics(leadLyricsSource.value,project.value.beats));
+const leadLyricsExisting=computed(()=>projectInstruments(project.value).find(i=>i.startsWith('Voice')));
+const leadLyricsMatches=computed(()=>{
+  const voice=leadLyricsExisting.value;
+  return voice?(score.value[voice]??[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
+});
+const leadLyricsPreview=computed(()=>leadLyricsPlan.value.notes.map((token,i)=>{
+  const existing=leadLyricsUseMelody.value?leadLyricsMatches.value[i]:undefined;
+  return {...token,beat:existing?.start??token.start,pitch:existing?.pitch??60,provisional:!existing};
+}));
+function openLeadLyrics(){
+  const saved=project.value.leadLyrics?.[String(leadLyricsVerse.value)];
+  leadLyricsSource.value=saved?.source??leadLyricsSource.value;
+  leadLyricsUseMelody.value=saved?.useExistingMelody??Boolean(leadLyricsMatches.value.length);
+  leadLyricsOpen.value=true;
+}
+watch(leadLyricsVerse,()=>{if(leadLyricsOpen.value)openLeadLyrics();});
+function applyLeadLyrics(){
+  const plan=leadLyricsPlan.value,voice=leadLyricsExisting.value;
+  if(!voice){message.value='Add a Voice instrument before applying song lyrics.';return;}
+  const total=project.value.bars.length*project.value.beats;
+  const existing=leadLyricsUseMelody.value?leadLyricsMatches.value:[];
+  if(existing.length&&plan.notes.length>existing.length){
+    message.value=`The text needs ${plan.notes.length} note onsets; the existing Voice melody has ${existing.length}. Add notes or disable existing-melody mapping.`;return;
+  }
+  if(!existing.length&&plan.notes.length>total){
+    message.value='More syllables than available beats. Add measures or use an existing melody.';return;
+  }
+  const field=leadLyricsVerse.value===1?'lyric':'lyric2';
+  const syll=leadLyricsVerse.value===1?'syllabic':'syllabic2';
+  const melisma=leadLyricsVerse.value===1?'melisma':'melisma2';
+  let next=project.value;
+  const written=plan.notes.map((token,i)=>{
+    const prior=existing[i];
+    return {...(prior??{pitch:60,start:token.start,duration:1,velocity:80,source:'manual' as const}),
+      [field]:token.text,[syll]:token.syllabic,[melisma]:Boolean(token.melisma)};
+  });
+  const all=score.value[voice]??[];
+  const affected=new Set(written.map(n=>Math.floor(n.start/project.value.beats)));
+  if(existing.length)for(const n of existing.slice(0,written.length))affected.add(Math.floor(n.start/project.value.beats));
+  for(const bar of [...affected].sort((a,b)=>a-b)){
+    const start=bar*project.value.beats,end=start+project.value.beats;
+    const oldNotes=all.filter(n=>n.start>=start&&n.start<end);
+    const notes=existing.length
+      ?oldNotes.map(n=>{const index=existing.findIndex(e=>e.start===n.start&&e.pitch===n.pitch&&e.duration===n.duration);return index>=0&&index<written.length?written[index]:n;})
+      :[...oldNotes,...written.filter(n=>n.start>=start&&n.start<end)];
+    next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),voice,bar,notes);
+  }
+  // Preserve the source, including line breaks and beat-aligned chord anchors.
+  next={...next,leadLyrics:{...(next.leadLyrics??{}),[String(leadLyricsVerse.value)]:{
+    source:leadLyricsSource.value,useExistingMelody:leadLyricsUseMelody.value}}};
+  project.value=next;
+  message.value=`Saved ${plan.notes.length} syllables for verse ${leadLyricsVerse.value}; the leadsheet source and line breaks were retained.`;
+}
+function exportLeadTab(){
+  const text=exportLeadLyricsTab(leadLyricsSource.value||project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source||'');
+  if(!text.trim()){message.value='Enter or load lyrics before exporting.';return;}
+  const filename=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();
+  download(text,filename+'-lyrics.txt','text/plain;charset=utf-8');
+}
+
 // Read-only, chord-aware overview of the Voice lyric alignment.
 const leadLyricOverview=computed(()=>{
   type LyricCell={beat:number;text:string;chord:string;chordStart:boolean;joinNext:boolean};
@@ -3991,6 +4066,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <span class="lead-measure-count" aria-label="Number of measures">{{project.bars.length}} measures</span>
 </div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
 <div v-if="copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
+<details class="lead-lyrics-workspace" :open="leadLyricsOpen" @toggle="leadLyricsOpen=($event.target as HTMLDetailsElement).open">
+  <summary @click="!leadLyricsOpen&&openLeadLyrics()">Lyrics &amp; chords · editable song source</summary>
+  <p class="hint">Paste the full song. Put chords in square brackets (for example [Am]), use a hyphen to split syllables, a vertical bar between note positions and || to start the next measure. Original line breaks are kept for karaoke and text export. Preview uses existing Voice melody pitches when enabled; otherwise C4 is an editable placeholder.</p>
+  <div class="lead-lyrics-toolbar">
+    <label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label>
+    <label><input type="checkbox" v-model="leadLyricsUseMelody"/> Use existing Voice melody ({{leadLyricsMatches.length}} notes)</label>
+    <button type="button" class="secondary" @click="exportLeadTab">Export chord / lyrics tab</button>
+  </div>
+  <label class="lead-lyrics-input">Song text, chords and boundaries<textarea v-model="leadLyricsSource" rows="7" spellcheck="false" placeholder="[Am]Yo | no | sé ||&#10;[E7]por | qué ..."></textarea></label>
+  <p class="hint">{{leadLyricsPlan.notes.length}} syllable positions · {{leadLyricsPlan.chords.length}} chord anchors · {{leadLyricsPlan.lines.length}} original lines. Chord changes remain attached to this source; existing measure chords can still be edited below.</p>
+  <div class="lead-lyrics-preview" role="group" aria-label="Live lyric and melody preview">
+    <div v-for="(token,i) in leadLyricsPreview.slice(0,120)" :key="i" class="lead-lyrics-syllable"><small>m{{Math.floor(token.beat/project.beats)+1}} · {{Number(token.beat%project.beats+1).toFixed(2)}}</small><strong>{{token.text}}</strong><span>{{displayPitch(token.pitch)}}{{token.provisional?'*':''}}</span></div>
+    <span v-if="leadLyricsPreview.length>120" class="hint">Showing first 120 positions</span>
+  </div>
+  <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="!leadLyricsPlan.notes.length" @click="applyLeadLyrics">Apply lyric alignment to Voice notes</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
+</details>
 <div class="lead-sections">
   <section v-for="(span,si) in sectionSpans(project)" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="`Section ${sectionLetter(si)}`">
     <div :class="['lead-section-heading',{'lead-copy-source':copySectionMode&&copySourceIndex===si}]">
@@ -4504,7 +4595,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
     <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{gestureText(n)?' · '+gestureText(n):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}{{rhythmCue(n)?' · ◆ '+rhythmCue(n):''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
-    <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong></div><details class="control-fold selected-note-fold" open><summary>Edit selected note · {{displayPitch(selectedEvent.pitch)}}</summary><div class="note-editor-controls">
+    <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong></div><details class="control-fold selected-note-fold" open><summary>Essentials · {{displayPitch(selectedEvent.pitch)}} · {{selectedEvent.duration}} beats</summary><div class="note-editor-controls">
       <div class="note-rhythm-inspector" role="group" aria-label="Selected note rhythm source">
         <span v-if="rhythmCue(selectedEvent)">◆ {{rhythmCue(selectedEvent)}} · preset beat {{Number((selectedEvent.rhythmSource!.targetBeat+1).toFixed(2))}}</span>
         <span v-else>Free timing · no recorded rhythm source</span>
@@ -4521,7 +4612,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label v-if="noteInst.startsWith('Voice')"><input type="checkbox" :checked="selectedEvent.melisma??false" @change="updateSelectedNote('melisma',String(($event.target as HTMLInputElement).checked))"/> Verse 1: extend this syllable over following untexted notes</label>
       <label v-if="noteInst.startsWith('Voice')"><input type="checkbox" :checked="selectedEvent.melisma2??false" @change="updateSelectedNote('melisma2',String(($event.target as HTMLInputElement).checked))"/> Verse 2: extend this syllable over following untexted notes</label>
       <p v-if="noteInst.startsWith('Voice')" class="hint">Attach one sung syllable to each note. For multi-syllable words use begin / middle / end. MusicXML exports lyric elements to MuseScore; tied fragments do not repeat the syllable. Lyrics are saved with protected manual notes.</p>
-      <div v-if="noteStringRows.length" class="note-string-fingering" role="group" aria-label="String and fingering">
+      <details class="note-inspector-advanced"><summary>More · expression, fingering &amp; playback</summary><div class="note-inspector-advanced-content"><div v-if="noteStringRows.length" class="note-string-fingering" role="group" aria-label="String and fingering">
         <strong>String &amp; fingering</strong>
         <label>String<select :value="selectedEvent.stringMidi??''" @change="updateSelectedFingering('stringMidi',($event.target as HTMLSelectElement).value)">
           <option value="">Auto · {{noteStringRows.find(s=>s.midi===selectedStringSuggestion?.stringMidi)?.name??'unavailable'}}</option>
@@ -4568,7 +4659,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label>Subito dynamic (immediate change)<select :value="selectedEvent.subito??'inherit'" @change="updateSelectedNote('subito',($event.target as HTMLSelectElement).value)"><option value="inherit">No subito</option><option v-for="mark in dynamicMarks" :key="mark" :value="mark">subito {{mark}}</option></select></label>
       <label v-if="slideSupported">Swell to velocity<select :value="selectedEvent.swellTo??'inherit'" @change="updateSelectedNote('swellTo',($event.target as HTMLSelectElement).value)"><option value="inherit">No note swell</option><option v-for="v in [35,45,55,65,75,85,95,105,115,125]" :key="v" :value="v">{{v}} / 127</option></select></label>
       <label v-if="noteInst.startsWith('Violin')||noteInst==='Contrabass'">Technique<select :value="selectedEvent.technique??'inherit'" @change="updateSelectedNote('technique',($event.target as HTMLSelectElement).value)"><option value="inherit">None</option><option value="arco">Arco</option><option value="pizzicato">Pizzicato</option></select></label>
-    </div><p class="hint">Playback velocity: {{noteSoundingVelocity(selectedEvent)}} / 127 · Audible length: {{Number(noteSoundingDuration(selectedEvent).toFixed(2))}} beats. Marcato adds 14 velocity units to the base setting.</p><button class="secondary" @click="deleteSelectedNote">Delete selected note</button></details></div>
+    </div></details></div><p class="hint">Playback velocity: {{noteSoundingVelocity(selectedEvent)}} / 127 · Audible length: {{Number(noteSoundingDuration(selectedEvent).toFixed(2))}} beats. Marcato adds 14 velocity units to the base setting.</p><button class="secondary" @click="deleteSelectedNote">Delete selected note</button></details></div>
     <p class="hint">Measure loop plays the current instrument only, at the song tempo and transposition, with note articulation, attack and sounding length. The loop uses your latest edits on its next repetition. Switching measures, instruments, songs or tabs stops playback. The note-click audition switch is independent of the measure loop.</p>
     <p class="hint">Articulation does not change the written rhythmic value. New staccato and marcato notes default to a quarter note (1 beat) unless you select a different written duration. Staccato defaults to 28% sounding length; marcato to 58% with a stronger accent; legato to 94%. The sounding-length control overrides these playback defaults. MusicXML exports a dot for unaccented staccato and a &gt; accent for accented staccato/marcato; exact sounding-length percentages apply only to the app's playback. Manual notes are saved in the .tango project, used in playback and MusicXML, and retained by Generate orchestra. “Restore generated measure” removes this instrument-measure's protection without touching other edits. Lead-sheet melody is unchanged.</p>
   </div>
@@ -5656,5 +5747,32 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .capture-piano.capture-large-instrument{min-height:clamp(240px,44dvh,560px);align-items:stretch}
 .capture-piano.capture-large-instrument .capture-piano-key{min-height:clamp(220px,41dvh,520px)}
 @media(max-width:520px){.instrument-focus-monitor button{padding:6px 8px}.instrument-focus-monitor button span{display:none}}
+
+
+/* Compact touch-friendly note inspector with optional advanced controls. */
+.note-properties.note-properties-popup{width:min(560px,calc(100vw - 20px))!important;max-height:min(82dvh,800px)!important;overflow-y:auto!important;padding:12px!important;border-radius:14px!important}
+.note-properties-popup-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;position:sticky;top:-12px;z-index:2;padding:8px;background:#233846;border-radius:8px}
+.note-properties-popup-header button{min-height:36px;padding:6px 10px}
+.note-properties-popup .selected-note-fold{margin:0}
+.note-properties-popup .selected-note-fold>summary{font-size:13px;padding:6px 8px}
+.note-properties-popup .note-editor-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:8px}
+.note-properties-popup .note-editor-controls>label,.note-properties-popup .note-editor-controls>div{min-width:0;margin:0}
+.note-properties-popup .note-editor-controls label{font-size:12px}
+.note-properties-popup .note-editor-controls input,.note-properties-popup .note-editor-controls select{min-width:0;max-width:100%}
+.note-properties-popup .note-rhythm-inspector,.note-properties-popup .note-duration-field,.note-properties-popup .note-inspector-advanced{grid-column:1/-1}
+.note-inspector-advanced{border:1px solid #617788;border-radius:9px;padding:8px;margin:6px 0}
+.note-inspector-advanced>summary{cursor:pointer;font-weight:700}
+.note-inspector-advanced-content{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+.note-inspector-advanced-content>label,.note-inspector-advanced-content>div{min-width:0}
+@media(max-width:520px){.note-properties-popup .note-editor-controls,.note-inspector-advanced-content{grid-template-columns:1fr}}
+.lead-lyrics-workspace{margin:12px 0 18px;padding:12px;border:1px solid #638399;border-radius:12px;background:#1d303e}
+.lead-lyrics-workspace>summary{cursor:pointer;font-weight:800;font-size:1.05rem}
+.lead-lyrics-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0}
+.lead-lyrics-toolbar label{display:flex;align-items:center;gap:7px}
+.lead-lyrics-input{display:block}
+.lead-lyrics-input textarea{width:100%;box-sizing:border-box;min-height:145px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.55}
+.lead-lyrics-preview{display:flex;flex-wrap:wrap;gap:5px;max-height:235px;overflow:auto;border:1px solid #506c80;border-radius:8px;padding:9px}
+.lead-lyrics-syllable{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 8px;min-width:53px;border:1px solid #57768a;border-radius:7px;background:#243d4c}
+.lead-lyrics-syllable small{font-size:10px;color:#b5c7d5}.lead-lyrics-syllable strong{font-size:15px}.lead-lyrics-syllable span{font-size:11px;color:#edc991}
 
 </style>

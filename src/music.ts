@@ -255,7 +255,7 @@ export type Bar = { chord:string; melody:Note[]; section:string };
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
-export type Project = { version:1; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
@@ -1206,6 +1206,24 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
     for(let b=barIndex+1;b<=last;b++)protectedBars[`${inst}:${b}`]=true;
   }
   return {...p,generatedScore:replace(current),importedScore:replace(p.importedScore??current),protectedBars};
+}
+/** Move a single onset to another measure without splitting its sounding duration.
+ * Both the old and new measure are protected, and unrelated notes remain unchanged.
+ */
+export function replaceInstrumentNoteAcrossMeasures(p:Project,current:Score,inst:Instrument,original:Note,edited:Note):Project {
+  const beats=p.beats,total=p.bars.length*beats;
+  if(!Number.isFinite(edited.start)||edited.start<0||edited.start>=total||edited.start+edited.duration>total+1e-8)throw Error('Note would leave the song');
+  const sourceBar=Math.floor(original.start/beats),targetBar=Math.floor(edited.start/beats);
+  const source=(current[inst]??[]).filter(n=>n.start>=sourceBar*beats&&n.start<(sourceBar+1)*beats).map(n=>({...n}));
+  const index=source.findIndex(n=>n.pitch===original.pitch&&Math.abs(n.start-original.start)<1e-8&&Math.abs(n.duration-original.duration)<1e-8);
+  if(index<0)throw Error('Original note not found');
+  source.splice(index,1);
+  if(sourceBar===targetBar){source.push(edited);return replaceInstrumentMeasure(p,current,inst,sourceBar,source);}
+  let next=replaceInstrumentMeasure(p,current,inst,sourceBar,source);
+  const target=(next.generatedScore?.[inst]??[]).filter(n=>n.start>=targetBar*beats&&n.start<(targetBar+1)*beats).map(n=>({...n}));
+  target.push(edited);
+  next=replaceInstrumentMeasure(next,next.generatedScore??current,inst,targetBar,target);
+  return next;
 }
 /** Remove manual protection and restore generator output for this measure only. */
 export function resetInstrumentMeasure(p:Project,inst:Instrument,barIndex:number):Project {
