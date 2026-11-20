@@ -1055,8 +1055,8 @@ let captureSynth:PolySynth|null=null;
 let captureKeySynth:PolySynth|null=null;
 let captureClickSynth:Synth|null=null;
 const captureKind=computed((): 'rhythm'|'melody'=>active.value==='notes'?'melody':'rhythm');
-const captureFirst=computed(()=>Math.max(0,Math.min(project.value.bars.length-1,Math.floor(Number(captureFrom.value)||1)-1)));
-const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.value.bars.length-1,Math.floor(Number(captureTo.value)||1)-1)));
+const captureFirst=computed(()=>Math.max(0,Math.min(project.value.bars.length-1,Math.floor(Number(active.value==='notes'?noteLoopFrom.value:captureFrom.value)||1)-1)));
+const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.value.bars.length-1,Math.floor(Number(active.value==='notes'?noteLoopTo.value:captureTo.value)||1)-1)));
 const captureBarNumbers=computed(()=>Array.from({length:captureLast.value-captureFirst.value+1},(_,i)=>captureFirst.value+i));
 const capturePitchOptions=computed(()=>keyboardPitchOptions(noteCtx.value.range));
 const captureKeyboardPitches=computed(()=>keyboardPitches(captureStartPitch.value,captureEndPitch.value,noteCtx.value.range));
@@ -1116,7 +1116,9 @@ function captureBarRhythm(bar:number):RhythmSlot[]{
 }
 function captureSetRangeToCurrent(){
   const b=active.value==='notes'?selectedBar.value+1:Math.max(1,Math.min(project.value.bars.length,rhythmLoopMeasure.value));
-  captureFrom.value=b;captureTo.value=b;captureEditBar.value=b;
+  if(active.value==='notes'){noteLoopFrom.value=b;noteLoopTo.value=b;}
+  else{captureFrom.value=b;captureTo.value=b;}
+  captureEditBar.value=b;
 }
 function captureClear(){captureTaps.value=[];captureEditedRhythms.value={};captureLastExpression.value='';captureFeedback.value='Cleared the draft take; the arrangement was not changed.';}
 function captureUndo(){
@@ -3191,7 +3193,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
     noteSelected.value=0;
     focusSelectedLyricText();
   }
-  captureFrom.value=selectedBar.value+1;captureTo.value=selectedBar.value+1;captureEditBar.value=selectedBar.value+1;
+  captureEditBar.value=selectedBar.value+1;
   capturePitch.value=existing[0]?.pitch??Math.max(range[0],Math.min(range[1],typical));
   const keyboard=defaultKeyboardRange(capturePitch.value,range);
   captureStartPitch.value=keyboard.start;captureEndPitch.value=keyboard.end;
@@ -3607,10 +3609,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <summary class="icon-action compact-workspace-summary" title="More workspace actions" aria-label="More workspace actions"><AppIcon name="ellipsis"/></summary>
       <div class="topbar-menu-panel compact-workspace-panel" @click="closeTopbarMenuOnAction($event)">
         <template v-if="!performanceMode">
-          <strong class="files-group-title">Song &amp; workspace</strong>
-          <label>Current song<select :value="localSongId" :disabled="!libraryReady" @change="chooseSongFromPicker" aria-label="Choose song from local library">
-            <option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option>
-          </select></label>
+          <strong class="files-group-title">Workspace</strong>
           <button type="button" class="secondary" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/> New blank song</button>
           <button type="button" class="secondary" @click="saveNow"><AppIcon name="save"/> Save current song</button>
           <button type="button" class="secondary" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button>
@@ -4095,8 +4094,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}} · {{instrumentSkillShort(noteInst)}}</strong>
     <label class="note-focus-range">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
-    <label class="note-focus-range">Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
-    <label class="note-focus-range">End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <label class="note-focus-range">Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <label class="note-focus-range">End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
     <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopTo>=project.bars.length" @click="shiftNoteVisibleRange(1)" aria-label="Next measure range">→</button>
     <button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop'}}</button>
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
@@ -4107,8 +4106,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
     <label class="note-edition-selector">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
-    <label>Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
-    <label>End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <label>Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
+    <label>End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
     <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopTo>=project.bars.length" @click="shiftNoteVisibleRange(1)" aria-label="Next measure range">→</button>
     <button type="button" :class="noteLoopPlaying?'play':'primary'" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
     <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
@@ -4127,10 +4126,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="section-heading"><h3>Live melody and rhythm input</h3><span>Full orchestra loop · draft take</span></div>
   <details class="control-fold" open><summary>Recording controls, keyboard &amp; draft take</summary>
   <p class="hint">Loop a measure or phrase and tap the pitch keys below at the right moment. By default, each new loop pass replaces the previous recorded take; select Overdub to layer notes. Each key tap records both pitch and rhythmic onset, quantized to a sixteenth note. Alternatively, select a pitch and tap the large rhythm pad. Nothing replaces the existing notes until you press Apply captured notes.</p>
-  <div class="live-capture-controls">
-    <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
-    <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
-    <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Current measure</button>
+  <div class="live-capture-controls live-capture-recording-options">
+    <span class="capture-selected-range" role="status">Measures <strong>{{captureFirst+1}}–{{captureLast+1}}</strong> · selected above</span>
     <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label><label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label><label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying" aria-label="Recording playback speed"><option :value="1">Normal (100%)</option><option :value="0.75">Three-quarter speed (75%)</option><option :value="0.5">Half speed (50%)</option></select></label><label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
     <label class="capture-check"><input type="checkbox" v-model="captureMetronome"/> Metronome</label><label class="capture-check"><input type="checkbox" v-model="captureCountIn" :disabled="capturePlaying"/> One-measure count-in</label>
     <button type="button" :class="capturePlaying?'play':'primary'" @click="toggleCaptureLoop">{{capturePlaying?'■ Stop recording':'▶ Loop arrangement & record'}}</button>
@@ -4158,7 +4155,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span>Positions {{captureFrets[0]}}–{{captureFrets[captureFrets.length-1]}}</span>
      </div>
      <p class="hint">Instrument-specific strings: touch and hold for a sustained note, or use two fingers for simultaneous notes. On violin, drag along the same string to record a slide into the ending pitch. Repeated motion can mark vibrato; a broad return sweep can suggest a tango sirena. This captures expression markings, not physical vibrato depth or speed. The keyboard remains available.</p>
-     <div class="capture-fingerboard-scroll" role="group" :aria-label="`Playable ${noteInst} string positions`">
+     <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin')}" role="group" :aria-label="`Playable ${noteInst} string positions`">
       <div class="capture-fingerboard-grid" :style="{'--capture-fret-columns':captureFrets.length}">
        <div class="capture-fingerboard-header"><span>String</span><span v-for="fret in captureFrets" :key="fret">{{fret===0?'Open':fret}}</span></div>
        <div v-for="string in captureFingerboardRows" :key="string.name" class="capture-fingerboard-row">
@@ -4169,7 +4166,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            :disabled="captureStringPitch(string.midi,fret)===null"
            :aria-label="`${string.name} string at ${fret===0?'open':'semitone '+fret}, ${midiName(string.midi+fret)}`"
            :title="midiName(string.midi+fret)"
-           @pointerdown.prevent="captureViolinFingerDown($event,string.midi+fret,string.midi)" @pointermove="captureViolinFingerMove($event)"
+           @pointerdown.prevent.stop="captureViolinFingerDown($event,string.midi+fret,string.midi)" @pointermove.prevent.stop="captureViolinFingerMove($event)"
            @pointerup="releaseCapturePianoKey($event)"
            @pointercancel="releaseCapturePianoKey($event)"
            @lostpointercapture="releaseCapturePianoKey($event)"
@@ -5523,5 +5520,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 @media(max-width:520px){
  .instrument-focus-toolbar .instrument-focus-speed-menu>.playback-speed-summary{min-width:56px;padding:6px}
 }
+
+/* Violin finger movements are musical input, not a pan of the board.
+ * Fret window selectors provide navigation to positions outside the viewport. */
+.capture-fingerboard-scroll.capture-violin-gesture-surface,
+.capture-violin-gesture-surface .capture-fingerboard-grid,
+.capture-violin-gesture-surface .capture-fingerboard-row,
+.capture-violin-gesture-surface .capture-fingerboard-key{
+ touch-action:none!important;overscroll-behavior:contain;overflow-anchor:none;
+ -webkit-user-select:none;user-select:none;
+}
+.live-capture-recording-options{display:flex;align-items:end;flex-wrap:wrap;gap:8px 12px}
+.live-capture-recording-options>label{flex:1 1 145px;min-width:135px;max-width:230px}
+.live-capture-recording-options>.capture-check{flex:0 1 auto;min-width:unset;max-width:none;align-self:center}
+.live-capture-recording-options>.capture-selected-range{display:inline-flex;align-items:center;gap:5px;flex:1 1 100%;font-size:12px;color:#d5e3ec}
+.live-capture-recording-options>.capture-selected-range strong{font-variant-numeric:tabular-nums;color:#f2d6a5}
+.live-capture-recording-options>button{align-self:end;min-height:39px}
+@media(max-width:640px){.live-capture-recording-options>label{flex:1 1 145px;max-width:none}}
 
 </style>
