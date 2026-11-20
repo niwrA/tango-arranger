@@ -14,7 +14,7 @@ import {version as appVersion} from '../package.json';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import pequenaStudy from './presets/pequena-2.json';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -33,6 +33,8 @@ import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboard
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingPitchesAtBeat} from './performanceCues';
+import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
+import {suggestViolinPosition} from './violinPositions';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -360,6 +362,19 @@ watch(active,tab=>{
 const pendingParsed=ref<ParsedMusicXml|null>(null);
 const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
+const rehearsalSpeed=ref<RehearsalSpeed>((()=>{
+ try{return normalizeRehearsalSpeed(localStorage.getItem('tango-rehearsal-speed'));}catch{return 1;}
+})());
+const effectivePlaybackBpm=computed(()=>effectiveTempo(project.value.bpm,rehearsalSpeed.value));
+const playbackStartBeat=ref(0);
+function setRehearsalSpeed(speed:RehearsalSpeed){
+ rehearsalSpeed.value=normalizeRehearsalSpeed(speed);
+ try{localStorage.setItem('tango-rehearsal-speed',String(rehearsalSpeed.value));}catch{/* Browser may disallow storage. */}
+ // Musical beat scheduling allows live tempo changes without restarting a bar.
+ if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)&&!capturePlaying.value){
+  Tone.getTransport().bpm.value=effectivePlaybackBpm.value;
+ }
+}
 const performanceMode=ref(false);
 const performanceView=ref<'ensemble'|'notes'>('ensemble');
 /** A stage title never changes the saved project title. Remove bracketed revision notes,
@@ -468,9 +483,15 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
  const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
  const activePitches=playing.value?soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration):[];
+ // Keep the violin chart at one suggested hand position per measure rather
+ // than jumping to another string position on every note attack.
+ const violinMeasurePitches=instrumentFamily(part.inst)==='Violin'
+  ?notes.filter(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats).map(n=>n.pitch)
+  :[];
+ const violinPosition=violinMeasurePitches.length?suggestViolinPosition(Math.max(...violinMeasurePitches)):null;
  const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:rosterDisplayName(part.inst),playingInMeasure,activePitches,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:rosterDisplayName(part.inst),playingInMeasure,activePitches,violinPosition,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -522,7 +543,7 @@ const performanceCurrentLyric=computed(()=>{const beat=performanceBeat.value,not
 const performanceLyricWindow=computed(()=>{const {notes,index,active}=performanceCurrentLyric.value;if(index<0||!performanceDisplayedPart.value)return [];const beat=performanceBeat.value;const measure=Math.floor(beat/project.value.beats);const nearby=notes.filter(n=>Math.floor(n.start/project.value.beats)>=measure-1&&Math.floor(n.start/project.value.beats)<=measure+2);if(!nearby.length)return [];const at=nearby.findIndex(n=>n===notes[index]);const start=Math.max(0,at-4);return nearby.slice(start,Math.min(nearby.length,Math.max(9,at+9))).map(note=>({note,active:active&&note===notes[index]}));});
 function performanceSeek(bar:number){const next=Math.max(0,Math.min(project.value.bars.length-1,bar));selectedBar.value=next;if(playing.value&&playbackOrigin.value){void play('selected');}else performanceBeat.value=next*project.value.beats;}
 let performanceTicker:ReturnType<typeof setInterval>|undefined;
-watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}if(isPlaying&&Tone&&playbackOrigin.value){performanceTicker=setInterval(()=>{if(!playing.value||!Tone)return;const start=playbackOrigin.value==='beginning'?0:selectedBar.value;performanceBeat.value=Math.min(project.value.bars.length*project.value.beats-0.001,start*project.value.beats+Tone.getTransport().seconds*project.value.bpm/60);},50);}});
+watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}if(isPlaying&&Tone&&playbackOrigin.value){performanceTicker=setInterval(()=>{if(!playing.value||!Tone)return;const transport=Tone.getTransport();performanceBeat.value=Math.min(project.value.bars.length*project.value.beats-0.001,playbackStartBeat.value+transport.ticks/transport.PPQ);},50);}});
 const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 // Status is event-driven: dismissing a message keeps it hidden until the text changes.
 watch(message,(next,previous)=>{if(next!==previous){statusVisible.value=true;statusDismissed.value=false;}});
@@ -859,7 +880,7 @@ async function toggleRhythmLoop(){
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
-    transport.bpm.value=project.value.bpm;
+    transport.bpm.value=effectivePlaybackBpm.value;
     transport.scheduleRepeat(time=>{
       // The pattern is read on every repetition so edits are audible immediately.
       const slots=rhythmPattern.value;
@@ -869,9 +890,9 @@ async function toggleRhythmLoop(){
       if(rhythmLoopSound.value==='instrument'&&originals.length){
         const notes=retimeMeasure(originals,inst,b,project.value.beats,slots,'rhythm',project.value.pianoSplitPitch??60);
         const events=measureLoopEvents(notes,b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value);
-        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds,time+event.onsetSeconds,event.velocity/127);
+        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }else{
-        for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/project.value.bpm,slot.accent?0.95:0.55);
+        for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/effectivePlaybackBpm.value,slot.accent?0.95:0.55);
       }
     },'1m',0);
     let beat=0;
@@ -2101,6 +2122,7 @@ async function play(origin:PlaybackOrigin){
   const session=noteLoopSession;
   const startMeasure=origin==='selected'?selectedBar.value:0;
   performanceBeat.value=startMeasure*project.value.beats;
+  playbackStartBeat.value=startMeasure*project.value.beats;
   const window=arrangementPlaybackWindow(project.value.bars.length,project.value.beats,project.value.bpm,startMeasure);
   try{
     Tone=await startAudioFromGesture();
@@ -2108,30 +2130,32 @@ async function play(origin:PlaybackOrigin){
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     await prepareSamples(projectInstruments(project.value));
     if(session!==noteLoopSession)return;
-    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
+    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
     let noteCount=0;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
     // This is a guide tone, not sung or synthesized speech.
     for(const inst of projectInstruments(project.value)){for(const n of score.value[inst]??[]){
+      // Musical tick positions preserve event timing when rehearsal speed is
+      // changed mid-performance (unlike precomputed absolute seconds).
       const seconds=arrangementEventTime(n.start,window);
-      // The requested measure is a hard start: earlier attacks are not replayed.
       if(seconds===null)continue;
+      const whenTicks=beatOffsetTicks(n.start-window.startBeat,transport.PPQ);
       noteCount++;
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
-        const defaultDuration=noteSoundingDuration(n)*60/project.value.bpm;
+        const defaultDuration=playbackDuration(noteSoundingDuration(n)*60/project.value.bpm,rehearsalSpeed.value);
         const defaultVelocity=noteSoundingVelocity(n);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
-        else triggerInstrument(inst,event.pitch,event.durationSeconds||defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
-      },seconds);
+          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value),velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
+        else triggerInstrument(inst,event.pitch,event.durationSeconds?playbackDuration(event.durationSeconds,rehearsalSpeed.value):defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127);
+      },whenTicks);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
-    audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · audio context ${Tone.getContext().state}`;
-    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},window.durationSeconds+0.2);
+    audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · ${Math.round(effectivePlaybackBpm.value)} BPM (${rehearsalSpeed.value}×) · audio context ${Tone.getContext().state}`;
+    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},beatOffsetTicks((project.value.bars.length-startMeasure)*project.value.beats+0.25,transport.PPQ));
     transport.start();playing.value=true;playbackOrigin.value=origin;
   }catch(error){message.value=`Playback unavailable: ${String(error)}`;stopPlayback();}
 }
@@ -2149,8 +2173,9 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
     await prepareSamples(kind==='lead'?['Piano']:[instrument??overviewInstrument.value]);
     if(session!==noteLoopSession)return;
-    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=project.value.bpm;
-    const beatSeconds=60/project.value.bpm;
+    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
+    playbackStartBeat.value=from*beats;performanceBeat.value=from*beats;
+    
     let count=0;
     if(kind==='lead'){
       for(let bar=from;bar<=to;bar++){
@@ -2159,10 +2184,10 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
           const change=changes[i];
           if(!change.chord.trim())continue;
           const next=changes[i+1]?.beat??beats;
-          const duration=Math.max(0.1,(next-change.beat)*beatSeconds*0.88);
+          const durationBeats=Math.max(0.1,(next-change.beat)*0.88);
           const pitches=chordTones(change.chord).map(pc=>60+pc);
-          const time=((bar-from)*beats+change.beat)*beatSeconds;
-          transport.schedule(t=>synth?.triggerAttackRelease(pitches.map(p=>Tone.Frequency(p,'midi').toFrequency()),duration,t,0.55),time);
+          const cueBeat=(bar-from)*beats+change.beat;
+          transport.schedule(t=>synth?.triggerAttackRelease(pitches.map(p=>Tone.Frequency(p,'midi').toFrequency()),durationBeats*60/effectivePlaybackBpm.value,t,0.55),beatOffsetTicks(cueBeat,transport.PPQ));
           count++;
         }
       }
@@ -2170,16 +2195,16 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
       const inst=instrument??overviewInstrument.value;
       for(const n of score.value[inst]??[]){
         if(n.start<from*beats||n.start>=(to+1)*beats)continue;
-        const time=(n.start-from*beats)*beatSeconds;
-        const duration=Math.max(0.04,noteSoundingDuration(n)*beatSeconds);
+        const cueBeat=n.start-from*beats;
+        const durationBeats=noteSoundingDuration(n);
         const pitch=n.pitch+(project.value.transposeSemitones??0);
-        transport.schedule(t=>triggerInstrument(inst,pitch,duration,t,noteSoundingVelocity(n)/127),time);
+        transport.schedule(t=>triggerInstrument(inst,pitch,Math.max(0.04,durationBeats*60/effectivePlaybackBpm.value),t,noteSoundingVelocity(n)/127),beatOffsetTicks(cueBeat,transport.PPQ));
         count++;
       }
     }
     if(!count){message.value=kind==='lead'?'No chords to preview in this range.':'No generated notes for this instrument in the selected range.';return;}
     audioStatus.value=`Previewing ${kind==='lead'?'lead-sheet chords':(instrument??overviewInstrument.value)} · measures ${from+1}–${to+1}`;
-    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;transport.stop();synth?.releaseAll();audioStatus.value='Preview finished';},(to-from+1)*beats*beatSeconds+0.1);
+    transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;transport.stop();synth?.releaseAll();audioStatus.value='Preview finished';},beatOffsetTicks((to-from+1)*beats+0.25,transport.PPQ));
     transport.start();playing.value=true;playbackOrigin.value='selected';
   }catch(error){message.value=`Preview unavailable: ${String(error)}`;stopPlayback();}
 }
@@ -2202,7 +2227,7 @@ async function toggleNoteLoop(){
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
-    transport.bpm.value=project.value.bpm;
+    transport.bpm.value=effectivePlaybackBpm.value;
     // Both editor modes loop the visible user-selected measure range.
     let loopPass=0;
     let lastRangeKey='';
@@ -2216,8 +2241,8 @@ async function toggleNoteLoop(){
       const events=measureLoopEvents(score.value[noteInst.value]??[],bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value);
       for(const event of events){
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,event,time+event.onsetSeconds);
-        else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),event.durationSeconds,time+event.onsetSeconds,event.velocity/127);
+          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
+        else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }
     },'1m',0);
     let beat=0;
@@ -2230,7 +2255,7 @@ async function toggleNoteLoop(){
   }catch(error){message.value=`Measure loop unavailable: ${String(error)}. Check browser audio permissions.`;stopPlayback();}
 }
 watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value)stopPlayback();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
-watch(()=>project.value.bpm,bpm=>{if((noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)&&Number.isFinite(bpm)&&bpm>0)Tone.getTransport().bpm.value=bpm;});
+watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=effectivePlaybackBpm.value;});
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
@@ -3226,7 +3251,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
-    <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button><button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
+    <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button>
+    <details class="topbar-menu playback-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+      <summary class="playback-speed-summary" :title="'Playback speed '+Math.round(rehearsalSpeed*100)+'% · '+Math.round(effectivePlaybackBpm)+' BPM'" :aria-label="'Playback speed '+rehearsalSpeed+' times song tempo. Tap to adjust'">{{rehearsalSpeed}}×<AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel playback-speed-options" role="group" aria-label="Rehearsal playback speed" @click="closeTopbarMenuOnAction($event)">
+        <button v-for="speed in REHEARSAL_SPEEDS" :key="speed" type="button" :class="{'selected':rehearsalSpeed===speed}" :aria-pressed="rehearsalSpeed===speed" @click="setRehearsalSpeed(speed)"><strong>{{speed}}×</strong><small>{{Math.round(project.bpm*speed)}} BPM</small></button>
+        <span class="playback-speed-note">Changes playback tempo, not the song's BPM.</span>
+      </div>
+    </details>
+    <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span class="header-save-status" role="status">{{audioEngine==='samples'?sampleStatus:'Original synthesizer selected'}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span class="header-save-status" role="status">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
@@ -3306,7 +3339,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
      </div>
     </div>
     <div class="performance-top-beat" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo">{{project.bpm}}</span></div>
+      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo" :title="'Effective playback tempo: '+Math.round(effectivePlaybackBpm)+' BPM'">{{Math.round(effectivePlaybackBpm)}}</span></div>
       <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
     </div>
    </div>
@@ -3331,7 +3364,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span class="performance-card-role" :title="`Current role: ${part.role}`">{{part.role}}</span>
         <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones"/>
+      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition"/>
       <template v-else>
         <span class="performance-cue-role"><small>Current role</small><strong>{{part.role}}</strong><small>{{part.articulation}}</small></span>
         <span class="performance-cue-next"><span><small>Next role</small><strong>{{part.nextRole}}</strong><small>{{part.nextArticulation}}</small></span><span><small>Dynamics</small><strong>{{part.dynamics}}</strong><small>Next {{part.nextDynamics}}</small></span></span>
@@ -4706,5 +4739,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-live .performance-topbar-view-switch button{min-height:42px;height:42px}
  .performance-live .performance-stage-actions{padding-left:5px;gap:3px}
 }
+
+/* Rehearsal speed is available in both editor and live stage. */
+.app-topbar .playback-speed-menu{position:relative;flex:0 0 auto}
+.app-topbar .playback-speed-summary{display:inline-flex;gap:4px;align-items:center;justify-content:center;height:42px;min-height:42px;min-width:65px;padding:6px 8px;cursor:pointer;list-style:none;white-space:nowrap;border:1px solid #637686;border-radius:9px;background:#263744;color:#f6dda7;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums}
+.app-topbar .playback-speed-summary::-webkit-details-marker{display:none}
+.app-topbar .playback-speed-summary .app-icon{width:13px;height:13px;flex:0 0 13px;color:#d0dde7}
+.app-topbar .playback-speed-menu[open] .playback-speed-summary{border-color:#e3b77a;background:#364756}
+.app-topbar .playback-speed-summary:focus-visible{outline:2px solid #f5d4a0;outline-offset:2px}
+.app-topbar .playback-speed-options{min-width:245px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;right:0;left:auto}
+.app-topbar .playback-speed-options button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:52px;padding:5px 6px;border-radius:7px}
+.app-topbar .playback-speed-options button strong{font-size:16px}
+.app-topbar .playback-speed-options button small{font-size:10px;color:#c9d3db;white-space:nowrap}
+.app-topbar .playback-speed-options button.selected{background:#695135;border:1px solid #dfb982}
+.app-topbar .playback-speed-note{grid-column:1/-1;font-size:10px;line-height:1.3;color:#c1d2df;margin:3px 1px 0}
+@media(max-width:760px){.app-topbar .playback-speed-options{right:-45px}.app-topbar .playback-speed-summary{min-width:61px;padding:5px 6px}}
 
 </style>

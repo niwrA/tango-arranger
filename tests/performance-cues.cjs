@@ -180,7 +180,7 @@ check('per-part chord diagrams highlight sounding notes and dim only unplayed ch
  assert.ok(diagram.includes('activePitches:number[];dimUnplayedChordTones:boolean'));
  assert.ok(diagram.includes('class="diagram-live-pitches"'));
  assert.ok(diagram.includes("'is-sounding':isPlayingPitch(midi)"));
- assert.ok(diagram.includes("'is-sounding':isPlayingPitch(string.midi+offset)"));
+ assert.ok(diagram.includes("'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset)"));
  assert.ok(diagram.includes("'is-sounding':isPlayingTone(tone)"));
  assert.ok(diagram.includes("'is-unplayed-chord-tone':shouldDimTone(midi)"));
  assert.ok(diagram.includes("is-unplayed-chord-tone:not(.is-sounding)"));
@@ -213,5 +213,49 @@ check('fullscreen and editor exit are separate equal-size controls with clear ic
  assert.ok(app.includes('class="performance-topbar-view-switch"'));
  assert.ok(app.includes('height:42px!important;min-height:42px!important;padding:3px!important;box-sizing:border-box'));
  assert.ok(!app.includes('performanceMode=!performanceMode'));
+});
+check('rehearsal speed keeps written song BPM unchanged while converting note durations',()=>{
+ const code=fs.readFileSync(path.join(root,'src/playbackSpeed.ts'),'utf8');
+ const output=ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+ const module={exports:{}};vm.runInNewContext(`(function(module,exports){${output}\n})`,{})(module,module.exports);
+ const h=module.exports;
+ assert.equal(h.normalizeRehearsalSpeed('0.8'),0.8);
+ assert.equal(h.normalizeRehearsalSpeed(0.82),1);
+ assert.equal(h.normalizeRehearsalSpeed(1.25),1.25);
+ assert.equal(h.effectiveTempo(120,0.8),96);
+ assert.equal(h.playbackDuration(1,0.5),2);
+ assert.equal(h.beatOffsetTicks(2.5,192),'480i');
+});
+check('editor and stage speed popup controls the same musical-tick arrangement transport',()=>{
+ assert.ok(app.includes('class="topbar-menu playback-speed-menu"'));
+ assert.ok(app.includes('v-for="speed in REHEARSAL_SPEEDS"'));
+ assert.ok(app.includes('setRehearsalSpeed(speed)'));
+ assert.ok(app.includes('tango-rehearsal-speed'));
+ assert.ok(app.includes('transport.ticks/transport.PPQ'));
+ assert.ok(app.includes('const whenTicks=beatOffsetTicks(n.start-window.startBeat,transport.PPQ)'));
+ assert.ok(app.includes('transport.bpm.value=effectivePlaybackBpm.value'));
+ assert.ok(app.includes('playbackDuration(event.durationSeconds,rehearsalSpeed.value)'));
+ assert.ok(!app.includes('Tone.getTransport().seconds*project.value.bpm/60'));
+});
+check('violin high notes get deterministic string-position suggestions',()=>{
+ const code=fs.readFileSync(path.join(root,'src/violinPositions.ts'),'utf8');
+ const output=ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+ const module={exports:{}};vm.runInNewContext(`(function(module,exports){${output}\n})`,{})(module,module.exports);
+ const h=module.exports;
+ const open=h.suggestViolinPosition(55);
+ assert.equal(open.stringName,'G');assert.equal(open.position,'I');assert.equal(open.finger,0);
+ const higher=h.suggestViolinPosition(84);
+ assert.equal(higher.stringName,'E');assert.equal(higher.position,'III');
+ assert.equal(h.suggestViolinPosition(110),null);
+ assert.deepEqual(Array.from(h.violinStopOffsets(higher)),[5,6,7,8,9,10,11,12]);
+});
+check('violin chart remains fixed-size and displays the measure-level suggested hand position',()=>{
+ const diagram=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
+ assert.ok(app.includes('const violinPosition=violinMeasurePitches.length?suggestViolinPosition('));
+ assert.ok(app.includes(':violin-position="part.violinPosition"'));
+ assert.ok(diagram.includes('violinStopOffsets(props.violinPosition??null)'));
+ assert.ok(diagram.includes('class="diagram-violin-position"'));
+ assert.ok(diagram.includes("'Position '+props.violinPosition.position"));
+ assert.ok(diagram.includes('.diagram-fingerboard.diagram-violin-fingerboard{position:relative;padding-top:19px;gap:2px}'));
 });
 console.log(count+' performance cue checks passed');
