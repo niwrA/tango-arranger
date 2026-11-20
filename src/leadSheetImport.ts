@@ -32,7 +32,13 @@ export function previewLeadSheetImport(input:string):LeadImportPreview {
  const warnings:string[]=[];
  let title='Section A',sourceLines:string[]=[];
  let nextTitle:string|null=null;
- function startSection(){if(sections.length&&sections[sections.length-1].start===bars.length)return;sections.push({title:nextTitle??title,start:bars.length,measures:0});nextTitle=null;}
+ function startSection(){
+  if(sections.length&&nextTitle===null)return;
+  if(sections.length&&sections[sections.length-1].start===bars.length){
+    sections[sections.length-1].title=nextTitle??title;nextTitle=null;return;
+  }
+  sections.push({title:nextTitle??title,start:bars.length,measures:0});nextTitle=null;
+ }
  for(let i=0;i<lines.length;i++){
   const raw=lines[i].replace(/\t/g,'    '),trimmed=raw.trim();
   if(!trimmed){sourceLines.push('');continue;}
