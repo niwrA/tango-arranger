@@ -52,6 +52,7 @@ import {stageInstrumentName} from './stageInstrumentName';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import {parseLeadLyrics,exportLeadLyricsTab,positionLeadChords,lyricLineStarts,leadLyricsFromSong,readableLeadSheet} from './leadLyrics';
 import {moveLeadSectionStart} from './leadSectionBoundary';
+import {previewLeadSheetImport,projectFromLeadSheet,arrangeImportedSections,type LeadImportPreview} from './leadSheetImport';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
@@ -1613,6 +1614,55 @@ const overviewTechnique=ref<'inherit'|ViolinTechnique>('inherit');
 const overviewBassTechnique=ref<'inherit'|BassTechnique>('inherit');
 const overviewNotice=ref('');
 const newSongOpen=ref(false);
+const newSongStart=ref<'blank'|'lead'|'musicxml'>('blank');
+const newLeadSheetText=ref('');
+const newLeadSheetError=ref('');
+const newLeadSheetPreview=computed<LeadImportPreview|null>(()=>{
+ if(!newLeadSheetText.value.trim())return null;
+ try{return previewLeadSheetImport(newLeadSheetText.value);}
+ catch{return null;}
+});
+const newLeadSectionStarts=ref<number[]>([]);
+watch(newLeadSheetText,()=>{
+ const plan=newLeadSheetPreview.value;
+ newLeadSectionStarts.value=plan?plan.sections.map(section=>section.start):[];
+});
+const newLeadSections=computed(()=>{
+ const plan=newLeadSheetPreview.value;
+ if(!plan)return [];
+ try{return arrangeImportedSections(plan,newLeadSectionStarts.value);}
+ catch{return [];}
+});
+async function createSongFromLeadSheet(){
+ try{
+   const preview=previewLeadSheetImport(newLeadSheetText.value);
+   const sections=arrangeImportedSections(preview,newLeadSectionStarts.value);
+   const fresh=setProjectRoster(projectFromLeadSheet(preview,newSongTitle.value,newSongBeats.value,newSongBpm.value,sections.map(s=>s.start)),getDefaultRoster());
+   if(!window.confirm('Create a new song from this leadsheet? The current song remains in your local library.'))return;
+   await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
+   active.value='lead';leadLyricsSource.value=preview.source;leadLyricsUseMelody.value=false;leadDisplayMode.value='sheet';
+   message.value=`Created a new song from ${preview.bars.length} provisional measures and ${sections.length} sections. Review section boundaries and melody alignment.`;
+ }catch(error){newLeadSheetError.value=String(error);message.value='Lead sheet import failed: '+String(error);}
+}
+async function createSongFromMusicXml(event:Event){
+ const input=event.target as HTMLInputElement;
+ const file=input.files?.[0];if(!file)return;
+ try{
+   const raw=await file.text();
+   const parsed=parseMusicXmlDetailed(raw);
+   if(!Number.isInteger(parsed.measureCount)||parsed.measureCount<1||parsed.measureCount>512)throw Error('MusicXML must contain 1–512 measures');
+   if(!window.confirm('Create a separate new song and open the MusicXML merge review? The existing song remains saved.'))return;
+   const fresh=setProjectRoster(blankProject({title:newSongTitle.value,beats:newSongBeats.value,bpm:newSongBpm.value,sections:Math.max(1,Math.ceil(parsed.measureCount/16)),measuresPerSection:Array.from({length:Math.max(1,Math.ceil(parsed.measureCount/16))},(_,i)=>Math.min(16,parsed.measureCount-i*16))}),getDefaultRoster());
+   await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
+   pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=raw;
+   pending.value=parsed.parts.map(part=>({name:part.name,notes:part.notes}));
+   pendingChords.value=parsed.chords;pendingKeys.value=parsed.keys;importMode.value='merge';
+   importDialogOpen.value=true;active.value='lead';
+   message.value=`Created new song; review ${parsed.measureCount} MusicXML measures before applying imported notes and harmony.`;
+ }catch(error){message.value='Cannot start from MusicXML: '+String(error);}
+ finally{input.value='';}
+}
+
 const newSongTitle=ref('Untitled Tango');
 const newSongSections=ref(5);
 const newSongLengths=ref<number[]>([16,16,16,16,16]);
@@ -4019,9 +4069,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </template>
   </div>
  </section>
-<div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
-  <div class="section-heading"><h2>New blank song</h2><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
-  <p class="muted">Start with an empty lead sheet: no demo melody, no chord symbols and no generated accompaniment. Default: five sections (A–E), each with sixteen measures. Set each section length before creating the song; the alphabetical section labels also appear as MuseScore rehearsal marks.</p>
+<div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create new song">
+  <div class="section-heading"><h2>New song · choose a starting point</h2><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
+  <div class="new-song-start-choices" role="group" aria-label="New song starting method">
+    <button type="button" :class="newSongStart==='blank'?'primary':'secondary'" :aria-pressed="newSongStart==='blank'" @click="newSongStart='blank'">Start from scratch</button>
+    <button type="button" :class="newSongStart==='lead'?'primary':'secondary'" :aria-pressed="newSongStart==='lead'" @click="newSongStart='lead'">Paste a leadsheet</button>
+    <button type="button" :class="newSongStart==='musicxml'?'primary':'secondary'" :aria-pressed="newSongStart==='musicxml'" @click="newSongStart='musicxml'">Import MusicXML</button>
+  </div>
+  <p class="muted" v-if="newSongStart==='blank'">Start with an empty lead sheet: no demo melody, chord symbols or generated accompaniment. Set the sections and measure counts before creating the song.</p>
+  <p class="muted" v-else-if="newSongStart==='lead'">Paste chord-over-lyrics or inline [D]chords. Section headings such as [Verse] or [Chorus] create editable section starts. One lyric line initially occupies one provisional measure; adjust boundaries before or after creation.</p>
+  <p class="muted" v-else>Choose an existing MusicXML score. Tango Arranger creates a separate empty song and opens the existing score merge review before applying the imported music.</p>
+  <div v-if="newSongStart==='blank'">
   <div class="two"><label>Song title<input v-model="newSongTitle" placeholder="Untitled Tango"/></label><label>Number of sections (A, B, C…)<input v-model.number="newSongSections" type="number" min="1" max="26"/></label></div>
   <div class="new-song-section-heading"><strong>Measures in each section</strong><span>{{newSongTotal}} measures total · {{newSongLengths.length}} sections · max 512 measures</span></div>
   <div class="new-song-section-grid"><label v-for="(length,i) in newSongLengths" :key="i">Section {{sectionLetter(i)}}<input v-model.number="newSongLengths[i]" type="number" min="1" max="128" :aria-label="`Measures in section ${sectionLetter(i)}`"/></label></div>
@@ -4030,6 +4088,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4 — Tango</option><option :value="3">3/4 — Vals</option><option :value="2">2/4 — Milonga / historical notation</option></select></label><label>Tempo (quarter notes/min)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label></div>
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
+  </div>
+  <div v-else-if="newSongStart==='lead'" class="new-song-lead-import">
+    <div class="two"><label>Song title<input v-model="newSongTitle"/></label><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4</option><option :value="3">3/4</option><option :value="2">2/4</option></select></label></div>
+    <label>Tempo (BPM)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label>
+    <label>Paste your lyrics and chord sheet<textarea v-model="newLeadSheetText" rows="12" spellcheck="false" placeholder="[Verse 1]&#10;D            A7&#10;Donde el río se queda&#10;[Chorus]&#10;[Em]Y la luna se va"></textarea></label>
+    <p class="hint">Inline [D] chords, chord rows above lyrics, and [Verse] / [Chorus] headings are recognized. Melody pitches are not inferred. Measure allocation is provisional.</p>
+    <div v-if="newLeadSheetPreview" class="new-lead-section-review">
+      <strong>{{newLeadSheetPreview.bars.length}} detected measures · {{newLeadSheetPreview.sections.length}} sections</strong>
+      <label v-for="(section,i) in newLeadSheetPreview.sections" :key="i">{{section.title}} · starts at measure
+        <input type="number" :min="i===0?1:(newLeadSectionStarts[i-1]??0)+2" :max="i===newLeadSheetPreview.sections.length-1?newLeadSheetPreview.bars.length:(newLeadSectionStarts[i+1]??newLeadSheetPreview.bars.length)-1" :disabled="i===0" :value="newLeadSectionStarts[i]+1" @change="newLeadSectionStarts[i]=Number(($event.target as HTMLInputElement).value)-1"/>
+      </label>
+      <p class="hint" v-if="newLeadSections.length">Section sizes: {{newLeadSections.map(s=>s.measures).join(' / ')}} measures</p>
+      <p class="hint" v-for="(warning,i) in newLeadSheetPreview.warnings" :key="i">{{warning}}</p>
+      <pre class="new-lead-import-preview">{{newLeadSheetPreview.bars.slice(0,16).map(b=>b.original).join('\n')}}</pre>
+    </div>
+    <p v-if="newLeadSheetError" role="alert">{{newLeadSheetError}}</p>
+    <div class="overview-actions"><button type="button" class="primary" :disabled="!newLeadSheetPreview||!newLeadSections.length" @click="createSongFromLeadSheet">Create song from leadsheet</button><button type="button" class="secondary" @click="newSongOpen=false">Cancel</button></div>
+  </div>
+  <div v-else class="new-song-xml-import">
+    <label>Song title<input v-model="newSongTitle"/></label>
+    <label class="file-picker">Select MusicXML (.xml or .musicxml)<input type="file" accept=".xml,.musicxml" @change="createSongFromMusicXml"/></label>
+    <p class="hint">The source will be reviewed before it changes the newly created song. Your current arrangement remains in your local library.</p>
+  </div>
 </div><nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
@@ -5863,4 +5944,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .lead-print-actions{display:none!important}
  .lead-sheet-typography{font-size:11pt;line-height:1.5;white-space:pre-wrap;overflow-wrap:normal}
 }
+.new-song-start-choices{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 15px}
+.new-song-lead-import textarea{width:100%;box-sizing:border-box;font-family:ui-monospace,Consolas,monospace;min-height:180px}
+.new-lead-section-review{border:1px solid #5d7788;border-radius:9px;padding:12px;margin:12px 0;display:grid;gap:8px}
+.new-lead-section-review label{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.new-lead-section-review input{width:85px}
+.new-lead-import-preview{max-height:210px;overflow:auto;white-space:pre-wrap;font-size:12px}
 </style>
