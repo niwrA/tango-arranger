@@ -1618,7 +1618,8 @@ const newSongOpen=ref(false);
 const newSongStart=ref<'blank'|'lead'|'score'>('blank');
 const newLeadSheetText=ref('');
 const newLeadSheetError=ref('');
-const newLeadMeasuresPerLine=ref(1);
+const newLeadMeasuresPerLine=ref(0);
+const newLeadLineMeasures=ref<Record<number,number>>({});
 const newLeadSectionMeasuresPerLine=ref<number[]>([]);
 const newLeadBasePreview=computed<LeadImportPreview|null>(()=>{
  if(!newLeadSheetText.value.trim())return null;
@@ -1627,17 +1628,18 @@ const newLeadBasePreview=computed<LeadImportPreview|null>(()=>{
 });
 const newLeadSheetPreview=computed<LeadImportPreview|null>(()=>{
  if(!newLeadSheetText.value.trim())return null;
- try{return previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value);}
+ try{return previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value);}
  catch{return null;}
 });
 const newLeadSheetPreviewError=computed(()=>{
  if(!newLeadSheetText.value.trim())return '';
- try{previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value);return '';}
+ try{previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value);return '';}
  catch(error){return String(error);}
 });
 const newLeadSectionStarts=ref<number[]>([]);
 watch(newLeadSheetText,()=>{
  newLeadSectionMeasuresPerLine.value=[];
+ newLeadLineMeasures.value={};
 });
 watch(newLeadSheetPreview,plan=>{
  newLeadSectionStarts.value=plan?plan.sections.map(section=>section.start):[];
@@ -1650,7 +1652,7 @@ const newLeadSections=computed(()=>{
 });
 async function createSongFromLeadSheet(){
  try{
-   const preview=previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value);
+   const preview=previewLeadSheetImport(newLeadSheetText.value,newLeadMeasuresPerLine.value,newLeadSectionMeasuresPerLine.value,newLeadLineMeasures.value);
    const sections=arrangeImportedSections(preview,newLeadSectionStarts.value);
    const fresh=setProjectRoster(projectFromLeadSheet(preview,newSongTitle.value,newSongBeats.value,newSongBpm.value,sections.map(s=>s.start)),getDefaultRoster());
    if(!window.confirm('Create a new song from this leadsheet? The current song remains in your local library.'))return;
@@ -4108,9 +4110,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-else-if="newSongStart==='lead'" class="new-song-lead-import">
     <div class="two"><label>Song title<input v-model="newSongTitle"/></label><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4</option><option :value="3">3/4</option><option :value="2">2/4</option></select></label></div>
     <label>Tempo (BPM)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label>
-    <label>Default measures per lyric line <input v-model.number="newLeadMeasuresPerLine" type="number" min="1" max="32"/></label>
+    <label>Measure allocation
+      <select v-model.number="newLeadMeasuresPerLine">
+        <option :value="0">Automatic · analyse chords and phrases</option>
+        <option v-for="n in 32" :key="n" :value="n">{{n}} measures per lyric line</option>
+      </select>
+    </label>
     <label>Paste your lyrics and chord sheet<textarea v-model="newLeadSheetText" rows="12" spellcheck="false" placeholder="[Verse 1]&#10;D            A7&#10;Donde el río se queda&#10;[Chorus]&#10;[Em]Y la luna se va"></textarea></label>
-    <p class="hint">Each lyric line reserves the selected number of measures. Override it per section below; the section starts and arrangement size update automatically. These are provisional measures, not inferred melody timings. Inline chords, chord rows above lyrics, and section headings are supported.</p>
+    <p class="hint">Automatic estimates use explicit barlines, chord positions and regular section phrases; they do not reconstruct the original rhythm. You can override the overall setting, any section or individual lyric lines.</p>
     <p v-if="newLeadSheetPreviewError" role="alert">{{newLeadSheetPreviewError}}</p>
     <div v-if="newLeadSheetPreview" class="new-lead-section-review">
       <strong>{{newLeadSheetPreview.bars.length}} detected measures · {{newLeadSheetPreview.sections.length}} sections</strong>
@@ -4118,7 +4125,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <strong>{{section.title}}</strong>
         <label>Measures per line
           <select :value="newLeadSectionMeasuresPerLine[i]??0" @change="newLeadSectionMeasuresPerLine[i]=Number(($event.target as HTMLSelectElement).value)">
-            <option :value="0">Default ({{newLeadMeasuresPerLine}})</option>
+            <option :value="0">Inherit ({{newLeadMeasuresPerLine===0?'automatic':newLeadMeasuresPerLine}})</option>
             <option v-for="n in 32" :key="n" :value="n">{{n}}</option>
           </select>
         </label>
@@ -4128,6 +4135,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span class="hint">{{section.measures}} measures</span>
       </div>
       <p class="hint" v-if="newLeadSections.length">Section sizes: {{newLeadSections.map(s=>s.measures).join(' / ')}} measures</p>
+      <div class="new-lead-line-review" aria-label="Estimated measures per source line">
+        <div v-for="line in newLeadSheetPreview.lines" :key="line.sourceLine" class="new-lead-line-row">
+          <div class="new-lead-line-text"><strong>Measure {{line.start+1}}–{{line.start+line.measures}}</strong>
+            <span>{{line.text}}</span><small>{{line.reason}}</small></div>
+          <label>Measures
+            <select :value="newLeadLineMeasures[line.sourceLine]??0" @change="newLeadLineMeasures[line.sourceLine]=Number(($event.target as HTMLSelectElement).value)">
+              <option :value="0">Inherit / estimate ({{line.measures}})</option>
+              <option v-for="n in 32" :key="n" :value="n">{{n}}</option>
+            </select>
+          </label>
+        </div>
+      </div>
       <p class="hint" v-for="(warning,i) in newLeadSheetPreview.warnings" :key="i">{{warning}}</p>
       <pre class="new-lead-import-preview">{{newLeadSheetPreview.bars.slice(0,16).map(b=>b.original).join('\n')}}</pre>
     </div>
@@ -5980,4 +5999,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .new-lead-section-fields select{min-width:90px}
 .new-lead-section-review input{width:85px}
 .new-lead-import-preview{max-height:210px;overflow:auto;white-space:pre-wrap;font-size:12px}
+.new-lead-line-review{display:grid;gap:8px;max-height:360px;overflow-y:auto;padding:5px}
+.new-lead-line-row{display:flex;align-items:center;gap:12px;justify-content:space-between;border-bottom:1px solid rgba(110,128,140,.25);padding:6px 0}
+.new-lead-line-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.new-lead-line-text span{overflow-wrap:anywhere}
+.new-lead-line-text small{opacity:.75}
+.new-lead-line-row select{min-width:95px}
 </style>
