@@ -145,7 +145,7 @@ check('compact instrument-specific diagram rows retain tone labeling and readabl
  assert.ok(diag.includes('fingerboardStrings(family.value)'));
  const fingerboard=fs.readFileSync(path.join(root,'src/stringFingerboard.ts'),'utf8');
  assert.ok(fingerboard.includes("inst.startsWith('Violin')"));
- assert.ok(fingerboard.includes("inst==='Contrabass'"));
+ assert.ok(fingerboard.includes("inst.startsWith('Contrabass')"));
  assert.ok(fingerboard.includes("inst.startsWith('Guitar')"));
  assert.ok(diag.includes("family==='Piano'"));
  assert.ok(diag.includes('Chord tones · no button fingering inferred'));
