@@ -1228,6 +1228,8 @@ const captureInputSource=ref<'instrument'|'microphone'>('instrument');
 const captureMuteBacking=ref(true);
 const microphoneStatus=ref('');
 const microphoneDetectedPitch=ref<number|null>(null);
+const microphoneInputLevel=ref(0);
+const microphoneInputDb=ref<number|null>(null);
 let microphoneStream:MediaStream|null=null;
 let microphoneContext:AudioContext|null=null;
 let microphoneFrame=0;
@@ -1262,6 +1264,7 @@ function stopMicrophoneCapture(){
   try{finishMicrophoneNote(captureElapsedBeats());}catch{/* Audio transport may already be disposed. */}
  }
  microphoneActive=null;microphoneCandidate=null;microphoneDetectedPitch.value=null;
+ microphoneInputLevel.value=0;microphoneInputDb.value=null;
  microphoneStream?.getTracks().forEach(track=>track.stop());microphoneStream=null;
  if(microphoneContext){void microphoneContext.close().catch(()=>{});microphoneContext=null;}
 }
@@ -1291,6 +1294,9 @@ async function recordFromMicrophone(){
    let energy=0;
    for(const sample of samples)energy+=sample*sample;
    const rms=Math.sqrt(energy/samples.length);
+   // A logarithmic meter makes quiet microphone signals visible without playing them through speakers.
+   microphoneInputDb.value=rms>0?Math.max(-90,Math.round(20*Math.log10(rms))):-90;
+   microphoneInputLevel.value=Math.max(0,Math.min(100,Math.round((microphoneInputDb.value+60)/60*100)));
    const gain=rms>=0.003?Math.min(4,0.06/rms):0;
    const pitchSamples=new Float32Array(samples.length);
    if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
@@ -4651,7 +4657,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
         <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
         <p v-if="captureInputSource==='microphone'" class="hint">Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
-        <p v-if="captureInputSource==='microphone'&&microphoneDetectedPitch!==null" role="status">Detected pitch: {{midiName(microphoneDetectedPitch)}}</p>
+        <div v-if="captureInputSource==='microphone'" class="capture-mic-monitor" aria-label="Microphone input monitor">
+          <label for="capture-mic-level">Microphone input level: {{microphoneInputDb===null?'Not monitoring':microphoneInputDb+' dBFS'}}</label>
+          <progress id="capture-mic-level" :value="microphoneInputLevel" max="100" style="width:100%;max-width:320px"></progress>
+          <p>Detected pitch: {{microphoneDetectedPitch===null?'None':midiName(microphoneDetectedPitch)}}</p>
+          <p class="hint">If the meter moves but no pitch appears, the microphone is receiving audio but pitch detection is not locking on. The app captures note events, not a replayable audio recording.</p>
+        </div>
         <p v-if="microphoneStatus" role="status">{{microphoneStatus}}</p>
       </div>
       <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
