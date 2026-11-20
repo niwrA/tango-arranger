@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
+import PerformanceLyricLine from './PerformanceLyricLine.vue';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
@@ -570,16 +571,17 @@ const performanceVocalCue=computed(()=>{
  }
  if(!instrument)return null;
  const beat=performanceBeat.value,beats=project.value.beats;
- const current=notes.filter(n=>n.start<=beat+0.0001).at(-1);
- const active=Boolean(current&&beat<current.start+noteSoundingDuration(current));
  const nextIndex=notes.findIndex(n=>n.start>beat+0.0001);
  const next=nextIndex>=0?notes[nextIndex]:null;
  const prior=nextIndex>0?notes[nextIndex-1]:null;
  const beginsPhrase=Boolean(next&&(!prior||next.start-(prior.start+prior.duration)>=Math.max(1,beats/2)));
  const lead=next?next.start-beat:Infinity;
  const count=beginsPhrase&&lead>0&&lead<=Math.min(4,beats)?Math.max(1,Math.ceil(lead)):null;
- const words=notes.filter(n=>n.start>=beat-beats&&n.start<beat+beats*2).slice(0,18);
- return {instrument,words,current,active,count,visible:active||count!==null||words.some(n=>n.start>=beat&&n.start<beat+beats)};
+ // Presence depends on a fixed measure group, not a beat-relative sliding
+ // list. The words themselves are selected by the shared lyric component.
+ const firstBar=Math.floor(Math.floor(beat/beats)/2)*2;
+ const visible=notes.some(n=>n.start<(firstBar+3)*beats&&n.start+Math.max(.001,n.duration)>firstBar*beats);
+ return {instrument,notes,count,visible};
 });
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
@@ -602,9 +604,6 @@ const performanceGesturePaths=computed(()=>{
  });
  return paths;
 });
-const performanceLyricNotes=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return [];return (score.value[inst]??[]).filter(n=>Boolean(n.lyric||n.lyric2)).sort((a,b)=>a.start-b.start);});
-const performanceCurrentLyric=computed(()=>{const beat=performanceBeat.value,notes=performanceLyricNotes.value;let index=-1;for(let i=0;i<notes.length;i++){if(notes[i].start<=beat+0.0001)index=i;else break;}const active=index>=0&&beat<notes[index].start+noteSoundingDuration(notes[index])-0.0001;return {notes,index,active};});
-const performanceLyricWindow=computed(()=>{const {notes,index,active}=performanceCurrentLyric.value;if(index<0||!performanceDisplayedPart.value)return [];const beat=performanceBeat.value;const measure=Math.floor(beat/project.value.beats);const nearby=notes.filter(n=>Math.floor(n.start/project.value.beats)>=measure-1&&Math.floor(n.start/project.value.beats)<=measure+2);if(!nearby.length)return [];const at=nearby.findIndex(n=>n===notes[index]);const start=Math.max(0,at-4);return nearby.slice(start,Math.min(nearby.length,Math.max(9,at+9))).map(note=>({note,active:active&&note===notes[index]}));});
 function performanceSeek(bar:number){const next=Math.max(0,Math.min(project.value.bars.length-1,bar));selectedBar.value=next;if(playing.value&&playbackOrigin.value){void play('selected');}else performanceBeat.value=next*project.value.beats;}
 let performanceTicker:ReturnType<typeof setInterval>|undefined;
 watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}if(isPlaying&&Tone&&playbackOrigin.value){performanceTicker=setInterval(()=>{if(!playing.value||!Tone)return;const transport=Tone.getTransport();performanceBeat.value=Math.min(project.value.bars.length*project.value.beats-0.001,playbackStartBeat.value+transport.ticks/transport.PPQ);},50);}});
@@ -3519,15 +3518,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
     </div>
    </div>
-   <div v-if="performanceVocalCue&&performanceVocalCue.visible" class="performance-vocal-cue" role="region" aria-label="Vocal karaoke and count-in">
-    <div class="performance-vocal-heading"><strong>{{stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))}} · lyrics</strong><span v-if="performanceVocalCue.count!==null">Entrance in {{performanceVocalCue.count}} beat{{performanceVocalCue.count===1?'':'s'}}</span><span v-else>Follow the highlighted syllable</span></div>
-    <div v-if="performanceVocalCue.count!==null" class="performance-count-beats" aria-label="Visual lyric entrance count"><span v-for="beat in Math.min(4,project.beats)" :key="beat" :class="{'current':beat===performanceVocalCue.count,'passed':beat>performanceVocalCue.count}">{{beat}}</span></div>
-    <div class="performance-lyric-line" aria-live="off"><span v-for="(note,i) in performanceVocalCue.words" :key="`${note.start}:${i}`" :class="{'performance-lyric-active':performanceVocalCue.active&&performanceVocalCue.current===note}">{{note.lyric||note.lyric2||'·'}}</span></div>
-   </div>
+   <PerformanceLyricLine v-if="performanceView==='ensemble' && performanceVocalCue && performanceVocalCue.visible"
+     class="stage-ensemble-lyrics" :notes="performanceVocalCue.notes"
+     :instrument="stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))"
+     :beat="performanceBeat" :beats-per-measure="project.beats"
+     :measure-count="project.bars.length" :effective-bpm="effectivePlaybackBpm"
+     :count="performanceVocalCue.count"/>
   </div>
   <p v-if="performanceFullscreenHint" role="status" class="performance-fullscreen-hint">{{performanceFullscreenHint}}</p>
   <div class="performance-stage-main performance-stage-only">
-  <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{stageInstrumentName(rosterDisplayName(performanceDisplayedPart))}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':performanceLyricWindow.length>0}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceLyricWindow.length" class="performance-lyrics-overlay"><div class="performance-lyric-line" aria-live="off"><span v-for="(item,i) in performanceLyricWindow" :key="`${item.note.start}:${i}`" :class="{'performance-lyric-active':item.active}">{{item.note.lyric||item.note.lyric2||'·'}}</span></div></div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
+  <div v-if="performanceView==='notes'" class="performance-roll-panel"><div class="performance-roll-heading"><button v-if="performanceDisplayedPart" type="button" class="performance-roll-part-toggle" :class="{'performance-roll-part-focused':performanceFocus===performanceDisplayedPart}" :aria-pressed="performanceFocus===performanceDisplayedPart" @click="togglePerformanceFocus(performanceDisplayedPart)">{{stageInstrumentName(rosterDisplayName(performanceDisplayedPart))}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(performanceDisplayedPart)}`">{{instrumentSkillShort(performanceDisplayedPart)}}</span> <small>{{performanceFocus?'Selected · tap to follow melody':'Melody · tap to focus'}}</small></button><h3 v-else>No melody part</h3></div><div v-if="performanceRoll" class="performance-roll" :class="{'performance-roll-with-lyrics':Boolean(performanceVocalCue?.visible)}" role="group" :aria-label="`Piano roll for ${performanceDisplayedPart} around measure ${performanceBar+1}`"><div class="performance-roll-playhead" :style="{left:`${Math.max(0,Math.min(100,(performanceBeat-performanceRoll.first)/performanceRoll.length*100))}%`}"></div><span v-for="(slice,i) in performanceRoll.slices" :key="i" class="performance-roll-note" :class="{'performance-note-accent':slice.note.accent||slice.note.articulation==='marcato_staccato','performance-note-staccato':slice.note.articulation==='staccato'&&!slice.note.accent,'performance-note-expressive':Boolean(slice.note.gesture||slice.note.slideTo!==undefined),'performance-note-rhythm':Boolean(rhythmCue(slice.note)),'performance-note-continuation':slice.continued,'performance-note-tied':slice.continues}" :style="{left:`${(slice.start-performanceRoll.first)/performanceRoll.length*100}%`,width:`${slice.duration/performanceRoll.length*100}%`,bottom:`${(slice.note.pitch-performanceRoll.low)/(performanceRoll.high-performanceRoll.low+1)*100}%`}" :title="`MIDI ${slice.note.pitch} · beat ${slice.note.start+1} · duration ${slice.note.duration} · ${gestureText(slice.note)}${rhythmCue(slice.note)?' · '+rhythmCue(slice.note):''}`"><span v-if="!slice.continued&&noteAttackMark(slice.note)" class="performance-attack-mark">{{noteAttackMark(slice.note)}}</span><span v-if="!slice.continued&&rhythmCue(slice.note)" class="performance-rhythm-mark" aria-hidden="true">◆</span></span><svg v-if="performanceGesturePaths.length" class="performance-gesture-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"><polyline v-for="line in performanceGesturePaths" :key="line.id" :points="line.points" :class="['performance-gesture-path',{'secondary':line.partner,'latigo':line.kind==='latigo'}]"/></svg><div v-if="performanceVocalCue&&performanceVocalCue.visible" class="performance-lyrics-overlay">
+  <PerformanceLyricLine :overlay="true" :notes="performanceVocalCue.notes"
+    :instrument="stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))"
+    :beat="performanceBeat" :beats-per-measure="project.beats"
+    :measure-count="project.bars.length" :effective-bpm="effectivePlaybackBpm"
+    :count="performanceVocalCue.count"/>
+</div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
 
   <div v-if="performanceView==='notes'" class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{stageInstrumentName(rosterDisplayName(part.inst))}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
   <div v-if="performanceView==='ensemble'" class="performance-cue-grid performance-diagram-grid" aria-label="Instrument chord diagrams and role cues">
@@ -5192,6 +5198,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 @media(max-width:400px){
  .app-topbar .topbar-playback .selected-play-measure{display:none}
  .app-topbar .topbar-playback .transport-play,.app-topbar .topbar-playback .transport-stop{width:34px!important;min-width:34px!important;padding:4px!important}
+}
+
+/* The same stable lyric surface is used in both stage views. Never slide a
+ * beat-relative lyric array or paint the ensemble block with the old brown. */
+.performance-stage-top .stage-ensemble-lyrics{margin:3px 0 0;max-width:none;min-width:0}
+.performance-lyrics-overlay{background:linear-gradient(to bottom,rgba(13,24,42,.25),rgba(13,24,42,.68),rgba(13,24,42,.25));padding:clamp(8px,1.5vw,18px);align-items:stretch;justify-content:center}
+.performance-lyrics-overlay .stage-lyrics-overlay{max-height:100%;overflow:hidden}
+@media(max-width:650px){
+ .performance-lyrics-overlay{padding:5px}
+ .performance-lyrics-overlay .stage-lyrics-overlay{min-height:0}
 }
 
 </style>
