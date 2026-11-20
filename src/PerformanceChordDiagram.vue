@@ -6,7 +6,7 @@ import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './vio
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;focus?:boolean}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -79,7 +79,7 @@ const diagramDescription=computed(()=>{
 </script>
 
 <template>
- <div class="performance-instrument-diagram" :aria-label="instrument+' chord note reference. '+diagramDescription">
+ <div class="performance-instrument-diagram" :class="{'is-focus':props.focus}" :aria-label="instrument+' chord note reference. '+diagramDescription">
    <div class="diagram-measure-chords" role="group" :aria-label="'Current measure chords, beat '+activeBeat+' of '+currentBeats.length">
     <span v-for="(symbol,index) in currentBeats" :key="index" class="diagram-chord-beat" :class="{'is-current-beat':activeBeat===index+1,'is-continuation':symbol==='–'}" :aria-label="'Beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
       <strong>{{symbol}}</strong>
@@ -254,6 +254,38 @@ const diagramDescription=computed(()=>{
 @media(max-width:900px){
  .diagram-violin-position{font-size:9px}
  .diagram-fingerboard.diagram-violin-fingerboard{padding-top:17px;gap:1px}
+}
+
+/* Focused instrument scales its visual charts; the normal card stays fixed-height. */
+.performance-instrument-diagram.is-focus{flex:1 1 auto;justify-content:center;gap:clamp(10px,2dvh,21px);max-width:1100px;margin:auto}
+.performance-instrument-diagram.is-focus .diagram-chord-beat{height:clamp(50px,9dvh,102px)}
+.performance-instrument-diagram.is-focus .diagram-chord-beat strong{font-size:clamp(20px,3.6vw,54px)}
+.performance-instrument-diagram.is-focus .diagram-next-chord-beat{height:clamp(32px,6dvh,64px)}
+.performance-instrument-diagram.is-focus .diagram-next-chord-beat strong{font-size:clamp(15px,2.6vw,33px)}
+.performance-instrument-diagram.is-focus .diagram-fingerboard,
+.performance-instrument-diagram.is-focus .diagram-fingerboard.diagram-violin-fingerboard{
+ display:flex;flex-direction:column;justify-content:space-around;height:clamp(155px,35dvh,330px);
+ min-height:155px;max-height:none;gap:clamp(3px,1dvh,10px);padding:clamp(10px,2vw,24px);
+}
+.performance-instrument-diagram.is-focus .diagram-fingerboard.diagram-violin-fingerboard{padding-top:clamp(34px,6dvh,50px)}
+.performance-instrument-diagram.is-focus .diagram-violin-position{top:7px;left:10px;right:10px;height:28px;font-size:clamp(13px,1.8vw,20px);line-height:28px}
+.performance-instrument-diagram.is-focus .diagram-string-row{flex:1 1 auto;min-height:0;grid-template-columns:clamp(40px,7vw,80px) repeat(8,minmax(0,1fr));gap:clamp(3px,.8vw,12px)}
+.performance-instrument-diagram.is-focus .diagram-open-label{font-size:clamp(13px,1.5vw,22px)}
+.performance-instrument-diagram.is-focus .diagram-string-stop{height:clamp(24px,5dvh,48px)}
+.performance-instrument-diagram.is-focus .diagram-string-stop span{font-size:clamp(12px,1.6vw,23px)}
+.performance-instrument-diagram.is-focus .diagram-piano{height:clamp(145px,35dvh,330px);min-height:145px;max-height:none;margin-top:4px}
+.performance-instrument-diagram.is-focus .diagram-white-key>span{font-size:clamp(12px,1.6vw,22px)}
+.performance-instrument-diagram.is-focus .diagram-black-key{font-size:clamp(11px,1.4vw,19px)}
+.performance-instrument-diagram.is-focus .diagram-targets{height:clamp(145px,35dvh,330px);min-height:145px;max-height:none;gap:clamp(8px,2dvh,20px)}
+.performance-instrument-diagram.is-focus .diagram-targets-graphic{font-size:clamp(18px,3vw,35px)}
+.performance-instrument-diagram.is-focus .diagram-tone-pill{min-width:clamp(40px,5vw,75px);min-height:clamp(40px,5vw,75px);font-size:clamp(20px,2.3vw,32px)}
+.performance-instrument-diagram.is-focus .diagram-live-pitch{font-size:clamp(13px,1.5vw,21px)}
+@media(max-width:640px){
+ .performance-instrument-diagram.is-focus{gap:7px}
+ .performance-instrument-diagram.is-focus .diagram-fingerboard,
+ .performance-instrument-diagram.is-focus .diagram-fingerboard.diagram-violin-fingerboard{height:clamp(150px,30dvh,260px)}
+ .performance-instrument-diagram.is-focus .diagram-piano,
+ .performance-instrument-diagram.is-focus .diagram-targets{height:clamp(145px,30dvh,260px)}
 }
 
 </style>

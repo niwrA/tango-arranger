@@ -386,6 +386,33 @@ const performanceShortTitle=computed(()=> {
 const performanceCardModes=ref<Record<string,'diagram'|'cues'>>({});
 function flipPerformanceCard(inst:Instrument){performanceCardModes.value={...performanceCardModes.value,[inst]:performanceCardModes.value[inst]==='cues'?'diagram':'cues'};}
 function cardShowsDiagram(inst:Instrument){return performanceCardModes.value[inst]!=='cues';}
+/* Instrument focus is a separate CSS viewport, not browser fullscreen. */
+const performanceExpandedInstrument=ref<Instrument|null>(null);
+let performanceExpandTrigger:HTMLElement|null=null;
+function setPerformanceCardMode(inst:Instrument,mode:'diagram'|'cues'){
+ performanceCardModes.value={...performanceCardModes.value,[inst]:mode};
+}
+function openPerformanceInstrument(inst:Instrument,event:MouseEvent){
+ performanceExpandTrigger=event.currentTarget as HTMLElement;
+ performanceExpandedInstrument.value=inst;
+ void nextTick(()=>document.querySelector<HTMLElement>('.instrument-focus-close')?.focus());
+}
+function closePerformanceInstrument(){
+ performanceExpandedInstrument.value=null;
+ const target=performanceExpandTrigger;performanceExpandTrigger=null;
+ void nextTick(()=>{if(target?.isConnected)target.focus();});
+}
+function changePerformanceFocusSpeed(event:Event){
+ setRehearsalSpeed(normalizeRehearsalSpeed((event.target as HTMLSelectElement).value));
+}
+function playFocusedFromMeasure(){selectedBar.value=performanceBar.value;void play('selected');}
+watch([performanceMode,performanceView],([enabled,view])=>{
+ if(!enabled||view!=='ensemble'){
+  performanceExpandedInstrument.value=null;
+  performanceExpandTrigger=null;
+ }
+});
+
 const performanceShell=ref<HTMLElement|null>(null);
 const performanceStageCompact=ref(false);
 const performanceFullscreenActive=ref(false);
@@ -3355,7 +3382,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 
   <div v-if="performanceView==='notes'" class="performance-ensemble" aria-label="Instrument parts"><button type="button" class="performance-part" v-for="part in performanceParts" :key="part.inst" :class="{'performance-part-selected':performanceDisplayedPart===part.inst,'performance-part-focused':performanceFocus===part.inst}" :aria-pressed="performanceFocus===part.inst" @click="togglePerformanceFocus(part.inst)"><span class="performance-activity" :class="{'performance-activity-on':part.sounding}"></span><strong>{{part.inst}}</strong><span class="performance-part-role">{{part.role}}</span><span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(part.inst)}`">{{instrumentSkillShort(part.inst)}}</span></button></div>
   <div v-if="performanceView==='ensemble'" class="performance-cue-grid performance-diagram-grid" aria-label="Instrument chord diagrams and role cues">
-    <button v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-panel performance-diagram-card" type="button"
+    <div v-for="part in performanceCueParts" :key="part.inst" class="performance-cue-card-wrap">
+     <button class="performance-cue-panel performance-diagram-card" type="button"
       :class="{'performance-cue-playing':part.playingInMeasure,'performance-cue-rest':!part.playingInMeasure,'performance-cue-focus':performanceFocus===part.inst,'performance-cue-change':part.nextRole!==part.role}"
       :style="{'--cue-beat-glow':performanceBeatGlow}" :aria-label="`${part.display}, current role: ${part.role}. ${cardShowsDiagram(part.inst)?'Chord diagram':'Role and dynamics'}. Tap to switch view`"
       :aria-pressed="!cardShowsDiagram(part.inst)" @click="flipPerformanceCard(part.inst)">
@@ -3371,7 +3399,52 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </template>
       <span v-if="!cardShowsDiagram(part.inst)" class="performance-card-mode-hint">⇄</span>
     </button>
+    <button type="button" class="performance-instrument-expand" :aria-label="'Expand '+part.display+' instrument'" :title="'Focus on '+part.display" @click="openPerformanceInstrument(part.inst,$event)"><AppIcon name="maximize"/></button>
+    </div>
   </div>
+  </div>
+
+  <div v-if="performanceExpandedInstrument && performanceView==='ensemble'" class="instrument-focus-overlay"
+    @keydown.esc.stop.prevent="closePerformanceInstrument" @keydown.tab="trapModalTab">
+    <template v-for="part in performanceCueParts" :key="part.inst">
+     <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'">
+       <header class="instrument-focus-header">
+         <div class="instrument-focus-title"><small>Instrument focus · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
+         <div class="instrument-focus-toolbar">
+           <div class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
+             <button type="button" :class="{selected:cardShowsDiagram(part.inst)}" :aria-pressed="cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
+             <button type="button" :class="{selected:!cardShowsDiagram(part.inst)}" :aria-pressed="!cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'cues')">Role &amp; cues</button>
+           </div>
+           <button type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
+           <button type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
+           <label class="instrument-focus-speed">Speed <select :value="rehearsalSpeed" aria-label="Rehearsal speed" @change="changePerformanceFocusSpeed"><option v-for="speed in REHEARSAL_SPEEDS" :key="speed" :value="speed">{{speed}}×</option></select></label>
+           <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
+         </div>
+       </header>
+       <div class="instrument-focus-status" aria-live="off">
+         <span>Measure <strong>{{performanceBar+1}}</strong> / {{project.bars.length}}</span>
+         <span>Beat <strong>{{Math.floor(performanceMeasureBeat)}}</strong> / {{project.beats}}</span>
+         <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
+         <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
+       </div>
+       <div class="instrument-focus-content">
+         <button v-if="cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
+           :aria-label="'Show role and dynamics for '+part.display" title="Tap to show role and dynamics">
+           <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
+             :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
+             :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition"/>
+         </button>
+         <button v-else type="button" class="instrument-focus-switch-area instrument-focus-cues" @click="flipPerformanceCard(part.inst)"
+           :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
+           <span class="instrument-focus-cue"><small>Current role</small><strong>{{part.role}}</strong><span>{{part.articulation}}</span></span>
+           <span class="instrument-focus-cue"><small>Next role</small><strong>{{part.nextRole}}</strong><span>{{part.nextArticulation}}</span></span>
+           <span class="instrument-focus-cue"><small>Dynamics</small><strong>{{part.dynamics}}</strong><span>Next {{part.nextDynamics}}</span></span>
+           <span class="instrument-focus-cue"><small>This measure</small><strong>{{part.cueStatus}}</strong><span>{{part.playingInMeasure?'Notes in this measure':'No notes in this measure'}}</span></span>
+         </button>
+       </div>
+       <p class="instrument-focus-hint">Tap the large view to switch diagram and cues. Violin hand positions are schematic suggestions.</p>
+     </section>
+    </template>
   </div>
  </section>
 <div v-else class="layout"><main :class="{'note-workspace-main':active==='notes'}"><div v-if="newSongOpen" class="editor" role="region" aria-label="Create blank song">
@@ -4754,5 +4827,68 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .app-topbar .playback-speed-options button.selected{background:#695135;border:1px solid #dfb982}
 .app-topbar .playback-speed-note{grid-column:1/-1;font-size:10px;line-height:1.3;color:#c1d2df;margin:3px 1px 0}
 @media(max-width:760px){.app-topbar .playback-speed-options{right:-45px}.app-topbar .playback-speed-summary{min-width:61px;padding:5px 6px}}
+
+/* Independent expand buttons avoid nested buttons and preserve tap-to-switch. */
+.performance-live .performance-cue-card-wrap{position:relative;min-width:0;height:100%;min-height:0}
+.performance-live .performance-cue-card-wrap>.performance-diagram-card{width:100%;height:100%}
+.performance-live .performance-cue-card-wrap .performance-cue-identity{padding-right:40px}
+.performance-live .performance-instrument-expand{
+ position:absolute;z-index:2;right:6px;top:6px;width:38px;min-width:38px;height:38px;min-height:38px;
+ display:flex;align-items:center;justify-content:center;padding:6px;border-radius:9px;border:1px solid #8598a6;
+ background:#263b49ee;color:#f6d7a6;cursor:pointer;
+}
+.performance-live .performance-instrument-expand .app-icon{width:18px;height:18px}
+.performance-live .performance-instrument-expand:hover{background:#3e5362}
+.performance-live .performance-instrument-expand:focus-visible{outline:3px solid #f4cc8d;outline-offset:2px}
+.instrument-focus-overlay{
+ position:fixed;inset:0;z-index:2000;overflow-y:auto;overscroll-behavior:contain;
+ height:100vh;height:100dvh;box-sizing:border-box;background:#101f2b;
+ padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.instrument-focus-panel{min-height:100%;display:flex;flex-direction:column;gap:clamp(8px,1.5dvh,18px);padding:clamp(10px,2vw,25px);box-sizing:border-box;color:#e6eff5}
+.instrument-focus-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.instrument-focus-title{min-width:0;flex:1 1 200px}
+.instrument-focus-title small{font-size:12px;color:#bed0db;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.instrument-focus-title h2{font-size:clamp(25px,3vw,42px);margin:3px 0 0;line-height:1.1;color:#ffe0ac}
+.instrument-focus-title h2 span{font-size:clamp(14px,1.6vw,20px);color:#bdcedb;font-weight:550;text-transform:capitalize}
+.instrument-focus-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+.instrument-focus-toolbar button,.instrument-focus-speed select{
+ min-height:42px;border:1px solid #657c8c;border-radius:9px;background:#263b4b;color:#f0f4f7;
+ padding:7px 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;line-height:1.15;
+}
+.instrument-focus-toolbar .app-icon{width:17px;height:17px}
+.instrument-focus-mode-switch{display:flex;gap:3px;padding:3px;border:1px solid #647b8b;border-radius:10px}
+.instrument-focus-mode-switch button{min-height:36px;border:0;background:transparent}
+.instrument-focus-mode-switch button.selected{background:#e7bb80;color:#162631;font-weight:800}
+.instrument-focus-speed{display:flex;align-items:center;gap:6px;font-size:12px;color:#d2e0eb;font-weight:700}
+.instrument-focus-close{border-color:#d7ae7b!important;color:#ffdeb0!important}
+.instrument-focus-toolbar button:focus-visible,.instrument-focus-toolbar select:focus-visible{outline:3px solid #f7d3a1;outline-offset:2px}
+.instrument-focus-toolbar button:disabled{opacity:.5;cursor:default}
+.instrument-focus-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:10px 15px;border:1px solid #506777;border-radius:12px;background:#203344;font-size:clamp(13px,1.3vw,17px);font-variant-numeric:tabular-nums}
+.instrument-focus-status strong{color:#ffdaa0;font-size:1.25em}
+.instrument-focus-content{display:flex;justify-content:center;align-items:stretch;flex:1 1 auto;min-height:0}
+.instrument-focus-switch-area{width:100%;max-width:1200px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;align-items:stretch;padding:clamp(12px,2vw,28px);text-align:left;border:1px solid #627c8b;border-radius:16px;background:linear-gradient(150deg,#293d4c,#192936);color:#eaf4fa;cursor:pointer}
+.instrument-focus-switch-area:focus-visible{outline:3px solid #f6d29c;outline-offset:2px}
+.instrument-focus-hint{text-align:center;color:#b5c7d4;font-size:clamp(11px,1.1vw,14px);margin:0}
+.instrument-focus-cues{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(8px,2vw,24px)}
+.instrument-focus-cue{display:flex;flex-direction:column;justify-content:center;min-width:0;gap:9px;padding:clamp(10px,2vw,24px);border:1px solid #506a7c;border-radius:11px;background:#233848}
+.instrument-focus-cue small{font-size:clamp(13px,1.5vw,19px);color:#c0d0dc}
+.instrument-focus-cue strong{font-size:clamp(28px,4.4vw,68px);line-height:1.1;color:#f7d09b;text-transform:capitalize;overflow-wrap:anywhere}
+.instrument-focus-cue span{font-size:clamp(13px,1.6vw,22px);color:#e2eaf1}
+@media(max-width:820px){
+ .instrument-focus-panel{padding:10px;gap:8px}
+ .instrument-focus-title{flex:1 1 100%}
+ .instrument-focus-toolbar{width:100%;justify-content:space-between;gap:4px}
+ .instrument-focus-toolbar button,.instrument-focus-speed select{padding:6px 8px}
+ .instrument-focus-status{padding:7px 10px;gap:5px 10px}
+ .instrument-focus-switch-area{padding:10px}
+}
+@media(max-width:520px){
+ .instrument-focus-play span,.instrument-focus-close span,.instrument-focus-stop span{display:none}
+ .instrument-focus-speed{font-size:0}
+ .instrument-focus-speed select{font-size:13px}
+ .instrument-focus-mode-switch button{padding:5px 7px}
+ .instrument-focus-cues{gap:6px}
+}
 
 </style>
