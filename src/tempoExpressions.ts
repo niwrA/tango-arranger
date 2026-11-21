@@ -58,7 +58,7 @@ export function writtenTempoAtBeat(p:TimingProject,beat:number):number{
   const r=event.r!;
   const lastBeat=(r.endMeasure+1)*p.beats-1;
   const fraction=Math.max(0,Math.min(1,(beat-event.at)/Math.max(1,lastBeat-event.at)));
-  tempo=p.bpm*(1-(1-r.toPercent/100)*fraction);
+  tempo=tempo+(p.bpm*r.toPercent/100-tempo)*fraction;
  }
  return tempo;
 }
@@ -78,7 +78,9 @@ export function tempoAutomationPoints(p:TimingProject,forNotation=false):TempoPo
   for(let b=start;b<=end+1e-7;b+=0.5)times.add(Number(Math.min(b,end).toFixed(6)));
  }
  for(const b of e.aTempoMeasures)times.add(b*p.beats);
- if(!forNotation)for(const f of e.fermatas){
+ // MusicXML/MSCX also need timed fermata playback: the visible symbol alone
+ // does not reliably encode a chosen stretch factor in MuseScore.
+ for(const f of e.fermatas){
   times.add((f.measure+1)*p.beats-1);
   const end=(f.measure+1)*p.beats;
   if(end<p.bars.length*p.beats)times.add(end);
@@ -87,7 +89,7 @@ export function tempoAutomationPoints(p:TimingProject,forNotation=false):TempoPo
  for(const beat of [...times].sort((a,b)=>a-b)){
   const label=e.ritardandos.some(r=>r.startMeasure*p.beats===beat)?'rit.':
    e.aTempoMeasures.some(m=>m*p.beats===beat)?'a tempo':undefined;
-  const bpm=Number((forNotation?writtenTempoAtBeat(p,beat):performanceTempoAtBeat(p,beat)).toFixed(4));
+  const bpm=Number(performanceTempoAtBeat(p,beat).toFixed(4));
   if(label||!points.length||!near(bpm,points[points.length-1].bpm))points.push({beat,bpm,...(label?{label}:{})});
  }
  return points;
