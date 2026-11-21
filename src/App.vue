@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
+import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,soundingSeconds,type TempoExpressions} from './tempoExpressions';
 import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
@@ -108,6 +109,7 @@ async function flushAutosave(){
   await saveQueue;
 }
 function stopPlayback(){
+  waitingForSingerCue.value=false;
   stopMicrophoneCapture();
   if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
   const wasPlayingArrangement=playing.value;
@@ -435,13 +437,14 @@ const rehearsalSpeed=ref<RehearsalSpeed>((()=>{
  try{return normalizeRehearsalSpeed(localStorage.getItem('tango-rehearsal-speed'));}catch{return 1;}
 })());
 const effectivePlaybackBpm=computed(()=>effectiveTempo(project.value.bpm,rehearsalSpeed.value));
+const waitingForSingerCue=ref(false);
 const playbackStartBeat=ref(0);
 function setRehearsalSpeed(speed:RehearsalSpeed){
  rehearsalSpeed.value=normalizeRehearsalSpeed(speed);
  try{localStorage.setItem('tango-rehearsal-speed',String(rehearsalSpeed.value));}catch{/* Browser may disallow storage. */}
  // Musical beat scheduling allows live tempo changes without restarting a bar.
  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)&&!capturePlaying.value){
-  Tone.getTransport().bpm.value=effectivePlaybackBpm.value;
+  Tone.getTransport().bpm.value=playing.value?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;
  }
 }
 /** Song tempo is part of the composition; rehearsal speed is device-local. */
@@ -2668,6 +2671,52 @@ function applyMeasureOperation(){
 }
 watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
 
+
+/** Score-wide tempo phrases and singer-led fermatas live on the saved project. */
+const expressiveRitFrom=ref(1),expressiveRitTo=ref(1),expressiveRitPercent=ref(65);
+const expressiveFermataMeasure=ref(1),expressiveFermataInstrument=ref<Instrument>('Voice');
+const expressiveFermataStretch=ref(2),expressiveWaitForCue=ref(true);
+const expressiveATempoMeasure=ref(1);
+const expressiveTiming=computed(()=>normalizedTempoExpressions(project.value));
+const expressiveTimingError=ref('');
+function prepareEndingTiming(){
+ const last=project.value.bars.length;
+ expressiveRitFrom.value=Math.max(1,last-2);
+ expressiveRitTo.value=last;
+ expressiveFermataMeasure.value=last;
+ expressiveATempoMeasure.value=last;
+ expressiveFermataInstrument.value=projectInstruments(project.value).find(i=>i.startsWith('Voice'))??projectInstruments(project.value)[0];
+ expressiveTimingError.value='';
+}
+function editTempoExpressions(fn:(e:TempoExpressions)=>void){
+ try{
+  const next=snapshot(project.value),e:TempoExpressions=normalizedTempoExpressions(project.value);
+  fn(e);validateTempoExpressions(next,e);next.tempoExpressions=e;
+  project.value=next;expressiveTimingError.value='';
+  message.value='Expressive timing updated; MusicXML and MuseScore exports include the markings.';
+ }catch(error){expressiveTimingError.value=String(error);message.value='Expressive timing invalid: '+String(error);}
+}
+function addRitardando(){
+ editTempoExpressions(e=>{
+  e.ritardandos=e.ritardandos.filter(r=>r.startMeasure!==expressiveRitFrom.value-1);
+  e.ritardandos.push({startMeasure:Number(expressiveRitFrom.value)-1,endMeasure:Number(expressiveRitTo.value)-1,toPercent:Number(expressiveRitPercent.value)});
+ });
+}
+function removeRitardando(index:number){editTempoExpressions(e=>{e.ritardandos.splice(index,1);});}
+function setFermataCue(){
+ editTempoExpressions(e=>{
+  e.fermatas=e.fermatas.filter(f=>f.measure!==Number(expressiveFermataMeasure.value)-1);
+  e.fermatas.push({measure:Number(expressiveFermataMeasure.value)-1,instrument:expressiveFermataInstrument.value,stretch:Number(expressiveFermataStretch.value),waitForCue:expressiveWaitForCue.value});
+ });
+}
+function removeFermataCue(index:number){editTempoExpressions(e=>{e.fermatas.splice(index,1);});}
+function setATempo(){
+ editTempoExpressions(e=>{
+  e.aTempoMeasures=[...new Set([...e.aTempoMeasures,Number(expressiveATempoMeasure.value)-1])];
+ });
+}
+function removeATempo(index:number){editTempoExpressions(e=>{e.aTempoMeasures.splice(index,1);});}
+
 const copySourceIndex=ref(0);
 const copyTargetIndex=ref(1);
 const copyHarmonyFeedback=ref('');
@@ -3398,6 +3447,12 @@ async function testAudio(){
     audioStatus.value='Test tone sent (A4, 440 Hz). If silent, check device volume and browser audio settings.';
   }catch(error){audioStatus.value=`Audio test failed: ${String(error)}`;message.value=audioStatus.value;}
 }
+function continueAfterSingerCue(){
+ if(!Tone||!waitingForSingerCue.value||!playing.value)return;
+ waitingForSingerCue.value=false;
+ const transport=Tone.getTransport();
+ transport.start();audioStatus.value='Continuing after singer cue';
+}
 async function play(origin:PlaybackOrigin){
   // Both play buttons always start a fresh pass. Stop is a separate control.
   stopPlayback();
@@ -3416,7 +3471,21 @@ async function play(origin:PlaybackOrigin){
     if(audioEngine.value==='samples')void prepareSamples(projectInstruments(project.value))
       .catch(error=>{sampleStatus.value='Sample loading failed: '+String(error);});
     if(session!==noteLoopSession)return;
-    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
+    const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;
+    transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
+    const tempoMarks=tempoAutomationPoints(project.value).filter(point=>point.beat>window.startBeat&&point.beat<project.value.bars.length*project.value.beats);
+    for(const point of tempoMarks)transport.schedule(()=>{
+      if(session!==noteLoopSession)return;
+      transport.bpm.value=point.bpm*rehearsalSpeed.value;
+    },beatOffsetTicks(point.beat-window.startBeat,transport.PPQ));
+    for(const cue of normalizedTempoExpressions(project.value).fermatas.filter(f=>f.waitForCue&&(f.measure+1)*project.value.beats>window.startBeat)){
+      const pauseBeat=(cue.measure+1)*project.value.beats-window.startBeat;
+      transport.scheduleOnce(time=>{
+        if(session!==noteLoopSession)return;
+        transport.pause(time);waitingForSingerCue.value=true;
+        audioStatus.value='Fermata · waiting for singer cue';
+      },beatOffsetTicks(pauseBeat,transport.PPQ));
+    }
     let noteCount=0;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
     // This is a guide tone, not sung or synthesized speech.
@@ -3430,7 +3499,7 @@ async function play(origin:PlaybackOrigin){
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
-        const defaultDuration=playbackDuration(noteSoundingDuration(n)*60/project.value.bpm,rehearsalSpeed.value);
+        const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value);
         const defaultVelocity=noteSoundingVelocity(n);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
@@ -3545,7 +3614,7 @@ async function toggleNoteLoop(){
   }catch(error){message.value=`Measure loop unavailable: ${String(error)}. Check browser audio permissions.`;stopPlayback();}
 }
 watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value||microphoneStarting.value||microphoneListening.value)stopPlayback();else stopMicrophoneCapture();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
-watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=effectivePlaybackBpm.value;});
+watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=playing.value?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;});
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
@@ -4785,6 +4854,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
     <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button>
+    <button v-if="waitingForSingerCue" type="button" class="primary singer-cue-continue" @click="continueAfterSingerCue" aria-label="Continue playback after singer cue"><AppIcon name="play"/> Continue · singer cue</button>
     <details class="topbar-menu playback-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="playback-speed-summary" :title="'Playback speed '+Math.round(rehearsalSpeed*100)+'% · '+Math.round(effectivePlaybackBpm)+' BPM'" :aria-label="'Playback speed '+rehearsalSpeed+' times song tempo. Tap to adjust'">{{rehearsalSpeed}}×<AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel playback-speed-options" role="group" aria-label="Rehearsal playback speed" @click="closeTopbarMenuOnAction($event)">
@@ -5242,6 +5312,36 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </details></div>
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
 <section v-else-if="active==='lead'">
+
+<details class="control-fold expressive-timing-editor">
+ <summary>Expressive ending · ritardando, fermata, singer cue</summary>
+ <p class="hint">These instructions belong to the song, not rehearsal playback speed. They export to both MusicXML and native MuseScore. A singer-cue fermata pauses Tango Arranger until you press Continue; exported scores indicate the cue but MuseScore playback cannot wait indefinitely for a live singer.</p>
+ <div class="expressive-timing-grid">
+  <button type="button" class="secondary" @click="prepareEndingTiming">Use last 3 measures</button>
+  <label>Rit. from measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitFrom"/></label>
+  <label>Through measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitTo"/></label>
+  <label>End tempo (% of written BPM)<input type="number" min="35" max="99" v-model.number="expressiveRitPercent"/></label>
+  <button type="button" class="secondary" @click="addRitardando">Add / update rit.</button>
+ </div>
+ <div class="expressive-timing-grid">
+  <label>Fermata measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveFermataMeasure"/></label>
+  <label>Mark this part<select v-model="expressiveFermataInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+  <label>Practice hold (× last beat)<input type="number" min="1.25" max="5" step="0.25" v-model.number="expressiveFermataStretch"/></label>
+  <label class="expressive-cue-toggle"><input type="checkbox" v-model="expressiveWaitForCue"/> Pause until singer/conductor cue</label>
+  <button type="button" class="secondary" @click="setFermataCue">Set fermata</button>
+ </div>
+ <div class="expressive-timing-grid">
+  <label>A tempo at measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveATempoMeasure"/></label>
+  <button type="button" class="secondary" @click="setATempo">Add a tempo</button>
+ </div>
+ <p v-if="expressiveTimingError" class="hint" role="alert">{{expressiveTimingError}}</p>
+ <div v-if="expressiveTiming.ritardandos.length||expressiveTiming.fermatas.length||expressiveTiming.aTempoMeasures.length" class="expressive-timing-marks" aria-label="Saved expressive timing markings">
+  <div v-for="(rit,index) in expressiveTiming.ritardandos" :key="'r'+index">rit. M{{rit.startMeasure+1}}–{{rit.endMeasure+1}} → {{rit.toPercent}}% <button type="button" class="secondary" @click="removeRitardando(index)">Remove</button></div>
+  <div v-for="(mark,index) in expressiveTiming.fermatas" :key="'f'+index">𝄐 M{{mark.measure+1}} · {{rosterDisplayName(mark.instrument)}} · {{mark.stretch}}× hold · {{mark.waitForCue?'wait for cue':'timed only'}} <button type="button" class="secondary" @click="removeFermataCue(index)">Remove</button></div>
+  <div v-for="(mark,index) in expressiveTiming.aTempoMeasures" :key="'a'+index">a tempo M{{mark+1}} <button type="button" class="secondary" @click="removeATempo(index)">Remove</button></div>
+ </div>
+</details>
+
 <div class="lead-command-bar" role="group" aria-label="Lead sheet controls">
   <div class="lead-display-switch" role="group" aria-label="Lead sheet view">
     <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Edit measures</button>
