@@ -2523,7 +2523,7 @@ const measureFrom=ref(1),measureTo=ref(1);
 const measureAnchor=ref<number|null>(null),measureAwaitingEndpoint=ref(false);
 const measureCopyScope=ref<'instrument'|'all'>('instrument');
 const measureCopyInstrument=ref<Instrument>('Voice');
-const measureCopyFields=ref<MeasureFields>({...ALL_MEASURE_FIELDS});
+const measureCopyFields=ref<MeasureFields>({chords:false,melody:false,notes:true,lyrics:true,settings:false});
 const measurePasteFields=ref<MeasureFields>({...ALL_MEASURE_FIELDS});
 const measureClipboard=ref<MeasureClipboard|null>(null);
 const measurePasteAt=ref(1),measurePasteMode=ref<PasteMode>('overwrite');
