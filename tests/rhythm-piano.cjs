@@ -17,7 +17,7 @@ function load(file,imports={}){
  },mod,mod.exports);
  return mod.exports;
 }
-const music=load('src/music.ts');const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),./music':music});
+const music=load('src/music.ts');const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let count=0;function test(label,fn){fn();count++;console.log('PASS',label);}
 const p=music.blankProject({sections:1,measuresPerSection:4});p.bars.forEach(b=>b.chord='Dm,A7');
 p.roles.A.Piano='chords';p.roles.A.Contrabass='bass';p.roles.A['Bandoneon I']='chords';p.roles.A['Bandoneon II']='chords';
