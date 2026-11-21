@@ -325,7 +325,8 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
               n.articulation==='legato'?'<Articulation><subtype>tenuto</subtype></Articulation>':'';
             const lyric=(text:string|undefined,syllabic:string|undefined,number:number)=>
               text&&pi===0&&!previous?`<Lyrics><no>${number}</no><syllabic>${syllabic??'single'}</syllabic><text>${esc(text)}</text></Lyrics>`:'';
-            const noteXml=group.notes.map(note=>{
+            // Duplicate unison attacks cannot create two competing native tie endpoints.
+            const noteXml=[...new Map(group.notes.map(note=>[note.pitch,note])).values()].map(note=>{
               // MuseScore represents a sustained pitch as tied Note elements.
               // Each boundary between notation chunks gets a paired Tie spanner.
               const spanTicks=piece.ticks;
