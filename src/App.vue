@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
+import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import CaptureTimingControls from './CaptureTimingControls.vue';
@@ -2515,6 +2516,158 @@ async function createBlankSong(){
     message.value=`Created ${newSongSections.value} sections (${fresh.bars.length} measures total). Enter chords and melody, then generate.`;
   }catch(error){message.value=`Cannot create blank song: ${String(error)}`;}
 }
+
+/** Shared measure selection/clipboard; all editing modes use absolute bar numbers. */
+const measureEditOpen=ref(false);
+const measureFrom=ref(1),measureTo=ref(1);
+const measureAnchor=ref<number|null>(null),measureAwaitingEndpoint=ref(false);
+const measureCopyScope=ref<'instrument'|'all'>('instrument');
+const measureCopyInstrument=ref<Instrument>('Voice');
+const measureCopyFields=ref<MeasureFields>({chords:false,melody:false,notes:true,lyrics:true,settings:false});
+const measurePasteFields=ref<MeasureFields>({...ALL_MEASURE_FIELDS});
+const measureClipboard=ref<MeasureClipboard|null>(null);
+const measurePasteAt=ref(1),measurePasteMode=ref<PasteMode>('overwrite');
+const measurePasteTarget=ref('__same__');
+const measureClearSilence=ref(true);
+const measurePending=ref<'paste'|'clear'|'delete'|'insert'|null>(null);
+const measurePreview=ref(''),measurePreviewWarnings=ref('');
+let rangeSuppressClickUntil=0;
+const currentMeasureRange=computed<MeasureRange>(()=>{
+ const limit=project.value.bars.length;
+ const first=Math.max(1,Math.min(limit,Math.floor(Number(measureFrom.value)||1)));
+ const last=Math.max(1,Math.min(limit,Math.floor(Number(measureTo.value)||first)));
+ return {start:Math.min(first,last)-1,end:Math.max(first,last)-1};
+});
+const measureSelectedParts=computed(()=>measureCopyScope.value==='all'?projectInstruments(project.value):[measureCopyInstrument.value]);
+const measureEditableFields=['chords','melody','notes','lyrics','settings'] as const;
+const measureFieldLabels:Record<keyof MeasureFields,string>={chords:'Chords',melody:'Lead melody',notes:'Instrument notes',lyrics:'Lyrics attached to notes',settings:'Roles, dynamics and expression'};
+function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';}
+function toggleMeasureEditTools(){
+ if(!measureEditOpen.value){
+  if(active.value==='arrange'){
+   measureFrom.value=overviewStart.value;measureTo.value=overviewEnd.value;measureCopyInstrument.value=overviewInstrument.value;
+  }else if(active.value==='rhythm'){
+   measureFrom.value=rhythmStart.value;measureTo.value=rhythmEnd.value;measureCopyInstrument.value=rhythmTargets.value[0]??'Voice';
+  }else if(active.value==='notes'){
+   measureFrom.value=noteLoopFrom.value;measureTo.value=noteLoopTo.value;measureCopyInstrument.value=noteInst.value;
+  }else{measureFrom.value=selectedBar.value+1;measureTo.value=selectedBar.value+1;measureCopyInstrument.value='Voice';}
+  measureAnchor.value=measureFrom.value-1;measureAwaitingEndpoint.value=false;
+ }
+ measureEditOpen.value=!measureEditOpen.value;
+ resetMeasureEditPreview();
+}
+function prepareMeasureInputs(){
+ const count=project.value.bars.length;
+ measureFrom.value=Math.max(1,Math.min(count,Math.floor(measureFrom.value)||1));
+ measureTo.value=Math.max(1,Math.min(count,Math.floor(measureTo.value)||1));
+ resetMeasureEditPreview();
+}
+function selectMeasureEditSection(index:number){
+ const section=sectionSpans(project.value)[index];
+ if(!section)return;
+ measureFrom.value=section.start+1;measureTo.value=section.start+section.measures;
+ measureAnchor.value=section.start;measureAwaitingEndpoint.value=false;
+ resetMeasureEditPreview();
+}
+function beginMeasureHold(measure:number){
+ if(!measureEditOpen.value)return;
+ measureAnchor.value=measure;measureFrom.value=measure+1;measureTo.value=measure+1;
+ measureAwaitingEndpoint.value=true;rangeSuppressClickUntil=Date.now()+900;
+ resetMeasureEditPreview();
+}
+function onMeasureRangeTap(measure:number,event:Pick<MouseEvent,'shiftKey'>){
+ if(!measureEditOpen.value)return;
+ if(Date.now()<rangeSuppressClickUntil&&measure===measureAnchor.value){rangeSuppressClickUntil=0;return;}
+ rangeSuppressClickUntil=0;
+ if(measureAwaitingEndpoint.value||(event.shiftKey&&measureAnchor.value!==null)){
+  const anchor=measureAnchor.value??measure;
+  measureFrom.value=Math.min(anchor,measure)+1;measureTo.value=Math.max(anchor,measure)+1;
+  measureAwaitingEndpoint.value=false;
+ }else{
+  measureAnchor.value=measure;measureFrom.value=measure+1;measureTo.value=measure+1;
+ }
+ resetMeasureEditPreview();
+}
+function chooseMeasureFields(which:'all'|'instrument'|'harmony'|'custom'){
+ if(which==='custom')return;
+ measureCopyFields.value=which==='all'?{...ALL_MEASURE_FIELDS}:
+  which==='instrument'?{chords:false,melody:false,notes:true,lyrics:true,settings:false}:
+  {chords:true,melody:true,notes:false,lyrics:false,settings:false};
+ resetMeasureEditPreview();
+}
+function setCopyField(key:keyof MeasureFields,checked:boolean){
+ measureCopyFields.value={...measureCopyFields.value,[key]:checked};
+ if(!measureCopyFields.value.notes&&!measureCopyFields.value.melody)measureCopyFields.value.lyrics=false;
+ resetMeasureEditPreview();
+}
+function setPasteField(key:keyof MeasureFields,checked:boolean){
+ measurePasteFields.value={...measurePasteFields.value,[key]:checked};
+ if(!measurePasteFields.value.notes&&!measurePasteFields.value.melody)measurePasteFields.value.lyrics=false;
+ resetMeasureEditPreview();
+}
+function copySelectedMeasures(){
+ try{
+  const result=copyMeasureRange(project.value,score.value,currentMeasureRange.value,measureSelectedParts.value,measureCopyFields.value);
+  measureClipboard.value=result;measurePasteFields.value={...result.fields};
+  measurePasteAt.value=Math.min(project.value.bars.length,currentMeasureRange.value.end+2);
+  measurePasteTarget.value='__same__';resetMeasureEditPreview();
+  message.value='Copied '+result.count+' measures and the chosen content. Choose a paste destination and preview.';
+ }catch(error){message.value='Measure copy failed: '+String(error);}
+}
+function previewMeasureOperation(action:'paste'|'clear'|'delete'|'insert'){
+ try{
+  resetMeasureEditPreview();
+  const range=currentMeasureRange.value,count=range.end-range.start+1;
+  if(action==='paste'){
+   const clip=measureClipboard.value;
+   if(!clip)throw Error('Copy a measure range first');
+   const target=measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
+   const info=previewMeasurePaste(project.value,score.value,clip,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,target);
+   measurePreview.value=(measurePasteMode.value==='insert'?'Insert':'Overwrite')+' '+info.length+' measures starting at '+measurePasteAt.value+', '+info.incomingNotes+' incoming notes, '+info.replacedNotes+' replaced notes. Result: '+info.newTotal+' measures.';
+   measurePreviewWarnings.value=info.warning;
+  }else if(action==='clear'){
+   const targets=measureSelectedParts.value;
+   const countProtected=targets.reduce((sum,inst)=>sum+Array.from({length:count},(_,i)=>Number(!!project.value.protectedBars[inst+':'+(range.start+i)])).reduce((a,b)=>a+b,0),0);
+   clearMeasureRange(project.value,score.value,range,targets,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
+   measurePreview.value='Clear selected content in measures '+(range.start+1)+'–'+(range.end+1)+' ('+count+' measures), '+targets.join(', ')+'. Song length stays the same.';
+   measurePreviewWarnings.value=countProtected+' protected instrument-measures in this selection. '+(measureClearSilence.value&&measureCopyFields.value.notes?'Cleared parts remain silent and protected.':'Review the content checkboxes before applying.');
+  }else if(action==='delete'){
+   deleteMeasureRange(project.value,range);
+   measurePreview.value='Delete measures '+(range.start+1)+'–'+(range.end+1)+', shifting later music '+count+' measures earlier.';
+   measurePreviewWarnings.value='Notes, lyrics and harmony in deleted measures are lost; later scores and saved editions shift.';
+  }else{
+   insertBlankMeasures(project.value,measurePasteAt.value-1,count);
+   measurePreview.value='Insert '+count+' empty measures immediately before '+measurePasteAt.value+'.';
+   measurePreviewWarnings.value='Later parts shift. Phrase plans and editable lyrics sources need review.';
+  }
+  measurePending.value=action;
+ }catch(error){measurePending.value=null;message.value='Measure preview failed: '+String(error);}
+}
+function applyMeasureOperation(){
+ const action=measurePending.value;if(!action)return;
+ try{
+  const range=currentMeasureRange.value,count=range.end-range.start+1;
+  let next:Project;
+  if(action==='paste'){
+   if(!measureClipboard.value)throw Error('No copied measures');
+   next=pasteMeasureRange(project.value,score.value,measureClipboard.value,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,
+     measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
+  }else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
+  else if(action==='delete')next=deleteMeasureRange(project.value,range);
+  else next=insertBlankMeasures(project.value,measurePasteAt.value-1,count);
+  stopPlayback();project.value=next;
+  const point=action==='paste'||action==='insert'?measurePasteAt.value-1:range.start;
+  const bounded=Math.min(next.bars.length-1,Math.max(0,point));
+  selectedBar.value=bounded;chosenSection.value=next.bars[bounded].section;overviewFocus.value=bounded;
+  measureFrom.value=bounded+1;
+  measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='insert'?count:1));
+  measureAnchor.value=bounded;measureAwaitingEndpoint.value=false;noteSelected.value=-1;
+  resetMeasureEditPreview();
+  message.value='Applied measure '+action+'. Use Undo to restore the previous state.';
+ }catch(error){resetMeasureEditPreview();message.value='Measure operation failed: '+String(error);}
+}
+watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
+
 const copySourceIndex=ref(0);
 const copyTargetIndex=ref(1);
 const copyHarmonyFeedback=ref('');
@@ -2591,11 +2744,11 @@ const leadMeasureContext=ref<number|null>(null);
 let leadContextTimer:ReturnType<typeof setTimeout>|null=null;
 function cancelLeadContextTimer(){if(leadContextTimer!==null){clearTimeout(leadContextTimer);leadContextTimer=null;}}
 function showLeadMeasureContext(measure:number,event?:MouseEvent){
-  event?.preventDefault();cancelLeadContextTimer();leadMeasureContext.value=measure;
+  event?.preventDefault();cancelLeadContextTimer();if(measureEditOpen.value)beginMeasureHold(measure);else leadMeasureContext.value=measure;
 }
 function startLeadMeasureLongPress(measure:number){
   cancelLeadContextTimer();
-  leadContextTimer=setTimeout(()=>{leadMeasureContext.value=measure;leadContextTimer=null;},550);
+  leadContextTimer=setTimeout(()=>{if(measureEditOpen.value)beginMeasureHold(measure);else leadMeasureContext.value=measure;leadContextTimer=null;},550);
 }
 function shiftVoicePhraseFromLead(measure:number,fromSelectedNote=false){
   leadMeasureContext.value=null;
@@ -2804,6 +2957,13 @@ function cancelInlineChord(i:number,event:Event){
   input.value=project.value.bars[i]?.chord??'';
   input.blur();
 }
+let noteMeasureRangeTimer:ReturnType<typeof setTimeout>|null=null;
+function startNoteMeasureRangeHold(index:number){
+ if(!measureEditOpen.value)return;
+ cancelNoteMeasureRangeHold();
+ noteMeasureRangeTimer=setTimeout(()=>{noteMeasureRangeTimer=null;beginMeasureHold(index);},550);
+}
+function cancelNoteMeasureRangeHold(){if(noteMeasureRangeTimer!==null)clearTimeout(noteMeasureRangeTimer);noteMeasureRangeTimer=null;}
 function selectLeadMeasure(i:number){
   selectedBar.value=i;
   chosenSection.value=project.value.bars[i].section;
@@ -2903,6 +3063,7 @@ function cancelMeasureSettingsHold(){
 function openInstrumentMeasureSettings(inst:Instrument,i:number,event?:MouseEvent){
   event?.preventDefault();
   cancelMeasureSettingsHold();
+  if(measureEditOpen.value){beginMeasureHold(i);return;}
   const keepRange=overviewInstrument.value===inst&&i+1>=overviewStart.value&&i+1<=overviewEnd.value&&overviewEnd.value>overviewStart.value;
   if(!keepRange)focusOverview(inst,i);
   measureSettingsOpen.value=true;
@@ -2912,7 +3073,7 @@ function openInstrumentMeasureSettings(inst:Instrument,i:number,event?:MouseEven
 function startInstrumentMeasureHold(inst:Instrument,i:number){
   cancelMeasureSettingsHold();
   suppressMeasureSettingsClick=false;
-  measureSettingsTimer=setTimeout(()=>{measureSettingsTimer=null;openInstrumentMeasureSettings(inst,i);},550);
+  measureSettingsTimer=setTimeout(()=>{measureSettingsTimer=null;if(measureEditOpen.value)beginMeasureHold(i);else openInstrumentMeasureSettings(inst,i);},550);
 }
 function selectOverviewMapCell(inst:Instrument,i:number,event:Pick<MouseEvent,'shiftKey'>){
   if(suppressMeasureSettingsClick){suppressMeasureSettingsClick=false;return;}
@@ -4998,7 +5159,56 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="overview-actions"><button class="primary" @click="applyChordEditor">Apply harmony</button><button class="secondary" @click="chordEditorOpen=false">Cancel</button></div>
 </div>
 
- <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
+ 
+<section v-if="['lead','arrange','rhythm','notes'].includes(active)" class="measure-edit-shell" aria-label="Measure range editing">
+ <div class="measure-edit-header">
+  <button type="button" class="secondary" :aria-expanded="measureEditOpen" @click="toggleMeasureEditTools"><AppIcon name="copy"/> {{measureEditOpen?'Close measure tools':'Select / copy / paste measures'}}</button>
+  <span v-if="measureEditOpen" class="hint">iPad: press and hold the first measure number or orchestration cell, then tap the last measure. Desktop: click, then Shift-click.</span>
+ </div>
+ <div v-if="measureEditOpen" class="measure-edit-body">
+  <div class="measure-edit-grid">
+   <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="measureFrom" @change="prepareMeasureInputs"/></label>
+   <label>To measure<input type="number" min="1" :max="project.bars.length" v-model.number="measureTo" @change="prepareMeasureInputs"/></label>
+   <label>Quick section<select :value="''" @change="selectMeasureEditSection(Number(($event.target as HTMLSelectElement).value));($event.target as HTMLSelectElement).value=''"><option disabled value="">Select section…</option><option v-for="(span,i) in sectionSpans(project)" :key="i" :value="i">{{sectionLetter(i)}} ({{span.start+1}}–{{span.start+span.measures}})</option></select></label>
+   <label>Copy / clear instruments<select v-model="measureCopyScope" @change="resetMeasureEditPreview"><option value="instrument">One instrument</option><option value="all">All instruments</option></select></label>
+   <label v-if="measureCopyScope==='instrument'">Instrument<select v-model="measureCopyInstrument" @change="resetMeasureEditPreview"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+   <label>Content preset<select :value="''" @change="chooseMeasureFields(($event.target as HTMLSelectElement).value as 'all'|'instrument'|'harmony'|'custom');($event.target as HTMLSelectElement).value=''"><option value="" disabled>Choose…</option><option value="all">Everything</option><option value="instrument">Instrument notes + lyrics</option><option value="harmony">Chords + lead melody</option></select></label>
+  </div>
+  <div class="measure-edit-fields" role="group" aria-label="Measure content">
+   <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="field==='lyrics'&&!measureCopyFields.notes&&!measureCopyFields.melody" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+  </div>
+  <div class="measure-edit-actions">
+   <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
+   <label><input type="checkbox" v-model="measureClearSilence" @change="resetMeasureEditPreview"/> Keep cleared parts silent on regeneration</label>
+   <button type="button" class="secondary" @click="previewMeasureOperation('clear')">Preview clear</button>
+   <button type="button" class="secondary" @click="previewMeasureOperation('delete')">Preview delete measures</button>
+  </div>
+  <div class="measure-edit-destination">
+   <p class="hint" role="status">{{measureClipboard?'Clipboard: '+measureClipboard.count+' measures, '+measureClipboard.instruments.length+' part(s), '+measureClipboard.beats+'/4':'Clipboard empty; copy selected measures first.'}}</p>
+   <div class="measure-edit-grid">
+    <label>Destination measure<input v-model.number="measurePasteAt" min="1" :max="project.bars.length+1" type="number" @change="resetMeasureEditPreview"/></label>
+    <label>Paste mode<select v-model="measurePasteMode" @change="resetMeasureEditPreview"><option value="overwrite">Overwrite existing measures</option><option value="insert">Insert new measures, shift later music</option></select></label>
+    <label v-if="measureClipboard?.instruments.length===1">Paste notes into<select v-model="measurePasteTarget" @change="resetMeasureEditPreview"><option value="__same__">Same instrument</option><option v-for="inst in activeRoster.filter(i=>!measureClipboard?.instruments.includes(i))" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+   </div>
+   <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Paste content">
+    <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+   </div>
+   <div class="measure-edit-actions">
+    <button type="button" class="secondary" :disabled="!measureClipboard" @click="previewMeasureOperation('paste')">Preview paste</button>
+    <button type="button" class="secondary" @click="previewMeasureOperation('insert')">Preview insert blank measures</button>
+    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo');resetMeasureEditPreview()">↶ Undo</button>
+    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo');resetMeasureEditPreview()">↷ Redo</button>
+   </div>
+  </div>
+  <div v-if="measurePending" class="measure-edit-confirm" role="region" aria-label="Review measure change">
+   <strong>Preview · {{measurePending}}</strong><p>{{measurePreview}}</p>
+   <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
+   <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation">Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
+  </div>
+ </div>
+</section>
+
+<section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
   <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appDisplayVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
   <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
   <div class="about-content-columns">
@@ -5084,8 +5294,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label class="lead-key-label">Key signature<select :value="keyForSection(span.label)" :aria-label="`Key for section ${span.label}`" @change="setSectionKey(span.label,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label>
     </div>
     <div v-if="!collapsedLeadSections.includes(span.label)" class="lead-measure-grid">
-      <template v-for="offset in span.measures" :key="span.start+offset-1"><div :class="['lead-measure',{selected:selectedBar===span.start+offset-1}]">
-        <button type="button" class="lead-measure-select" @contextmenu="showLeadMeasureContext(span.start+offset-1,$event)" @touchstart.passive="startLeadMeasureLongPress(span.start+offset-1)" @touchend="cancelLeadContextTimer" @touchcancel="cancelLeadContextTimer" @touchmove="cancelLeadContextTimer" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; long-press or right-click for editing options`" @click="selectLeadMeasure(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
+      <template v-for="offset in span.measures" :key="span.start+offset-1"><div :class="['lead-measure',{selected:selectedBar===span.start+offset-1,'measure-edit-selected':measureEditOpen&&span.start+offset-1>=currentMeasureRange.start&&span.start+offset-1<=currentMeasureRange.end}]">
+        <button type="button" class="lead-measure-select" @contextmenu="showLeadMeasureContext(span.start+offset-1,$event)" @touchstart.passive="startLeadMeasureLongPress(span.start+offset-1)" @touchend="cancelLeadContextTimer" @touchcancel="cancelLeadContextTimer" @touchmove="cancelLeadContextTimer" :aria-pressed="selectedBar===span.start+offset-1" :title="`Select measure ${span.start+offset}; long-press or right-click for editing options`" @click.capture="onMeasureRangeTap(span.start+offset-1,$event)" @click="selectLeadMeasure(span.start+offset-1)" @dblclick.stop="focusLeadMelody(span.start+offset-1)"><strong>{{span.start+offset}}</strong><small>{{project.bars[span.start+offset-1].melody.length}} melody notes</small></button>
         <div v-if="leadMeasureContext===span.start+offset-1" class="lead-measure-context" role="menu"><strong>Measure {{span.start+offset}} · Options</strong><button type="button" role="menuitem" @click="focusLeadMelody(span.start+offset-1);leadMeasureContext=null">Edit measure melody…</button><button type="button" role="menuitem" @click="openLeadVoiceLyrics(span.start+offset-1)">Open Voice note / lyric alignment</button><button type="button" role="menuitem" @click="shiftVoicePhraseFromLead(span.start+offset-1)">Shift Voice notes + lyrics in time…</button><button type="button" role="menuitem" @click="leadMeasureContext=null">Close</button></div>
         <div v-if="leadLyricOverview.get(span.start+offset-1)?.length" class="lead-lyric-overview" :aria-label="`Lyrics in measure ${span.start+offset}`" style="margin:.4rem 0;padding:.45rem;border-top:1px solid #607080">
           <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.12rem .25rem;line-height:1.3">
@@ -5159,7 +5369,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <small>Tap an instrument icon, or long-press or right-click its label, to open this menu. Use Shift+F10 or the menu key with a keyboard.</small>
   </div>
 </div></Teleport>
-<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-badge-trigger" :aria-label="`Options for ${rosterDisplayName(inst)}`" :title="rosterDisplayName(inst)" aria-haspopup="dialog" :aria-expanded="instrumentContext===inst" @click.stop="openInstrumentContext(inst)"><InstrumentBadge :instrument="inst" :roster="activeRoster" :label="rosterDisplayName(inst)"/></button><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${mapRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${mapRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${mapRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
+<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd,'measure-edit-selected':measureEditOpen&&i>=currentMeasureRange.start&&i<=currentMeasureRange.end}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click.capture="onMeasureRangeTap(i,$event)" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-badge-trigger" :aria-label="`Options for ${rosterDisplayName(inst)}`" :title="rosterDisplayName(inst)" aria-haspopup="dialog" :aria-expanded="instrumentContext===inst" @click.stop="openInstrumentContext(inst)"><InstrumentBadge :instrument="inst" :roster="activeRoster" :label="rosterDisplayName(inst)"/></button><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${mapRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'measure-edit-selected':measureEditOpen&&i>=currentMeasureRange.start&&i<=currentMeasureRange.end&&(measureCopyScope==='all'||measureCopyInstrument===inst),'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${mapRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${mapRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click.capture="onMeasureRangeTap(i,$event)" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 </div>
 
 </div>
@@ -5774,7 +5984,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="note-continuous-row note-continuous-measures">
       <div class="note-continuous-pitch-title">Pitch</div>
       <div class="note-continuous-measure-heads">
-        <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" class="note-multibar-title" :class="{'note-multibar-active':selectedBar===barIndex}" @click="activateGridMeasure(barIndex)">Measure {{barIndex+1}} · {{project.bars[barIndex].chord||'—'}}</button>
+        <button v-for="barIndex in focusVisibleMeasures" :key="barIndex" type="button" class="note-multibar-title" :class="{'note-multibar-active':selectedBar===barIndex,'measure-edit-selected':measureEditOpen&&barIndex>=currentMeasureRange.start&&barIndex<=currentMeasureRange.end}" @touchstart.passive="startNoteMeasureRangeHold(barIndex)" @touchend="cancelNoteMeasureRangeHold" @touchcancel="cancelNoteMeasureRangeHold" @touchmove="cancelNoteMeasureRangeHold" @click.capture="onMeasureRangeTap(barIndex,$event)" @click="activateGridMeasure(barIndex)">Measure {{barIndex+1}} · {{project.bars[barIndex].chord||'—'}}</button>
       </div>
     </div>
     <div class="note-continuous-row note-continuous-beats">

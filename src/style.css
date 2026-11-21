@@ -1628,3 +1628,31 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  .app-topbar .topbar-files>.files-menu>.topbar-menu-panel,
  .app-topbar .topbar-playback>.playback-speed-menu>.topbar-menu-panel{left:0!important;right:auto!important}
 }
+
+
+/* Shared measure range clipboard tools: compact until explicitly expanded. */
+.measure-edit-shell{margin:10px 0 16px;border:1px solid #485d6d;border-radius:12px;background:#202f3b;padding:12px;max-width:100%;box-sizing:border-box}
+.measure-edit-header{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.measure-edit-header button{display:inline-flex;align-items:center;gap:7px}
+.measure-edit-header .hint{flex:1 1 320px;font-size:12px}
+.measure-edit-body{display:grid;gap:12px;margin-top:14px}
+.measure-edit-grid{display:flex;flex-wrap:wrap;gap:10px}
+.measure-edit-grid>label{display:flex;flex:1 1 170px;min-width:130px;max-width:290px;flex-direction:column;gap:5px;font-size:12px}
+.measure-edit-grid input,.measure-edit-grid select{width:100%;min-height:38px;box-sizing:border-box}
+.measure-edit-fields{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 10px;background:rgba(0,0,0,.15);border-radius:8px}
+.measure-edit-fields label,.measure-edit-actions label{display:inline-flex;align-items:center;gap:6px;min-height:32px;font-size:12px}
+.measure-edit-fields label input,.measure-edit-actions label input{width:auto;flex:none}
+.measure-edit-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.measure-edit-actions button{min-height:36px}
+.measure-edit-destination{border-top:1px solid #465b69;padding-top:12px;display:grid;gap:11px}
+.measure-edit-destination p{margin:0}
+.measure-edit-confirm{border:1px solid #c2a777;border-radius:9px;padding:12px;background:#293744;display:grid;gap:8px}
+.measure-edit-confirm strong{font-size:14px;color:#f1d59f}
+.measure-edit-confirm p{margin:0;line-height:1.5}
+@media(max-width:600px){.measure-edit-shell{padding:10px}.measure-edit-grid>label{flex:1 1 calc(50% - 10px)}.measure-edit-actions button{flex:1 1 auto}}
+
+/* Independent visual emphasis for the range being copied/cleared. */
+.lead-measure.measure-edit-selected{outline:2px solid #cbb17e;outline-offset:-2px;background:rgba(203,177,126,.12)}
+.song-cell.measure-edit-selected{box-shadow:inset 0 0 0 2px #e4bd78;background-color:rgba(213,180,117,.22)}
+.song-map th.measure-edit-selected{box-shadow:inset 0 -3px #deb779}
+.note-multibar-title.measure-edit-selected{outline:2px solid #deb779;outline-offset:-2px;background:rgba(213,180,117,.21)}
