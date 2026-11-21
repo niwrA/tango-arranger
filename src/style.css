@@ -1656,3 +1656,19 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .song-cell.measure-edit-selected{box-shadow:inset 0 0 0 2px #e4bd78;background-color:rgba(213,180,117,.22)}
 .song-map th.measure-edit-selected{box-shadow:inset 0 -3px #deb779}
 .note-multibar-title.measure-edit-selected{outline:2px solid #deb779;outline-offset:-2px;background:rgba(213,180,117,.21)}
+
+/* Song-level expressive timing: touch-friendly lead-sheet settings. */
+.expressive-timing-editor{margin:9px 0 15px;border:1px solid #52677a;border-radius:10px;padding:10px 14px;background:#22303b}
+.expressive-timing-editor>summary{cursor:pointer;font-weight:650;min-height:32px;line-height:32px}
+.expressive-timing-editor>p{max-width:960px;line-height:1.5}
+.expressive-timing-grid{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:12px 0}
+.expressive-timing-grid>label{display:flex;flex:1 1 140px;max-width:230px;flex-direction:column;gap:6px;font-size:12px}
+.expressive-timing-grid input,.expressive-timing-grid select{min-height:36px;width:100%;box-sizing:border-box}
+.expressive-timing-grid .expressive-cue-toggle{display:flex;flex-direction:row;align-items:center;gap:9px;max-width:260px;min-height:39px}
+.expressive-timing-grid .expressive-cue-toggle input{width:auto;min-height:auto}
+.expressive-timing-grid button{min-height:36px}
+.expressive-timing-marks{display:grid;gap:7px;padding:10px;background:rgba(0,0,0,.15);border-radius:8px;font-size:13px}
+.expressive-timing-marks>div{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between}
+.expressive-timing-marks button{min-height:30px}
+.singer-cue-continue{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;min-height:38px}
+@media(max-width:600px){.expressive-timing-grid>label{flex:1 1 calc(50% - 10px)}.expressive-timing-grid>button{flex:1 1 auto}}
