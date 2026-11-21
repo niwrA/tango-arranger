@@ -364,8 +364,7 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 
 /* v4.4: focused piano-roll editing with always-accessible navigation and note controls. */
 .note-focus-mode{position:fixed;inset:0;z-index:120;background:#101820;overflow:auto;overscroll-behavior:contain;padding:0 18px calc(104px + env(safe-area-inset-bottom));height:100dvh;scrollbar-gutter:stable}
-.note-focus-mode>.section-heading,.note-focus-mode>.note-editor-navigation,.note-focus-mode>.note-common-controls,.note-focus-mode>.note-loop-controls,.note-focus-mode>.note-subtabs{display:none!important}
-.note-focus-mode #note-panel-capture,.note-focus-mode #note-panel-figures,.note-focus-mode #note-panel-expression{display:none!important}
+.note-focus-mode>.section-heading,.note-focus-mode>.note-editor-navigation,.note-focus-mode>.note-common-controls,.note-focus-mode>.note-loop-controls{display:none!important}
 .note-focus-mode #note-panel-notes>p.muted{display:none}
 .note-focus-mode .note-editor-panel{margin:0;padding:10px 4px 16px;border:0;background:transparent}
 .note-focus-mode .note-editor-panel>.control-fold,.note-focus-mode .note-editor-panel>p.hint,.note-focus-mode .note-editor-panel>.note-event-list,.note-focus-mode .note-editor-panel>h3{display:none}

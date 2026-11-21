@@ -49,8 +49,25 @@ assert.match(vue,/pan\.scroller\.scrollLeft=Math\.max\(0,Math\.min\(maxLeft,pan\
 assert.match(vue,/@pointerdown="beginNoteGridPan\(\$event\)"/);
 assert.match(vue,/@pointermove="moveNoteGridPan\(\$event\);moveNoteDrag\(\$event\)"/);
 assert.match(vue,/@click\.capture="blockNoteGridPanClick\(\$event\)"/);
-assert.match(vue,/@click="stepNoteGrid\(1\)"/);
-assert.match(vue,/@click="stepNoteGrid\(-1\)"/);
+assert.doesNotMatch(vue,/class="note-grid-selection-status"/);
+assert.doesNotMatch(vue,/function stepNoteGrid\(/);
+assert.match(vue,/class="note-active-measure"/);
 assert.match(vue,/pan\.scroller\.scrollWidth<=pan\.scroller\.clientWidth\+1/);
 
-console.log('Note-grid virtualization and active-measure checks passed');
+
+const styles=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+const enterFocus=vue.match(/function enterNoteFocusMode\(\)\{[\s\S]*?\n\}/)?.[0]??'';
+assert.ok(enterFocus,'Focus entry function is present');
+assert.doesNotMatch(enterFocus,/noteEditorTab\.value\s*=\s*'notes'/,'entering focus keeps the selected tool');
+assert.match(vue,/\.note-editor-section\.note-focus-mode>\.note-subtabs\{\s*display:flex!important/,'Focus has visible tool tabs');
+for(const tab of ['notes','capture','figures','expression']){
+  assert.ok(vue.includes(`<section id="note-panel-${tab}" v-show="noteEditorTab==='${tab}'"`),`Focus retains the ${tab} tool panel`);
+}
+assert.doesNotMatch(styles,/\.note-focus-mode[^\n]*\.note-subtabs\{display:none!important\}/,'global styles must not hide focus tabs');
+assert.doesNotMatch(styles,/\.note-focus-mode #note-panel-capture[^\n]*display:none!important/,'global styles must not hide alternate tools');
+assert.match(vue,/<div class="note-editor-meta"/,'context and snap share a compact row');
+assert.match(vue,/class="note-active-measure"/,'editing measure remains visible');
+assert.match(vue,/v-if="noteFocusMode&&noteEditorTab==='notes'&&selectedEvent" class="note-focus-bottom"/,'quick note controls render only for a selected note');
+assert.match(vue,/'note-focus-has-selection':noteFocusMode&&noteEditorTab==='notes'&&!!selectedEvent/,'focus bottom clearance follows selection');
+
+console.log('Note-grid virtualization and Focus-mode layout checks passed');

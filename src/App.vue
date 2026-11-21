@@ -275,7 +275,8 @@ const noteLoopFrom=ref(1);
 const noteLoopTo=ref(2);
 const noteLoopMeasure=ref(-1);
 function enterNoteFocusMode(){
-  noteEditorTab.value='notes';noteDetailsPopup.value=false;noteFocusMore.value=false;
+  // Preserve the current editing tool when entering focus mode.
+  noteDetailsPopup.value=false;noteFocusMore.value=false;
   syncVisibleMeasureSelection();
   noteFocusMode.value=true;
   void nextTick(()=>noteEditorRegion.value?.querySelector<HTMLButtonElement>('.note-focus-close')?.focus({preventScroll:true}));
@@ -368,7 +369,7 @@ function selectFocusMeasure(bar:number){
   openNoteEditor(noteInst.value,bar);
 }
 
-function setNoteEditorTab(tab:'notes'|'capture'|'figures'|'expression'){noteEditorTab.value=tab;noteDetailsPopup.value=false;}
+function setNoteEditorTab(tab:'notes'|'capture'|'figures'|'expression'){noteEditorTab.value=tab;noteDetailsPopup.value=false;noteFocusMore.value=false;}
 const noteTabOrder=['notes','capture','figures','expression'] as const;
 function handleNoteTabKey(event:KeyboardEvent){
   if(!(event.target as HTMLElement|null)?.closest('[role="tab"]'))return;
@@ -4354,15 +4355,6 @@ function blockNoteGridPanClick(event:MouseEvent){
  event.preventDefault();event.stopImmediatePropagation();
  suppressNoteGridPanClick=false;
 }
-function stepNoteGrid(direction:-1|1){
- const scroller=noteGridScrollers()[0];
- if(!scroller)return;
- const maxLeft=Math.max(0,scroller.scrollWidth-scroller.clientWidth);
- if(maxLeft>1){
-  const target=Math.max(0,Math.min(maxLeft,scroller.scrollLeft+direction*noteBeats.value.length*NOTE_GRID_CELL_PX));
-  for(const view of noteGridScrollers())view.scrollLeft=target;
- }else if(!noteLoopPlaying.value)shiftNoteVisibleRange(direction);
-}
 function handleNoteGridScroll(event:Event){
  if(active.value!=='notes'||noteEditorTab.value!=='notes'||noteDrag)return;
  const element=event.currentTarget as HTMLElement;
@@ -5957,7 +5949,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
   </div>
 </section>
-<section v-else-if="active==='notes'" ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
+<section v-else-if="active==='notes'" ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore,'note-focus-has-selection':noteFocusMode&&noteEditorTab==='notes'&&!!selectedEvent}" @keydown="handleNoteEditorKey">
   <div v-if="noteFocusMode" class="note-focus-toolbar note-unified-focus-toolbar" role="toolbar" aria-label="Focused note editor controls">
     <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
     <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
@@ -6331,6 +6323,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
       <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
     </div>
+    <div class="note-editor-meta" aria-label="Instrument context and note grid settings">
     <div class="note-context-panel" aria-label="Instrument context"><div class="note-context">
       <span><strong>Role</strong> {{noteCtx.role}}</span><span><strong>Difficulty</strong> {{noteCtx.difficulty}}</span>
       <span><strong>Key</strong> {{noteCtx.key}} {{noteCtx.mode}}</span>
@@ -6338,24 +6331,24 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span><strong>Articulation</strong> {{noteCtx.articulation??'none'}}</span>
       <span v-if="noteCtx.technique"><strong>Technique</strong> {{noteCtx.technique}}</span>
       <span><strong>Dynamic</strong> {{noteCtx.dynamic}}</span><span><strong>Activity</strong> {{Math.round(noteCtx.activity*100)}}%</span>
+      <span class="note-active-measure" title="Active measure follows horizontal grid scrolling"><strong>Editing</strong> M{{selectedBar+1}}</span>
       <span v-if="project.protectedBars[`${noteInst}:${selectedBar}`]" class="manual-status">Manual · protected</span>
     </div>
 </div>
-    <div v-if="pianoPlayabilityWarnings.length" class="note-playability-warnings" role="status">
-      <strong>Possible piano hand-reach issues ({{pianoPlayabilityWarnings.length}})</strong>
-      <span v-for="(issue,index) in pianoPlayabilityWarnings.slice(0,4)" :key="index">Measure {{issue.measure+1}}, beat {{Number((issue.beat+1).toFixed(2))}}: {{issue.message}}</span>
-      <small v-if="pianoPlayabilityWarnings.length>4">More warnings are available within the selected measure range.</small>
-      <small>Staff split approximates hands; imported and manually edited notes are never moved automatically.</small>
-    </div>
     <div class="note-rhythm-snap-bar" role="group" aria-label="Rhythm snap guides">
       <label>Snap note onsets to<select :value="noteRhythmPreset" aria-label="Snap to rhythm preset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)">
         <option value="off">Off · free timing</option>
         <option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option>
       </select></label>
       <small v-if="noteRhythmPreset!=='off'">Gold tick marks show preset attacks. New notes within ½ beat snap to them; other onsets remain free. The note label records a real snap, not a guessed pattern.</small>
-      <small v-else>Free timing · choose a preset to show attack guides and snap nearby notes.</small>
     </div>
-    <div class="note-grid-selection-status" aria-live="off"><button type="button" class="secondary" aria-label="Browse to previous measure" @click="stepNoteGrid(-1)">←</button><span>Active measure <strong>{{selectedBar+1}}</strong> · selected range {{noteLoopFrom}}–{{noteLoopTo}}</span><button type="button" class="secondary" aria-label="Browse to next measure" @click="stepNoteGrid(1)">→</button></div>
+    </div>
+    <div v-if="pianoPlayabilityWarnings.length" class="note-playability-warnings" role="status">
+      <strong>Possible piano hand-reach issues ({{pianoPlayabilityWarnings.length}})</strong>
+      <span v-for="(issue,index) in pianoPlayabilityWarnings.slice(0,4)" :key="index">Measure {{issue.measure+1}}, beat {{Number((issue.beat+1).toFixed(2))}}: {{issue.message}}</span>
+      <small v-if="pianoPlayabilityWarnings.length>4">More warnings are available within the selected measure range.</small>
+      <small>Staff split approximates hands; imported and manually edited notes are never moved automatically.</small>
+    </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
 <div class="note-grid-scroll" @scroll.passive="handleNoteGridScroll" @click.capture="blockNoteGridPanClick($event)" @pointerdown="beginNoteGridPan($event)" @pointermove="moveNoteGridPan($event);moveNoteDrag($event)" @pointerup="endNoteGridPan($event);endNoteDrag($event)" @pointercancel="cancelNoteGridPan($event);endNoteDrag($event)">
@@ -6387,7 +6380,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 </div>
 </div>
-    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">On touch screens, drag horizontally on empty note cells or measure headings to browse; drag vertically to scroll the grid. If the selected range fits on screen, a horizontal drag shifts it to adjacent measures. Drag a note itself to move or resize it. The ← and → buttons provide another way to browse.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
+    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">On touch screens, drag horizontally on empty note cells or measure headings to browse; drag vertically to scroll the grid. If the selected range fits on screen, a horizontal drag shifts it to adjacent measures. Drag a note itself to move or resize it. The measure-range arrows above the grid can shift the selected range.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
     <section v-if="noteInst.startsWith('Voice')" class="lyric-workspace" aria-label="Lyric alignment editor">
       <div class="section-heading"><h3>Lyrics · note-aligned timeline</h3><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous lyrics measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.beats}} beats</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next lyrics measure">›</button></div>
       <p class="hint">Each segment follows the written note onset and duration. The strip joins adjacent segments visually; rests remain visible as empty space. Editing lyrics never changes note timing, pitch or playback articulation.</p>
@@ -6471,7 +6464,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <p class="hint">Articulation does not change the written rhythmic value. New staccato and marcato notes default to a quarter note (1 beat) unless you select a different written duration. Staccato defaults to 28% sounding length; marcato to 58% with a stronger accent; legato to 94%. The sounding-length control overrides these playback defaults. MusicXML exports a dot for unaccented staccato and a &gt; accent for accented staccato/marcato; exact sounding-length percentages apply only to the app's playback. Manual notes are saved in the .tango project, used in playback and MusicXML, and retained by Generate orchestra. “Restore generated measure” removes this instrument-measure's protection without touching other edits. Lead-sheet melody is unchanged.</p>
   </div>
   </section>
-  <div v-if="noteFocusMode" class="note-focus-bottom" role="region" aria-label="Selected note quick editing">
+  <div v-if="noteFocusMode&&noteEditorTab==='notes'&&selectedEvent" class="note-focus-bottom" role="region" aria-label="Selected note quick editing">
     <template v-if="selectedEvent">
       <strong>{{displayPitch(selectedEvent.pitch)}} · beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}} · {{selectedEvent.duration}} beats</strong>
       <button type="button" class="secondary" aria-label="Move note earlier by half a beat" @click="nudgeSelectedNote(-0.5)">← ½</button>
@@ -6582,10 +6575,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-grid-window{position:absolute;top:0;height:100%;min-width:0;display:grid}
 .note-grid-window-measures{grid-template-columns:repeat(var(--note-window-measures),minmax(0,1fr))}
 .note-grid-window-beats,.note-grid-window-cells{grid-template-columns:repeat(var(--note-window-steps),minmax(0,1fr))}
-.note-grid-selection-status{display:flex;gap:5px;align-items:center;flex-wrap:wrap;font-size:12px;color:#b7cbd7;padding:2px 5px 6px}
-.note-grid-selection-status strong{color:#f0ce91}
-.note-grid-selection-status button{min-width:44px;min-height:40px;padding:4px 11px;flex:0 0 auto}
-.note-grid-selection-status span{min-width:0}
 
 /* Keep an active note loop compact even though global .play fills its parent. */
 .note-editor-section .note-loop-toggle{width:auto;flex:0 0 auto;white-space:nowrap}
@@ -6674,8 +6663,36 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-editor-section:not(.note-focus-mode) .note-context-panel{margin:2px 0 3px;padding:2px 3px}
 
 .note-editor-section.note-focus-mode{
-  padding:0 3px calc(96px + env(safe-area-inset-bottom));
+  padding:0 3px calc(10px + env(safe-area-inset-bottom));
 }
+.note-editor-section.note-focus-mode.note-focus-has-selection{
+  padding-bottom:calc(96px + env(safe-area-inset-bottom));
+}
+/* The same four accessible editing tools work in both normal and focus modes. */
+.note-editor-section.note-focus-mode>.note-subtabs{
+  display:flex!important;
+  flex-wrap:nowrap;
+  gap:3px;
+  margin:0 0 2px;
+  padding:0 2px;
+  min-width:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+  border-bottom:1px solid #435462;
+}
+.note-editor-section.note-focus-mode>.note-subtabs button{
+  flex:0 0 auto;
+  white-space:nowrap;
+  min-height:38px;
+  padding:5px 10px;
+  font-size:12px;
+}
+.note-editor-section.note-focus-mode [role=tabpanel]>.editor{margin-top:2px}
+.note-editor-section.note-focus-mode #note-panel-capture>.editor{padding:8px}
+.note-editor-section.note-focus-mode .note-grid-scroll{max-height:calc(100dvh - 160px)}
+.note-editor-section.note-focus-mode.note-focus-has-selection .note-grid-scroll{max-height:calc(100dvh - 245px)}
 .note-editor-section.note-focus-mode .note-unified-focus-toolbar{
   margin:0 -3px 3px;
   padding:3px 5px;
@@ -6716,6 +6733,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   .note-editor-section:not(.note-focus-mode) .note-unified-toolbar label{flex:0 0 125px}
   .note-editor-section:not(.note-focus-mode) .note-unified-toolbar label:first-of-type{flex-basis:148px}
   .note-editor-section.note-focus-mode{padding-inline:2px}
+  .note-editor-section.note-focus-mode.note-focus-has-selection{padding-bottom:calc(155px + env(safe-area-inset-bottom))}
+  .note-editor-section.note-focus-mode .note-grid-scroll{max-height:calc(100dvh - 195px)}
+  .note-editor-section.note-focus-mode.note-focus-has-selection .note-grid-scroll{max-height:calc(100dvh - 280px)}
   .note-editor-section.note-focus-mode .note-unified-focus-toolbar{margin-inline:-2px;padding:2px 3px;gap:4px}
   .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-identity{flex-basis:auto}
   .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range{flex:0 0 auto;flex-wrap:nowrap}
@@ -6763,6 +6783,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-rhythm-snap-bar label{display:flex;align-items:center;gap:7px;margin:0;font-size:11px;white-space:nowrap}
 .note-rhythm-snap-bar select{max-width:190px;min-width:145px;margin:0;padding:4px 5px;font-size:11px;min-height:32px}
 .note-rhythm-snap-bar small{font-size:11px;color:#c5d1dc;line-height:1.35;flex:1 1 200px}
+/* One compact row replaces separate context and snap bands. */
+.note-editor-meta{display:flex;align-items:center;flex-wrap:wrap;gap:3px 10px;margin:0 0 3px;padding:3px 5px;border:1px solid #435462;border-radius:6px;background:#20303c;min-width:0}
+.note-editor-section .note-editor-meta .note-context-panel{flex:1 1 550px;min-width:0;margin:0;padding:0;border:0;background:transparent}
+.note-editor-section .note-editor-meta .note-rhythm-snap-bar{flex:0 1 auto;max-width:100%;margin:0;padding:0;gap:5px;border:0;background:transparent}
+.note-editor-section .note-editor-meta .note-context{gap:2px 4px}
+.note-editor-section .note-editor-meta .note-context span{padding:2px 5px}
+.note-editor-section .note-editor-meta .note-rhythm-snap-bar label{min-height:34px}
+.note-editor-section .note-editor-meta .note-active-measure{color:#f1d49d;background:#304451;border:1px solid #6e7f87;font-weight:650}
+.note-editor-section.note-focus-mode .note-editor-meta{margin-bottom:2px}
 .note-continuous-beat.note-rhythm-guide{box-shadow:inset 3px 0 0 #e9be73}
 .note-continuous-beat.note-rhythm-guide::after{content:'◆';position:absolute;right:3px;top:0;font-size:8px;color:#f6c879}
 .note-continuous-pitch-row .note-grid-cell.note-rhythm-guide{box-shadow:inset 2px 0 0 rgba(236,191,115,.52)}
