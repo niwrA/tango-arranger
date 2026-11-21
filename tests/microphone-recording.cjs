@@ -20,7 +20,7 @@ const stateNames=['capturePlaying','captureRecording','captureLoopEnabled','melo
  'microphoneStatus','microphoneEstimate','microphoneSensitivity','microphoneInputDb',
  'microphoneMonitoring','microphoneListening','microphoneStarting','microphoneSessionShift',
  'microphoneThresholdDb','microphoneScoreShift','microphoneDisplayShift','microphoneStream',
- 'rhythmAuditionPlaying','microphoneContext','microphoneSource','microphoneAnalyser','microphoneSilentSink',
+ 'rhythmAuditionPlaying','waitingForSingerCue','microphoneContext','microphoneSource','microphoneAnalyser','microphoneSilentSink',
  'microphoneFrame','microphoneActive','microphoneCandidate','microphoneGeneration',
  'rawPitchFrameInterval','rawPitchFrameLimit','rawPitchFrames','rawPitchSession','rawPitchTruncated','rawPitchExport','rawPitchCopyStatus',
  'pitchProcessing','pitchPreviewNotes','originalMicrophoneTake','pitchRawRevision',
