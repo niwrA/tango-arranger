@@ -57,11 +57,14 @@ check('compact piano identifies both hands with actual note ranges and preserves
  assert.ok(diagram.includes("hand.id==='bass'?pianoBassCaption:pianoUpperCaption"));
  assert.ok(diagram.includes("isPianoMeasurePitch(midi)||isPlayingPitch(midi)"));
 });
-check('header is single row with responsive overflow and grouped complete file formats',()=>{
- const from=app.lastIndexOf('/* One-row transport.');
- const tail=app.slice(from);
- assert.ok(tail.includes('flex-wrap:nowrap!important'));
- assert.ok(tail.includes('.app-topbar .topbar-compact-actions{display:flex'));
+check('compact header keeps song selection visible alongside overflow and grouped file formats',()=>{
+ const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+ assert.match(app,/<label class="topbar-song-label" for="header-song-picker">Song<\/label>/);
+ assert.match(app,/id="header-song-picker"[^>]*@change="chooseSongFromPicker"/);
+ assert.doesNotMatch(app,/\.app-topbar \.topbar-song[^{}]*\{display:none!important/);
+ assert.ok(css.includes('.shell:not(.performance-live)>.app-topbar{flex-wrap:wrap!important}'));
+ assert.match(css,/\.app-topbar \.topbar-song\{\s*display:flex!important/);
+ assert.ok(app.includes('.app-topbar .topbar-compact-actions{display:flex'));
  assert.ok(app.includes('class="topbar-compact-actions"'));
  assert.ok(app.includes('class="files-organized-panel"')||app.includes('files-organized-panel'));
  for(const token of ['exportXml','exportMxl','exportMscz()','exportDifficultyEditionPack','exportAbcLead','exportForMobileSheets','saveProject(project)','importDialogOpen=true'])

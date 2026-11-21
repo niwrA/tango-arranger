@@ -4495,6 +4495,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span v-if="audioEngine==='samples'&&/unavailable/i.test(sampleStatus)" class="header-save-status" role="status">{{sampleStatus}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span v-if="/fail|unavailable|error/i.test(audioStatus)" class="header-save-status" role="alert">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
+    <label class="topbar-song-label" for="header-song-picker">Song</label>
     <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
     <button class="secondary icon-action" type="button" title="Create new blank song" aria-label="New blank song" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/></button>
     <button class="secondary icon-action" type="button" title="Save current song now" aria-label="Save song now" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/></button>
@@ -6531,8 +6532,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .instrument-focus-dynamic-band small{font-size:10px}
 }
 
-/* One-row transport. The existing full menus collapse into a compact workspace
- * menu rather than forcing extra header rows on iPad/phone Safari. */
+/* Compact transport and workspace actions. Song selection remains visible in
+ * its own row on smaller editor screens. */
 .topbar-compact-actions{display:none}
 .files-organized-panel{min-width:min(340px,calc(100vw - 20px));max-height:min(75dvh,720px);overflow:auto}
 .files-action-group{display:flex;flex-direction:column;gap:4px;padding:5px 2px}
@@ -6563,7 +6564,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .dynamics-tile-meter span{display:block;height:100%;background:#e7bf87}
 @media(max-width:1120px){
  .app-topbar,.performance-live .app-topbar{display:flex!important;flex-wrap:nowrap!important;align-items:center;gap:5px!important;padding:6px 8px!important;min-height:55px;max-width:100%;overflow:visible}
- .app-topbar .brand,.app-topbar .topbar-song,.app-topbar .topbar-arrange,.app-topbar .topbar-options{display:none!important}
+ .app-topbar .brand,.app-topbar .topbar-arrange,.app-topbar .topbar-options{display:none!important}
  .app-topbar .topbar-playback{display:flex!important;flex:0 0 auto!important;order:0!important;grid-area:auto!important;width:auto!important;min-width:0;padding:0!important;border:0!important;margin:0!important;gap:4px}
  .app-topbar .topbar-playback .playback-menu{display:none!important}
  .app-topbar .topbar-files{display:flex!important;flex:0 0 auto!important;order:3!important;grid-area:auto!important;padding:0!important;border:0!important}
