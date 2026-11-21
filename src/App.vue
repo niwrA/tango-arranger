@@ -4923,23 +4923,49 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span v-if="audioEngine==='samples'&&/unavailable/i.test(sampleStatus)" class="header-save-status" role="status">{{sampleStatus}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span v-if="/fail|unavailable|error/i.test(audioStatus)" class="header-save-status" role="alert">{{audioStatus}}</span></div></details>
   </div>
-  <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
+  <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
-    <button class="secondary icon-action" type="button" title="Create new blank song" aria-label="New blank song" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/></button>
-    <button class="secondary icon-action" type="button" title="Save current song now" aria-label="Save song now" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/></button>
-    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import song, MusicXML or MIDI…</button><button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span></div></details>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
+    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+      <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
+        <div class="files-action-group">
+          <strong class="files-group-title">File · Current song</strong>
+          <button type="button" class="secondary" @click="newSongOpen=true"><AppIcon name="file-plus-2"/> New blank song…</button>
+          <label>Open a saved song
+            <select aria-label="Open song from local library" :value="localSongId" :disabled="!libraryReady" @change="openLocalSong(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).closest('details.topbar-menu')?.removeAttribute('open')">
+              <option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option>
+            </select>
+          </label>
+          <button type="button" class="secondary" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/> Save current song</button>
+          <button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button>
+          <button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song…</button>
+        </div>
+        <div class="files-action-group">
+          <strong class="files-group-title">Local storage &amp; backups</strong>
+          <p class="files-group-help">Songs are saved in this browser. Export a portable backup to move a project to another device.</p>
+          <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Download project backup (.tango.json)</button>
+          <span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span>
+        </div>
+      </div>
+    </details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
-  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Export and backup">
+  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Import and export">
     <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
-      <summary class="icon-action files-summary" title="Export scores and project backups" aria-label="Exports and backups"><AppIcon name="file-down"/><span class="files-label">Export</span><AppIcon name="chevron-down"/></summary>
-      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Export scores and backups">
-        <div class="files-action-group"><strong class="files-group-title">Scores for notation software</strong>
+      <summary class="icon-action files-summary" title="Import and export songs and notation" aria-label="Import and export"><AppIcon name="arrow-left-right"/><span class="files-label">Import / Export</span><AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export">
+        <div class="files-action-group">
+          <strong class="files-group-title">Import</strong>
+          <button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import project, MusicXML or MIDI…</button>
+          <button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button>
+        </div>
+        <div class="files-action-group">
+          <strong class="files-group-title">Export · Notation software</strong>
           <button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> MusicXML (.musicxml)</button>
           <button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Compressed MusicXML (.mxl)</button>
           <button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> MuseScore (.mscz) · experimental</button>
-          <label>Export one instrument (.mscz)
+          <label>One instrument as MuseScore (.mscz)
             <select aria-label="Choose instrument to export as MuseScore" @change="($event.target as HTMLSelectElement).value && exportMscz(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).value=''">
               <option value="">Choose instrument…</option>
               <option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option>
@@ -4947,13 +4973,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           </label>
           <button type="button" class="secondary" @click="exportDifficultyEditionPack"><AppIcon name="file-down"/> Difficulty editions (.zip)</button>
         </div>
-        <div class="files-action-group"><strong class="files-group-title">Lead sheets &amp; project backup</strong>
+        <div class="files-action-group">
+          <strong class="files-group-title">Export · Players &amp; print</strong>
           <button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> ABC lead sheet</button>
           <button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> MobileSheets parts (.zip)</button>
+        </div>
+        <div class="files-action-group">
+          <strong class="files-group-title">Export · Project exchange</strong>
           <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Portable project (.tango.json)</button>
         </div>
       </div>
     </details>
+  </div>
+  <div v-if="!performanceMode&&['lead','arrange','rhythm','notes'].includes(active)" class="topbar-group topbar-measure-tools" role="group" aria-label="Editing operations">
+    <button type="button" class="icon-action measure-taskbar-trigger" :class="measurePanelOpen?'primary':'secondary'" title="Measure tools · copy, paste and move" aria-label="Open measure copy, paste and move tools" :aria-expanded="measurePanelOpen" @click="toggleMeasureEditTools"><AppIcon name="clipboard-copy"/><span class="measure-tool-label">Measures</span></button>
   </div>
   <div class="topbar-compact-actions" role="group" aria-label="Additional workspace actions">
     <details class="topbar-menu compact-workspace-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
