@@ -19,7 +19,7 @@ const gestures=load('src/tangoGestures.ts');
 const phrases=load('src/phrasePlan.ts');
 const music=load('src/music.ts',{'./tangoGestures':gestures,'./phrasePlan':phrases});
 const editions=load('src/editions.ts',{'./music':music,'./phrasePlan':phrases});
-const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),./music':music,'./editions':editions,'./tangoGestures':gestures,'./musicXmlImport':{parseMusicXmlDetailed(){throw Error('Not used in export tests');}}});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music,'./editions':editions,'./tangoGestures':gestures,'./musicXmlImport':{parseMusicXmlDetailed(){throw Error('Not used in export tests');}}});
 let checks=0;
 function check(label,task){task();checks++;console.log('PASS',label);}
 function song(){
