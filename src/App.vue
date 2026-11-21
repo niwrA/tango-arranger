@@ -7623,4 +7623,66 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  width:100%;margin:5px 0 0;min-height:39px;padding:7px 9px;font-size:14px;
  font-variant-numeric:tabular-nums;color:#f0f5f8;background:#11202c
 }
+
+/* Compact measure tools: the score itself always remains unobstructed when closed. */
+.measure-tools-backdrop{
+ position:fixed;inset:0;z-index:5000;background:rgba(5,12,19,.72);
+ display:flex;justify-content:center;align-items:flex-start;
+ padding:max(18px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom));
+ box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain
+}
+.measure-tools-dialog.measure-edit-shell{
+ width:min(840px,100%);max-width:100%;max-height:calc(100dvh - 38px);
+ margin:clamp(0px,4vh,38px) auto;overflow-y:auto;box-sizing:border-box;
+ background:#243440;border:1px solid #7691a5;border-radius:15px;
+ padding:clamp(14px,2vw,23px);box-shadow:0 22px 70px #000a;
+}
+.measure-tools-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.measure-tools-heading h2{margin:0;color:#f2d49e;font-size:clamp(19px,2.2vw,25px)}
+.measure-tools-heading p{margin:3px 0 0;font-size:13px;color:#d5e0e7}
+.measure-tools-heading .icon-action{width:44px;min-width:44px;height:44px}
+.measure-tools-dialog .measure-edit-body{display:grid;gap:14px;margin-top:15px}
+.measure-tools-step{display:grid;gap:10px;padding:13px;border:1px solid #526d7d;border-radius:10px;background:#1e2d38}
+.measure-tools-step-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.measure-tools-step-title strong{color:#f2cf98;font-size:15px}
+.measure-tools-step .measure-edit-grid>label{min-width:130px;flex:1 1 155px;max-width:none}
+.measure-tools-step .measure-edit-fields{padding:7px 9px;border:1px solid #425563}
+.measure-tools-step .measure-edit-fields label{font-size:12px;min-height:30px}
+.measure-tools-step .measure-edit-actions{gap:8px}
+.measure-tools-inline-hint{font-size:12px;color:#c4d8e5;line-height:1.45;margin:0}
+.measure-tools-clipboard{font-size:12px;color:#d9e5ed}
+.measure-tools-validation{margin:0;padding:10px 12px;border:1px solid #da987e;border-radius:7px;color:#ffe0d6;background:#4a2c2d;display:flex;align-items:center;gap:9px;font-size:13px}
+.measure-tools-feedback{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:8px;border:1px solid #67879b;background:#1a3948;color:#ecf4f9;font-size:13px;line-height:1.5}
+.measure-tools-feedback .app-icon{flex:none;margin-top:2px}
+.measure-tools-feedback-error{border-color:#d58a8a;background:#432b30;color:#ffe5e5}
+.measure-tools-feedback-success{border-color:#82b4a3;background:#204238;color:#e5fff3}
+.measure-tools-dialog .measure-edit-confirm{margin-top:0;border:1px solid #dfb978}
+.measure-tools-dialog .measure-edit-confirm strong{font-size:16px}
+.measure-tools-extra{padding:0 12px}
+.measure-tools-extra>details>summary{cursor:pointer;color:#dce7ee;font-size:13px;font-weight:700;padding:12px 0;min-height:42px}
+.measure-tools-extra>details .measure-edit-actions{padding-bottom:12px}
+.measure-range-pick-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px 13px;border:1px solid #d1ac72;border-radius:9px;background:#33424b;color:#f6dfb3;font-size:13px}
+.measure-range-pick-banner span{flex:1 1 260px}
+.measure-taskbar-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:39px!important}
+.topbar-measure-tools{order:5}
+.file-menu-summary{display:inline-flex;align-items:center;gap:7px!important}
+.files-group-help{margin:2px 6px 9px;color:#c1d3e0;font-size:12px;line-height:1.4}
+.files-organized-panel label>select{width:100%}
+@media(max-width:1120px){
+ .app-topbar .topbar-measure-tools{display:flex!important;flex:0 0 auto!important;order:4!important;margin:0;padding:0!important;border:0!important}
+ .app-topbar .topbar-measure-tools .measure-taskbar-trigger{height:42px!important;min-height:42px!important;min-width:42px!important;padding:5px 8px!important}
+ .app-topbar .topbar-compact-actions{order:5!important;margin-left:0!important}
+ .app-topbar .file-menu-label,.app-topbar .measure-tool-label{display:none}
+ .app-topbar .topbar-song .file-menu-summary{min-width:40px!important;min-height:42px!important}
+}
+@media(max-width:720px){
+ .measure-tools-backdrop{padding:6px}
+ .measure-tools-dialog.measure-edit-shell{max-height:calc(100dvh - 12px);margin:0 auto;padding:12px}
+ .measure-tools-step{padding:10px}
+ .measure-tools-step .measure-edit-grid>label{flex:1 1 calc(50% - 6px);min-width:115px}
+ .measure-tools-step-title button{min-height:39px}
+ .measure-tools-dialog .measure-edit-actions button{min-height:42px}
+ .app-topbar .topbar-measure-tools .measure-taskbar-trigger{min-width:38px!important;padding:4px!important}
+}
+
 </style>
