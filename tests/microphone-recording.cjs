@@ -20,7 +20,8 @@ const stateNames=['capturePlaying','captureRecording','captureLoopEnabled','melo
  'microphoneStatus','microphoneEstimate','microphoneSensitivity','microphoneInputDb',
  'microphoneMonitoring','microphoneListening','microphoneStarting','microphoneSessionShift',
  'microphoneThresholdDb','microphoneScoreShift','microphoneDisplayShift','microphoneStream',
- 'microphoneContext','microphoneFrame','microphoneActive','microphoneCandidate','microphoneGeneration'];
+ 'microphoneContext','microphoneFrame','microphoneActive','microphoneCandidate','microphoneGeneration',
+ 'rawPitchFrameInterval','rawPitchFrameLimit','rawPitchFrames','rawPitchSession','rawPitchTruncated','rawPitchExport','rawPitchCopyStatus'];
 const extracted=[];
 const found=new Set();
 for(const statement of ast.statements){
@@ -80,13 +81,13 @@ function harness(){
   getDraw:()=>({schedule:callback=>callback()}),Frequency:pitch=>({toFrequency:()=>pitch})};
  const ctx={console,module:{exports:{}},ref,computed,watch:(target,callback)=>watches.push({target,callback}),
   project:ref({bars:[{chord:'C',section:'A'}],beats:4,bpm:120,transposeSemitones:0,melodyDucking:{enabled:false}}),
-  active:ref('notes'),noteEditorTab:ref('capture'),noteLoopFrom:ref(1),noteLoopTo:ref(1),
+  active:ref('notes'),noteInst:ref('Voice'),noteEditorTab:ref('capture'),noteLoopFrom:ref(1),noteLoopTo:ref(1),
   score:ref({Voice:[]}),INSTRUMENTS:['Voice'],Tone:tone,
   startAudioFromGesture:()=>{unlockCalls++;return unlocks.length?unlocks.shift():Promise.resolve(tone);},
   measureLoopEvents,chordAt,chordTones,addCapturedTap,microphoneScoreMidi,
   playExpressiveEvent:(_audio,event,time)=>expressive.push({event,time}),
   detectMonophonicPitch:()=>ctx.estimate,
-  estimate:{midi:69,frequency:440,clarity:0.99},
+  estimate:{midi:69,frequency:440,clarity:0.99},sampleAmplitude:0.1,
   clearInterval(){},performanceTicker:null,noteLoopSession:0,rhythmLoopSession:0,
   synth:null,loopSynth:null,rhythmLoopSynth:null,instrumentSynths:new Map(),samplePlayers:new Map(),
   releaseCapturePianoKey(){throw Error('No held keyboard keys are part of these microphone cases');},
@@ -100,11 +101,11 @@ function harness(){
   const stream={track,getTracks:()=>[track]};streams.push(stream);return stream;
  }
  ctx.AudioContext=class{
-  constructor(){this.sampleRate=48000;this.closed=false;this.state=resumes.length?'suspended':'running';contexts.push(this);}
+  constructor(){this.sampleRate=48000;this.currentTime=100;this.closed=false;this.state=resumes.length?'suspended':'running';contexts.push(this);}
   resume(){return resumes.length?resumes.shift():Promise.resolve();}
   close(){this.closed=true;return Promise.resolve();}
   createMediaStreamSource(){return {connect(){}};}
-  createAnalyser(){return {fftSize:4096,getFloatTimeDomainData:samples=>samples.fill(0.1)};}
+  createAnalyser(){return {fftSize:4096,getFloatTimeDomainData:samples=>samples.fill(ctx.sampleAmplitude)};}
  };
  vm.runInNewContext(productionCode,ctx,{filename:'App.microphone-test.js'});
  const api=ctx.module.exports,state=api.state;
@@ -112,9 +113,11 @@ function harness(){
  state().captureQuantize.value='0.25';
  state().captureMuteBacking.value=false;
  function change(target,value){target.value=value;for(const item of watches)if(item.target===target)item.callback(value);}
- function frame(beat){
+ function frame(beat,audioSeconds){
   const s=state(),lead=s.captureCountIn.value&&s.captureRecording.value?ctx.project.value.beats:0;
   transport.seconds=(beat+lead)*60/(ctx.project.value.bpm*s.captureSpeed.value);
+  assert.ok(s.microphoneContext,'Microphone context is active');
+  s.microphoneContext.currentTime=audioSeconds===undefined?s.microphoneContext.currentTime+0.05:100+audioSeconds;
   const entry=frames.entries().next().value;assert.ok(entry,'An animation frame is scheduled');
   frames.delete(entry[0]);entry[1]();
  }
@@ -206,6 +209,9 @@ function harness(){
   h.ctx.project.value.transposeSemitones=-5;h.state().captureTranspose.value=-12;
   unlock.resolve(h.tone);await starting;
   assert.equal(h.state().microphoneSessionShift.value,14);assert.equal(h.state().microphoneDisplayShift.value,14);
+  assert.equal(h.state().rawPitchSession.value.recordingTransposeSemitones,12);
+  assert.equal(h.state().rawPitchSession.value.songTransposeSemitones,2);
+  assert.equal(h.state().rawPitchSession.value.soundingTransposeSemitones,14);
   h.transport.repeats.find(item=>item.interval==='1m').callback(0);
   assert.equal(h.state().captureSynth.calls[0].pitch,74);
   h.ctx.estimate={midi:83.12,frequency:990,clarity:0.99};
@@ -238,5 +244,80 @@ function harness(){
    assert.equal(h.state().captureSynth.calls[0].pitch,62);h.api.stopPlayback();
   }
  });
- console.log(checks+' microphone recording lifecycle and transposition checks passed');
+ await check('raw pitch records fractional estimates, silence and unlocked signal in microphone tests',async()=>{
+  const h=harness();h.ctx.estimate={midi:47.12345,frequency:129.875,clarity:0.913};
+  await h.api.recordFromMicrophone(true);
+  h.frame(0,0);h.frame(0,0.016);
+  assert.equal(h.state().rawPitchFrames.value.length,1);
+  const first=h.state().rawPitchFrames.value[0];
+  assert.equal(first.timeSeconds,0);assert.equal(first.beat,null);
+  assert.equal(first.frequencyHz,129.875);assert.equal(first.midi,47.12345);assert.equal(first.clarity,0.913);
+  h.ctx.sampleAmplitude=0;h.frame(0,0.05);
+  const silent=h.state().rawPitchFrames.value[1];
+  assert.equal(silent.frequencyHz,null);assert.equal(silent.midi,null);assert.equal(silent.clarity,null);assert.equal(silent.levelDbfs,-90);
+  h.ctx.sampleAmplitude=0.1;h.ctx.estimate=null;h.frame(0,0.1);
+  const unlocked=h.state().rawPitchFrames.value[2];
+  assert.equal(unlocked.midi,null);assert.ok(unlocked.levelDbfs>-21);
+  assert.equal(h.state().melodyCaptureTaps.value.length,0);
+  h.api.stopPlayback();
+  const exported=JSON.parse(h.state().rawPitchExport.value);
+  assert.equal(exported.mode,'test');assert.equal(exported.sampleRateHz,48000);assert.equal(exported.frames.length,3);
+  assert.equal(exported.frames.every(frame=>frame.beat===null),true);
+  assert.equal(h.state().microphoneContext,null);assert.equal(h.state().rawPitchFrames.value.length,3);
+ });
+ await check('raw timeline samples audio-clock buckets without inventing missing frames and remains bounded',async()=>{
+  const h=harness();await h.api.recordFromMicrophone(true);
+  for(const time of [0,0.01,0.02,0.049,0.05,0.099,0.1,0.35,0.2])h.frame(0,time);
+  assert.deepEqual(Array.from(h.state().rawPitchFrames.value,frame=>frame.timeSeconds),[0,0.05,0.1,0.35]);
+  for(let i=8;i<h.state().rawPitchFrameLimit+10;i++)h.frame(0,i*0.05);
+  assert.equal(h.state().rawPitchFrames.value.length,12000);assert.equal(h.state().rawPitchTruncated.value,true);
+  const first=h.state().rawPitchFrames.value[0],last=h.state().rawPitchFrames.value.at(-1);
+  h.frame(0,1000);
+  assert.equal(h.state().rawPitchFrames.value[0],first);assert.equal(h.state().rawPitchFrames.value.at(-1),last);
+  h.api.stopPlayback();assert.equal(JSON.parse(h.state().rawPitchExport.value).truncated,true);
+ });
+ await check('only a successful new microphone session resets the previous raw timeline',async()=>{
+  const h=harness();await h.api.recordFromMicrophone(true);h.frame(0,0);h.api.stopPlayback();
+  const previous=h.state().rawPitchExport.value;
+  h.permissions.push(Promise.reject(Error('Permission denied')));await h.api.recordFromMicrophone(false);
+  assert.equal(h.state().rawPitchExport.value,previous);
+  const permission=deferred();h.permissions.push(permission.promise);
+  const deniedStart=h.api.recordFromMicrophone(true);h.api.stopPlayback();permission.resolve(h.makeStream());await deniedStart;
+  assert.equal(h.state().rawPitchExport.value,previous);
+  const resume=deferred();h.resumes.push(resume.promise);
+  const cancelledStart=h.api.recordFromMicrophone(true);await settle();h.api.stopPlayback();resume.resolve();await cancelledStart;
+  assert.equal(h.state().rawPitchExport.value,previous);
+  await h.api.recordFromMicrophone(false);
+  assert.equal(h.state().rawPitchFrames.value.length,0);assert.equal(h.state().rawPitchSession.value.mode,'recording');
+  h.frame(-1,0);h.frame(0,0.05);
+  assert.deepEqual(Array.from(h.state().rawPitchFrames.value,frame=>frame.beat),[-1,0]);
+  h.api.stopPlayback();await h.api.recordFromMicrophone(true);
+  assert.equal(h.state().rawPitchFrames.value.length,0);assert.equal(h.state().rawPitchSession.value.mode,'test');
+  assert.equal(h.state().rawPitchTruncated.value,false);h.api.stopPlayback();
+ });
+ await check('raw export retains session settings after stopping or changing editor and records live sensitivity',async()=>{
+  const h=harness();
+  h.ctx.project.value.bars=Array.from({length:9},()=>({chord:'C',section:'A'}));
+  h.ctx.project.value.bpm=124;h.ctx.project.value.transposeSemitones=2;
+  h.ctx.noteLoopFrom.value=6;h.ctx.noteLoopTo.value=9;
+  h.state().captureTranspose.value=12;h.state().captureSpeed.value=0.75;h.state().captureLatency.value=20;
+  await h.api.recordFromMicrophone();h.frame(-1,0);
+  h.state().microphoneSensitivity.value=100;h.ctx.project.value.bpm=130;h.state().captureLatency.value=40;h.frame(0,0.05);
+  h.api.stopPlayback();
+  const snapshot=h.state().rawPitchExport.value,exported=JSON.parse(snapshot);
+  assert.equal(exported.instrument,'Voice');assert.equal(exported.mode,'recording');
+  assert.deepEqual(exported.measures,{from:6,to:9});assert.equal(exported.beatsPerMeasure,4);
+  assert.equal(exported.tempoBpm,124);assert.equal(exported.recordingSpeed,0.75);assert.equal(exported.latencyCorrectionMs,20);
+  assert.equal(exported.sampleRateHz,48000);assert.equal(exported.countInBeats,4);
+  assert.equal(exported.recordingTransposeSemitones,12);assert.equal(exported.songTransposeSemitones,2);assert.equal(exported.soundingTransposeSemitones,14);
+  assert.equal(exported.sensitivityPercent,70);
+  assert.deepEqual(exported.frames.map(frame=>frame.sensitivityPercent),[70,100]);
+  assert.deepEqual(exported.frames.map(frame=>frame.tempoBpm),[124,130]);
+  assert.deepEqual(exported.frames.map(frame=>frame.latencyCorrectionMs),[20,40]);
+  h.ctx.noteInst.value='Piano';h.ctx.noteLoopFrom.value=1;h.ctx.noteLoopTo.value=1;
+  h.state().captureTranspose.value=-7;h.state().microphoneSensitivity.value=10;h.ctx.project.value.bpm=90;
+  h.change(h.state().captureInputSource,'instrument');h.change(h.ctx.noteEditorTab,'notes');
+  assert.equal(h.state().rawPitchExport.value,snapshot);
+ });
+ console.log(checks+' microphone recording, raw pitch and transposition checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

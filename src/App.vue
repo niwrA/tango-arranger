@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import AppIcon from './AppIcon.vue';
+import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
 import {deleteProjectSection} from './sectionDeletion';
@@ -1325,6 +1326,18 @@ async function recordFromMicrophone(monitorOnly=false){
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
   acquiredStream=stream;
   if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
+  // Capture settings before asynchronous transport startup can outlive changes
+  // to the editor. Frame-level sensitivity/tempo/latency track live adjustments.
+  const sessionSettings={
+   mode:monitorOnly?'test' as const:'recording' as const,
+   instrument:noteInst.value,tempoBpm:project.value.bpm,beatsPerMeasure:project.value.beats,
+   measures:{from:captureFirst.value+1,to:captureLast.value+1},
+   sensitivityPercent:microphoneSensitivity.value,
+   recordingTransposeSemitones:captureTranspose.value,
+   songTransposeSemitones:project.value.transposeSemitones??0,
+   recordingSpeed:captureSpeed.value,latencyCorrectionMs:captureLatency.value,
+   countInBeats:!monitorOnly&&captureCountIn.value?project.value.beats:0
+  };
   let scoreShift=microphoneScoreShift.value;
   if(!monitorOnly){
    const starting=startCaptureTransport(true);
@@ -1352,6 +1365,12 @@ async function recordFromMicrophone(monitorOnly=false){
   const analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=0;
   source.connect(analyser);
   const samples=new Float32Array(analyser.fftSize);
+  // Reset only after permission, transport and analyser startup succeeded. The
+  // previous trace remains available after a denied or cancelled start.
+  rawPitchSession.value={...sessionSettings,sampleRateHz:context.sampleRate,soundingTransposeSemitones:scoreShift};
+  rawPitchFrames.value=[];rawPitchTruncated.value=false;rawPitchCopyStatus.value='';
+  const rawStartedAt=context.currentTime;
+  let lastRawBucket=-1;
   microphoneStatus.value=monitorOnly?'Microphone test · no notes are recorded. Press Record when ready.':'Sing one note at a time after the count-in; review the draft before applying.';
   const tick=()=>{
    if(activeGeneration!==microphoneGeneration||(!monitorOnly&&!captureRecording.value))return;
@@ -1362,7 +1381,8 @@ async function recordFromMicrophone(monitorOnly=false){
    for(const sample of samples)energy+=sample*sample;
    const rms=Math.sqrt(energy/samples.length);
    // A logarithmic meter makes quiet microphone signals visible without playing them through speakers.
-   microphoneInputDb.value=rms>0?Math.max(-90,Math.round(20*Math.log10(rms))):-90;
+   const levelDbfs=rms>0?Math.max(-90,20*Math.log10(rms)):-90;
+   microphoneInputDb.value=Math.round(levelDbfs);
    // Sensitivity controls the minimum usable input level, independently of the display meter.
    // -80 dBFS at maximum sensitivity; -30 dBFS at minimum sensitivity.
    const minimumRms=Math.pow(10,microphoneThresholdDb.value/20);
@@ -1373,6 +1393,19 @@ async function recordFromMicrophone(monitorOnly=false){
    const pitch=estimate?microphoneScoreMidi(estimate.midi,scoreShift):null;
    microphoneEstimate.value=estimate;
    const elapsed=monitorOnly?-1:captureElapsedBeats();
+   const timeSeconds=Math.max(0,context.currentTime-rawStartedAt);
+   const rawBucket=Math.floor((timeSeconds+1e-7)/rawPitchFrameInterval);
+   if(rawBucket>lastRawBucket){
+    lastRawBucket=rawBucket;
+    if(rawPitchFrames.value.length<rawPitchFrameLimit){
+     rawPitchFrames.value.push({
+      timeSeconds:Number(timeSeconds.toFixed(6)),beat:monitorOnly?null:Number(elapsed.toFixed(6)),
+      frequencyHz:estimate?.frequency??null,midi:estimate?.midi??null,clarity:estimate?.clarity??null,
+      levelDbfs,sensitivityPercent:microphoneSensitivity.value,
+      tempoBpm:project.value.bpm,latencyCorrectionMs:captureLatency.value
+     });
+    }else rawPitchTruncated.value=true;
+   }
    if(elapsed>=0){
     if(pitch!==null){
      if(microphoneCandidate?.pitch===pitch)microphoneCandidate.frames++;
@@ -1623,18 +1656,28 @@ const captureTakeExport=computed(()=>JSON.stringify({
     ...(n.stringMidi!==undefined?{stringMidi:n.stringMidi}:{})
   }))
 },null,2));
-type RawPitchFrame={timeSeconds:number;beat:number|null;frequencyHz:number|null;midi:number|null;clarity:number|null;levelDbfs:number;};
+type RawPitchFrame={timeSeconds:number;beat:number|null;frequencyHz:number|null;midi:number|null;clarity:number|null;levelDbfs:number;sensitivityPercent:number;tempoBpm:number;latencyCorrectionMs:number;};
+type RawPitchSession={
+ mode:'test'|'recording';instrument:Instrument;tempoBpm:number;beatsPerMeasure:number;
+ measures:{from:number;to:number};sampleRateHz:number;sensitivityPercent:number;
+ recordingTransposeSemitones:number;songTransposeSemitones:number;soundingTransposeSemitones:number;
+ recordingSpeed:number;latencyCorrectionMs:number;countInBeats:number;
+};
+const rawPitchFrameInterval=0.05;
+const rawPitchFrameLimit=12000;
 const rawPitchFrames=ref<RawPitchFrame[]>([]);
+const rawPitchSession=ref<RawPitchSession|null>(null);
+const rawPitchTruncated=ref(false);
 const rawPitchExport=computed(()=>JSON.stringify({
  format:'tango-arranger-raw-pitch',version:1,
- instrument:noteInst.value,tempoBpm:project.value.bpm,beatsPerMeasure:project.value.beats,
- measures:{from:captureFirst.value+1,to:captureLast.value+1},
- sampleRateHz:microphoneContext?.sampleRate??null,
- sensitivityPercent:microphoneSensitivity.value,
- recordingTransposeSemitones:captureTranspose.value,
+ ...rawPitchSession.value,
+ timeOrigin:'microphone-start',beatOrigin:'recording-start; negative during count-in; null in test mode',
+ pitchReference:'sounding',frameIntervalSeconds:rawPitchFrameInterval,maximumFrames:rawPitchFrameLimit,
+ truncated:rawPitchTruncated.value,
  frames:rawPitchFrames.value
 },null,2));
 const rawPitchCopyStatus=ref('');
+const rawPitchJsonOpen=ref(false);
 async function copyRawPitch(){
  try{await navigator.clipboard.writeText(rawPitchExport.value);rawPitchCopyStatus.value='Raw pitch timeline copied.';}
  catch{rawPitchCopyStatus.value='Clipboard unavailable. Copy from the expanded JSON below.';}
@@ -4672,15 +4715,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" class="secondary" @click="openInstrumentMeasureSettings(instrumentContext!,overviewFocus);closeInstrumentContext()">Role and technique for measure(s)</button>
       <button type="button" class="secondary" @click="openRhythmFromMap(instrumentContext!)">Edit rhythm for this instrument</button>
       <button type="button" class="secondary" @click="previewPart('instrument',0,project.bars.length-1,instrumentContext!);closeInstrumentContext()">▶ Play instrument from start</button>
+      <button type="button" class="secondary" @click="previewPart('instrument',overviewStart-1,overviewEnd-1,instrumentContext!);closeInstrumentContext()">▶ Play selected measures {{overviewStart}}–{{overviewEnd}}</button>
     </div>
     <label>Instrument difficulty edition<select :value="instrumentDifficulty(instrumentContext!)" @change="switchDifficultyEdition(instrumentContext!,($event.target as HTMLSelectElement).value as Difficulty);closeInstrumentContext()">
       <option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(instrumentContext!,level)}}</option>
     </select></label>
     <div class="instrument-context-edition-actions"><button type="button" class="secondary" @click="regenerateCurrentEdition(instrumentContext!);closeInstrumentContext()">↻ Regenerate selected edition</button><button type="button" class="secondary" @click="exportDifficultyEditionPack();closeInstrumentContext()">Export all editions (.zip)</button></div>
-    <small>Long-press or right-click an instrument label to open this menu. Use Shift+F10 or the menu key with a keyboard.</small>
+    <small>Tap an instrument icon, or long-press or right-click its label, to open this menu. Use Shift+F10 or the menu key with a keyboard.</small>
   </div>
 </div></Teleport>
-<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${mapRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${mapRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${mapRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
+<div class="song-map-scroll"><table class="song-map"><thead><tr class="song-map-section-row"><th class="sticky-instrument">Sections</th><th v-for="group in mapSectionGroups" :key="group.start" :colspan="group.visibleCount" class="song-map-section-heading"><button type="button" class="song-map-section-toggle" :aria-expanded="!group.collapsed" :aria-label="`${group.collapsed?'Expand':'Collapse'} section ${sectionLetter(group.sectionIndex)}, measures ${group.start+1}–${group.start+group.measures}`" @click="toggleMapSection(group.start)"><strong>{{sectionLetter(group.sectionIndex)}}</strong><span>{{group.start+1}}–{{group.start+group.measures}}</span><span aria-hidden="true">{{group.collapsed?'▸':'▾'}}</span></button></th></tr><tr><th class="sticky-instrument">Instrument</th><th v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section,'map-range-heading':i+1>=overviewStart&&i+1<=overviewEnd}"><div class="measure-chord-inline"><button type="button" class="measure-heading-select" :title="`Select measure ${i+1}; Shift+click to extend the instrument range`" @click="selectOverviewMeasureHeading(i,$event)" @keydown.shift.enter.stop.prevent="selectOverviewMeasureHeading(i,$event)"><small>{{b.section}} · {{keyForSection(b.section)}}</small><strong>{{i+1}}</strong></button><input type="text" :value="b.chord" :aria-label="`Chords in measure ${i+1}`" title="Edit harmony inline; Enter saves" placeholder="—" spellcheck="false" autocomplete="off" @focus="selectLeadMeasure(i)" @change="commitInlineChord(i,$event)" @keydown.enter.prevent="commitInlineChord(i,$event)" @keydown.esc.prevent="cancelInlineChord(i,$event)"/></div></th></tr></thead><tbody><tr v-for="inst in mapVisibleInstruments" :key="inst"><th class="sticky-instrument"><div class="instrument-heading-layout"><button type="button" class="instrument-badge-trigger" :aria-label="`Options for ${rosterDisplayName(inst)}`" :title="rosterDisplayName(inst)" aria-haspopup="dialog" :aria-expanded="instrumentContext===inst" @click.stop="openInstrumentContext(inst)"><InstrumentBadge :instrument="inst" :roster="activeRoster" :label="rosterDisplayName(inst)"/></button><button type="button" class="instrument-heading-button" :title="`Edit chords in selected measure for ${inst}; long-press, right-click or Shift+F10 for instrument options`" @contextmenu.prevent.stop="openInstrumentContext(inst,$event)" @touchstart.passive="beginInstrumentHeaderHold(inst)" @touchend="cancelInstrumentHeaderHold" @touchcancel="cancelInstrumentHeaderHold" @touchmove="cancelInstrumentHeaderHold" @keydown="handleInstrumentContextKey(inst,$event)" @click="handleInstrumentHeaderClick(inst)">{{rosterDisplayName(inst)}} <span class="instrument-skill-tag" :title="`Difficulty: ${instrumentDifficulty(inst)}`">{{instrumentSkillShort(inst)}}</span><span aria-hidden="true">♫</span></button><button type="button" class="instrument-context-trigger" :aria-label="`More options for ${rosterDisplayName(inst)}`" :title="`Instrument options for ${rosterDisplayName(inst)}`" @click.stop="openInstrumentContext(inst)">⋯</button><div class="instrument-row-preview" role="group" :aria-label="`Playback ${inst}`"><button type="button" class="secondary" :title="`Play ${inst} from measure 1`" :aria-label="`Play ${inst} from start`" @click.stop="previewPart('instrument',0,project.bars.length-1,inst)">▶ 1</button><button type="button" class="secondary" :title="`Play ${inst} measures ${overviewStart}–${overviewEnd}`" :aria-label="`Play ${inst} selected measures`" @click.stop="previewPart('instrument',overviewStart-1,overviewEnd-1,inst)">▶ {{overviewStart}}–{{overviewEnd}}</button></div></div></th><td v-for="({bar:b,index:i}) in mapVisibleMeasures" :key="i" :class="{'section-break':i===0||b.section!==project.bars[i-1].section}"><button type="button" :class="['song-cell',`song-role-${mapRole(inst,i)}`,{focused:overviewFocus===i&&overviewInstrument===inst,modified:roleOverridden(inst,i)||articulationOverride(inst,i)!=='auto'||Boolean(project.measureViolinTechniques?.[`${inst}:${i}`])||Boolean(project.measureBassTechniques?.[`${inst}:${i}`]),'range-selected':overviewInstrument===inst&&i+1>=overviewStart&&i+1<=overviewEnd,'range-start':overviewInstrument===inst&&i+1===overviewStart,'range-end':overviewInstrument===inst&&i+1===overviewEnd}]" :data-map-measure="i" :data-map-instrument="inst" :aria-label="`${inst}, measure ${i+1}, ${mapRole(inst,i)}. Double-click or press Enter to edit notes; click then Shift+click to select a range.`" :title="`${inst} · measure ${i+1} · ${mapRole(inst,i)} · ${cellArticulation(inst,i)} · Double-click / Enter: edit notes`" @contextmenu="openInstrumentMeasureSettings(inst,i,$event)" @touchstart.passive="startInstrumentMeasureHold(inst,i)" @touchend="cancelMeasureSettingsHold" @touchcancel="cancelMeasureSettingsHold" @touchmove="cancelMeasureSettingsHold" @click="selectOverviewMapCell(inst,i,$event)" @dblclick.stop="onMapCellDoubleClick(inst,i,$event)" @keydown.enter.stop.prevent="onMapCellEnter(inst,i,$event)" @keydown.space.stop.prevent="selectOverviewMapCell(inst,i,$event)" @keydown="handleMapContextKey(inst,i,$event)"><span class="cell-role">{{cellLabel(inst,i)}}</span><small>{{cellArticulation(inst,i)}}</small></button></td></tr></tbody></table></div><p v-if="inlineHarmonyFeedback" class="inline-harmony-feedback" role="status">{{inlineHarmonyFeedback}}</p>
 </div>
 
 </div>
@@ -4886,6 +4930,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <MicrophoneTuner v-if="captureInputSource==='microphone'" :estimate="microphoneEstimate" :input-db="microphoneInputDb"
         :active="microphoneListening" :score-shift-semitones="microphoneDisplayShift" :threshold-db="microphoneThresholdDb"/>
       <p v-if="captureInputSource==='microphone'&&microphoneStatus" class="capture-feedback" role="status">{{microphoneStatus}}</p>
+      <div v-if="captureInputSource==='microphone'||rawPitchFrames.length" class="capture-pitch-data" role="group" aria-label="Raw microphone pitch data">
+        <span>Pitch data · <strong>{{rawPitchFrames.length}}</strong> frames</span>
+        <button type="button" class="secondary" :disabled="microphoneListening||microphoneStarting||!rawPitchFrames.length" @click="copyRawPitch"><AppIcon name="copy"/> Copy pitch data</button>
+        <details @toggle="rawPitchJsonOpen=($event.target as HTMLDetailsElement).open">
+          <summary>JSON</summary>
+          <textarea v-if="rawPitchJsonOpen&&!microphoneListening&&!microphoneStarting&&rawPitchFrames.length" readonly rows="10" :value="rawPitchExport" aria-label="Raw microphone pitch timeline JSON"></textarea>
+          <p v-else-if="rawPitchJsonOpen" class="hint">{{microphoneListening||microphoneStarting?'Stop the microphone to view or copy pitch data.':'Start Test microphone or Record to collect pitch data.'}}</p>
+        </details>
+        <p v-if="rawPitchTruncated" class="hint">Frame limit reached. This export contains the first {{rawPitchFrameLimit}} frames.</p>
+        <p v-if="rawPitchCopyStatus" class="capture-feedback" role="status">{{rawPitchCopyStatus}}</p>
+      </div>
       <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
         <label>Lyric phrase<select :value="vocalPhraseSelection" :disabled="capturePlaying||!vocalCapturePhrases.length" aria-label="Choose vocal phrase (sets recording measures)" @change="selectVocalCapturePhrase(($event.target as HTMLSelectElement).value)">
           <option value="" disabled>{{vocalCapturePhrases.length?'Select a lyric phrase':'No lyric phrases'}}</option>
@@ -4939,12 +4994,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="capture-beat-strip"><button v-for="(n,i) in capturedMelodyForBar(b)" :key="`${i}-${n.beat}`" type="button" class="secondary" :disabled="capturePlaying" :title="'Tap to play, hold to edit '+midiName(n.pitch)" :aria-label="'Play '+midiName(n.pitch)+'; hold to edit'"
 @pointerdown="startDraftHold(b,n,$event)" @pointerup="cancelDraftHold" @pointerleave="cancelDraftHold" @pointercancel="cancelDraftHold"
 @contextmenu.prevent="cancelDraftHold();draftHoldFired=true;editDraftNote(b,n)" @click="tapDraftNote(n)">{{midiName(n.pitch)}} @ {{Number((n.beat+1).toFixed(2))}} · {{n.duration}} beat</button><em v-if="!capturedMelodyForBar(b).length">No notes</em></div>
-</div>
-<div v-if="captureInputSource==='microphone'" class="capture-take-export">
-  <button type="button" class="secondary icon-action" :disabled="!rawPitchFrames.length" @click="copyRawPitch" title="Copy raw pitch timeline for analysis" aria-label="Copy raw pitch timeline for analysis"><AppIcon name="copy"/></button>
-  <span>Raw pitch timeline · {{rawPitchFrames.length}} frames</span>
-  <p v-if="rawPitchCopyStatus" role="status">{{rawPitchCopyStatus}}</p>
-  <details><summary>Show raw pitch JSON</summary><textarea readonly rows="10" :value="rawPitchExport" aria-label="Raw microphone pitch timeline JSON" style="width:100%;font-family:monospace"></textarea></details>
 </div>
 <details class="capture-take-export"><summary>Show / manually copy note data</summary><textarea readonly rows="10" :value="captureTakeExport" aria-label="Recorded note data in JSON" style="width:100%;font-family:monospace"></textarea></details>
 <p class="hint">Held notes retain their recorded quantized duration; short keyboard taps use a provisional length. Violin slides are written at the ending pitch with a portamento-from annotation; vibrato and sirena markers remain editable score metadata. Stop and review before applying: the selected recording range replaces that instrument's notes, including silent measures.</p>

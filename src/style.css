@@ -1422,35 +1422,32 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  }
 }
 
-/* Phone orchestration: keep the pinned column narrow enough to see measures.
-   Bound its contents as well: an auto-layout table can grow to their minimum
-   width even when the cells declare a smaller width. */
+.song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout>.instrument-badge-trigger{display:none}
+/* Phone orchestration: numbered instrument icons leave room for the score.
+   The icon opens the full-name menu, including both playback actions. Bound
+   its contents so intrinsic table sizing cannot widen the pinned column. */
 @media(max-width:650px){
- .song-map-scroll{--map-instrument-width:144px}
+ .song-map-scroll{--map-instrument-width:72px}
  .song-map-scroll .song-map .sticky-instrument,
  .song-map-scroll .song-map tbody th.sticky-instrument{
   width:var(--map-instrument-width);min-width:var(--map-instrument-width);max-width:var(--map-instrument-width);
   padding:5px;white-space:normal
  }
+ .song-map-scroll .song-map thead .sticky-instrument{font-size:10px}
  .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout{
-  grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
+  grid-template-columns:minmax(0,1fr);gap:0;
   width:calc(var(--map-instrument-width) - 12px);max-width:100%;align-items:stretch
  }
- .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-heading-button{
-  grid-column:1/-1;display:block;width:100%;min-width:0;max-width:100%;
-  height:auto;min-height:36px;padding:3px;white-space:normal;overflow-wrap:anywhere;
-  text-overflow:clip;font-size:11px;line-height:1.3
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout>.instrument-heading-button,
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout>.instrument-context-trigger,
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout>.instrument-row-preview{display:none}
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout>.instrument-badge-trigger{
+  display:flex;align-items:center;justify-content:center;width:100%;min-width:0;max-width:100%;
+  min-height:54px;padding:6px 2px;border:1px solid #526b7b;border-radius:8px;
+  background:#263b49;color:#e7c38e
  }
- .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-context-trigger{
-  width:100%;min-width:0;max-width:none;height:40px;min-height:40px
- }
- .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-row-preview{
-  grid-column:2/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
-  width:100%;min-width:0;max-width:none;margin:0;gap:4px
- }
- .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-row-preview button{
-  width:100%;min-width:0;max-width:100%;height:40px;min-height:40px;
-  padding:3px 2px;overflow:hidden;text-overflow:ellipsis
+ .song-map-scroll .instrument-badge-trigger:focus-visible{
+  outline:2px solid #f3d19a;outline-offset:-3px
  }
  /* Override the more specific legacy phone tabs, not just .tabs buttons. */
  .layout>main .tabs.workspace-menu{
@@ -1504,6 +1501,13 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .capture-microphone-source>.capture-mic-test{min-height:36px;padding:6px 11px;font-size:12px}
 .capture-mic-test[aria-pressed="true"]{border-color:#8acbb5;color:#b9edda}
 .live-capture>.microphone-tuner{margin-top:8px}
+.capture-pitch-data{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:8px 0;font-size:11px;color:#c6dae6}
+.capture-pitch-data>button{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:5px 8px;font-size:11px}
+.capture-pitch-data>details{min-width:0}
+.capture-pitch-data>details[open]{flex:1 1 100%}
+.capture-pitch-data summary{cursor:pointer;padding:5px 0}
+.capture-pitch-data textarea{width:100%;box-sizing:border-box;margin-top:5px;font:11px/1.4 monospace}
+.capture-pitch-data>.hint,.capture-pitch-data>.capture-feedback{flex:1 1 100%;margin:0}
 .capture-vocal-phrase{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin:8px 0}
 .capture-vocal-phrase>label{display:flex;flex-direction:column;gap:3px;flex:1 1 230px;min-width:0;margin:0;font-size:11px;color:#cedde6}
 .capture-vocal-phrase select{width:100%;min-width:0;height:34px;margin:0;padding:5px 8px;font-size:12px}
