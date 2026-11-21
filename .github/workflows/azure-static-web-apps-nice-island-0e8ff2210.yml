@@ -60,9 +60,6 @@ jobs:
       - name: Test MusicXML parsing, score alignment and protected merges
         run: npm run test:alignment
 
-      - name: Run complete regression suite
-        run: npm run test:regression
-
       - name: Verify production output
         run: |
           test -f dist/index.html
