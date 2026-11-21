@@ -2579,6 +2579,7 @@ function toggleMeasureEditTools(){
  }
  if(measurePanelOpen.value){
   measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;
+  void nextTick(()=>document.querySelector<HTMLElement>('.measure-taskbar-trigger')?.focus());
  }else{
   measurePanelOpen.value=true;measureEditOpen.value=true;measureSelectionPicking.value=false;
   void nextTick(()=>document.querySelector<HTMLElement>('#measure-tools-title')?.focus());
@@ -2718,6 +2719,8 @@ function applyMeasureOperation(){
  }catch(error){resetMeasureEditPreview();showMeasureFeedback('error','Cannot apply '+action+': '+String(error));}
 }
 watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
+watch(active,tab=>{if(!['lead','arrange','rhythm','notes'].includes(tab)){measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;}});
+watch(performanceMode,live=>{if(live){measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;}});
 
 
 /** Score-wide tempo phrases and singer-led fermatas live on the saved project. */
@@ -5319,7 +5322,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 <Teleport to="body">
 <div v-if="measurePanelOpen&&['lead','arrange','rhythm','notes'].includes(active)" class="measure-tools-backdrop" @click.self="toggleMeasureEditTools">
- <section class="measure-tools-dialog measure-edit-shell" role="dialog" aria-modal="true" aria-labelledby="measure-tools-title" @keydown.esc.stop.prevent="toggleMeasureEditTools">
+ <section class="measure-tools-dialog measure-edit-shell" role="dialog" aria-modal="true" aria-labelledby="measure-tools-title" @keydown.esc.stop.prevent="toggleMeasureEditTools" @keydown.tab="trapModalTab">
   <header class="measure-tools-heading">
    <div><h2 id="measure-tools-title" tabindex="-1">Measure tools</h2><p>Copy, paste, move, or edit selected measures</p></div>
    <button type="button" class="secondary icon-action" title="Close measure tools" aria-label="Close measure tools" @click="toggleMeasureEditTools"><AppIcon name="x"/></button>
@@ -5353,7 +5356,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Content to paste from clipboard">
      <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
     </div>
-    <p v-if="measurePasteFitNote" class="measure-tools-validation" role="alert"><AppIcon name="alert-circle"/> {{measurePasteFitNote}}</p>
+    <p v-if="measurePasteFitNote" class="measure-tools-validation" role="alert"><AppIcon name="alert-circle"/> Clipboard paste: {{measurePasteFitNote}} (Move uses your current selection.)</p>
     <div class="measure-edit-actions">
      <button type="button" class="primary" @click="previewMeasureOperation('paste')"><AppIcon name="clipboard-paste"/> Preview paste</button>
      <button type="button" class="secondary" @click="previewMeasureOperation('move')"><AppIcon name="move"/> Preview move</button>
