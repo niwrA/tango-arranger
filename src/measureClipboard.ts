@@ -240,7 +240,7 @@ export function clearMeasureRange(original:Project,score:Score,range:MeasureRang
   // Regenerate only unprotected parts. The intentional empty note ranges remain protected.
   next.generatedScore=mergeScores(next,generate(next));
  }
- if(fields.notes||fields.lyrics||fields.melody)next.leadLyrics=undefined;
+ if(fields.chords||fields.melody||(fields.notes&&instruments.some(i=>i.startsWith('Voice'))))next.leadLyrics=undefined;
  return next;
 }
 export function previewMeasurePaste(p:Project,score:Score,clip:MeasureClipboard,destination:number,mode:PasteMode,fields:MeasureFields,targetInstrument?:Instrument):PastePreview{
@@ -282,6 +282,8 @@ export function pasteMeasureRange(original:Project,score:Score,clip:MeasureClipb
   const begin=destination*next.beats,end=(destination+clip.count)*next.beats;
   const notes=clip.parts[source].notes.map(note=>{
    const n=deep(fields.lyrics?note:lyricFree(note));delete n.leadToken;
+   if(source!==target&&(n.gesture||n.vibrato||n.approachSlideFrom!==undefined||n.slideTo!==undefined||n.stringMidi!==undefined||n.handPosition||n.finger))
+     throw Error('Cross-instrument paste contains technique or fingering data. Edit that ornament separately before transferring.');
    n.start+=begin;n.duration=Math.min(n.duration,end-n.start);n.source='manual';
    const [low,high]=instrumentRange(target);
    if(n.pitch<low||n.pitch>high||n.slideTo!==undefined&&(n.slideTo<low||n.slideTo>high)
@@ -302,6 +304,6 @@ export function pasteMeasureRange(original:Project,score:Score,clip:MeasureClipb
   next.expressionRanges=[...old,...copied];
  }
  if(fields.chords||fields.melody||fields.settings)next.generatedScore=mergeScores(next,generate(next));
- if(fields.notes||fields.lyrics||fields.melody)next.leadLyrics=undefined;
+ if(fields.chords||fields.melody||(fields.notes&&pairs.some(([,target])=>target.startsWith('Voice'))))next.leadLyrics=undefined;
  return next;
 }
