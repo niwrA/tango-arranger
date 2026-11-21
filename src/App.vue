@@ -5,7 +5,7 @@ import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
 import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,soundingSeconds,type TempoExpressions} from './tempoExpressions';
-import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
+import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,previewMeasureMove,moveMeasureRange,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import CaptureTimingControls from './CaptureTimingControls.vue';
@@ -2523,6 +2523,26 @@ async function createBlankSong(){
 
 /** Shared measure selection/clipboard; all editing modes use absolute bar numbers. */
 const measureEditOpen=ref(false);
+const measurePanelOpen=ref(false),measureSelectionPicking=ref(false);
+const measureFeedback=ref<{kind:'success'|'error'|'info';text:string}|null>(null);
+const measurePasteFitNote=computed(()=>{
+ const clip=measureClipboard.value;
+ if(!clip)return '';
+ const start=Number(measurePasteAt.value);
+ if(!Number.isInteger(start)||start<1||start>project.value.bars.length+1)
+   return 'Choose a destination between 1 and '+(project.value.bars.length+1)+'.';
+ if(measurePasteMode.value==='overwrite'&&start+clip.count-1>project.value.bars.length){
+  const latest=project.value.bars.length-clip.count+1;
+  return 'Cannot overwrite: '+clip.count+' measures at '+start+' would end at '+(start+clip.count-1)+', but this song ends at '+project.value.bars.length+'. Choose a starting measure from 1 to '+latest+', or choose Insert.';
+ }
+ if(measurePasteMode.value==='insert'&&project.value.bars.length+clip.count>512)
+  return 'Cannot insert '+clip.count+' measures: the project maximum is 512.';
+ return '';
+});
+function showMeasureFeedback(kind:'success'|'error'|'info',text:string){
+ measureFeedback.value={kind,text};
+ message.value=text;
+}
 const measureFrom=ref(1),measureTo=ref(1);
 const measureAnchor=ref<number|null>(null),measureAwaitingEndpoint=ref(false);
 const measureCopyScope=ref<'instrument'|'all'>('instrument');
@@ -2533,7 +2553,7 @@ const measureClipboard=ref<MeasureClipboard|null>(null);
 const measurePasteAt=ref(1),measurePasteMode=ref<PasteMode>('overwrite');
 const measurePasteTarget=ref('__same__');
 const measureClearSilence=ref(true);
-const measurePending=ref<'paste'|'clear'|'delete'|'insert'|null>(null);
+const measurePending=ref<'paste'|'move'|'clear'|'delete'|'insert'|null>(null);
 const measurePreview=ref(''),measurePreviewWarnings=ref('');
 let rangeSuppressClickUntil=0;
 const currentMeasureRange=computed<MeasureRange>(()=>{
@@ -2545,9 +2565,9 @@ const currentMeasureRange=computed<MeasureRange>(()=>{
 const measureSelectedParts=computed(()=>measureCopyScope.value==='all'?projectInstruments(project.value):[measureCopyInstrument.value]);
 const measureEditableFields=['chords','melody','notes','lyrics','settings'] as const;
 const measureFieldLabels:Record<keyof MeasureFields,string>={chords:'Chords',melody:'Lead melody',notes:'Instrument notes',lyrics:'Lyrics attached to notes',settings:'Roles, dynamics and expression'};
-function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';}
+function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';measureFeedback.value=null;}
 function toggleMeasureEditTools(){
- if(!measureEditOpen.value){
+ if(!measurePanelOpen.value&&!measureEditOpen.value){
   if(active.value==='arrange'){
    measureFrom.value=overviewStart.value;measureTo.value=overviewEnd.value;measureCopyInstrument.value=overviewInstrument.value;
   }else if(active.value==='rhythm'){
@@ -2557,8 +2577,22 @@ function toggleMeasureEditTools(){
   }else{measureFrom.value=selectedBar.value+1;measureTo.value=selectedBar.value+1;measureCopyInstrument.value='Voice';}
   measureAnchor.value=measureFrom.value-1;measureAwaitingEndpoint.value=false;
  }
- measureEditOpen.value=!measureEditOpen.value;
+ if(measurePanelOpen.value){
+  measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;
+ }else{
+  measurePanelOpen.value=true;measureEditOpen.value=true;measureSelectionPicking.value=false;
+ }
  resetMeasureEditPreview();
+}
+function armMeasureSelection(){
+ measureSelectionPicking.value=true;measureEditOpen.value=true;measurePanelOpen.value=false;
+ measureAnchor.value=null;measureAwaitingEndpoint.value=false;rangeSuppressClickUntil=0;
+ showMeasureFeedback('info','Select a first measure, then tap a second measure. On iPad, hold the first to anchor it.');
+}
+function finishMeasureSelection(){
+ if(!measureSelectionPicking.value)return;
+ measureSelectionPicking.value=false;measurePanelOpen.value=true;measureEditOpen.value=true;
+ showMeasureFeedback('success','Selected measures '+measureFrom.value+'–'+measureTo.value+'. Choose Copy, Move, or another action.');
 }
 function prepareMeasureInputs(){
  const count=project.value.bars.length;
@@ -2587,8 +2621,12 @@ function onMeasureRangeTap(measure:number,event:Pick<MouseEvent,'shiftKey'>){
   const anchor=measureAnchor.value??measure;
   measureFrom.value=Math.min(anchor,measure)+1;measureTo.value=Math.max(anchor,measure)+1;
   measureAwaitingEndpoint.value=false;
+  resetMeasureEditPreview();
+  finishMeasureSelection();
+  return;
  }else{
   measureAnchor.value=measure;measureFrom.value=measure+1;measureTo.value=measure+1;
+  if(measureSelectionPicking.value)measureAwaitingEndpoint.value=true;
  }
  resetMeasureEditPreview();
 }
@@ -2613,22 +2651,28 @@ function copySelectedMeasures(){
  try{
   const result=copyMeasureRange(project.value,score.value,currentMeasureRange.value,measureSelectedParts.value,measureCopyFields.value);
   measureClipboard.value=result;measurePasteFields.value={...result.fields};
-  measurePasteAt.value=Math.min(project.value.bars.length,currentMeasureRange.value.end+2);
+  // Never change the destination a user has already typed. The former
+  // automatic reset made "147" silently become "163" when copying E.
   measurePasteTarget.value='__same__';resetMeasureEditPreview();
-  message.value='Copied '+result.count+' measures and the chosen content. Choose a paste destination and preview.';
- }catch(error){message.value='Measure copy failed: '+String(error);}
+  const noteTotal=Object.values(result.parts).reduce((sum,part)=>sum+part.notes.length,0);
+  showMeasureFeedback('success','Copied '+result.count+' measures ('+noteTotal+' note events). Destination '+measurePasteAt.value+' is unchanged. Choose Preview paste or Preview move to continue.');
+ }catch(error){showMeasureFeedback('error','Copy failed: '+String(error));}
 }
-function previewMeasureOperation(action:'paste'|'clear'|'delete'|'insert'){
+function previewMeasureOperation(action:'paste'|'move'|'clear'|'delete'|'insert'){
  try{
   resetMeasureEditPreview();
   const range=currentMeasureRange.value,count=range.end-range.start+1;
-  if(action==='paste'){
-   const clip=measureClipboard.value;
-   if(!clip)throw Error('Copy a measure range first');
+  if(action==='paste'||action==='move'){
    const target=measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
-   const info=previewMeasurePaste(project.value,score.value,clip,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,target);
-   measurePreview.value=(measurePasteMode.value==='insert'?'Insert':'Overwrite')+' '+info.length+' measures starting at '+measurePasteAt.value+', '+info.incomingNotes+' incoming notes, '+info.replacedNotes+' replaced notes. Result: '+info.newTotal+' measures.';
-   measurePreviewWarnings.value=info.warning;
+   const clip=action==='move'?
+     copyMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value):
+     measureClipboard.value;
+   if(!clip)throw Error('Copy a measure range first, or choose Move selected');
+   const info=action==='move'?
+     previewMeasureMove(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measurePasteAt.value-1,measurePasteMode.value,target):
+     previewMeasurePaste(project.value,score.value,clip,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,target);
+   measurePreview.value=(action==='move'?'Move':'Paste')+' '+info.length+' measures at destination '+measurePasteAt.value+' ('+info.incomingNotes+' incoming notes; '+info.replacedNotes+' existing destination notes replaced). Result: '+info.newTotal+' measures.';
+   measurePreviewWarnings.value=(action==='move'?'Original selected content will be removed and the source instrument notes protected from regeneration. ':'')+info.warning;
   }else if(action==='clear'){
    const targets=measureSelectedParts.value;
    const countProtected=targets.reduce((sum,inst)=>sum+Array.from({length:count},(_,i)=>Number(!!project.value.protectedBars[inst+':'+(range.start+i)])).reduce((a,b)=>a+b,0),0);
@@ -2645,7 +2689,8 @@ function previewMeasureOperation(action:'paste'|'clear'|'delete'|'insert'){
    measurePreviewWarnings.value='Later parts shift. Phrase plans and editable lyrics sources need review.';
   }
   measurePending.value=action;
- }catch(error){measurePending.value=null;message.value='Measure preview failed: '+String(error);}
+  showMeasureFeedback('info','Preview ready. Review the effect and press Confirm '+action+'.');
+ }catch(error){measurePending.value=null;showMeasureFeedback('error','Cannot preview '+action+': '+String(error));}
 }
 function applyMeasureOperation(){
  const action=measurePending.value;if(!action)return;
@@ -2656,19 +2701,21 @@ function applyMeasureOperation(){
    if(!measureClipboard.value)throw Error('No copied measures');
    next=pasteMeasureRange(project.value,score.value,measureClipboard.value,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,
      measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
-  }else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
+  }else if(action==='move')next=moveMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measurePasteAt.value-1,measurePasteMode.value,
+   measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
+  else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
   else if(action==='delete')next=deleteMeasureRange(project.value,range);
   else next=insertBlankMeasures(project.value,measurePasteAt.value-1,count);
   stopPlayback();project.value=next;
-  const point=action==='paste'||action==='insert'?measurePasteAt.value-1:range.start;
+  const point=action==='paste'||action==='move'||action==='insert'?measurePasteAt.value-1:range.start;
   const bounded=Math.min(next.bars.length-1,Math.max(0,point));
   selectedBar.value=bounded;chosenSection.value=next.bars[bounded].section;overviewFocus.value=bounded;
   measureFrom.value=bounded+1;
-  measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='insert'?count:1));
+  measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='move'||action==='insert'?count:1));
   measureAnchor.value=bounded;measureAwaitingEndpoint.value=false;noteSelected.value=-1;
   resetMeasureEditPreview();
-  message.value='Applied measure '+action+'. Use Undo to restore the previous state.';
- }catch(error){resetMeasureEditPreview();message.value='Measure operation failed: '+String(error);}
+  showMeasureFeedback('success','Applied '+action+' to '+count+' measure(s). The song now has '+next.bars.length+' measures. Undo is available in the toolbar.');
+ }catch(error){resetMeasureEditPreview();showMeasureFeedback('error','Cannot apply '+action+': '+String(error));}
 }
 watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
 
