@@ -2581,6 +2581,7 @@ function toggleMeasureEditTools(){
   measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;
  }else{
   measurePanelOpen.value=true;measureEditOpen.value=true;measureSelectionPicking.value=false;
+  void nextTick(()=>document.querySelector<HTMLElement>('#measure-tools-title')?.focus());
  }
  resetMeasureEditPreview();
 }
@@ -2653,7 +2654,7 @@ function copySelectedMeasures(){
   measureClipboard.value=result;measurePasteFields.value={...result.fields};
   // Never change the destination a user has already typed. The former
   // automatic reset made "147" silently become "163" when copying E.
-  measurePasteTarget.value='__same__';resetMeasureEditPreview();
+  resetMeasureEditPreview();
   const noteTotal=Object.values(result.parts).reduce((sum,part)=>sum+part.notes.length,0);
   showMeasureFeedback('success','Copied '+result.count+' measures ('+noteTotal+' note events). Destination '+measurePasteAt.value+' is unchanged. Choose Preview paste or Preview move to continue.');
  }catch(error){showMeasureFeedback('error','Copy failed: '+String(error));}
@@ -2663,7 +2664,7 @@ function previewMeasureOperation(action:'paste'|'move'|'clear'|'delete'|'insert'
   resetMeasureEditPreview();
   const range=currentMeasureRange.value,count=range.end-range.start+1;
   if(action==='paste'||action==='move'){
-   const target=measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
+   const target=action==='move'||measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
    const clip=action==='move'?
      copyMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value):
      measureClipboard.value;
@@ -2701,8 +2702,7 @@ function applyMeasureOperation(){
    if(!measureClipboard.value)throw Error('No copied measures');
    next=pasteMeasureRange(project.value,score.value,measureClipboard.value,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,
      measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
-  }else if(action==='move')next=moveMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measurePasteAt.value-1,measurePasteMode.value,
-   measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
+  }else if(action==='move')next=moveMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measurePasteAt.value-1,measurePasteMode.value);
   else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
   else if(action==='delete')next=deleteMeasureRange(project.value,range);
   else next=insertBlankMeasures(project.value,measurePasteAt.value-1,count);
@@ -5278,53 +5278,81 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 
  
-<section v-if="['lead','arrange','rhythm','notes'].includes(active)" class="measure-edit-shell" aria-label="Measure range editing">
- <div class="measure-edit-header">
-  <button type="button" class="secondary" :aria-expanded="measureEditOpen" @click="toggleMeasureEditTools"><AppIcon name="copy"/> {{measureEditOpen?'Close measure tools':'Select / copy / paste measures'}}</button>
-  <span v-if="measureEditOpen" class="hint">iPad: press and hold the first measure number or orchestration cell, then tap the last measure. Desktop: click, then Shift-click.</span>
- </div>
- <div v-if="measureEditOpen" class="measure-edit-body">
-  <div class="measure-edit-grid">
-   <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="measureFrom" @change="prepareMeasureInputs"/></label>
-   <label>To measure<input type="number" min="1" :max="project.bars.length" v-model.number="measureTo" @change="prepareMeasureInputs"/></label>
-   <label>Quick section<select :value="''" @change="selectMeasureEditSection(Number(($event.target as HTMLSelectElement).value));($event.target as HTMLSelectElement).value=''"><option disabled value="">Select section…</option><option v-for="(span,i) in sectionSpans(project)" :key="i" :value="i">{{sectionLetter(i)}} ({{span.start+1}}–{{span.start+span.measures}})</option></select></label>
-   <label>Copy / clear instruments<select v-model="measureCopyScope" @change="resetMeasureEditPreview"><option value="instrument">One instrument</option><option value="all">All instruments</option></select></label>
-   <label v-if="measureCopyScope==='instrument'">Instrument<select v-model="measureCopyInstrument" @change="resetMeasureEditPreview"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-   <label>Content preset<select :value="''" @change="chooseMeasureFields(($event.target as HTMLSelectElement).value as 'all'|'instrument'|'harmony'|'custom');($event.target as HTMLSelectElement).value=''"><option value="" disabled>Choose…</option><option value="all">Everything</option><option value="instrument">Instrument notes + lyrics</option><option value="harmony">Chords + lead melody</option></select></label>
-  </div>
-  <div class="measure-edit-fields" role="group" aria-label="Measure content">
-   <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="field==='lyrics'&&!measureCopyFields.notes&&!measureCopyFields.melody" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
-  </div>
-  <div class="measure-edit-actions">
-   <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
-   <label><input type="checkbox" v-model="measureClearSilence" @change="resetMeasureEditPreview"/> Keep cleared parts silent on regeneration</label>
-   <button type="button" class="secondary" @click="previewMeasureOperation('clear')">Preview clear</button>
-   <button type="button" class="secondary" @click="previewMeasureOperation('delete')">Preview delete measures</button>
-  </div>
-  <div class="measure-edit-destination">
-   <p class="hint" role="status">{{measureClipboard?'Clipboard: '+measureClipboard.count+' measures, '+measureClipboard.instruments.length+' part(s), '+measureClipboard.beats+'/4':'Clipboard empty; copy selected measures first.'}}</p>
-   <div class="measure-edit-grid">
-    <label>Destination measure<input v-model.number="measurePasteAt" min="1" :max="project.bars.length+1" type="number" @change="resetMeasureEditPreview"/></label>
-    <label>Paste mode<select v-model="measurePasteMode" @change="resetMeasureEditPreview"><option value="overwrite">Overwrite existing measures</option><option value="insert">Insert new measures, shift later music</option></select></label>
-    <label v-if="measureClipboard?.instruments.length===1">Paste notes into<select v-model="measurePasteTarget" @change="resetMeasureEditPreview"><option value="__same__">Same instrument</option><option v-for="inst in activeRoster.filter(i=>!measureClipboard?.instruments.includes(i))" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+
+<!-- A compact taskbar tool; only the dialog consumes space, never the leadsheet itself. -->
+<div v-if="measureSelectionPicking&&['lead','arrange','rhythm','notes'].includes(active)" class="measure-range-pick-banner" role="status">
+ <AppIcon name="copy"/><span>Choose a first measure, then the last. iPad: hold the first measure and tap the last.</span>
+ <button type="button" class="secondary" @click="measureSelectionPicking=false;measurePanelOpen=true;measureEditOpen=true">Return to measure tools</button>
+</div>
+<Teleport to="body">
+<div v-if="measurePanelOpen&&['lead','arrange','rhythm','notes'].includes(active)" class="measure-tools-backdrop" @click.self="toggleMeasureEditTools">
+ <section class="measure-tools-dialog measure-edit-shell" role="dialog" aria-modal="true" aria-labelledby="measure-tools-title" @keydown.esc.stop.prevent="toggleMeasureEditTools">
+  <header class="measure-tools-heading">
+   <div><h2 id="measure-tools-title" tabindex="-1">Measure tools</h2><p>Copy, paste, move, or edit selected measures</p></div>
+   <button type="button" class="secondary icon-action" title="Close measure tools" aria-label="Close measure tools" @click="toggleMeasureEditTools"><AppIcon name="x"/></button>
+  </header>
+  <div class="measure-edit-body">
+   <section class="measure-tools-step" aria-label="Select source measures">
+    <div class="measure-tools-step-title"><strong>1 · Select source</strong><button type="button" class="secondary" @click="armMeasureSelection"><AppIcon name="mouse-pointer-2"/> Pick from score</button></div>
+    <div class="measure-edit-grid">
+     <label>From<input type="number" min="1" :max="project.bars.length" v-model.number="measureFrom" @change="prepareMeasureInputs"/></label>
+     <label>To<input type="number" min="1" :max="project.bars.length" v-model.number="measureTo" @change="prepareMeasureInputs"/></label>
+     <label>Whole section<select :value="''" @change="selectMeasureEditSection(Number(($event.target as HTMLSelectElement).value));($event.target as HTMLSelectElement).value=''"><option disabled value="">Choose section…</option><option v-for="(span,i) in sectionSpans(project)" :key="i" :value="i">{{sectionLetter(i)}} · {{span.start+1}}–{{span.start+span.measures}}</option></select></label>
+     <label>Instruments<select v-model="measureCopyScope" @change="resetMeasureEditPreview"><option value="instrument">One instrument</option><option value="all">All instruments</option></select></label>
+     <label v-if="measureCopyScope==='instrument'">Part<select v-model="measureCopyInstrument" @change="resetMeasureEditPreview"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+     <label>Content preset<select :value="''" @change="chooseMeasureFields(($event.target as HTMLSelectElement).value as 'all'|'instrument'|'harmony'|'custom');($event.target as HTMLSelectElement).value=''"><option disabled value="">Select content…</option><option value="all">Everything</option><option value="instrument">Instrument notes and lyrics</option><option value="harmony">Chords and lead melody</option></select></label>
+    </div>
+    <div class="measure-edit-fields" role="group" aria-label="Content to copy, move, or clear">
+     <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="field==='lyrics'&&!measureCopyFields.notes&&!measureCopyFields.melody" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+    </div>
+    <div class="measure-edit-actions">
+     <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
+     <span class="measure-tools-inline-hint">Copy stores the selection. It does not change the song or destination.</span>
+    </div>
+   </section>
+   <section class="measure-tools-step" aria-label="Choose destination and paste or move">
+    <div class="measure-tools-step-title"><strong>2 · Choose destination</strong><span class="measure-tools-clipboard">{{measureClipboard?'Clipboard: '+measureClipboard.count+' measures · '+measureClipboard.instruments.length+' part(s)':'Clipboard empty · Copy first for Paste'}}</span></div>
+    <div class="measure-edit-grid">
+     <label>Destination starts at<input type="number" v-model.number="measurePasteAt" min="1" :max="project.bars.length+1" @input="resetMeasureEditPreview"/></label>
+     <label>Placement<select v-model="measurePasteMode" @change="resetMeasureEditPreview"><option value="overwrite">Replace existing notes</option><option value="insert">Insert space and shift later music</option></select></label>
+     <label v-if="measureClipboard?.instruments.length===1">Paste copied notes into<select v-model="measurePasteTarget" @change="resetMeasureEditPreview"><option value="__same__">Same instrument</option><option v-for="inst in activeRoster.filter(i=>!measureClipboard?.instruments.includes(i))" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+    </div>
+    <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Content to paste from clipboard">
+     <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+    </div>
+    <p v-if="measurePasteFitNote" class="measure-tools-validation" role="alert"><AppIcon name="alert-circle"/> {{measurePasteFitNote}}</p>
+    <div class="measure-edit-actions">
+     <button type="button" class="primary" @click="previewMeasureOperation('paste')"><AppIcon name="clipboard-paste"/> Preview paste</button>
+     <button type="button" class="secondary" @click="previewMeasureOperation('move')"><AppIcon name="move"/> Preview move</button>
+    </div>
+    <p class="measure-tools-inline-hint">Move uses the current source selection, removes its original content and protects emptied notes. Paste uses the copied clipboard. Both require confirmation.</p>
+   </section>
+   <section class="measure-tools-step measure-tools-extra" aria-label="Other measure operations">
+    <details>
+     <summary>Clear, insert, delete and undo</summary>
+     <div class="measure-edit-actions">
+      <label><input type="checkbox" v-model="measureClearSilence" @change="resetMeasureEditPreview"/> Protect cleared instrument notes from regeneration</label>
+      <button type="button" class="secondary" @click="previewMeasureOperation('clear')">Preview clear content</button>
+      <button type="button" class="secondary" @click="previewMeasureOperation('insert')">Preview insert blank measures</button>
+      <button type="button" class="secondary" @click="previewMeasureOperation('delete')">Preview delete measures</button>
+      <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo');resetMeasureEditPreview()">↶ Undo</button>
+      <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo');resetMeasureEditPreview()">↷ Redo</button>
+     </div>
+    </details>
+   </section>
+   <div v-if="measureFeedback" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+    <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
+    <span>{{measureFeedback.text}}</span>
    </div>
-   <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Paste content">
-    <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
-   </div>
-   <div class="measure-edit-actions">
-    <button type="button" class="secondary" :disabled="!measureClipboard" @click="previewMeasureOperation('paste')">Preview paste</button>
-    <button type="button" class="secondary" @click="previewMeasureOperation('insert')">Preview insert blank measures</button>
-    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo');resetMeasureEditPreview()">↶ Undo</button>
-    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo');resetMeasureEditPreview()">↷ Redo</button>
+   <div v-if="measurePending" class="measure-edit-confirm" role="region" aria-label="Review measure change">
+    <strong>Review {{measurePending}}</strong><p>{{measurePreview}}</p>
+    <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
+    <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation"><AppIcon name="check"/> Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
    </div>
   </div>
-  <div v-if="measurePending" class="measure-edit-confirm" role="region" aria-label="Review measure change">
-   <strong>Preview · {{measurePending}}</strong><p>{{measurePreview}}</p>
-   <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
-   <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation">Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
-  </div>
- </div>
-</section>
+ </section>
+</div>
+</Teleport>
 
 <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
   <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appDisplayVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
