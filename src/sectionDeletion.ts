@@ -1,3 +1,4 @@
+import {moveTempoExpressions} from './tempoExpressions';
 import {sectionSpans,sectionLetter,type Project,type Score,type Note} from './music';
 
 /** Delete precisely one section without erasing independent later score edits.
@@ -55,7 +56,7 @@ export function deleteProjectSection(original:Project,index:number):Project {
    violin:sectionMap(current.orchestration.violin),
    bandoneon:sectionMap(current.orchestration.bandoneon)
  }:undefined;
- return {...current,bars,
+ return {...current,bars,tempoExpressions:moveTempoExpressions(current.tempoExpressions,'delete',begin,finish),
    sectionKeys:sectionMap(current.sectionKeys),
    roles:sectionMap(current.roles),
    orchestration,
