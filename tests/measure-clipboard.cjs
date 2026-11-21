@@ -92,6 +92,16 @@ check('delete shifts later scores, metadata, editions while preserving earlier n
  assert.equal(n.partEditions.Voice.easy.protectedMeasures[0],7);
  assert.equal(n.measureDynamics['Voice:7'].start,'f');
 });
+check('clearing measure dynamics trims only the selected span of a crossing hairpin',()=>{
+ const p=example(),opts={chords:false,melody:false,notes:false,lyrics:false,settings:true};
+ p.expressionRanges=[{instrument:'Voice',startMeasure:3,endMeasure:8,from:60,to:100}];
+ const n=clearMeasureRange(p,p.generatedScore,{start:4,end:5},['Voice'],opts);
+ assert.equal(n.expressionRanges.length,2);
+ assert.deepEqual(n.expressionRanges.map(r=>[r.startMeasure,r.endMeasure]),[[3,3],[6,8]]);
+ assert.ok(n.expressionRanges[0].to>60&&n.expressionRanges[0].to<100);
+ assert.ok(n.expressionRanges[1].from>60&&n.expressionRanges[1].from<100);
+ assert.equal(p.expressionRanges.length,1);
+});
 check('section boundary and overall song safety guards',()=>{
  const p=example();
  assert.throws(()=>deleteMeasureRange(p,{start:4,end:7}),/Delete a complete section/);
