@@ -36,6 +36,9 @@ jobs:
       - name: Test leadsheet import and vocal phrase alignment
         run: node tests/new-song-leadsheet.cjs && node tests/microphone-pitch.cjs && node tests/microphone-tuner.cjs && node tests/microphone-recording.cjs && node tests/pitch-postprocess.cjs && node tests/instrument-badge.cjs
 
+      - name: Test keyboard and string capture timing
+        run: npm run test:instrument-capture
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 

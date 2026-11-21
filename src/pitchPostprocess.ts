@@ -115,7 +115,7 @@ export function reprocessPitchFrames(
   const pitch=clamp(Math.round(rawPitch+clamp(options.pitchBiasCents,-50,50)/100),0,127);
   const start=snap(g[0].beat,options.onsetGridBeats);
   const endRaw=Math.min(totalBeats,g.at(-1)!.beat+interval);
-  const duration=snap(Math.max(0,endRaw-start),options.durationGridBeats);
+  const duration=snap(Math.max(0,endRaw-g[0].beat),options.durationGridBeats);
   const minimum=options.durationGridBeats>0?Math.min(0.125,options.durationGridBeats):0.125;
   const durationBeats=clamp(Math.max(minimum,duration),0,totalBeats-start);
   if(durationBeats<=0)continue;

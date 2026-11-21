@@ -34,8 +34,8 @@ try{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
  check('Both editors have live capture UI',()=>{assert.match(app,/aria-label="Tap rhythm recording"/);assert.match(app,/aria-label="Tap melody recording"/);});
- check('Both editors share independent play, record and loop with range',()=>{assert.match(app,/function startCaptureTransport\(recording:boolean\)/);assert.match(app,/function toggleCapturePlay/);assert.match(app,/function toggleCaptureRecord/);assert.match(app,/captureLoopEnabled/);assert.match(app,/captureFrom/);assert.match(app,/captureTo/);assert.match(app,/for\(const inst of INSTRUMENTS\)/);});
- check('Capture uses Tone transport time rather than Date.now',()=>assert.match(app,/capturePosition\(Tone\.getTransport\(\)\.seconds/));
+ check('Both editors share independent play, record and loop with range',()=>{assert.match(app,/function startCaptureTransport\(recording:boolean/);assert.match(app,/function toggleCapturePlay/);assert.match(app,/function toggleCaptureRecord/);assert.match(app,/captureLoopEnabled/);assert.match(app,/captureFrom/);assert.match(app,/captureTo/);assert.match(app,/for\(const inst of INSTRUMENTS\)/);});
+ check('Capture uses Tone transport time rather than Date.now',()=>assert.match(app,/const elapsed=Tone\.getTransport\(\)\.seconds/));
  check('Capture quantization and pitch are captured as draft',()=>{assert.match(app,/captureTaps\.value=addCapturedTap/);assert.match(app,/captureKind\.value==='melody'/);});
  check('Rhythm take can be edited before applying',()=>{assert.match(app,/function loadCaptureBarToRhythm/);assert.match(app,/function saveRhythmGridToCapture/);assert.match(app,/function applyCapturedRhythm/);});
  check('Melody take applies via persistent note edits',()=>{assert.match(app,/function applyCapturedMelody/);assert.match(app,/suggestedEditorNote\(next,noteInst\.value/);assert.match(app,/replaceInstrumentMeasure\(next,source,noteInst\.value/);});

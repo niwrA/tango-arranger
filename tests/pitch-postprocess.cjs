@@ -52,6 +52,8 @@ test('onset and duration grids are independent and raw timing can be retained',(
  const rounded=reprocessPitchFrames(x,settings({onsetGridBeats:0.5,durationGridBeats:0.25}),0,4);
  assert.equal(free[0].startBeat,0.36);assert.equal(rounded[0].startBeat,0.5);
  assert.ok(rounded[0].durationBeats%0.25===0);
+ const startOnly=reprocessPitchFrames(x,settings({onsetGridBeats:0.5,durationGridBeats:0}),0,4);
+ assert.equal(startOnly[0].durationBeats,free[0].durationBeats,'moving the start leaves the measured duration unchanged');
 });
 test('temporary recording key is removed before written pitch estimation',()=>{
  const notes=reprocessPitchFrames(frames(Array(7).fill(50.58)),settings(),3,4);

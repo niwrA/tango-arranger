@@ -61,6 +61,7 @@ function loadModule(name){
 const {measureLoopEvents}=loadModule('measureLoop');
 const {chordAt,chordTones}=loadModule('music');
 const {addCapturedTap}=loadModule('tapCapture');
+const {quantizeInstrumentCapture}=loadModule('instrumentCaptureTiming');
 const {microphoneScoreMidi}=loadModule('microphoneTuner');
 const {reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS}=loadModule('pitchPostprocess');
 const ref=value=>({value});
@@ -94,7 +95,7 @@ function harness(){
    const loaded=unlocks.length?unlocks.shift():Promise.resolve(tone);
    return Promise.all([loaded,resume]).then(([module])=>module);
   },
-  measureLoopEvents,chordAt,chordTones,addCapturedTap,microphoneScoreMidi,
+  measureLoopEvents,chordAt,chordTones,addCapturedTap,microphoneScoreMidi,quantizeInstrumentCapture,
   reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS,
   playExpressiveEvent:(_audio,event,time)=>expressive.push({event,time}),
   detectMonophonicPitch:()=>ctx.estimate,

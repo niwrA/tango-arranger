@@ -6,6 +6,7 @@ import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
+import CaptureTimingControls from './CaptureTimingControls.vue';
 import MicrophoneTuner from './MicrophoneTuner.vue';
 import {vocalPhrases,suggestVocalAlignment,alignedLyric} from './vocalPhraseAlignment';
 import {detectMonophonicPitch} from './microphonePitch';
@@ -49,6 +50,7 @@ import {createLongPressMenu,isContextMenuKey} from './contextPress';
 import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
 import {capturePosition,addCapturedTap,rhythmFromTaps,melodyFromTaps,type CapturedTap} from './tapCapture';
+import {quantizeInstrumentCapture,type InstrumentCaptureEvent} from './instrumentCaptureTiming';
 import {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch} from './melodyKeyboard';
 import {autoPianoCaptureRange,PIANO_LOW,PIANO_HIGH} from './pianoRegisters';
 import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} from './violinCapture';
@@ -112,6 +114,9 @@ function stopPlayback(){
   // Continue cleanup so the next Play click can start a fresh audio session.
   let cleanupError:unknown=null;
   const safeRelease=(release:()=>void)=>{try{release();}catch(error){cleanupError??=error;}};
+  // Keep the final held notes when Stop is pressed before the selected range ends.
+  if(captureRecording.value)for(const id of [...heldCaptureKeys.keys()])
+    safeRelease(()=>releaseCapturePianoKey({pointerId:id,type:'transport-end'} as PointerEvent));
   if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)){
     safeRelease(()=>{Tone.getTransport().stop();Tone.getTransport().cancel();});
   }
@@ -132,6 +137,7 @@ function selectProjectInEditor(p:Project){
   closeInstrumentContext();
   phrasePlanDraft.value=undefined;
   stopPlayback();rawPitchFrames.value=[];rawPitchSession.value=null;pitchPreviewNotes.value=[];originalMicrophoneTake.value=[];pitchRawRevision.value++;
+  instrumentCaptureEvents.value=[];instrumentCaptureSession.value=null;instrumentCaptureBase.value=[];
   syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
   overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
@@ -1026,7 +1032,8 @@ const captureCountingIn=ref(false);
 const captureSpeed=ref<0.5|0.75|1>(1);
 // Temporary rehearsal key; captured microphone notes are converted back to score pitch.
 const captureTranspose=ref(0);
-const captureQuantize=ref<'auto'|'1'|'0.5'|'0.25'|'0.125'>('auto');
+const captureQuantize=ref<'auto'|'0'|'1'|'0.5'|'0.25'|'0.125'>('auto');
+const captureDurationQuantize=ref<'auto'|'0'|'1'|'0.5'|'0.25'|'0.125'>('auto');
 const captureTakeMode=ref<'replace'|'overdub'>('replace');
 let captureRecordedPass=-1;
 function beginMelodyPassOnNote(elapsedBeats:number){
@@ -1038,7 +1045,56 @@ function beginMelodyPassOnNote(elapsedBeats:number){
   melodyCaptureTaps.value=[];
   captureRecordedPass=pass;
 }
-type HeldCapture=CapturedTap&{duration?:number;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
+type HeldCapture=CapturedTap&{duration?:number;provisional?:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
+// Keep original attacks and releases so trying a coarse grid never destroys timing.
+const instrumentCaptureEvents=ref<InstrumentCaptureEvent[]>([]);
+const instrumentCaptureBase=ref<HeldCapture[]>([]);
+const instrumentCaptureSession=ref<{
+ id:number;instrument:Instrument;firstBar:number;lastBar:number;beatsPerMeasure:number;loop:boolean;
+}|null>(null);
+const instrumentCaptureRangeMatches=computed(()=>{
+ const s=instrumentCaptureSession.value;
+ return !!s&&s.instrument===noteInst.value&&s.firstBar===captureFirst.value&&
+  s.lastBar===captureLast.value&&s.beatsPerMeasure===project.value.beats;
+});
+function prepareInstrumentCapture(elapsedBeats:number):void{
+ const previousPass=captureRecordedPass;
+ if(instrumentCaptureSession.value?.id!==captureSession||!instrumentCaptureRangeMatches.value){
+  instrumentCaptureEvents.value=[];
+  instrumentCaptureBase.value=captureTakeMode.value==='overdub'
+   ?captureBarNumbers.value.flatMap(bar=>capturedMelodyForBar(bar).map(n=>({bar,...n,...(!n.held?{provisional:true}:{})}))):[];
+  instrumentCaptureSession.value={id:captureSession,instrument:noteInst.value,
+   firstBar:captureFirst.value,lastBar:captureLast.value,beatsPerMeasure:project.value.beats,loop:captureLoopEnabled.value};
+ }
+ beginMelodyPassOnNote(elapsedBeats);
+ if(captureTakeMode.value==='replace'&&previousPass!==captureRecordedPass){
+  instrumentCaptureEvents.value=[];instrumentCaptureBase.value=[];
+ }
+}
+function updateInstrumentCaptureDraft():void{
+ const s=instrumentCaptureSession.value;
+ if(!s)return;
+ const notes=quantizeInstrumentCapture(instrumentCaptureEvents.value,{
+  ...s,onsetGrid:captureGrid,durationGrid:bar=>captureDurationQuantize.value==='auto'?captureGrid(bar):Number(captureDurationQuantize.value)
+ });
+ melodyCaptureTaps.value=notes.reduce((take,note)=>addCapturedTap(take,note,'melody'),[...instrumentCaptureBase.value] as CapturedTap[]);
+}
+function recordInstrumentCapture(event:InstrumentCaptureEvent):void{
+ const s=instrumentCaptureSession.value;
+ if(!s||!instrumentCaptureRangeMatches.value)return;
+ // A key from an older replaced loop pass must not reappear when released later.
+ const total=(s.lastBar-s.firstBar+1)*s.beatsPerMeasure;
+ if(captureTakeMode.value==='replace'&&Math.floor(event.startBeat/total)!==captureRecordedPass)return;
+ instrumentCaptureEvents.value=[...instrumentCaptureEvents.value,event];
+ updateInstrumentCaptureDraft();
+}
+function reprocessInstrumentTiming(raw=false):void{
+ if(capturePlaying.value||!instrumentCaptureEvents.value.length||!instrumentCaptureRangeMatches.value)return;
+ if(raw){captureQuantize.value='0';captureDurationQuantize.value='0';}
+ updateInstrumentCaptureDraft();
+ captureFeedback.value=raw?'Restored recorded timing in the draft. The score is unchanged.':
+  'Reprocessed recorded starts and durations in the draft. The score is unchanged.';
+}
 type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number;stringMidi?:number}>();
 const captureMonitorPitches=new Set<number>();
@@ -1075,7 +1131,7 @@ function capturedMelodyForBar(bar:number){
   const inferred=melodyFromTaps(taps.filter(t=>t.duration===undefined),bar,project.value.beats,captureGrid(bar));
   const quick:CapturedMelodyNote[]=inferred.map(t=>({...t,held:false}));
   const held:CapturedMelodyNote[]=taps.filter(t=>t.duration!==undefined).map(t=>({
-   beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:true,
+   beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:!t.provisional,
    ...(t.approachSlideFrom!==undefined?{approachSlideFrom:t.approachSlideFrom}:{}),
    ...(t.vibrato?{vibrato:true}:{}),...(t.gesture?{gesture:t.gesture}:{}),...(t.stringMidi!==undefined?{stringMidi:t.stringMidi}:{})
   }));
@@ -1303,19 +1359,14 @@ function finishMicrophoneNote(end:number){
  const duration=Math.max(0,end-start);
  if(duration<0.12||!length)return;
  beginMelodyPassOnNote(start);
- let cursor=Math.round((start%length)/captureGrid(captureFirst.value))*captureGrid(captureFirst.value);
- let remaining=Math.max(0.125,Math.round(duration/0.25)*0.25);
- while(remaining>0.00001){
-  const position=((cursor%length)+length)%length;
-  const bar=captureFirst.value+Math.min(captureLast.value-captureFirst.value,Math.floor(position/project.value.beats));
-  const beat=Number((position%project.value.beats).toFixed(6));
-  const segment=Math.min(remaining,project.value.beats-beat);
-  const tap:HeldCapture={bar,beat,pitch:activeNote.pitch,duration:Number(segment.toFixed(6))};
-  melodyCaptureTaps.value=addCapturedTap(melodyCaptureTaps.value,tap,'melody');
-  cursor+=segment;remaining-=segment;
- }
+ const notes=quantizeInstrumentCapture([{startBeat:start,durationBeats:duration,pitch:activeNote.pitch}],{
+  beatsPerMeasure:project.value.beats,firstBar:captureFirst.value,lastBar:captureLast.value,loop:captureLoopEnabled.value,
+  onsetGrid:()=>pitchProcessing.value.onsetGridBeats,durationGrid:()=>pitchProcessing.value.durationGridBeats
+ });
+ for(const note of notes)melodyCaptureTaps.value=addCapturedTap(melodyCaptureTaps.value,note,'melody');
 }
 function stopMicrophoneCapture(){
+ const wasRecording=microphoneListening.value&&!microphoneMonitoring.value&&captureRecording.value;
  microphoneGeneration++;
  if(microphoneFrame)cancelAnimationFrame(microphoneFrame);
  microphoneFrame=0;
@@ -1334,7 +1385,7 @@ function stopMicrophoneCapture(){
  microphoneSilentSink?.disconnect();microphoneSilentSink=null;
  microphoneStream?.getTracks().forEach(track=>track.stop());microphoneStream=null;
  microphoneContext=null;
- if(captureRecording.value&&rawPitchSession.value?.mode==='recording'&&rawPitchFrames.value.length){
+ if(wasRecording&&rawPitchSession.value?.mode==='recording'&&rawPitchFrames.value.length){
   originalMicrophoneTake.value=melodyCaptureTaps.value.map(t=>({...t}));
   reprocessPitchTake();
  }
@@ -1493,16 +1544,22 @@ function captureTap(pitch?:number){
     const elapsed=Tone.getTransport().seconds;
     const countInSeconds=(captureRecording.value&&captureCountIn.value?project.value.beats:0)*60/(project.value.bpm*captureSpeed.value);
     if(elapsed<countInSeconds){captureFeedback.value='Count-in: recording begins after the introductory measure.';return;}
+    if(captureKind.value==='melody'){
+      const startBeat=captureElapsedBeats();
+      if(startBeat<0)return;
+      const chosenPitch=pitch??capturePitch.value;
+      prepareInstrumentCapture(startBeat);
+      recordInstrumentCapture({startBeat,pitch:chosenPitch});
+      captureFeedback.value=`Captured ${midiName(chosenPitch)} with a provisional duration. ${captureTaps.value.length} draft notes.`;
+      void auditionPitch(chosenPitch,90,0.12);
+      return;
+    }
     const pos=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,
-      captureFirst.value,captureLast.value,captureGrid(captureFirst.value),captureLatency.value);
-    const adjusted=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,captureFirst.value,captureLast.value,captureGrid(pos.bar),captureLatency.value);
-    if(captureKind.value==='melody')beginMelodyPassOnNote(captureElapsedBeats());
-    const chosenPitch=pitch??capturePitch.value;
-    const tap:CapturedTap=captureKind.value==='melody'?{...adjusted,pitch:chosenPitch}:adjusted;
-    captureTaps.value=addCapturedTap(captureTaps.value,tap,captureKind.value);
+      captureFirst.value,captureLast.value,captureGrid(captureFirst.value)||0.25,captureLatency.value);
+    const adjusted=capturePosition(elapsed-countInSeconds,project.value.bpm*captureSpeed.value,project.value.beats,captureFirst.value,captureLast.value,captureGrid(pos.bar)||0.25,captureLatency.value);
+    captureTaps.value=addCapturedTap(captureTaps.value,adjusted,'rhythm');
     delete captureEditedRhythms.value[pos.bar];
-    captureFeedback.value=`Captured measure ${pos.bar+1}, beat ${(pos.beat+1).toFixed(2)}${captureKind.value==='melody'?` · ${midiName(chosenPitch)}`:''}. ${captureTaps.value.length} draft taps.`;
-    if(captureKind.value==='melody')void auditionPitch(chosenPitch,90,0.12);
+    captureFeedback.value=`Captured measure ${adjusted.bar+1}, beat ${(adjusted.beat+1).toFixed(2)}. ${captureTaps.value.length} draft taps.`;
   }catch(error){captureFeedback.value=`Tap not captured: ${String(error)}`;}
 }
 function capturePointerTap(event:PointerEvent,pitch?:number){if(!event.isPrimary||event.button!==0)return;captureTap(pitch);}
@@ -1520,7 +1577,7 @@ function capturePianoKey(event:PointerEvent,pitch:number){
  capturePitch.value=pitch;
  const started=captureRecording.value?captureElapsedBeats():-1;
  if(captureRecording.value&&started<0)return;
- if(started>=0)beginMelodyPassOnNote(started);
+ if(started>=0)prepareInstrumentCapture(started);
  const id=event.pointerId;
  heldCaptureKeys.set(id,{pitch,started});
  updateCaptureHeldDisplay();
@@ -1597,29 +1654,12 @@ function releaseCapturePianoKey(event:PointerEvent){
  updateCaptureHeldDisplay();
  releaseCaptureMonitorPitch(held.pitch);
  if(event.type==='pointercancel'||!captureRecording.value||held.started<0)return;
- const total=(captureLast.value-captureFirst.value+1)*project.value.beats;
  const start=Math.max(0,held.started);
  const end=Math.max(start,captureElapsedBeats());
- let position=((start%total)+total)%total;
- const startBar=captureFirst.value+Math.floor(position/project.value.beats);
- const grid=captureGrid(startBar);
- const snappedStart=Math.round(position/grid)*grid;
- const duration=Math.max(grid,Math.round((end-start)/grid)*grid);
- let cursor=snappedStart,remaining=duration,firstSegment=true;
- while(remaining>0.00001){
-  const local=((cursor%total)+total)%total;
-  const bar=captureFirst.value+Math.floor(local/project.value.beats);
-  const beat=Number((local%project.value.beats).toFixed(6));
-  const segment=Math.min(remaining,project.value.beats-beat);
-  const tap:HeldCapture={bar,beat,pitch:writtenPitch,duration:Number(segment.toFixed(6)),
-    ...(held.stringMidi!==undefined?{stringMidi:held.stringMidi}:{}),
-   ...(firstSegment&&approachSlideFrom!==undefined?{approachSlideFrom}:{}),
-   ...(firstSegment&&vibrato?{vibrato:true}:{}),
-   ...(firstSegment&&gesture?{gesture}:{})};
-  captureTaps.value=addCapturedTap(captureTaps.value,tap,'melody');
-  remaining-=segment;cursor+=segment;firstSegment=false;
- }
- captureFeedback.value=`Recorded ${midiName(writtenPitch)} for ${duration} beats${captureLastExpression.value?' · '+captureLastExpression.value:''}.`;
+ recordInstrumentCapture({startBeat:start,durationBeats:end-start,pitch:writtenPitch,
+  ...(held.stringMidi!==undefined?{stringMidi:held.stringMidi}:{}),
+  ...(approachSlideFrom!==undefined?{approachSlideFrom}:{}),...(vibrato?{vibrato:true}:{}),...(gesture?{gesture}:{})});
+ captureFeedback.value=`Recorded ${midiName(writtenPitch)}${captureLastExpression.value?' · '+captureLastExpression.value:''}. Review timing before applying.`;
 }
 function capturePianoKeyClick(event:MouseEvent,pitch:number){
   if(captureRecording.value&&captureInputSource.value==='microphone')return;
@@ -1926,14 +1966,23 @@ async function copyCaptureTake(){
   }
 }
 
-async function auditionDraft(notes:CapturedMelodyNote[]){
+async function auditionDraft(notes:Array<CapturedMelodyNote&{startBeat?:number}>){
  if(capturePlaying.value||!notes.length)return;
- try{Tone=await startAudioFromGesture();const synth=ensureCaptureKeySynth();let time=Tone.now()+0.05;
- for(const n of notes){const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));const duration=Math.max(0.1,n.duration*60/(project.value.bpm*captureSpeed.value));synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration*0.9,time,0.7);time+=duration;}}
+ try{
+  Tone=await startAudioFromGesture();const synth=ensureCaptureKeySynth();
+  const origin=Tone.now()+0.05,secondsPerBeat=60/(project.value.bpm*captureSpeed.value);
+  let nextBeat=0;
+  for(const n of notes){
+   const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));
+   const startBeat=n.startBeat??nextBeat,duration=n.duration*secondsPerBeat;
+   synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),Math.max(0.01,duration*0.9),origin+startBeat*secondsPerBeat,0.7);
+   nextBeat=startBeat+n.duration;
+  }
+ }
  catch(e){captureFeedback.value='Playback unavailable: '+String(e);}
 }
-function playDraftMeasure(bar:number){void auditionDraft(capturedMelodyForBar(bar));}
-function playDraftAll(){void auditionDraft(captureBarNumbers.value.flatMap(b=>capturedMelodyForBar(b)));}
+function playDraftMeasure(bar:number){void auditionDraft(capturedMelodyForBar(bar).map(n=>({...n,startBeat:n.beat})));}
+function playDraftAll(){void auditionDraft(captureBarNumbers.value.flatMap(b=>capturedMelodyForBar(b).map(n=>({...n,startBeat:(b-captureFirst.value)*project.value.beats+n.beat}))));}
 let draftHoldTimer:ReturnType<typeof setTimeout>|undefined;
 let draftHoldFired=false;
 function cancelDraftHold(){if(draftHoldTimer)clearTimeout(draftHoldTimer);draftHoldTimer=undefined;}
@@ -1947,7 +1996,7 @@ function editDraftNote(bar:number,n:CapturedMelodyNote){
  const pitch=Number(p);if(!Number.isInteger(pitch)||pitch<0||pitch>127){captureFeedback.value='Invalid pitch.';return;}
  const d=window.prompt('Duration in beats',String(n.duration));if(d===null)return;
  const duration=Number(d);if(!Number.isFinite(duration)||duration<=0||duration>project.value.beats){captureFeedback.value='Invalid duration.';return;}
- captureTaps.value=captureTaps.value.map((t,i)=>i===index?{...t,pitch,duration}:t);
+ captureTaps.value=captureTaps.value.map((t,i)=>i===index?{...t,pitch,duration,provisional:false}:t);
  captureFeedback.value='Draft note edited.';
 }
 const captureTakeWarnings=computed(()=>{
@@ -5142,7 +5191,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <template #settings>
          <div class="capture-settings-grid">
           <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label>
-          <label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label>
+          <CaptureTimingControls v-if="captureInputSource==='instrument'" v-model:onset="captureQuantize" v-model:duration="captureDurationQuantize" auto :disabled="capturePlaying"/>
+          <CaptureTimingControls v-else v-model:onset="pitchProcessing.onsetGridBeats" v-model:duration="pitchProcessing.durationGridBeats" :disabled="capturePlaying||microphoneListening||microphoneStarting"/>
           <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
           <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Sensitivity · {{microphoneSensitivity}}%<input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
          </div>
@@ -5151,6 +5201,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <p class="hint">Increase sensitivity for quiet input; reduce it if noise produces notes. Use headphones when backing or metronome is audible.</p>
          </template>
          <template v-else>
+          <p class="hint">Start and duration grids are independent. Raw keeps performed timing; short taps have a provisional duration. After recording, use Reprocess timing in Review melody take to try these settings again.</p>
           <label v-if="noteInst.startsWith('Violin')&&captureInputLayout==='fingerboard'">Violin finger gesture<select v-model="captureViolinMode"><option value="auto">Auto · note / slide / vibrato / sirena</option><option value="notes">Notes only</option><option value="slide">Slide into final note</option><option value="vibrato">Mark vibrato</option></select></label>
           <div v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length" class="capture-fret-settings">
             <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
@@ -5195,12 +5246,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <label>Pitch tuning bias · {{pitchProcessing.pitchBiasCents>=0?'+':''}}{{pitchProcessing.pitchBiasCents}} cents
             <input type="range" min="-50" max="50" step="5" v-model.number="pitchProcessing.pitchBiasCents" :disabled="microphoneListening||microphoneStarting" aria-label="Pitch quantization tuning bias in cents"/>
           </label>
-          <label>Note onset grid<select v-model.number="pitchProcessing.onsetGridBeats" :disabled="microphoneListening||microphoneStarting">
-            <option :value="0">Raw timing</option><option :value="1">Quarter</option><option :value="0.5">Eighth</option><option :value="0.25">Sixteenth</option><option :value="0.125">Thirty-second</option>
-          </select></label>
-          <label>Note duration grid<select v-model.number="pitchProcessing.durationGridBeats" :disabled="microphoneListening||microphoneStarting">
-            <option :value="0">Raw duration</option><option :value="1">Quarter</option><option :value="0.5">Eighth</option><option :value="0.25">Sixteenth</option><option :value="0.125">Thirty-second</option>
-          </select></label>
+          <CaptureTimingControls v-model:onset="pitchProcessing.onsetGridBeats" v-model:duration="pitchProcessing.durationGridBeats" :disabled="microphoneListening||microphoneStarting"/>
           <label>Note separation<select v-model="pitchProcessing.separation" :disabled="microphoneListening||microphoneStarting">
             <option value="sensitive">Sensitive · more attacks</option><option value="balanced">Balanced</option><option value="conservative">Conservative · fewer fragments</option>
           </select></label>
@@ -5269,6 +5315,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </template>
       <details class="capture-draft-review">
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
+        <details v-if="captureInputSource==='instrument'&&instrumentCaptureEvents.length" class="capture-postprocess" open>
+          <summary>Reprocess timing · {{instrumentCaptureEvents.length}} recorded attacks</summary>
+          <div class="capture-settings-grid">
+            <CaptureTimingControls v-model:onset="captureQuantize" v-model:duration="captureDurationQuantize" auto :disabled="capturePlaying"/>
+          </div>
+          <div class="live-capture-actions" role="group" aria-label="Instrument timing actions">
+            <button type="button" class="secondary" :disabled="capturePlaying||!instrumentCaptureRangeMatches" @click="reprocessInstrumentTiming()"><AppIcon name="refresh-cw"/> Reprocess timing</button>
+            <button type="button" class="secondary" :disabled="capturePlaying||!instrumentCaptureRangeMatches" @click="reprocessInstrumentTiming(true)">Restore raw timing</button>
+          </div>
+          <p class="hint">Reprocessing replaces draft edits with the recorded pitches and newly timed notes. Chords and string gestures are retained. The score changes only when you Apply.</p>
+          <p v-if="!instrumentCaptureRangeMatches" class="capture-feedback" role="status">Select {{rosterDisplayName(instrumentCaptureSession!.instrument)}} and measures {{instrumentCaptureSession!.firstBar+1}}–{{instrumentCaptureSession!.lastBar+1}} to reprocess this take.</p>
+        </details>
       <div v-if="captureTakeWarnings.length" class="capture-feedback" role="status"><strong>Possible cleanup candidates (not changed automatically):</strong><p v-for="warning in captureTakeWarnings" :key="warning">{{warning}}</p></div>
       <div class="live-capture-actions" role="group" aria-label="Recorded note actions">
 <button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureUndo" title="Undo last note" aria-label="Undo last note"><AppIcon name="arrow-left"/></button>
