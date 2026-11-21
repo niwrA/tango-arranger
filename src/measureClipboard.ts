@@ -60,6 +60,7 @@ function setSlot(p:Project,inst:Instrument,bar:number,slot:Slot):void{
 export function copyMeasureRange(p:Project,score:Score,range:MeasureRange,instruments:Instrument[],fields:MeasureFields):MeasureClipboard{
  validateRange(p,range);
  if(!fieldsPresent(fields))throw Error('Select something to copy');
+ if(fields.lyrics&&!fields.notes&&!fields.melody)throw Error('Copy lyrics together with instrument notes or lead melody');
  if(fields.notes||fields.settings)validateInstruments(p,instruments);
  const from=range.start*p.beats,to=(range.end+1)*p.beats,count=range.end-range.start+1;
  const bars=p.bars.slice(range.start,range.end+1).map(bar=>{
@@ -102,6 +103,7 @@ function targetPairs(p:Project,clip:MeasureClipboard,targetInstrument?:Instrumen
 }
 function validateFields(clip:MeasureClipboard,fields:MeasureFields):void{
  if(!fieldsPresent(fields))throw Error('Select something to paste');
+ if(fields.lyrics&&!fields.notes&&!fields.melody)throw Error('Paste lyrics together with instrument notes or lead melody');
  for(const key of Object.keys(fields) as (keyof MeasureFields)[])if(fields[key]&&!clip.fields[key])
    throw Error('The copied measures do not contain '+key);
 }
@@ -214,6 +216,7 @@ export function deleteMeasureRange(original:Project,range:MeasureRange):Project{
 /** Clear content while retaining bars; cleared notes stay protected against regeneration. */
 export function clearMeasureRange(original:Project,score:Score,range:MeasureRange,instruments:Instrument[],fields:MeasureFields,silence=false):Project{
  validateRange(original,range);if(!fieldsPresent(fields))throw Error('Choose something to clear');
+ if(fields.lyrics&&!fields.notes&&!fields.melody)throw Error('Clear lyrics together with instrument notes or lead melody');
  if(fields.notes||fields.settings||silence)validateInstruments(original,instruments);
  const next=deep(original);
  const affected=new Set(instruments);
