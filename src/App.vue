@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
+import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import CaptureTimingControls from './CaptureTimingControls.vue';
@@ -2515,6 +2516,139 @@ async function createBlankSong(){
     message.value=`Created ${newSongSections.value} sections (${fresh.bars.length} measures total). Enter chords and melody, then generate.`;
   }catch(error){message.value=`Cannot create blank song: ${String(error)}`;}
 }
+
+/** Shared measure selection/clipboard; all editing modes use absolute bar numbers. */
+const measureEditOpen=ref(false);
+const measureFrom=ref(1),measureTo=ref(1);
+const measureAnchor=ref<number|null>(null),measureAwaitingEndpoint=ref(false);
+const measureCopyScope=ref<'instrument'|'all'>('instrument');
+const measureCopyInstrument=ref<Instrument>('Voice');
+const measureCopyFields=ref<MeasureFields>({...ALL_MEASURE_FIELDS});
+const measurePasteFields=ref<MeasureFields>({...ALL_MEASURE_FIELDS});
+const measureClipboard=ref<MeasureClipboard|null>(null);
+const measurePasteAt=ref(1),measurePasteMode=ref<PasteMode>('overwrite');
+const measurePasteTarget=ref('__same__');
+const measureClearSilence=ref(true);
+const measurePending=ref<'paste'|'clear'|'delete'|'insert'|null>(null);
+const measurePreview=ref(''),measurePreviewWarnings=ref('');
+let rangeSuppressClickUntil=0;
+const currentMeasureRange=computed<MeasureRange>(()=>{
+ const limit=project.value.bars.length;
+ const first=Math.max(1,Math.min(limit,Math.floor(Number(measureFrom.value)||1)));
+ const last=Math.max(1,Math.min(limit,Math.floor(Number(measureTo.value)||first)));
+ return {start:Math.min(first,last)-1,end:Math.max(first,last)-1};
+});
+const measureSelectedParts=computed(()=>measureCopyScope.value==='all'?projectInstruments(project.value):[measureCopyInstrument.value]);
+const measureEditableFields=['chords','melody','notes','lyrics','settings'] as const;
+const measureFieldLabels:Record<keyof MeasureFields,string>={chords:'Chords',melody:'Lead melody',notes:'Instrument notes',lyrics:'Lyrics attached to notes',settings:'Roles, dynamics and expression'};
+function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';}
+function prepareMeasureInputs(){
+ const count=project.value.bars.length;
+ measureFrom.value=Math.max(1,Math.min(count,Math.floor(measureFrom.value)||1));
+ measureTo.value=Math.max(1,Math.min(count,Math.floor(measureTo.value)||1));
+ resetMeasureEditPreview();
+}
+function selectMeasureEditSection(index:number){
+ const section=sectionSpans(project.value)[index];
+ if(!section)return;
+ measureFrom.value=section.start+1;measureTo.value=section.start+section.measures;
+ measureAnchor.value=section.start;measureAwaitingEndpoint.value=false;
+ resetMeasureEditPreview();
+}
+function beginMeasureHold(measure:number){
+ if(!measureEditOpen.value)return;
+ measureAnchor.value=measure;measureFrom.value=measure+1;measureTo.value=measure+1;
+ measureAwaitingEndpoint.value=true;rangeSuppressClickUntil=Date.now()+900;
+ resetMeasureEditPreview();
+}
+function onMeasureRangeTap(measure:number,event:Pick<MouseEvent,'shiftKey'>){
+ if(!measureEditOpen.value)return;
+ if(Date.now()<rangeSuppressClickUntil){rangeSuppressClickUntil=0;return;}
+ if(measureAwaitingEndpoint.value||(event.shiftKey&&measureAnchor.value!==null)){
+  const anchor=measureAnchor.value??measure;
+  measureFrom.value=Math.min(anchor,measure)+1;measureTo.value=Math.max(anchor,measure)+1;
+  measureAwaitingEndpoint.value=false;
+ }else{
+  measureAnchor.value=measure;measureFrom.value=measure+1;measureTo.value=measure+1;
+ }
+ resetMeasureEditPreview();
+}
+function chooseMeasureFields(which:'all'|'instrument'|'harmony'|'custom'){
+ if(which==='custom')return;
+ measureCopyFields.value=which==='all'?{...ALL_MEASURE_FIELDS}:
+  which==='instrument'?{chords:false,melody:false,notes:true,lyrics:true,settings:false}:
+  {chords:true,melody:true,notes:false,lyrics:false,settings:false};
+ resetMeasureEditPreview();
+}
+function setCopyField(key:keyof MeasureFields,checked:boolean){
+ measureCopyFields.value={...measureCopyFields.value,[key]:checked};resetMeasureEditPreview();
+}
+function setPasteField(key:keyof MeasureFields,checked:boolean){
+ measurePasteFields.value={...measurePasteFields.value,[key]:checked};resetMeasureEditPreview();
+}
+function copySelectedMeasures(){
+ try{
+  const result=copyMeasureRange(project.value,score.value,currentMeasureRange.value,measureSelectedParts.value,measureCopyFields.value);
+  measureClipboard.value=result;measurePasteFields.value={...result.fields};
+  measurePasteAt.value=Math.min(project.value.bars.length,currentMeasureRange.value.end+2);
+  measurePasteTarget.value='__same__';resetMeasureEditPreview();
+  message.value='Copied '+result.count+' measures and the chosen content. Choose a paste destination and preview.';
+ }catch(error){message.value='Measure copy failed: '+String(error);}
+}
+function previewMeasureOperation(action:'paste'|'clear'|'delete'|'insert'){
+ try{
+  resetMeasureEditPreview();
+  const range=currentMeasureRange.value,count=range.end-range.start+1;
+  if(action==='paste'){
+   const clip=measureClipboard.value;
+   if(!clip)throw Error('Copy a measure range first');
+   const target=measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
+   const info=previewMeasurePaste(project.value,score.value,clip,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,target);
+   measurePreview.value=(measurePasteMode.value==='insert'?'Insert':'Overwrite')+' '+info.length+' measures starting at '+measurePasteAt.value+', '+info.incomingNotes+' incoming notes, '+info.replacedNotes+' replaced notes. Result: '+info.newTotal+' measures.';
+   measurePreviewWarnings.value=info.warning;
+  }else if(action==='clear'){
+   const targets=measureSelectedParts.value;
+   const countProtected=targets.reduce((sum,inst)=>sum+Array.from({length:count},(_,i)=>Number(!!project.value.protectedBars[inst+':'+(range.start+i)])).reduce((a,b)=>a+b,0),0);
+   clearMeasureRange(project.value,score.value,range,targets,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
+   measurePreview.value='Clear selected content in measures '+(range.start+1)+'–'+(range.end+1)+' ('+count+' measures), '+targets.join(', ')+'. Song length stays the same.';
+   measurePreviewWarnings.value=countProtected+' protected instrument-measures in this selection. '+(measureClearSilence.value&&measureCopyFields.value.notes?'Cleared parts remain silent and protected.':'Review the content checkboxes before applying.');
+  }else if(action==='delete'){
+   deleteMeasureRange(project.value,range);
+   measurePreview.value='Delete measures '+(range.start+1)+'–'+(range.end+1)+', shifting later music '+count+' measures earlier.';
+   measurePreviewWarnings.value='Notes, lyrics and harmony in deleted measures are lost; later scores and saved editions shift.';
+  }else{
+   insertBlankMeasures(project.value,measurePasteAt.value-1,count);
+   measurePreview.value='Insert '+count+' empty measures immediately before '+measurePasteAt.value+'.';
+   measurePreviewWarnings.value='Later parts shift. Phrase plans and editable lyrics sources need review.';
+  }
+  measurePending.value=action;
+ }catch(error){measurePending.value=null;message.value='Measure preview failed: '+String(error);}
+}
+function applyMeasureOperation(){
+ const action=measurePending.value;if(!action)return;
+ try{
+  const range=currentMeasureRange.value,count=range.end-range.start+1;
+  let next:Project;
+  if(action==='paste'){
+   if(!measureClipboard.value)throw Error('No copied measures');
+   next=pasteMeasureRange(project.value,score.value,measureClipboard.value,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,
+     measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
+  }else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
+  else if(action==='delete')next=deleteMeasureRange(project.value,range);
+  else next=insertBlankMeasures(project.value,measurePasteAt.value-1,count);
+  stopPlayback();project.value=next;
+  const point=action==='paste'||action==='insert'?measurePasteAt.value-1:range.start;
+  const bounded=Math.min(next.bars.length-1,Math.max(0,point));
+  selectedBar.value=bounded;chosenSection.value=next.bars[bounded].section;overviewFocus.value=bounded;
+  measureFrom.value=bounded+1;
+  measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='insert'?count:1));
+  measureAnchor.value=bounded;measureAwaitingEndpoint.value=false;noteSelected.value=-1;
+  resetMeasureEditPreview();
+  message.value='Applied measure '+action+'. Use Undo to restore the previous state.';
+ }catch(error){resetMeasureEditPreview();message.value='Measure operation failed: '+String(error);}
+}
+watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
+
 const copySourceIndex=ref(0);
 const copyTargetIndex=ref(1);
 const copyHarmonyFeedback=ref('');
@@ -2595,7 +2729,7 @@ function showLeadMeasureContext(measure:number,event?:MouseEvent){
 }
 function startLeadMeasureLongPress(measure:number){
   cancelLeadContextTimer();
-  leadContextTimer=setTimeout(()=>{leadMeasureContext.value=measure;leadContextTimer=null;},550);
+  leadContextTimer=setTimeout(()=>{if(measureEditOpen.value)beginMeasureHold(measure);else leadMeasureContext.value=measure;leadContextTimer=null;},550);
 }
 function shiftVoicePhraseFromLead(measure:number,fromSelectedNote=false){
   leadMeasureContext.value=null;
@@ -2804,6 +2938,13 @@ function cancelInlineChord(i:number,event:Event){
   input.value=project.value.bars[i]?.chord??'';
   input.blur();
 }
+let noteMeasureRangeTimer:ReturnType<typeof setTimeout>|null=null;
+function startNoteMeasureRangeHold(index:number){
+ if(!measureEditOpen.value)return;
+ cancelNoteMeasureRangeHold();
+ noteMeasureRangeTimer=setTimeout(()=>{noteMeasureRangeTimer=null;beginMeasureHold(index);},550);
+}
+function cancelNoteMeasureRangeHold(){if(noteMeasureRangeTimer!==null)clearTimeout(noteMeasureRangeTimer);noteMeasureRangeTimer=null;}
 function selectLeadMeasure(i:number){
   selectedBar.value=i;
   chosenSection.value=project.value.bars[i].section;
@@ -2912,7 +3053,7 @@ function openInstrumentMeasureSettings(inst:Instrument,i:number,event?:MouseEven
 function startInstrumentMeasureHold(inst:Instrument,i:number){
   cancelMeasureSettingsHold();
   suppressMeasureSettingsClick=false;
-  measureSettingsTimer=setTimeout(()=>{measureSettingsTimer=null;openInstrumentMeasureSettings(inst,i);},550);
+  measureSettingsTimer=setTimeout(()=>{measureSettingsTimer=null;if(measureEditOpen.value)beginMeasureHold(i);else openInstrumentMeasureSettings(inst,i);},550);
 }
 function selectOverviewMapCell(inst:Instrument,i:number,event:Pick<MouseEvent,'shiftKey'>){
   if(suppressMeasureSettingsClick){suppressMeasureSettingsClick=false;return;}
