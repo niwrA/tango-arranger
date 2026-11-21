@@ -9,7 +9,7 @@ const {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints
 const {exportMusicXml,exportMuseScoreMscz,validateMusicXmlDurations}=load('src/io.ts');
 const {duplicateProjectSection}=load('src/sectionDuplication.ts');
 const {deleteProjectSection}=load('src/sectionDeletion.ts');
-const {insertBlankMeasures,deleteMeasureRange}=load('src/measureClipboard.ts');
+const {insertBlankMeasures,deleteMeasureRange,copyMeasureRange,pasteMeasureRange}=load('src/measureClipboard.ts');
 let checked=0;
 function test(name,fn){fn();checked++;console.log('PASS '+name);}
 async function check(name,fn){await fn();checked++;console.log('PASS '+name);}
@@ -59,6 +59,17 @@ test('duplicate/insert/delete preserve timing marks in musical position',()=>{
  const sectionGone=deleteProjectSection(p,1);
  assert.equal(sectionGone.tempoExpressions.fermatas.length,0);
  assert.equal(sectionGone.tempoExpressions.ritardandos.length,0);
+});
+test('copy/paste of every instrument setting carries complete tempo and fermata marks',()=>{
+ const p=project(),score=generate(p);
+ const options={chords:false,melody:false,notes:false,lyrics:false,settings:true};
+ const clip=copyMeasureRange(p,score,{start:3,end:6},projectInstruments(p),options);
+ assert.equal(clip.tempoExpressions.ritardandos.length,1);
+ const next=pasteMeasureRange(p,score,clip,7,'insert',options);
+ assert.equal(next.bars.length,11);
+ assert.ok(next.tempoExpressions.ritardandos.some(r=>r.startMeasure===7&&r.endMeasure===9));
+ assert.ok(next.tempoExpressions.fermatas.some(f=>f.measure===9));
+ assert.ok(next.tempoExpressions.aTempoMeasures.includes(10));
 });
 function xmlParts(xml){
  const doc=new DOMParser().parseFromString(xml,'application/xml');
