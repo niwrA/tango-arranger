@@ -30,13 +30,15 @@ test('ritardando slows progressively, holds speed, and a tempo restores original
  assert.equal(writtenTempoAtBeat(p,3*3),120);
  assert.ok(writtenTempoAtBeat(p,4*3)<120);
  assert.ok(Math.abs(writtenTempoAtBeat(p,6*3-1)-72)<1e-4);
- assert.ok(Math.abs(writtenTempoAtBeat(p,6*3)<72)<1e-4);
+ assert.ok(Math.abs(writtenTempoAtBeat(p,6*3-0.1)-72)<1e-4);
  assert.equal(writtenTempoAtBeat(p,6*3),120);
  assert.equal(performanceTempoAtBeat(p,6*3-1),36);
  const marks=tempoAutomationPoints(p,true);
  assert.ok(marks.find(x=>x.label==='rit.'&&x.beat===9));
  assert.ok(marks.find(x=>x.label==='a tempo'&&x.beat===18));
- assert.ok(marks.every(x=>x.bpm>=72&&x.bpm<=120));
+ assert.ok(marks.every(x=>x.bpm>=36&&x.bpm<=120));
+ assert.ok(marks.some(x=>x.beat===17&&x.bpm===36),'Fermata playback stretch is exported as a hidden tempo change');
+ assert.ok(marks.some(x=>x.beat===18&&x.bpm===120),'A tempo restores timing after the hold');
  assert.ok(soundingSeconds(p,16,2)>2*60/120);
 });
 test('cue marks validate instrument and overlap while serializing unchanged',()=>{
@@ -175,6 +177,19 @@ function notesInNativeScore(mscx,beats){
   const score=generate(p);score['Violin I']=[{pitch:72,start:0,duration:1.5},{pitch:72,start:1,duration:0.5}];
   const xml=exportMusicXml(p,score,{onlyInstrument:'Violin I'});
   assert.doesNotMatch(xml,/<tie type="start"/);
+ });
+ await check('MusicXML has balanced same-part ties over barlines and breaks at a repeated pitch attack',async()=>{
+  const p=blankProject({sections:1,measuresPerSection:3,beats:3});
+  const score=generate(p);
+  score['Violin I']=[{pitch:72,start:2,duration:2}];
+  const joined=exportMusicXml(p,score,{onlyInstrument:'Violin I'});
+  assert.equal((joined.match(/<tie type="start"\/>/g)||[]).length,1);
+  assert.equal((joined.match(/<tie type="stop"\/>/g)||[]).length,1);
+  assert.deepEqual(Array.from(validateMusicXmlDurations(joined,3,1)),[]);
+  score['Violin I'].push({pitch:72,start:3,duration:1});
+  const reattacked=exportMusicXml(p,score,{onlyInstrument:'Violin I'});
+  assert.doesNotMatch(reattacked,/<tie type="start"\/>/,'A note reattacked at the barline must not connect to its predecessor');
+  assert.doesNotMatch(reattacked,/<tie type="stop"\/>/,'A fresh note at the barline must not inherit a tie');
  });
  const app=fs.readFileSync('src/App.vue','utf8');
  test('user can edit timing and resume a singer cue without ending transport',()=>{
