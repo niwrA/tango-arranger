@@ -145,6 +145,19 @@ function notesInNativeScore(mscx,beats){
   assert.ok(starts>0);
   assert.equal(starts,stops);
  });
+ await check('Pequeña full native MuseScore score has no ties to different staves, voices or pitches',async()=>{
+  const p=JSON.parse(fs.readFileSync('src/presets/pequena-2.json','utf8'));
+  const mscx=(await exportMuseScoreMscz(p,p.generatedScore)).files['score.mscx'];
+  const staves=notesInNativeScore(mscx,p.beats);
+  let starts=0,stops=0;
+  for(const [staffId,notes] of staves)for(const note of notes)for(const span of note.spans){
+   assert.ok(notes.some(target=>target.voiceIndex===note.voiceIndex&&target.pitch===note.pitch&&target.beat===span.to),
+    'Pequeña tie '+span.side+' from '+note.pitch+' on staff '+staffId+' to tick '+span.to+' has no matching note in same voice');
+   if(span.side==='next')starts++;else stops++;
+  }
+  assert.ok(starts>0,'Pequeña should contain genuine sustained notes and native ties');
+  assert.equal(starts,stops);
+ });
  await check('unison rearticulation does not invent an extra MusicXML tie',async()=>{
   const p=blankProject({sections:1,measuresPerSection:2,beats:3});
   const score=generate(p);score['Violin I']=[{pitch:72,start:0,duration:1.5},{pitch:72,start:1,duration:0.5}];
