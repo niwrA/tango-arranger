@@ -2524,7 +2524,7 @@ async function createBlankSong(){
 /** Shared measure selection/clipboard; all editing modes use absolute bar numbers. */
 const measureEditOpen=ref(false);
 const measurePanelOpen=ref(false),measureSelectionPicking=ref(false);
-const measureFeedback=ref<{kind:'success'|'error'|'info';text:string}|null>(null);
+const measureFeedback=ref<{kind:'success'|'error'|'info';text:string;context:'source'|'destination'|'advanced'}|null>(null);
 const measurePasteFitNote=computed(()=>{
  const clip=measureClipboard.value;
  if(!clip)return '';
@@ -2539,8 +2539,8 @@ const measurePasteFitNote=computed(()=>{
   return 'Cannot insert '+clip.count+' measures: the project maximum is 512.';
  return '';
 });
-function showMeasureFeedback(kind:'success'|'error'|'info',text:string){
- measureFeedback.value={kind,text};
+function showMeasureFeedback(kind:'success'|'error'|'info',text:string,context:'source'|'destination'|'advanced'='destination'){
+ measureFeedback.value={kind,text,context};
  message.value=text;
 }
 const measureFrom=ref(1),measureTo=ref(1);
@@ -2589,12 +2589,12 @@ function toggleMeasureEditTools(){
 function armMeasureSelection(){
  measureSelectionPicking.value=true;measureEditOpen.value=true;measurePanelOpen.value=false;
  measureAnchor.value=null;measureAwaitingEndpoint.value=false;rangeSuppressClickUntil=0;
- showMeasureFeedback('info','Select a first measure, then tap a second measure. On iPad, hold the first to anchor it.');
+ showMeasureFeedback('info','Select a first measure, then tap a second measure. On iPad, hold the first to anchor it.','source');
 }
 function finishMeasureSelection(){
  if(!measureSelectionPicking.value)return;
  measureSelectionPicking.value=false;measurePanelOpen.value=true;measureEditOpen.value=true;
- showMeasureFeedback('success','Selected measures '+measureFrom.value+'–'+measureTo.value+'. Choose Copy, Move, or another action.');
+ showMeasureFeedback('success','Selected measures '+measureFrom.value+'–'+measureTo.value+'. Choose Copy, Move, or another action.','source');
 }
 function prepareMeasureInputs(){
  const count=project.value.bars.length;
@@ -2657,8 +2657,8 @@ function copySelectedMeasures(){
   // automatic reset made "147" silently become "163" when copying E.
   resetMeasureEditPreview();
   const noteTotal=Object.values(result.parts).reduce((sum,part)=>sum+part.notes.length,0);
-  showMeasureFeedback('success','Copied '+result.count+' measures ('+noteTotal+' note events). Destination '+measurePasteAt.value+' is unchanged. Choose Preview paste or Preview move to continue.');
- }catch(error){showMeasureFeedback('error','Copy failed: '+String(error));}
+  showMeasureFeedback('success','Copied '+result.count+' measures ('+noteTotal+' note events). Destination '+measurePasteAt.value+' is unchanged. Choose Preview paste or Preview move to continue.','source');
+ }catch(error){showMeasureFeedback('error','Copy failed: '+String(error),'source');}
 }
 function previewMeasureOperation(action:'paste'|'move'|'clear'|'delete'|'insert'){
  try{
@@ -2691,8 +2691,8 @@ function previewMeasureOperation(action:'paste'|'move'|'clear'|'delete'|'insert'
    measurePreviewWarnings.value='Later parts shift. Phrase plans and editable lyrics sources need review.';
   }
   measurePending.value=action;
-  showMeasureFeedback('info','Preview ready. Review the effect and press Confirm '+action+'.');
- }catch(error){measurePending.value=null;showMeasureFeedback('error','Cannot preview '+action+': '+String(error));}
+  showMeasureFeedback('info','Preview ready. Review the effect and press Confirm '+action+'.',action==='paste'||action==='move'?'destination':'advanced');
+ }catch(error){measurePending.value=null;showMeasureFeedback('error','Cannot preview '+action+': '+String(error),action==='paste'||action==='move'?'destination':'advanced');}
 }
 function applyMeasureOperation(){
  const action=measurePending.value;if(!action)return;
@@ -2715,8 +2715,8 @@ function applyMeasureOperation(){
   measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='move'||action==='insert'?count:1));
   measureAnchor.value=bounded;measureAwaitingEndpoint.value=false;noteSelected.value=-1;
   resetMeasureEditPreview();
-  showMeasureFeedback('success','Applied '+action+' to '+count+' measure(s). The song now has '+next.bars.length+' measures. Undo is available in the toolbar.');
- }catch(error){resetMeasureEditPreview();showMeasureFeedback('error','Cannot apply '+action+': '+String(error));}
+  showMeasureFeedback('success','Applied '+action+' to '+count+' measure(s). The song now has '+next.bars.length+' measures. Undo is available in the toolbar.',action==='paste'||action==='move'?'destination':'advanced');
+ }catch(error){resetMeasureEditPreview();showMeasureFeedback('error','Cannot apply '+action+': '+String(error),action==='paste'||action==='move'?'destination':'advanced');}
 }
 watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
 watch(active,tab=>{if(!['lead','arrange','rhythm','notes'].includes(tab)){measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;}});
@@ -5345,6 +5345,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
      <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
      <span class="measure-tools-inline-hint">Copy stores the selection. It does not change the song or destination.</span>
     </div>
+   <div v-if="measureFeedback?.context==='source'" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+    <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
+    <span>{{measureFeedback.text}}</span>
+   </div>
    </section>
    <section class="measure-tools-step" aria-label="Choose destination and paste or move">
     <div class="measure-tools-step-title"><strong>2 · Choose destination</strong><span class="measure-tools-clipboard">{{measureClipboard?'Clipboard: '+measureClipboard.count+' measures · '+measureClipboard.instruments.length+' part(s)':'Clipboard empty · Copy first for Paste'}}</span></div>
@@ -5362,6 +5366,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
      <button type="button" class="secondary" @click="previewMeasureOperation('move')"><AppIcon name="move"/> Preview move</button>
     </div>
     <p class="measure-tools-inline-hint">Move uses the current source selection, removes its original content and protects emptied notes. Paste uses the copied clipboard. Both require confirmation.</p>
+   <div v-if="measureFeedback?.context==='destination'" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+    <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
+    <span>{{measureFeedback.text}}</span>
+   </div>
+   <div v-if="measurePending&&(measurePending==='paste'||measurePending==='move')" class="measure-edit-confirm" role="region" aria-label="Review measure change">
+    <strong>Review {{measurePending}}</strong><p>{{measurePreview}}</p>
+    <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
+    <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation"><AppIcon name="check"/> Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
+   </div>
    </section>
    <section class="measure-tools-step measure-tools-extra" aria-label="Other measure operations">
     <details>
@@ -5374,17 +5387,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo');resetMeasureEditPreview()">↶ Undo</button>
       <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo');resetMeasureEditPreview()">↷ Redo</button>
      </div>
-    </details>
-   </section>
-   <div v-if="measureFeedback" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+   <div v-if="measureFeedback?.context==='advanced'" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
     <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
     <span>{{measureFeedback.text}}</span>
    </div>
-   <div v-if="measurePending" class="measure-edit-confirm" role="region" aria-label="Review measure change">
+   <div v-if="measurePending&&(measurePending==='clear'||measurePending==='delete'||measurePending==='insert')" class="measure-edit-confirm" role="region" aria-label="Review measure change">
     <strong>Review {{measurePending}}</strong><p>{{measurePreview}}</p>
     <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
     <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation"><AppIcon name="check"/> Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
    </div>
+    </details>
+   </section>
   </div>
  </section>
 </div>
