@@ -1676,6 +1676,24 @@ const rawPitchExport=computed(()=>JSON.stringify({
  truncated:rawPitchTruncated.value,
  frames:rawPitchFrames.value
 },null,2));
+function downloadCaptureJson(json:string,filename:string):void{
+ const blob=new Blob([json],{type:'application/json;charset=utf-8'});
+ const url=URL.createObjectURL(blob);
+ const link=document.createElement('a');
+ link.href=url;link.download=filename;link.style.display='none';
+ document.body.appendChild(link);
+ try{link.click();}finally{link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);}
+}
+function saveRawPitch():void{
+ if(microphoneListening.value||microphoneStarting.value||!rawPitchFrames.value.length)return;
+ downloadCaptureJson(rawPitchExport.value,'tango-arranger-raw-pitch.json');
+ rawPitchCopyStatus.value='Pitch data JSON download started.';
+}
+function saveCaptureTake():void{
+ if(!vocalCapturedNotes.value.length)return;
+ downloadCaptureJson(captureTakeExport.value,'tango-arranger-recorded-notes.json');
+ captureTakeCopyStatus.value='Recorded notes JSON download started.';
+}
 const rawPitchCopyStatus=ref('');
 const rawPitchJsonOpen=ref(false);
 async function copyRawPitch(){
@@ -4933,6 +4951,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div v-if="captureInputSource==='microphone'||rawPitchFrames.length" class="capture-pitch-data" role="group" aria-label="Raw microphone pitch data">
         <span>Pitch data · <strong>{{rawPitchFrames.length}}</strong> frames</span>
         <button type="button" class="secondary" :disabled="microphoneListening||microphoneStarting||!rawPitchFrames.length" @click="copyRawPitch"><AppIcon name="copy"/> Copy pitch data</button>
+        <button type="button" class="secondary" :disabled="microphoneListening||microphoneStarting||!rawPitchFrames.length" @click="saveRawPitch" title="Download pitch data as a JSON file"><AppIcon name="file-down"/> Save JSON file</button>
         <details @toggle="rawPitchJsonOpen=($event.target as HTMLDetailsElement).open">
           <summary>JSON</summary>
           <textarea v-if="rawPitchJsonOpen&&!microphoneListening&&!microphoneStarting&&rawPitchFrames.length" readonly rows="10" :value="rawPitchExport" aria-label="Raw microphone pitch timeline JSON"></textarea>
@@ -4985,6 +5004,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureUndo" title="Undo last note" aria-label="Undo last note"><AppIcon name="arrow-left"/></button>
 <button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureClear" title="Clear all notes" aria-label="Clear all notes"><AppIcon name="trash"/></button>
 <button type="button" class="secondary icon-action" :disabled="!vocalCapturedNotes.length" @click="copyCaptureTake" title="Copy recorded notes for analysis" aria-label="Copy recorded notes for analysis"><AppIcon name="copy"/></button>
+<button type="button" class="secondary icon-action" :disabled="!vocalCapturedNotes.length" @click="saveCaptureTake" title="Download recorded notes as JSON file" aria-label="Download recorded notes as JSON file"><AppIcon name="file-down"/></button>
 <button type="button" class="secondary icon-action" :disabled="capturePlaying||!vocalCapturedNotes.length" @click="playDraftAll" title="Play all captured notes" aria-label="Play all captured notes"><AppIcon name="play"/></button>
 <button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody" :title="'Apply notes to '+rosterDisplayName(noteInst)"><AppIcon name="list-check"/> Apply to {{rosterDisplayName(noteInst)}}</button>
 </div>
