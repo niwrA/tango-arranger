@@ -352,7 +352,8 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         if(cursor<beats*tpq)rest(beats*tpq-cursor);
         const fermata=staffIndex===0&&laneIndex===0?timing.fermatas.find(mark=>mark.measure===barIndex&&mark.instrument===inst):undefined;
         if(fermata){
-          const last=events.findLastIndex(e=>e.startsWith('<Chord>')||e.startsWith('<Rest>'));
+          let last=-1;
+          for(let k=events.length-1;k>=0;k--)if(events[k].startsWith('<Chord>')||events[k].startsWith('<Rest>')){last=k;break;}
           if(last>=0){
             events[last]=events[last].replace(/(<durationType>[^<]+<\/durationType>)/,'$1<Articulation><subtype>fermata</subtype></Articulation>');
             if(fermata.waitForCue)events.splice(last,0,'<StaffText><text>colla voce · wait for cue</text></StaffText>');
