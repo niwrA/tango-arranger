@@ -144,6 +144,6 @@ check('empty note cells scroll vertically and use explicit horizontal drag witho
  assert.ok(noteBars.includes('touch-action:none!important;'),'Note bars must retain drag/resize gestures');
  assert.ok(noteBars.includes('.rhythm-track,.rhythm-step-cell,.rhythm-event'),'Rhythm controls must retain touch gestures');
  assert.ok(touch.includes('overscroll-behavior-y:auto;'),'Page scrolling must not be trapped at the grid boundary');
- assert.ok(app.includes('swipe vertically on empty note cells'),'Touch instructions must describe the new behavior');
+ assert.ok(app.includes('drag horizontally on empty note cells or measure headings'),'Touch instructions must describe explicit dragging');
 });
 console.log(passed+' rhythm, custom-library, comparison and mobile input checks passed');
