@@ -1650,3 +1650,9 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .measure-edit-confirm strong{font-size:14px;color:#f1d59f}
 .measure-edit-confirm p{margin:0;line-height:1.5}
 @media(max-width:600px){.measure-edit-shell{padding:10px}.measure-edit-grid>label{flex:1 1 calc(50% - 10px)}.measure-edit-actions button{flex:1 1 auto}}
+
+/* Independent visual emphasis for the range being copied/cleared. */
+.lead-measure.measure-edit-selected{outline:2px solid #cbb17e;outline-offset:-2px;background:rgba(203,177,126,.12)}
+.song-cell.measure-edit-selected{box-shadow:inset 0 0 0 2px #e4bd78;background-color:rgba(213,180,117,.22)}
+.song-map th.measure-edit-selected{box-shadow:inset 0 -3px #deb779}
+.note-multibar-title.measure-edit-selected{outline:2px solid #deb779;outline-offset:-2px;background:rgba(213,180,117,.21)}
