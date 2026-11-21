@@ -114,18 +114,22 @@ check('rhythm workflow has one range used by capture, Apply and A/B audio',()=>{
  assert.ok(!part.includes('v-model.number="captureTo"'));
  assert.ok(app.includes("active.value==='notes'?noteLoopFrom.value:rhythmStart.value"));
 });
-check('top bar keeps Performance visible and organizes song import/duplicate/delete',()=>{
+check('top bar keeps Performance visible and separates file operations from Import/Export',()=>{
  const header=app.slice(app.indexOf('<header class="app-topbar">'),app.indexOf('</header>'));
  const song=header.slice(header.indexOf('class="topbar-group topbar-song"'),header.indexOf('class="topbar-group topbar-arrange"'));
+ const transfers=header.slice(header.indexOf('class="topbar-group topbar-files"'),header.indexOf('class="topbar-compact-actions"'));
  const overflow=header.slice(header.indexOf('class="topbar-menu compact-workspace-menu"'),header.indexOf('class="topbar-group topbar-options"'));
  assert.ok(header.includes('performance-topbar-button'));
  assert.ok(header.includes('song-tempo-edit'));
  assert.ok(header.includes('setSongBpm'));
- for(const x of ['duplicateLocalSong','deleteCurrentLocalSong','importDialogOpen=true'])assert.ok(song.includes(x));
+ for(const x of ['newSongOpen=true','saveNow','duplicateLocalSong','deleteCurrentLocalSong'])assert.ok(song.includes(x),x);
+ assert.ok(!song.includes('importDialogOpen=true'),'Import is not a file operation');
+ assert.ok(transfers.includes('importDialogOpen=true'),'Import is grouped with export');
  assert.ok(!overflow.includes('duplicateLocalSong'));
  assert.ok(!overflow.includes('saveNow'));
  assert.ok(!overflow.includes('performanceMode=true'));
- assert.ok(header.includes('aria-label="Exports and backups"'));
+ assert.ok(header.includes('aria-label="Import and export"'));
+ assert.ok(header.includes('topbar-measure-tools'));
 });
 check('touch note and rhythm cells prevent accidental page/grid pan',()=>{
  assert.ok(app.includes('.note-continuous-grid .note-grid-cell,'));

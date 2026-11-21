@@ -359,3 +359,35 @@ export function pasteMeasureRange(original:Project,score:Score,clip:MeasureClipb
  if(fields.chords||fields.melody||(fields.notes&&pairs.some(([,target])=>target.startsWith('Voice'))))next.leadLyrics=undefined;
  return next;
 }
+
+
+/** A move is one atomic project edit, not a clipboard operation: take the
+ * selected material from its current position and place it at a destination.
+ * For an insert the source is cleared first, then the timeline is shifted,
+ * preserving note start positions and independent instrument parts. The
+ * original project is never mutated, including when validation fails.
+ */
+export function previewMeasureMove(p:Project,score:Score,source:MeasureRange,
+ instruments:Instrument[],fields:MeasureFields,destination:number,mode:PasteMode,
+ targetInstrument?:Instrument):PastePreview{
+ const clip=copyMeasureRange(p,score,source,instruments,fields);
+ const preview=previewMeasurePaste(p,score,clip,destination,mode,fields,targetInstrument);
+ if(mode==='overwrite'){
+  const overlapping=destination<=source.end&&destination+clip.count-1>=source.start;
+  const samePart=!(targetInstrument&&instruments.length===1&&targetInstrument!==instruments[0]);
+  if(overlapping&&((fields.chords||fields.melody)||((fields.notes||fields.settings)&&samePart)))
+   throw Error('Move overlaps its source. Choose a non-overlapping destination, or transfer only instrument notes to a different part.');
+ }
+ return preview;
+}
+export function moveMeasureRange(original:Project,score:Score,source:MeasureRange,
+ instruments:Instrument[],fields:MeasureFields,destination:number,mode:PasteMode,
+ targetInstrument?:Instrument):Project{
+ previewMeasureMove(original,score,source,instruments,fields,destination,mode,targetInstrument);
+ const clip=copyMeasureRange(original,score,source,instruments,fields);
+ // A move removes the selected content, not the containing measures.
+ // Protect empty source notes against later orchestration regeneration.
+ const cleared=clearMeasureRange(original,score,source,instruments,fields,fields.notes);
+ const afterClearScore=mergeScores(cleared,cleared.generatedScore??generate(cleared));
+ return pasteMeasureRange(cleared,afterClearScore,clip,destination,mode,fields,targetInstrument);
+}

@@ -15,17 +15,21 @@ Tango Arranger is a local-first Vue/TypeScript workbench for arranging Argentine
 - [Release notes and version history](CHANGELOG.md)
 - [Installation, workflow and project guidance](#installation-and-running)
 
-## Measure range editing (Lead Sheet / Orchestration / Rhythm / Note Editor)
+## Measure editing — copy, paste, move and cleanup
 
-Open **Select / copy / paste measures** at the top of an editing workspace. On iPad, **press and hold** the first measure number (Lead Sheet or Note Editor) or an orchestration cell to mark an anchor, and **tap** the last measure to select the inclusive range. On desktop, click and Shift-click. Alternatively enter **From** and **To**, or choose a whole section. The selection is maintained while switching workspaces as long as the measure tools remain open.
+The taskbar **clipboard icon** opens a compact **Measure tools** dialog in Lead Sheet, Orchestration, Rhythm Editor and Note Editor. It does not occupy permanent space in the score view.
 
-Choose **one instrument** or **all instruments** and select the content to copy: chords, lead melody, note events, attached lyric syllables, and instrument-level roles/dynamics/expression. The default is instrument notes + lyrics; **Everything** explicitly selects every supported content type. After copying, choose the destination measure and **Overwrite** or **Insert**. When one source instrument was copied, the notes can go to a different destination instrument, e.g. Voice to Bandoneon I; turn off lyric copying to create an instrumental melody. Cross-instrument pastes validate playable pitch ranges and reject unsupported instrument-specific ornament/fingering data rather than guessing.
+1. **Select source.** Enter From/To measures or choose a whole section. **Pick from score** closes the dialog temporarily: click and Shift-click on desktop, or press and hold the first measure and tap the last on iPad. The selected range then returns to the dialog.
+2. **Choose content.** Work on one instrument (for example Voice) or all instruments; check instrument notes, attached lyrics, chords, lead melody or per-measure roles/dynamics/expression. The default is **one instrument's notes and lyrics**. **Everything** includes all supported fields.
+3. **Copy** only fills a clipboard; the current song and the **Destination** field remain unchanged. **Preview paste** shows exactly what would be replaced before a separate Confirm action. **Overwrite** replaces matching destination content without changing the song length; **Insert** opens new measures and shifts later events. A one-instrument clipboard may be pasted into another part, subject to instrument pitch and technique limits.
+4. **Move** uses the *current source selection* directly, without requiring Copy first. It transfers that content into the destination and clears the original notes or chords in the same undoable operation; cleared instrument notes remain protected against regeneration. Moving does **not** delete the source measures. An overlapping move to the same instrument is rejected rather than silently mixing notes; choose a non-overlapping destination.
+5. **Clear, insert, delete, undo and redo** live in the collapsible advanced section. Clear removes selected content without structural changes, while Delete measures shifts the timeline, including saved difficulty editions. All destructive operations require a preview/confirmation.
 
-**Preview** summarizes the operation before **Confirm**; clearing selected instrument notes protects their intentional silence from regeneration, while structural insert/delete shifts later note events, per-measure settings, and saved difficulty editions. Whole-section deletion remains a separate section-header action. Structural edits invalidate absolute phrase plans and require reading lyrics back from the song. **Undo/Redo** use the existing project-history stack; back up a valued project using Files before substantial changes.
+Inline status and warnings are shown inside the dialog. For example, copying **Pequeña E measures 131–163** (33 measures) and overwriting from **147** would need destination measures **147–179** and will be rejected in a 163-measure song. Copy no longer silently changes the requested destination. To transfer just the first half of E, select **131–147** as the *source*.
 
-For Pequeña, copying section C (measures 66–98) appends E (131–163). Copy the first part's Voice notes into Bandoneon I without lyrics, then clear/Rest Voice for those measures; the later Voice notes remain independently editable for the vocal reprise.
+The taskbar **File** menu contains New/Open/Save/Duplicate/Delete and portable backups. The separate **Import / Export** menu groups import of projects/MusicXML/MIDI, notation software formats, player-friendly exports and project exchange.
 
-**Verification:** Run the measure-clipboard regression script to exercise copy/paste, cross-instrument transfer, intentional Voice rests, structural index preservation, and the real Pequeña C-to-E use case. Native iPad Safari interactions still require physical-device acceptance testing.
+**Verification:** The measure-clipboard regression script covers measure movement, protected Voice rests, structural shifts, invalid destinations, iPad UI wiring and the Pequeña C→E scenario. Physical iPad Safari interaction and MuseScore engraving still require device acceptance testing.
 
 ## Ritardando, fermata and following the singer
 

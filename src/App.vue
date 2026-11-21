@@ -5,7 +5,7 @@ import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
 import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,soundingSeconds,type TempoExpressions} from './tempoExpressions';
-import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
+import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,previewMeasureMove,moveMeasureRange,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
 import CaptureTimingControls from './CaptureTimingControls.vue';
@@ -2523,6 +2523,26 @@ async function createBlankSong(){
 
 /** Shared measure selection/clipboard; all editing modes use absolute bar numbers. */
 const measureEditOpen=ref(false);
+const measurePanelOpen=ref(false),measureSelectionPicking=ref(false);
+const measureFeedback=ref<{kind:'success'|'error'|'info';text:string;context:'source'|'destination'|'advanced'}|null>(null);
+const measurePasteFitNote=computed(()=>{
+ const clip=measureClipboard.value;
+ if(!clip)return '';
+ const start=Number(measurePasteAt.value);
+ if(!Number.isInteger(start)||start<1||start>project.value.bars.length+1)
+   return 'Choose a destination between 1 and '+(project.value.bars.length+1)+'.';
+ if(measurePasteMode.value==='overwrite'&&start+clip.count-1>project.value.bars.length){
+  const latest=project.value.bars.length-clip.count+1;
+  return 'Cannot overwrite: '+clip.count+' measures at '+start+' would end at '+(start+clip.count-1)+', but this song ends at '+project.value.bars.length+'. Choose a starting measure from 1 to '+latest+', or choose Insert.';
+ }
+ if(measurePasteMode.value==='insert'&&project.value.bars.length+clip.count>512)
+  return 'Cannot insert '+clip.count+' measures: the project maximum is 512.';
+ return '';
+});
+function showMeasureFeedback(kind:'success'|'error'|'info',text:string,context:'source'|'destination'|'advanced'='destination'){
+ measureFeedback.value={kind,text,context};
+ message.value=text;
+}
 const measureFrom=ref(1),measureTo=ref(1);
 const measureAnchor=ref<number|null>(null),measureAwaitingEndpoint=ref(false);
 const measureCopyScope=ref<'instrument'|'all'>('instrument');
@@ -2533,7 +2553,7 @@ const measureClipboard=ref<MeasureClipboard|null>(null);
 const measurePasteAt=ref(1),measurePasteMode=ref<PasteMode>('overwrite');
 const measurePasteTarget=ref('__same__');
 const measureClearSilence=ref(true);
-const measurePending=ref<'paste'|'clear'|'delete'|'insert'|null>(null);
+const measurePending=ref<'paste'|'move'|'clear'|'delete'|'insert'|null>(null);
 const measurePreview=ref(''),measurePreviewWarnings=ref('');
 let rangeSuppressClickUntil=0;
 const currentMeasureRange=computed<MeasureRange>(()=>{
@@ -2545,9 +2565,9 @@ const currentMeasureRange=computed<MeasureRange>(()=>{
 const measureSelectedParts=computed(()=>measureCopyScope.value==='all'?projectInstruments(project.value):[measureCopyInstrument.value]);
 const measureEditableFields=['chords','melody','notes','lyrics','settings'] as const;
 const measureFieldLabels:Record<keyof MeasureFields,string>={chords:'Chords',melody:'Lead melody',notes:'Instrument notes',lyrics:'Lyrics attached to notes',settings:'Roles, dynamics and expression'};
-function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';}
+function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';measureFeedback.value=null;}
 function toggleMeasureEditTools(){
- if(!measureEditOpen.value){
+ if(!measurePanelOpen.value&&!measureEditOpen.value){
   if(active.value==='arrange'){
    measureFrom.value=overviewStart.value;measureTo.value=overviewEnd.value;measureCopyInstrument.value=overviewInstrument.value;
   }else if(active.value==='rhythm'){
@@ -2557,8 +2577,24 @@ function toggleMeasureEditTools(){
   }else{measureFrom.value=selectedBar.value+1;measureTo.value=selectedBar.value+1;measureCopyInstrument.value='Voice';}
   measureAnchor.value=measureFrom.value-1;measureAwaitingEndpoint.value=false;
  }
- measureEditOpen.value=!measureEditOpen.value;
+ if(measurePanelOpen.value){
+  measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;
+  void nextTick(()=>document.querySelector<HTMLElement>('.measure-taskbar-trigger')?.focus());
+ }else{
+  measurePanelOpen.value=true;measureEditOpen.value=true;measureSelectionPicking.value=false;
+  void nextTick(()=>document.querySelector<HTMLElement>('#measure-tools-title')?.focus());
+ }
  resetMeasureEditPreview();
+}
+function armMeasureSelection(){
+ measureSelectionPicking.value=true;measureEditOpen.value=true;measurePanelOpen.value=false;
+ measureAnchor.value=null;measureAwaitingEndpoint.value=false;rangeSuppressClickUntil=0;
+ showMeasureFeedback('info','Select a first measure, then tap a second measure. On iPad, hold the first to anchor it.','source');
+}
+function finishMeasureSelection(){
+ if(!measureSelectionPicking.value)return;
+ measureSelectionPicking.value=false;measurePanelOpen.value=true;measureEditOpen.value=true;
+ showMeasureFeedback('success','Selected measures '+measureFrom.value+'–'+measureTo.value+'. Choose Copy, Move, or another action.','source');
 }
 function prepareMeasureInputs(){
  const count=project.value.bars.length;
@@ -2587,8 +2623,12 @@ function onMeasureRangeTap(measure:number,event:Pick<MouseEvent,'shiftKey'>){
   const anchor=measureAnchor.value??measure;
   measureFrom.value=Math.min(anchor,measure)+1;measureTo.value=Math.max(anchor,measure)+1;
   measureAwaitingEndpoint.value=false;
+  resetMeasureEditPreview();
+  finishMeasureSelection();
+  return;
  }else{
   measureAnchor.value=measure;measureFrom.value=measure+1;measureTo.value=measure+1;
+  if(measureSelectionPicking.value)measureAwaitingEndpoint.value=true;
  }
  resetMeasureEditPreview();
 }
@@ -2613,22 +2653,28 @@ function copySelectedMeasures(){
  try{
   const result=copyMeasureRange(project.value,score.value,currentMeasureRange.value,measureSelectedParts.value,measureCopyFields.value);
   measureClipboard.value=result;measurePasteFields.value={...result.fields};
-  measurePasteAt.value=Math.min(project.value.bars.length,currentMeasureRange.value.end+2);
-  measurePasteTarget.value='__same__';resetMeasureEditPreview();
-  message.value='Copied '+result.count+' measures and the chosen content. Choose a paste destination and preview.';
- }catch(error){message.value='Measure copy failed: '+String(error);}
+  // Never change the destination a user has already typed. The former
+  // automatic reset made "147" silently become "163" when copying E.
+  resetMeasureEditPreview();
+  const noteTotal=Object.values(result.parts).reduce((sum,part)=>sum+part.notes.length,0);
+  showMeasureFeedback('success','Copied '+result.count+' measures ('+noteTotal+' note events). Destination '+measurePasteAt.value+' is unchanged. Choose Preview paste or Preview move to continue.','source');
+ }catch(error){showMeasureFeedback('error','Copy failed: '+String(error),'source');}
 }
-function previewMeasureOperation(action:'paste'|'clear'|'delete'|'insert'){
+function previewMeasureOperation(action:'paste'|'move'|'clear'|'delete'|'insert'){
  try{
   resetMeasureEditPreview();
   const range=currentMeasureRange.value,count=range.end-range.start+1;
-  if(action==='paste'){
-   const clip=measureClipboard.value;
-   if(!clip)throw Error('Copy a measure range first');
-   const target=measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
-   const info=previewMeasurePaste(project.value,score.value,clip,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,target);
-   measurePreview.value=(measurePasteMode.value==='insert'?'Insert':'Overwrite')+' '+info.length+' measures starting at '+measurePasteAt.value+', '+info.incomingNotes+' incoming notes, '+info.replacedNotes+' replaced notes. Result: '+info.newTotal+' measures.';
-   measurePreviewWarnings.value=info.warning;
+  if(action==='paste'||action==='move'){
+   const target=action==='move'||measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value;
+   const clip=action==='move'?
+     copyMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value):
+     measureClipboard.value;
+   if(!clip)throw Error('Copy a measure range first, or choose Move selected');
+   const info=action==='move'?
+     previewMeasureMove(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measurePasteAt.value-1,measurePasteMode.value,target):
+     previewMeasurePaste(project.value,score.value,clip,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,target);
+   measurePreview.value=(action==='move'?'Move':'Paste')+' '+info.length+' measures at destination '+measurePasteAt.value+' ('+info.incomingNotes+' incoming notes; '+info.replacedNotes+' existing destination notes replaced). Result: '+info.newTotal+' measures.';
+   measurePreviewWarnings.value=(action==='move'?'Original selected content will be removed and the source instrument notes protected from regeneration. ':'')+info.warning;
   }else if(action==='clear'){
    const targets=measureSelectedParts.value;
    const countProtected=targets.reduce((sum,inst)=>sum+Array.from({length:count},(_,i)=>Number(!!project.value.protectedBars[inst+':'+(range.start+i)])).reduce((a,b)=>a+b,0),0);
@@ -2645,7 +2691,8 @@ function previewMeasureOperation(action:'paste'|'clear'|'delete'|'insert'){
    measurePreviewWarnings.value='Later parts shift. Phrase plans and editable lyrics sources need review.';
   }
   measurePending.value=action;
- }catch(error){measurePending.value=null;message.value='Measure preview failed: '+String(error);}
+  showMeasureFeedback('info','Preview ready. Review the effect and press Confirm '+action+'.',action==='paste'||action==='move'?'destination':'advanced');
+ }catch(error){measurePending.value=null;showMeasureFeedback('error','Cannot preview '+action+': '+String(error),action==='paste'||action==='move'?'destination':'advanced');}
 }
 function applyMeasureOperation(){
  const action=measurePending.value;if(!action)return;
@@ -2656,21 +2703,24 @@ function applyMeasureOperation(){
    if(!measureClipboard.value)throw Error('No copied measures');
    next=pasteMeasureRange(project.value,score.value,measureClipboard.value,measurePasteAt.value-1,measurePasteMode.value,measurePasteFields.value,
      measurePasteTarget.value==='__same__'?undefined:measurePasteTarget.value);
-  }else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
+  }else if(action==='move')next=moveMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measurePasteAt.value-1,measurePasteMode.value);
+  else if(action==='clear')next=clearMeasureRange(project.value,score.value,range,measureSelectedParts.value,measureCopyFields.value,measureClearSilence.value&&measureCopyFields.value.notes);
   else if(action==='delete')next=deleteMeasureRange(project.value,range);
   else next=insertBlankMeasures(project.value,measurePasteAt.value-1,count);
   stopPlayback();project.value=next;
-  const point=action==='paste'||action==='insert'?measurePasteAt.value-1:range.start;
+  const point=action==='paste'||action==='move'||action==='insert'?measurePasteAt.value-1:range.start;
   const bounded=Math.min(next.bars.length-1,Math.max(0,point));
   selectedBar.value=bounded;chosenSection.value=next.bars[bounded].section;overviewFocus.value=bounded;
   measureFrom.value=bounded+1;
-  measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='insert'?count:1));
+  measureTo.value=Math.min(next.bars.length,bounded+(action==='paste'?measureClipboard.value?.count??count:action==='move'||action==='insert'?count:1));
   measureAnchor.value=bounded;measureAwaitingEndpoint.value=false;noteSelected.value=-1;
   resetMeasureEditPreview();
-  message.value='Applied measure '+action+'. Use Undo to restore the previous state.';
- }catch(error){resetMeasureEditPreview();message.value='Measure operation failed: '+String(error);}
+  showMeasureFeedback('success','Applied '+action+' to '+count+' measure(s). The song now has '+next.bars.length+' measures. Undo is available in the toolbar.',action==='paste'||action==='move'?'destination':'advanced');
+ }catch(error){resetMeasureEditPreview();showMeasureFeedback('error','Cannot apply '+action+': '+String(error),action==='paste'||action==='move'?'destination':'advanced');}
 }
 watch(localSongId,()=>{measureClipboard.value=null;measureFrom.value=1;measureTo.value=1;measureAnchor.value=null;resetMeasureEditPreview();});
+watch(active,tab=>{if(!['lead','arrange','rhythm','notes'].includes(tab)){measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;}});
+watch(performanceMode,live=>{if(live){measurePanelOpen.value=false;measureEditOpen.value=false;measureSelectionPicking.value=false;}});
 
 
 /** Score-wide tempo phrases and singer-led fermatas live on the saved project. */
@@ -4876,23 +4926,49 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span v-if="audioEngine==='samples'&&/unavailable/i.test(sampleStatus)" class="header-save-status" role="status">{{sampleStatus}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span v-if="/fail|unavailable|error/i.test(audioStatus)" class="header-save-status" role="alert">{{audioStatus}}</span></div></details>
   </div>
-  <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song library and actions">
+  <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
-    <button class="secondary icon-action" type="button" title="Create new blank song" aria-label="New blank song" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/></button>
-    <button class="secondary icon-action" type="button" title="Save current song now" aria-label="Save song now" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/></button>
-    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import song, MusicXML or MIDI…</button><button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span></div></details>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
+    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+      <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
+        <div class="files-action-group">
+          <strong class="files-group-title">File · Current song</strong>
+          <button type="button" class="secondary" @click="newSongOpen=true"><AppIcon name="file-plus-2"/> New blank song…</button>
+          <label>Open a saved song
+            <select aria-label="Open song from local library" :value="localSongId" :disabled="!libraryReady" @change="openLocalSong(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).closest('details.topbar-menu')?.removeAttribute('open')">
+              <option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option>
+            </select>
+          </label>
+          <button type="button" class="secondary" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/> Save current song</button>
+          <button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button>
+          <button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song…</button>
+        </div>
+        <div class="files-action-group">
+          <strong class="files-group-title">Local storage &amp; backups</strong>
+          <p class="files-group-help">Songs are saved in this browser. Export a portable backup to move a project to another device.</p>
+          <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Download project backup (.tango.json)</button>
+          <span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span>
+        </div>
+      </div>
+    </details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
-  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Export and backup">
+  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Import and export">
     <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
-      <summary class="icon-action files-summary" title="Export scores and project backups" aria-label="Exports and backups"><AppIcon name="file-down"/><span class="files-label">Export</span><AppIcon name="chevron-down"/></summary>
-      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Export scores and backups">
-        <div class="files-action-group"><strong class="files-group-title">Scores for notation software</strong>
+      <summary class="icon-action files-summary" title="Import and export songs and notation" aria-label="Import and export"><AppIcon name="arrow-left-right"/><span class="files-label">Import / Export</span><AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export">
+        <div class="files-action-group">
+          <strong class="files-group-title">Import</strong>
+          <button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import project, MusicXML or MIDI…</button>
+          <button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button>
+        </div>
+        <div class="files-action-group">
+          <strong class="files-group-title">Export · Notation software</strong>
           <button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> MusicXML (.musicxml)</button>
           <button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Compressed MusicXML (.mxl)</button>
           <button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> MuseScore (.mscz) · experimental</button>
-          <label>Export one instrument (.mscz)
+          <label>One instrument as MuseScore (.mscz)
             <select aria-label="Choose instrument to export as MuseScore" @change="($event.target as HTMLSelectElement).value && exportMscz(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).value=''">
               <option value="">Choose instrument…</option>
               <option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option>
@@ -4900,13 +4976,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           </label>
           <button type="button" class="secondary" @click="exportDifficultyEditionPack"><AppIcon name="file-down"/> Difficulty editions (.zip)</button>
         </div>
-        <div class="files-action-group"><strong class="files-group-title">Lead sheets &amp; project backup</strong>
+        <div class="files-action-group">
+          <strong class="files-group-title">Export · Players &amp; print</strong>
           <button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> ABC lead sheet</button>
           <button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> MobileSheets parts (.zip)</button>
+        </div>
+        <div class="files-action-group">
+          <strong class="files-group-title">Export · Project exchange</strong>
           <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Portable project (.tango.json)</button>
         </div>
       </div>
     </details>
+  </div>
+  <div v-if="!performanceMode&&['lead','arrange','rhythm','notes'].includes(active)" class="topbar-group topbar-measure-tools" role="group" aria-label="Editing operations">
+    <button type="button" class="icon-action measure-taskbar-trigger" :class="measurePanelOpen?'primary':'secondary'" title="Measure tools · copy, paste and move" aria-label="Open measure copy, paste and move tools" :aria-expanded="measurePanelOpen" @click="toggleMeasureEditTools"><AppIcon name="clipboard-copy"/><span class="measure-tool-label">Measures</span></button>
   </div>
   <div class="topbar-compact-actions" role="group" aria-label="Additional workspace actions">
     <details class="topbar-menu compact-workspace-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
@@ -5231,53 +5314,94 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 
  
-<section v-if="['lead','arrange','rhythm','notes'].includes(active)" class="measure-edit-shell" aria-label="Measure range editing">
- <div class="measure-edit-header">
-  <button type="button" class="secondary" :aria-expanded="measureEditOpen" @click="toggleMeasureEditTools"><AppIcon name="copy"/> {{measureEditOpen?'Close measure tools':'Select / copy / paste measures'}}</button>
-  <span v-if="measureEditOpen" class="hint">iPad: press and hold the first measure number or orchestration cell, then tap the last measure. Desktop: click, then Shift-click.</span>
- </div>
- <div v-if="measureEditOpen" class="measure-edit-body">
-  <div class="measure-edit-grid">
-   <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="measureFrom" @change="prepareMeasureInputs"/></label>
-   <label>To measure<input type="number" min="1" :max="project.bars.length" v-model.number="measureTo" @change="prepareMeasureInputs"/></label>
-   <label>Quick section<select :value="''" @change="selectMeasureEditSection(Number(($event.target as HTMLSelectElement).value));($event.target as HTMLSelectElement).value=''"><option disabled value="">Select section…</option><option v-for="(span,i) in sectionSpans(project)" :key="i" :value="i">{{sectionLetter(i)}} ({{span.start+1}}–{{span.start+span.measures}})</option></select></label>
-   <label>Copy / clear instruments<select v-model="measureCopyScope" @change="resetMeasureEditPreview"><option value="instrument">One instrument</option><option value="all">All instruments</option></select></label>
-   <label v-if="measureCopyScope==='instrument'">Instrument<select v-model="measureCopyInstrument" @change="resetMeasureEditPreview"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-   <label>Content preset<select :value="''" @change="chooseMeasureFields(($event.target as HTMLSelectElement).value as 'all'|'instrument'|'harmony'|'custom');($event.target as HTMLSelectElement).value=''"><option value="" disabled>Choose…</option><option value="all">Everything</option><option value="instrument">Instrument notes + lyrics</option><option value="harmony">Chords + lead melody</option></select></label>
-  </div>
-  <div class="measure-edit-fields" role="group" aria-label="Measure content">
-   <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="field==='lyrics'&&!measureCopyFields.notes&&!measureCopyFields.melody" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
-  </div>
-  <div class="measure-edit-actions">
-   <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
-   <label><input type="checkbox" v-model="measureClearSilence" @change="resetMeasureEditPreview"/> Keep cleared parts silent on regeneration</label>
-   <button type="button" class="secondary" @click="previewMeasureOperation('clear')">Preview clear</button>
-   <button type="button" class="secondary" @click="previewMeasureOperation('delete')">Preview delete measures</button>
-  </div>
-  <div class="measure-edit-destination">
-   <p class="hint" role="status">{{measureClipboard?'Clipboard: '+measureClipboard.count+' measures, '+measureClipboard.instruments.length+' part(s), '+measureClipboard.beats+'/4':'Clipboard empty; copy selected measures first.'}}</p>
-   <div class="measure-edit-grid">
-    <label>Destination measure<input v-model.number="measurePasteAt" min="1" :max="project.bars.length+1" type="number" @change="resetMeasureEditPreview"/></label>
-    <label>Paste mode<select v-model="measurePasteMode" @change="resetMeasureEditPreview"><option value="overwrite">Overwrite existing measures</option><option value="insert">Insert new measures, shift later music</option></select></label>
-    <label v-if="measureClipboard?.instruments.length===1">Paste notes into<select v-model="measurePasteTarget" @change="resetMeasureEditPreview"><option value="__same__">Same instrument</option><option v-for="inst in activeRoster.filter(i=>!measureClipboard?.instruments.includes(i))" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+
+<!-- A compact taskbar tool; only the dialog consumes space, never the leadsheet itself. -->
+<div v-if="measureSelectionPicking&&['lead','arrange','rhythm','notes'].includes(active)" class="measure-range-pick-banner" role="status">
+ <AppIcon name="copy"/><span>Choose a first measure, then the last. iPad: hold the first measure and tap the last.</span>
+ <button type="button" class="secondary" @click="measureSelectionPicking=false;measurePanelOpen=true;measureEditOpen=true">Return to measure tools</button>
+</div>
+<Teleport to="body">
+<div v-if="measurePanelOpen&&['lead','arrange','rhythm','notes'].includes(active)" class="measure-tools-backdrop" @click.self="toggleMeasureEditTools">
+ <section class="measure-tools-dialog measure-edit-shell" role="dialog" aria-modal="true" aria-labelledby="measure-tools-title" @keydown.esc.stop.prevent="toggleMeasureEditTools" @keydown.tab="trapModalTab">
+  <header class="measure-tools-heading">
+   <div><h2 id="measure-tools-title" tabindex="-1">Measure tools</h2><p>Copy, paste, move, or edit selected measures</p></div>
+   <button type="button" class="secondary icon-action" title="Close measure tools" aria-label="Close measure tools" @click="toggleMeasureEditTools"><AppIcon name="x"/></button>
+  </header>
+  <div class="measure-edit-body">
+   <section class="measure-tools-step" aria-label="Select source measures">
+    <div class="measure-tools-step-title"><strong>1 · Select source</strong><button type="button" class="secondary" @click="armMeasureSelection"><AppIcon name="mouse-pointer-2"/> Pick from score</button></div>
+    <div class="measure-edit-grid">
+     <label>From<input type="number" min="1" :max="project.bars.length" v-model.number="measureFrom" @change="prepareMeasureInputs"/></label>
+     <label>To<input type="number" min="1" :max="project.bars.length" v-model.number="measureTo" @change="prepareMeasureInputs"/></label>
+     <label>Whole section<select :value="''" @change="selectMeasureEditSection(Number(($event.target as HTMLSelectElement).value));($event.target as HTMLSelectElement).value=''"><option disabled value="">Choose section…</option><option v-for="(span,i) in sectionSpans(project)" :key="i" :value="i">{{sectionLetter(i)}} · {{span.start+1}}–{{span.start+span.measures}}</option></select></label>
+     <label>Instruments<select v-model="measureCopyScope" @change="resetMeasureEditPreview"><option value="instrument">One instrument</option><option value="all">All instruments</option></select></label>
+     <label v-if="measureCopyScope==='instrument'">Part<select v-model="measureCopyInstrument" @change="resetMeasureEditPreview"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+     <label>Content preset<select :value="''" @change="chooseMeasureFields(($event.target as HTMLSelectElement).value as 'all'|'instrument'|'harmony'|'custom');($event.target as HTMLSelectElement).value=''"><option disabled value="">Select content…</option><option value="all">Everything</option><option value="instrument">Instrument notes and lyrics</option><option value="harmony">Chords and lead melody</option></select></label>
+    </div>
+    <div class="measure-edit-fields" role="group" aria-label="Content to copy, move, or clear">
+     <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="field==='lyrics'&&!measureCopyFields.notes&&!measureCopyFields.melody" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+    </div>
+    <div class="measure-edit-actions">
+     <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
+     <span class="measure-tools-inline-hint">Copy stores the selection. It does not change the song or destination.</span>
+    </div>
+   <div v-if="measureFeedback?.context==='source'" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+    <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
+    <span>{{measureFeedback.text}}</span>
    </div>
-   <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Paste content">
-    <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+   </section>
+   <section class="measure-tools-step" aria-label="Choose destination and paste or move">
+    <div class="measure-tools-step-title"><strong>2 · Choose destination</strong><span class="measure-tools-clipboard">{{measureClipboard?'Clipboard: '+measureClipboard.count+' measures · '+measureClipboard.instruments.length+' part(s)':'Clipboard empty · Copy first for Paste'}}</span></div>
+    <div class="measure-edit-grid">
+     <label>Destination starts at<input type="number" v-model.number="measurePasteAt" min="1" :max="project.bars.length+1" @input="resetMeasureEditPreview"/></label>
+     <label>Placement<select v-model="measurePasteMode" @change="resetMeasureEditPreview"><option value="overwrite">Replace existing notes</option><option value="insert">Insert space and shift later music</option></select></label>
+     <label v-if="measureClipboard?.instruments.length===1">Paste copied notes into<select v-model="measurePasteTarget" @change="resetMeasureEditPreview"><option value="__same__">Same instrument</option><option v-for="inst in activeRoster.filter(i=>!measureClipboard?.instruments.includes(i))" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+    </div>
+    <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Content to paste from clipboard">
+     <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+    </div>
+    <p v-if="measurePasteFitNote" class="measure-tools-validation" role="alert"><AppIcon name="alert-circle"/> Clipboard paste: {{measurePasteFitNote}} (Move uses your current selection.)</p>
+    <div class="measure-edit-actions">
+     <button type="button" class="primary" @click="previewMeasureOperation('paste')"><AppIcon name="clipboard-paste"/> Preview paste</button>
+     <button type="button" class="secondary" @click="previewMeasureOperation('move')"><AppIcon name="move"/> Preview move</button>
+    </div>
+    <p class="measure-tools-inline-hint">Move uses the current source selection, removes its original content and protects emptied notes. Paste uses the copied clipboard. Both require confirmation.</p>
+   <div v-if="measureFeedback?.context==='destination'" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+    <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
+    <span>{{measureFeedback.text}}</span>
    </div>
-   <div class="measure-edit-actions">
-    <button type="button" class="secondary" :disabled="!measureClipboard" @click="previewMeasureOperation('paste')">Preview paste</button>
-    <button type="button" class="secondary" @click="previewMeasureOperation('insert')">Preview insert blank measures</button>
-    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo');resetMeasureEditPreview()">↶ Undo</button>
-    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo');resetMeasureEditPreview()">↷ Redo</button>
+   <div v-if="measurePending&&(measurePending==='paste'||measurePending==='move')" class="measure-edit-confirm" role="region" aria-label="Review measure change">
+    <strong>Review {{measurePending}}</strong><p>{{measurePreview}}</p>
+    <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
+    <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation"><AppIcon name="check"/> Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
    </div>
+   </section>
+   <section class="measure-tools-step measure-tools-extra" aria-label="Other measure operations">
+    <details>
+     <summary>Clear, insert, delete and undo</summary>
+     <div class="measure-edit-actions">
+      <label><input type="checkbox" v-model="measureClearSilence" @change="resetMeasureEditPreview"/> Protect cleared instrument notes from regeneration</label>
+      <button type="button" class="secondary" @click="previewMeasureOperation('clear')">Preview clear content</button>
+      <button type="button" class="secondary" @click="previewMeasureOperation('insert')">Preview insert blank measures</button>
+      <button type="button" class="secondary" @click="previewMeasureOperation('delete')">Preview delete measures</button>
+      <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo');resetMeasureEditPreview()">↶ Undo</button>
+      <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo');resetMeasureEditPreview()">↷ Redo</button>
+     </div>
+   <div v-if="measureFeedback?.context==='advanced'" class="measure-tools-feedback" :class="'measure-tools-feedback-'+measureFeedback.kind" :role="measureFeedback.kind==='error'?'alert':'status'" aria-live="polite">
+    <AppIcon :name="measureFeedback.kind==='error'?'alert-circle':measureFeedback.kind==='success'?'check-circle':'info'"/>
+    <span>{{measureFeedback.text}}</span>
+   </div>
+   <div v-if="measurePending&&(measurePending==='clear'||measurePending==='delete'||measurePending==='insert')" class="measure-edit-confirm" role="region" aria-label="Review measure change">
+    <strong>Review {{measurePending}}</strong><p>{{measurePreview}}</p>
+    <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
+    <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation"><AppIcon name="check"/> Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
+   </div>
+    </details>
+   </section>
   </div>
-  <div v-if="measurePending" class="measure-edit-confirm" role="region" aria-label="Review measure change">
-   <strong>Preview · {{measurePending}}</strong><p>{{measurePreview}}</p>
-   <p v-if="measurePreviewWarnings" class="hint">{{measurePreviewWarnings}}</p>
-   <div class="measure-edit-actions"><button type="button" class="primary" @click="applyMeasureOperation">Confirm {{measurePending}}</button><button type="button" class="secondary" @click="resetMeasureEditPreview">Cancel</button></div>
-  </div>
- </div>
-</section>
+ </section>
+</div>
+</Teleport>
 
 <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
   <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appDisplayVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
@@ -7515,4 +7639,66 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  width:100%;margin:5px 0 0;min-height:39px;padding:7px 9px;font-size:14px;
  font-variant-numeric:tabular-nums;color:#f0f5f8;background:#11202c
 }
+
+/* Compact measure tools: the score itself always remains unobstructed when closed. */
+.measure-tools-backdrop{
+ position:fixed;inset:0;z-index:5000;background:rgba(5,12,19,.72);
+ display:flex;justify-content:center;align-items:flex-start;
+ padding:max(18px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom));
+ box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain
+}
+.measure-tools-dialog.measure-edit-shell{
+ width:min(840px,100%);max-width:100%;max-height:calc(100dvh - 38px);
+ margin:clamp(0px,4vh,38px) auto;overflow-y:auto;box-sizing:border-box;
+ background:#243440;border:1px solid #7691a5;border-radius:15px;
+ padding:clamp(14px,2vw,23px);box-shadow:0 22px 70px #000a;
+}
+.measure-tools-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.measure-tools-heading h2{margin:0;color:#f2d49e;font-size:clamp(19px,2.2vw,25px)}
+.measure-tools-heading p{margin:3px 0 0;font-size:13px;color:#d5e0e7}
+.measure-tools-heading .icon-action{width:44px;min-width:44px;height:44px}
+.measure-tools-dialog .measure-edit-body{display:grid;gap:14px;margin-top:15px}
+.measure-tools-step{display:grid;gap:10px;padding:13px;border:1px solid #526d7d;border-radius:10px;background:#1e2d38}
+.measure-tools-step-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.measure-tools-step-title strong{color:#f2cf98;font-size:15px}
+.measure-tools-step .measure-edit-grid>label{min-width:130px;flex:1 1 155px;max-width:none}
+.measure-tools-step .measure-edit-fields{padding:7px 9px;border:1px solid #425563}
+.measure-tools-step .measure-edit-fields label{font-size:12px;min-height:30px}
+.measure-tools-step .measure-edit-actions{gap:8px}
+.measure-tools-inline-hint{font-size:12px;color:#c4d8e5;line-height:1.45;margin:0}
+.measure-tools-clipboard{font-size:12px;color:#d9e5ed}
+.measure-tools-validation{margin:0;padding:10px 12px;border:1px solid #da987e;border-radius:7px;color:#ffe0d6;background:#4a2c2d;display:flex;align-items:center;gap:9px;font-size:13px}
+.measure-tools-feedback{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:8px;border:1px solid #67879b;background:#1a3948;color:#ecf4f9;font-size:13px;line-height:1.5}
+.measure-tools-feedback .app-icon{flex:none;margin-top:2px}
+.measure-tools-feedback-error{border-color:#d58a8a;background:#432b30;color:#ffe5e5}
+.measure-tools-feedback-success{border-color:#82b4a3;background:#204238;color:#e5fff3}
+.measure-tools-dialog .measure-edit-confirm{margin-top:0;border:1px solid #dfb978}
+.measure-tools-dialog .measure-edit-confirm strong{font-size:16px}
+.measure-tools-extra{padding:0 12px}
+.measure-tools-extra>details>summary{cursor:pointer;color:#dce7ee;font-size:13px;font-weight:700;padding:12px 0;min-height:42px}
+.measure-tools-extra>details .measure-edit-actions{padding-bottom:12px}
+.measure-range-pick-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px 13px;border:1px solid #d1ac72;border-radius:9px;background:#33424b;color:#f6dfb3;font-size:13px}
+.measure-range-pick-banner span{flex:1 1 260px}
+.measure-taskbar-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:39px!important}
+.topbar-measure-tools{order:5}
+.file-menu-summary{display:inline-flex;align-items:center;gap:7px!important}
+.files-group-help{margin:2px 6px 9px;color:#c1d3e0;font-size:12px;line-height:1.4}
+.files-organized-panel label>select{width:100%}
+@media(max-width:1120px){
+ .app-topbar .topbar-measure-tools{display:flex!important;flex:0 0 auto!important;order:4!important;margin:0;padding:0!important;border:0!important}
+ .app-topbar .topbar-measure-tools .measure-taskbar-trigger{height:42px!important;min-height:42px!important;min-width:42px!important;padding:5px 8px!important}
+ .app-topbar .topbar-compact-actions{order:5!important;margin-left:0!important}
+ .app-topbar .file-menu-label,.app-topbar .measure-tool-label{display:none}
+ .app-topbar .topbar-song .file-menu-summary{min-width:40px!important;min-height:42px!important}
+}
+@media(max-width:720px){
+ .measure-tools-backdrop{padding:6px}
+ .measure-tools-dialog.measure-edit-shell{max-height:calc(100dvh - 12px);margin:0 auto;padding:12px}
+ .measure-tools-step{padding:10px}
+ .measure-tools-step .measure-edit-grid>label{flex:1 1 calc(50% - 6px);min-width:115px}
+ .measure-tools-step-title button{min-height:39px}
+ .measure-tools-dialog .measure-edit-actions button{min-height:42px}
+ .app-topbar .topbar-measure-tools .measure-taskbar-trigger{min-width:38px!important;padding:4px!important}
+}
+
 </style>
