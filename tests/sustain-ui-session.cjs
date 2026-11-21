@@ -17,7 +17,7 @@ check('normal score playback does not clip sustained note duration at the measur
  const start=app.indexOf('async function play(origin:PlaybackOrigin)');
  const end=app.indexOf('// Contextual previews',start);
  const section=app.slice(start,end);
- assert.ok(section.includes('const defaultDuration=playbackDuration(noteSoundingDuration(n)*60/project.value.bpm,rehearsalSpeed.value)'));
+ assert.ok(section.includes('const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)'));
  assert.ok(section.includes('durationSeconds:defaultDuration'));
  assert.ok(section.includes('triggerInstrument(inst,event.pitch,defaultDuration'));
  assert.ok(section.includes('n.technique'));
