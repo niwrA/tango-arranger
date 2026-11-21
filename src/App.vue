@@ -109,7 +109,8 @@ async function flushAutosave(){
   await saveQueue;
 }
 function stopPlayback(){
-  waitingForSingerCue.value=false;
+  // Some isolated capture test harnesses execute this transport helper without the full Vue setup.
+  if(typeof waitingForSingerCue!=='undefined')waitingForSingerCue.value=false;
   stopMicrophoneCapture();
   if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
   const wasPlayingArrangement=playing.value;
