@@ -84,7 +84,8 @@ test('MusicXML exposes rit./a tempo, discrete tempo, attached fermata and colla 
  const xml=exportMusicXml(p,score);
  assert.match(xml,/<words>rit\.<\/words>/);
  assert.match(xml,/<words>a tempo<\/words>/);
- assert.match(xml,/<sound tempo="72"/);
+ assert.match(xml,/<sound tempo="36"/);
+ assert.match(xml,/<sound tempo="120"/);
  assert.match(xml,/<fermata type="upright"\/>/);
  assert.match(xml,/colla voce · wait for cue/);
  assert.deepEqual(Array.from(validateMusicXmlDurations(xml,p.beats,projectInstruments(p).length)),[]);
