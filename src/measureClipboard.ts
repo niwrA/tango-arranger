@@ -213,6 +213,25 @@ export function deleteMeasureRange(original:Project,range:MeasureRange):Project{
  next.bars=next.bars.filter((_,i)=>i<from||i>=to);
  return next;
 }
+
+/** Cut expression curves at selection edges without changing their shape outside it. */
+function withoutExpressionInside(ranges:Project['expressionRanges'],range:MeasureRange,instruments:readonly Instrument[],beats:number):Project['expressionRanges']{
+ if(!ranges)return undefined;
+ const left=range.start*beats,right=(range.end+1)*beats;
+ return ranges.flatMap(source=>{
+  const r=deep(source);
+  if(!instruments.includes(r.instrument))return [r];
+  const first=r.startMeasure*beats+(r.startBeat??0);
+  const last=r.endMeasure*beats+(r.endBeat??beats);
+  if(last<=left||first>=right)return [r];
+  const at=(beat:number)=>r.from+(r.to-r.from)*Math.max(0,Math.min(1,(beat-first)/Math.max(0.00001,last-first)));
+  const portions:typeof r[]=[];
+  if(first<left)portions.push({...r,endMeasure:range.start-1,endBeat:beats,to:at(left)});
+  if(last>right)portions.push({...r,startMeasure:range.end+1,startBeat:0,from:at(right)});
+  return portions;
+ });
+}
+
 /** Clear content while retaining bars; cleared notes stay protected against regeneration. */
 export function clearMeasureRange(original:Project,score:Score,range:MeasureRange,instruments:Instrument[],fields:MeasureFields,silence=false):Project{
  validateRange(original,range);if(!fieldsPresent(fields))throw Error('Choose something to clear');
@@ -230,6 +249,7 @@ export function clearMeasureRange(original:Project,score:Score,range:MeasureRang
    if(fields.notes)next.protectedBars[key]=true;
   }
  }
+ if(fields.settings)next.expressionRanges=withoutExpressionInside(next.expressionRanges,range,instruments,next.beats);
  if(fields.notes){
   for(const inst of affected){
    next.generatedScore=applyScoreSelection(next.generatedScore??score,inst,range,[],next.beats);
@@ -296,12 +316,13 @@ export function pasteMeasureRange(original:Project,score:Score,clip:MeasureClipb
   next.importedScore=applyScoreSelection(next.importedScore??targetImported,target,range,notes,next.beats);
   for(let index=range.start;index<=range.end;index++)next.protectedBars[target+':'+index]=true;
  }
- if(fields.settings)for(const [source,target] of pairs){
-  for(let i=0;i<clip.count;i++)setSlot(next,target,destination+i,clip.parts[source].slots[i]);
-  // Copy only expression ranges fully contained in the source selection.
-  const old=(next.expressionRanges??[]).filter(r=>!pairs.some(([,inst])=>inst===r.instrument&&r.startMeasure>=destination&&r.endMeasure<destination+clip.count));
-  const copied=clip.expressionRanges.filter(r=>r.instrument===source).map(r=>({...deep(r),instrument:target,startMeasure:r.startMeasure+destination,endMeasure:r.endMeasure+destination}));
-  next.expressionRanges=[...old,...copied];
+ if(fields.settings){
+  for(const [source,target] of pairs)for(let i=0;i<clip.count;i++)
+   setSlot(next,target,destination+i,clip.parts[source].slots[i]);
+  const existing=withoutExpressionInside(next.expressionRanges,{start:destination,end:destination+clip.count-1},pairs.map(([,target])=>target),next.beats)??[];
+  const copied=pairs.flatMap(([source,target])=>clip.expressionRanges.filter(r=>r.instrument===source)
+   .map(r=>({...deep(r),instrument:target,startMeasure:r.startMeasure+destination,endMeasure:r.endMeasure+destination})));
+  next.expressionRanges=[...existing,...copied];
  }
  if(fields.chords||fields.melody||fields.settings)next.generatedScore=mergeScores(next,generate(next));
  if(fields.chords||fields.melody||(fields.notes&&pairs.some(([,target])=>target.startsWith('Voice'))))next.leadLyrics=undefined;
