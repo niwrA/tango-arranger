@@ -11,7 +11,7 @@ function load(file,imports={}){
   if(name in imports)return imports[name];if(name==='jszip')return class JSZip{};if(name==='@tonejs/midi')return {Midi:class Midi{}};throw Error(name);
  },mod,mod.exports);return mod.exports;
 }
-const music=load('src/music.ts');const io=load('src/io.ts',{'./music':music});
+const music=load('src/music.ts');const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),./music':music});
 let count=0;function test(name,fn){fn();count++;console.log('PASS',name);}
 function project(beats=4){const p=music.blankProject({sections:1,measuresPerSection:2,beats});p.bars[0].chord='Dm,A7';p.bars[1].chord='Dm';p.roles.A.Contrabass='bass';p.instrumentSettings.Contrabass.activity=1;return p;}
 const notes=(p,bar=0)=>music.generate(p).Contrabass.filter(n=>n.start>=bar*p.beats&&n.start<(bar+1)*p.beats);
