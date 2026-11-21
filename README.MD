@@ -27,6 +27,14 @@ For Pequeña, copying section C (measures 66–98) appends E (131–163). Copy t
 
 **Verification:** Run the measure-clipboard regression script to exercise copy/paste, cross-instrument transfer, intentional Voice rests, structural index preservation, and the real Pequeña C-to-E use case. Native iPad Safari interactions still require physical-device acceptance testing.
 
+## Ritardando, fermata and following the singer
+
+The **Lead Sheet → Expressive ending** editor adds song-wide tempo and holding instructions. Select the opening and closing measures of a **rit.** and its final written-tempo percentage (for example 65%); the tempo remains reduced until an explicit **a tempo** marking. Add a **fermata** to the selected instrument and measure, set its practice stretch and choose **Wait for singer/conductor cue** when appropriate. During whole-song playback, the ensemble slows and holds; a cue fermata pauses the transport until **Continue · singer cue** is pressed. Rehearsal speed still scales the entire performance without changing the saved composition.
+
+Both **MusicXML** (including compressed MXL and difficulty editions) and **experimental native MuseScore MSCZ** export the ritardando, discrete tempo changes, a-tempo return and a conventional fermata symbol on the designated instrument's last event of that measure. The optional **colla voce / wait for cue** indication is printed as text. MuseScore's own playback may interpret holds and tempo marks differently and **cannot wait indefinitely for a live vocal cue merely because notation is present**. In Tango Arranger the fermata stretch affects the final beat of its measure; the score marking remains conventional.
+
+Native score ties now use correct distances back to the previous note segment, especially across mixed note durations and barlines. Each tie is validated in the regression suite to connect matching pitches in the same staff and voice; a separate same-pitch reattack in MusicXML must not be tied to its predecessor. Physical MuseScore/iPad visual verification is still required before claiming every possible multi-voice engraving case is solved.
+
 ## Installation and running
 
 Requires Node.js 20+ and npm with package-registry access.
