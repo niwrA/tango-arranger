@@ -228,6 +228,25 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       if(group)group.notes.push(note);
       else groups.push({start:note.start,duration:note.duration,notes:[note]});
     }
+    // Compute absolute note-head positions for each independent chord/voice.
+    // Native MSCX Tie next/prev distances are between note *onsets*, not the
+    // current fragment's duration. Using the latter creates vertical arcs to
+    // unrelated notes (sometimes even another staff) after unequal chunks.
+    const groupHeads=new Map<(typeof groups)[number],number[]>();
+    for(const group of groups){
+      const positions:number[]=[];
+      const first=Math.max(0,Math.floor(group.start/beats));
+      const last=Math.min(p.bars.length-1,Math.floor((group.start+group.duration-1e-7)/beats));
+      for(let bar=first;bar<=last;bar++){
+        const barBegin=bar*beats,barEnd=barBegin+beats;
+        const from=Math.max(0,Math.round((Math.max(barBegin,group.start)-barBegin)*8)*60);
+        const until=Math.min(beats*tpq,Math.round((Math.min(barEnd,group.start+group.duration)-barBegin)*8)*60);
+        if(until<=from)continue;
+        let absolute=bar*beats*tpq+from;
+        for(const piece of chunks((until-from)/tpq)){positions.push(absolute);absolute+=piece.ticks;}
+      }
+      groupHeads.set(group,positions);
+    }
     const lanes:{end:number;groups:typeof groups}[]=[];
     for(const group of groups){
       let lane=lanes.find(l=>l.end<=group.start+1e-7);
@@ -316,9 +335,14 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
           if(startTick>cursor)rest(startTick-cursor);
           if(startTick<cursor)continue;
           const pieces=chunks((endTick-startTick)/tpq);
-          const previous=n.start<begin-1e-7,next=n.start+n.duration>end+1e-7;
+          const previous=n.start<begin-1e-7;
+          let pieceStart=barIndex*beats*tpq+startTick;
           for(let pi=0;pi<pieces.length;pi++){
-            const piece=pieces[pi],tiedBack=previous||pi>0,tiedForward=next||pi<pieces.length-1;
+            const piece=pieces[pi],heads=groupHeads.get(group)??[];
+            const position=heads.indexOf(pieceStart);
+            const tiedBack=position>0,tiedForward=position>=0&&position<heads.length-1;
+            const previousTicks=tiedBack?pieceStart-heads[position-1]:0;
+            const nextTicks=tiedForward?heads[position+1]-pieceStart:0;
             // Avoid incomplete native tie/spanner tags that MuseScore can
             // interpret as malformed playback structures.
             const articulation=n.articulation==='staccato'?'<Articulation><subtype>staccato</subtype></Articulation>':
@@ -330,16 +354,13 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
             const noteXml=[...new Map(group.notes.map(note=>[note.pitch,note])).values()].map(note=>{
               // MuseScore represents a sustained pitch as tied Note elements.
               // Each boundary between notation chunks gets a paired Tie spanner.
-              const spanTicks=piece.ticks;
-              const previousTicks=pi>0?pieces[pi-1].ticks:previous
-                ?(chunks(Math.max(0,begin-Math.max(begin-beats,n.start))).at(-1)?.ticks??piece.ticks):piece.ticks;
               const location=(ticks:number)=>{
                 const gcd=(a:number,b:number):number=>b?gcd(b,a%b):a;
                 const denominator=tpq*4,divisor=gcd(Math.abs(ticks),denominator)||1;
                 return `<location><fractions>${ticks/divisor}/${denominator/divisor}</fractions></location>`;
               };
               const backward=tiedBack?`<Spanner type="Tie"><prev>${location(-previousTicks)}</prev></Spanner>`:'';
-              const forward=tiedForward?`<Spanner type="Tie"><Tie/><next>${location(spanTicks)}</next></Spanner>`:'';
+              const forward=tiedForward?`<Spanner type="Tie"><Tie/><next>${location(nextTicks)}</next></Spanner>`:'';
               return `<Note><pitch>${Math.round(note.pitch)}</pitch><tpc>${tpcForPitch(note.pitch,fifths)}</tpc>${backward}${forward}</Note>`;
             }).join('');
             if(pi===0&&!previous){
@@ -348,6 +369,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
               if(n.vibrato)events.push('<StaffText><text>vibrato</text></StaffText>');
             }
             events.push(`<Chord><durationType>${piece.type}</durationType>${articulation}${noteXml}${lyric(n.lyric,n.syllabic,1)}${lyric(n.lyric2,n.syllabic2,2)}</Chord>`);
+            pieceStart+=piece.ticks;
           }
           cursor=endTick;
         }
