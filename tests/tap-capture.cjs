@@ -8,8 +8,8 @@ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tango-tap-'));
 let count=0;
 const check=(name,fn)=>{fn();count++;console.log('PASS '+name);};
 try{
- const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/tapCapture.ts')],{encoding:'utf8'});
- assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+ const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/tapCapture.ts')],{encoding:'utf8'});
+ assert.equal(result.status,0,(result.error?.message||'')+'\n'+result.stdout+'\n'+result.stderr);
  const {capturePosition:pos,addCapturedTap:add,rhythmFromTaps:rhythm,melodyFromTaps:melody}=require(path.join(tmp,'tapCapture.js'));
  check('First bar onset',()=>assert.deepEqual(pos(0,120,4,0,0),{bar:0,beat:0}));
  check('One beat after half second',()=>assert.deepEqual(pos(0.5,120,4,0,0),{bar:0,beat:1}));

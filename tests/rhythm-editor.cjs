@@ -5,8 +5,8 @@ const cp=require('node:child_process');
 const root=path.resolve(__dirname,'..');
 const tmp=fs.mkdtempSync('/tmp/tango-rhythm-');
 try{
- const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts')],{encoding:'utf8'});
- assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
+ const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts')],{encoding:'utf8'});
+ assert.equal(result.status,0,(result.error?.message||'')+'\n'+result.stdout+'\n'+result.stderr);
  const m=require(path.join(tmp,'music.js')),r=require(path.join(tmp,'rhythmEditor.js'));
  const p=m.demoProject();const base=m.generate(p);
  assert.equal(r.RHYTHM_PRESETS.length,14);

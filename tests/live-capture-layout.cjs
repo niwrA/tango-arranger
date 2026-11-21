@@ -5,17 +5,20 @@ let count=0;
 function check(name,fn){fn();count++;console.log('PASS '+name);}
 const panel=app.slice(app.indexOf('id="note-panel-capture"'),app.indexOf('id="note-panel-notes"'));
 check('Note Editor toolbar determines melody capture range',()=>{
- assert.ok(app.includes("active.value==='notes'?noteLoopFrom.value:captureFrom.value"));
- assert.ok(app.includes("active.value==='notes'?noteLoopTo.value:captureTo.value"));
+ assert.ok(app.includes("active.value==='notes'?noteLoopFrom.value:rhythmStart.value"));
+ assert.ok(app.includes("active.value==='notes'?noteLoopTo.value:rhythmEnd.value"));
  assert.ok(panel.includes('captureFirst+1'));
  assert.ok(panel.includes('captureLast+1'));
  assert.ok(!panel.includes('v-model.number="captureFrom"'));
  assert.ok(!panel.includes('v-model.number="captureTo"'));
 });
-check('Rhythm Editor retains independent capture range',()=>{
- assert.ok(app.includes("else{captureFrom.value=b;captureTo.value=b;}"));
- assert.ok(app.includes('const captureFrom=ref(1)'));
- assert.ok(app.includes('const captureTo=ref(1)'));
+check('Rhythm Editor shares one visible range for apply, comparison and tap capture',()=>{
+ const rhythm=app.slice(app.indexOf('<section v-else-if="active===\'rhythm\'"'),app.indexOf('<section v-else-if="active===\'notes\'"'));
+ assert.ok(rhythm.includes('v-model.number="rhythmStart"'));
+ assert.ok(rhythm.includes('v-model.number="rhythmEnd"'));
+ assert.ok(!rhythm.includes('v-model.number="captureFrom"'));
+ assert.ok(!rhythm.includes('v-model.number="captureTo"'));
+ assert.ok(app.includes('rhythmStart.value=b;rhythmEnd.value=b;'));
 });
 check('Violin touch gestures cannot pan the board',()=>{
  assert.ok(panel.includes('capture-violin-gesture-surface'));

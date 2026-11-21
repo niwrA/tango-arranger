@@ -45,6 +45,8 @@ import {playExpressiveEvent} from './expressiveAudio';
 import {needsSustainingSynth} from './sampleSustain';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
+import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
+import {rhythmPreviewForSelection,rhythmPreviewAudioPlan,type RhythmPreviewRow} from './rhythmPreview';
 import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel,clearRhythmSourceIfRetimed} from './rhythmSnap';
 import {createLongPressMenu,isContextMenuKey} from './contextPress';
 import {selectMapMeasure} from './mapSelection';
@@ -117,7 +119,7 @@ function stopPlayback(){
   // Keep the final held notes when Stop is pressed before the selected range ends.
   if(captureRecording.value)for(const id of [...heldCaptureKeys.keys()])
     safeRelease(()=>releaseCapturePianoKey({pointerId:id,type:'transport-end'} as PointerEvent));
-  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)){
+  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||rhythmAuditionPlaying.value!==null||capturePlaying.value)){
     safeRelease(()=>{Tone.getTransport().stop();Tone.getTransport().cancel();});
   }
   safeRelease(()=>synth?.releaseAll());
@@ -129,7 +131,7 @@ function stopPlayback(){
   if(cleanupError)audioStatus.value='Audio cleanup warning: '+String(cleanupError);
   playing.value=false;playbackOrigin.value=null;
   if(wasPlayingArrangement||audioStatus.value==='Starting playback…')audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
-  rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
+  rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;rhythmAuditionPlaying.value=null;
   capturePlaying.value=false;captureRecording.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureMonitorPitches.clear();captureViolinTraces.clear();captureHeldDisplay.value=[];captureRecordedPass=-1;
 }
 function selectProjectInEditor(p:Project){
@@ -440,6 +442,20 @@ function setRehearsalSpeed(speed:RehearsalSpeed){
  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)&&!capturePlaying.value){
   Tone.getTransport().bpm.value=effectivePlaybackBpm.value;
  }
+}
+/** Song tempo is part of the composition; rehearsal speed is device-local. */
+function setSongBpm(event:Event):void{
+ const input=event.target as HTMLInputElement;
+ const bpm=Number(input.value);
+ if(!Number.isInteger(bpm)||bpm<40||bpm>240){
+  input.value=String(project.value.bpm);
+  message.value='Song tempo must be a whole number between 40 and 240 BPM.';
+  return;
+ }
+ if(capturePlaying.value){input.value=String(project.value.bpm);return;}
+ project.value={...project.value,bpm};
+ setRehearsalSpeed(rehearsalSpeed.value);
+ message.value='Saved song tempo: '+bpm+' BPM. Rehearsal speed remains '+Math.round(rehearsalSpeed.value*100)+'%.';
 }
 const performanceMode=ref((()=>{try{return localStorage.getItem('tango-performance-mode')==='true';}catch{return false;}})());
 const performanceView=ref<'ensemble'|'notes'>((()=>{try{return localStorage.getItem('tango-performance-view')==='notes'?'notes':'ensemble';}catch{return 'ensemble';}})());
@@ -818,10 +834,12 @@ function setFollow(inst:'Bandoneon I'|'Bandoneon II',field:'target'|'method',eve
 // Rhythm editor targets the sounding score, never the lead sheet or chord progression.
 const rhythmPresets=RHYTHM_PRESETS;
 const rhythmEditorRegion=ref<HTMLElement|null>(null);
-const rhythmPreset=ref<RhythmPreset>('marcato_four');
+const rhythmPreset=ref<string>('marcato_four');
+const customRhythms=ref<CustomRhythm[]>(listCustomRhythms());
+const rhythmNewName=ref('');
 const rhythmPreviewInstrument=ref<Instrument>('Piano');
 const rhythmMode=ref<RhythmMode>('rhythm');
-const rhythmScope=ref<'range'|'section'|'song'>('section');
+const rhythmScope=ref<'range'|'section'|'song'>('range');
 const rhythmSection=ref('A');
 watch(sections,values=>{if(!values.includes(rhythmSection.value))rhythmSection.value=values[0]??'A';},{immediate:true});
 const rhythmStart=ref(1);
@@ -829,7 +847,27 @@ const rhythmEnd=ref(8);
 const rhythmTargets=ref<Instrument[]>(['Piano','Contrabass','Bandoneon I','Bandoneon II']);
 const rhythmOverwrite=ref(false);
 const rhythmFeedback=ref('');
-const rhythmPresetInfo=computed(()=>rhythmPresets.find(x=>x.id===rhythmPreset.value)!);
+const rhythmPresetInfo=computed(()=>{
+ const builtIn=rhythmPresets.find(x=>x.id===rhythmPreset.value);
+ if(builtIn)return builtIn;
+ const custom=customRhythms.value.find(x=>x.id===rhythmPreset.value);
+ return custom?{id:custom.id,label:custom.name,description:'My rhythm · '+custom.beats+'/4 · saved in this browser'}
+  :{id:'',label:'Edited rhythm',description:'Create or load a rhythm to begin'};
+});
+function saveNamedRhythm():void{
+ try{
+  customRhythms.value=saveCustomRhythm(rhythmNewName.value,project.value.beats,rhythmPattern.value);
+  const saved=customRhythms.value.find(r=>r.name.toLocaleLowerCase()===rhythmNewName.value.trim().toLocaleLowerCase()&&r.beats===project.value.beats);
+  if(saved)rhythmPreset.value=saved.id;
+  rhythmFeedback.value='Saved '+rhythmNewName.value.trim()+' to My rhythms on this device. It is available in other songs of the same meter.';
+ }catch(error){rhythmFeedback.value='Could not save rhythm: '+String(error);}
+}
+function deleteSelectedCustomRhythm():void{
+ const selected=customRhythms.value.find(r=>r.id===rhythmPreset.value);
+ if(!selected||!window.confirm('Delete the saved rhythm "'+selected.name+'"? The editable grid and applied song notes are not removed.'))return;
+ try{customRhythms.value=deleteCustomRhythm(selected.id);rhythmPreset.value='marcato_four';rhythmNewName.value='';rhythmFeedback.value='Deleted saved rhythm "'+selected.name+'".';}
+ catch(error){rhythmFeedback.value='Could not delete rhythm: '+String(error);}
+}
 // A pattern is an editable score of attacks/rests, not a fixed preset preview.
 const rhythmGridStep=0.25;
 const rhythmPattern=ref<RhythmSlot[]>(rhythmSlots('marcato_four',4,'Piano'));
@@ -838,6 +876,9 @@ const rhythmLoopPlaying=ref(false);
 const rhythmLoopBeat=ref(-1);
 const rhythmLoopMeasure=ref(1);
 const rhythmLoopSound=ref<'clicks'|'instrument'>('clicks');
+const rhythmAuditionPlaying=ref<'before'|'after'|null>(null);
+const rhythmPreviewPage=ref(0);
+const rhythmPreviewPageSize=6;
 let rhythmLoopSynth:Synth|null=null;
 let rhythmLoopSession=0;
 const rhythmSteps=computed(()=>Array.from({length:Math.round(project.value.beats/rhythmGridStep)},(_,i)=>i*rhythmGridStep));
@@ -883,12 +924,20 @@ function rhythmMenuAction(action:'details'|'accent'|'shorten'|'lengthen'|'earlie
 function loadRhythmPreset(){
   closeRhythmMenu();
   try{
-    rhythmPattern.value=quantizeRhythmPreset(rhythmSlots(rhythmPreset.value,project.value.beats,rhythmPreviewInstrument.value,project.value.profile),project.value.beats,rhythmGridStep);
+    const custom=customRhythms.value.find(r=>r.id===rhythmPreset.value);
+    if(custom&&custom.beats!==project.value.beats)throw Error('This custom rhythm uses '+custom.beats+'/4; choose a rhythm matching the current song meter.');
+    rhythmPattern.value=custom
+      ?validateRhythmPattern(custom.slots,project.value.beats,rhythmGridStep)
+      :quantizeRhythmPreset(rhythmSlots(rhythmPreset.value as RhythmPreset,project.value.beats,rhythmPreviewInstrument.value,project.value.profile),project.value.beats,rhythmGridStep);
     rhythmSelected.value=rhythmPattern.value.length?0:-1;
-    rhythmFeedback.value=`Loaded ${rhythmPresetInfo.value.label} into the editable grid. Change attacks, durations or accents before applying.`;
+    if(custom)rhythmNewName.value=custom.name;
+    rhythmFeedback.value='Loaded '+rhythmPresetInfo.value.label+' into the editable grid. Preview before applying.';
   }catch(error){rhythmFeedback.value=String(error);}
 }
 watch([rhythmPreset,rhythmPreviewInstrument,()=>project.value.beats],loadRhythmPreset);
+watch(()=>project.value.beats,beats=>{
+ if(customRhythms.value.some(r=>r.id===rhythmPreset.value&&r.beats!==beats))rhythmPreset.value='marcato_four';
+});
 function rhythmAddAt(beat:number){
   const old=rhythmPattern.value;
   const next=addRhythmAttack(old,project.value.beats,beat,rhythmGridStep);
@@ -1152,8 +1201,8 @@ let captureSynth:PolySynth|null=null;
 let captureKeySynth:PolySynth|null=null;
 let captureClickSynth:Synth|null=null;
 const captureKind=computed((): 'rhythm'|'melody'=>active.value==='notes'?'melody':'rhythm');
-const captureFirst=computed(()=>Math.max(0,Math.min(project.value.bars.length-1,Math.floor(Number(active.value==='notes'?noteLoopFrom.value:captureFrom.value)||1)-1)));
-const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.value.bars.length-1,Math.floor(Number(active.value==='notes'?noteLoopTo.value:captureTo.value)||1)-1)));
+const captureFirst=computed(()=>Math.max(0,Math.min(project.value.bars.length-1,Math.floor(Number(active.value==='notes'?noteLoopFrom.value:rhythmStart.value)||1)-1)));
+const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.value.bars.length-1,Math.floor(Number(active.value==='notes'?noteLoopTo.value:rhythmEnd.value)||1)-1)));
 const captureBarNumbers=computed(()=>Array.from({length:captureLast.value-captureFirst.value+1},(_,i)=>captureFirst.value+i));
 const capturePitchOptions=computed(()=>keyboardPitchOptions(noteCtx.value.range));
 const captureKeyboardPitches=computed(()=>keyboardPitches(captureStartPitch.value,captureEndPitch.value,noteCtx.value.range));
@@ -1214,7 +1263,7 @@ function captureBarRhythm(bar:number):RhythmSlot[]{
 function captureSetRangeToCurrent(){
   const b=active.value==='notes'?selectedBar.value+1:Math.max(1,Math.min(project.value.bars.length,rhythmLoopMeasure.value));
   if(active.value==='notes'){noteLoopFrom.value=b;noteLoopTo.value=b;}
-  else{captureFrom.value=b;captureTo.value=b;}
+  else{rhythmStart.value=b;rhythmEnd.value=b;rhythmLoopMeasure.value=b;captureFrom.value=b;captureTo.value=b;}
   captureEditBar.value=b;
 }
 function captureClear(){captureTaps.value=[];captureEditedRhythms.value={};captureLastExpression.value='';captureFeedback.value='Cleared the draft take; the arrangement was not changed.';}
@@ -2076,9 +2125,107 @@ function applyCapturedMelody(){
     message.value=captureFeedback.value;
   }catch(error){captureFeedback.value=`Could not apply melody: ${String(error)}`;}
 }
+
+/** One visible measure range serves pattern preview, apply and live tap recording. */
+function normalizeRhythmRange(which:'start'|'end'):void{
+ const total=project.value.bars.length;
+ let start=Math.max(1,Math.min(total,Math.floor(Number(rhythmStart.value)||1)));
+ let end=Math.max(1,Math.min(total,Math.floor(Number(rhythmEnd.value)||start)));
+ if(start>end){if(which==='start')end=start;else start=end;}
+ rhythmStart.value=start;rhythmEnd.value=end;rhythmLoopMeasure.value=start;rhythmScope.value='range';
+ rhythmPreviewPage.value=0;
+}
+function shiftRhythmRange(delta:number):void{
+ if(capturePlaying.value||rhythmAuditionPlaying.value!==null)return;
+ const width=Math.max(0,rhythmEnd.value-rhythmStart.value);
+ const first=Math.max(1,Math.min(project.value.bars.length-width,rhythmStart.value+delta));
+ rhythmStart.value=first;rhythmEnd.value=first+width;rhythmLoopMeasure.value=first;rhythmPreviewPage.value=0;
+ rhythmScope.value='range';
+}
+function selectRhythmSection():void{
+ if(capturePlaying.value||rhythmAuditionPlaying.value!==null)return;
+ const index=Math.max(0,Math.min(project.value.bars.length-1,rhythmStart.value-1));
+ const section=project.value.bars[index]?.section;
+ if(!section)return;
+ let from=index,to=index;
+ while(from>0&&project.value.bars[from-1].section===section)from--;
+ while(to+1<project.value.bars.length&&project.value.bars[to+1].section===section)to++;
+ rhythmStart.value=from+1;rhythmEnd.value=to+1;rhythmLoopMeasure.value=from+1;rhythmScope.value='range';rhythmPreviewPage.value=0;
+}
+function selectRhythmSong():void{
+ if(capturePlaying.value||rhythmAuditionPlaying.value!==null)return;
+ rhythmStart.value=1;rhythmEnd.value=project.value.bars.length;rhythmLoopMeasure.value=1;rhythmScope.value='range';rhythmPreviewPage.value=0;
+}
+watch(()=>project.value.bars.length,()=>{
+ normalizeRhythmRange('start');
+});
+const rhythmPreviewTarget=computed(()=>rhythmTargets.value.includes(rhythmPreviewInstrument.value)
+ ?rhythmPreviewInstrument.value:(rhythmTargets.value[0]??rhythmPreviewInstrument.value));
+const rhythmPreviewRows=computed<RhythmPreviewRow[]>(()=>{
+ if(!rhythmTargets.value.length||!rhythmPattern.value.length)return [];
+ try{return rhythmPreviewForSelection(project.value,score.value,rhythmPreviewTarget.value,
+   rhythmMeasures.value,rhythmPattern.value,rhythmMode.value,rhythmOverwrite.value);}
+ catch{return [];}
+});
+const rhythmPreviewVisible=computed(()=>rhythmPreviewRows.value.slice(
+ rhythmPreviewPage.value*rhythmPreviewPageSize,(rhythmPreviewPage.value+1)*rhythmPreviewPageSize));
+const rhythmPreviewPageCount=computed(()=>Math.max(1,Math.ceil(rhythmPreviewRows.value.length/rhythmPreviewPageSize)));
+const rhythmPreviewChangeCount=computed(()=>rhythmPreviewRows.value.filter(r=>r.status==='changed').length);
+function rhythmPreviewNoteTop(note:Note,notes:readonly Note[]):number{
+ if(!notes.length)return 14;
+ const min=Math.min(...notes.map(n=>n.pitch)),max=Math.max(...notes.map(n=>n.pitch));
+ return max===min?14:Math.round(26*(max-note.pitch)/(max-min));
+}
+watch([rhythmStart,rhythmEnd,rhythmPreviewInstrument,rhythmTargets],()=>{
+ rhythmPreviewPage.value=0;
+ if(rhythmAuditionPlaying.value!==null)stopPlayback();
+});
+watch([rhythmPattern,rhythmMode,rhythmOverwrite],()=>{
+ if(rhythmAuditionPlaying.value!==null)stopPlayback();
+});
+async function auditionRhythmComparison(version:'before'|'after'):Promise<void>{
+ if(rhythmAuditionPlaying.value!==null){
+  const same=rhythmAuditionPlaying.value===version;
+  stopPlayback();if(same)return;
+ }else stopPlayback();
+ const session=rhythmLoopSession;
+ const rows=rhythmPreviewRows.value.slice(0,24);
+ if(!rows.length){rhythmFeedback.value='Choose at least one instrument and add attacks before auditioning.';return;}
+ if(!rows.some(row=>(version==='after'?row.after:row.before).length)){
+  rhythmFeedback.value='There are no sounding notes in this selected preview.';return;
+ }
+ try{
+  Tone=await startAudioFromGesture();
+  if(session!==rhythmLoopSession||active.value!=='rhythm')return;
+  loopSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.02,decay:0.07,sustain:0.84,release:0.22}}).toDestination();
+  loopSynth.volume.value=-10;
+  const transport=Tone.getTransport();
+  transport.stop();transport.cancel();transport.position=0;transport.timeSignature=project.value.beats;
+  transport.bpm.value=effectivePlaybackBpm.value;
+  const secondsPerBeat=60/effectivePlaybackBpm.value;
+  const events=rhythmPreviewAudioPlan(rows,project.value.beats,version==='after');
+  const transposition=project.value.transposeSemitones??0;
+  for(const note of events){
+   const pitch=note.pitch+transposition;
+   if(pitch<0||pitch>127)continue;
+   transport.scheduleOnce(time=>{
+    loopSynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
+      Math.max(0.06,note.durationBeats*secondsPerBeat*0.92),time,Math.max(0.15,Math.min(1,note.velocity/127)));
+   },note.atBeat*secondsPerBeat);
+  }
+  const finish=rows.length*project.value.beats*secondsPerBeat+0.15;
+  transport.scheduleOnce(time=>Tone.getDraw().schedule(()=>{
+   if(session===rhythmLoopSession){stopPlayback();rhythmFeedback.value='Audition complete.';}
+  },time),finish);
+  rhythmAuditionPlaying.value=version;transport.start();
+  rhythmFeedback.value='Playing '+(version==='after'?'proposed':'original')+' notes for '+rows.length+
+    ' selected measures'+(rhythmPreviewRows.value.length>rows.length?' (first 24)':'')+'.';
+ }catch(error){
+  stopPlayback();rhythmFeedback.value='Rhythm audio preview unavailable: '+String(error);
+ }
+}
+
 const rhythmMeasures=computed(()=>{
-  if(rhythmScope.value==='song')return project.value.bars.map((_,i)=>i);
-  if(rhythmScope.value==='section')return project.value.bars.flatMap((b,i)=>b.section===rhythmSection.value?[i]:[]);
   const first=Math.max(1,Math.min(project.value.bars.length,Math.floor(rhythmStart.value)||1));
   const last=Math.max(first,Math.min(project.value.bars.length,Math.floor(rhythmEnd.value)||first));
   return Array.from({length:last-first+1},(_,i)=>first+i-1);
@@ -4488,7 +4635,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
             <span class="playback-speed-bpm">{{Math.round(project.bpm*speed)}} BPM <b v-if="rehearsalSpeed===speed" aria-label="Selected">✓</b></span>
           </button>
         </div>
-        <span class="playback-speed-note">Rehearsal only · the written song tempo does not change.</span>
+        <span class="playback-speed-note">Rehearsal speed changes practice playback, not the saved song tempo.</span>
+        <label class="song-tempo-edit" @click.stop>Song tempo (saved in this song)
+          <input type="number" inputmode="numeric" min="40" max="240" step="1" :value="project.bpm" :disabled="capturePlaying" aria-label="Song tempo in beats per minute" @change="setSongBpm"/>
+        </label>
       </div>
     </details>
     <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
@@ -4499,17 +4649,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" title="Choose a local song or create an El Choclo example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
     <button class="secondary icon-action" type="button" title="Create new blank song" aria-label="New blank song" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/></button>
     <button class="secondary icon-action" type="button" title="Save current song now" aria-label="Save song now" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/></button>
-    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span></div></details>
+    <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="More song actions" aria-label="Song actions"><AppIcon name="chevron-down"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Song actions"><button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import song, MusicXML or MIDI…</button><button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button><button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button><button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song</button><span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
-  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Import and export">
+  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Export and backup">
     <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
-      <summary class="icon-action files-summary" title="Import, export and backups" aria-label="Files: import and export"><AppIcon name="folder-open"/><span class="files-label">Files</span><AppIcon name="chevron-down"/></summary>
-      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export actions">
-        <div class="files-action-group"><strong class="files-group-title">Bring music in</strong>
-          <button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import project, MusicXML or MIDI…</button>
-          <button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button>
-        </div>
+      <summary class="icon-action files-summary" title="Export scores and project backups" aria-label="Exports and backups"><AppIcon name="file-down"/><span class="files-label">Export</span><AppIcon name="chevron-down"/></summary>
+      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Export scores and backups">
         <div class="files-action-group"><strong class="files-group-title">Scores for notation software</strong>
           <button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> MusicXML (.musicxml)</button>
           <button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Compressed MusicXML (.mxl)</button>
@@ -4536,11 +4682,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="topbar-menu-panel compact-workspace-panel" @click="closeTopbarMenuOnAction($event)">
         <template v-if="!performanceMode">
           <strong class="files-group-title">Workspace</strong>
-          <button type="button" class="secondary" @click="newSongOpen=!newSongOpen"><AppIcon name="plus"/> New blank song</button>
-          <button type="button" class="secondary" @click="saveNow"><AppIcon name="save"/> Save current song</button>
-          <button type="button" class="secondary" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button>
           <button type="button" class="secondary" @click="regenerate"><AppIcon name="refresh-cw"/> Generate orchestra</button>
-          <button type="button" class="secondary" @click="performanceMode=true"><AppIcon name="presentation"/> Performance mode</button>
           <button type="button" class="secondary" @click="projectDrawerOpen=true"><AppIcon name="settings"/> Song settings</button>
           <button type="button" class="secondary" @click="compactHelp=!compactHelp"><AppIcon name="circle-help"/> {{compactHelp?'Show explanations':'Hide explanations'}}</button>
           <div class="compact-audio-group" @click.stop>
@@ -5030,58 +5172,79 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <details class="orchestration-section-settings" open><summary>Roles &amp; playing styles</summary><div class="role-list"><div v-for="inst in activeRoster" :key="inst" class="role-row"><span>{{rosterDisplayName(inst)}}</span><select :value="project.roles[chosenSection]?.[inst]??'rest'" @change="setRole(inst,$event)"><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select></div></div></details><details class="orchestration-section-settings"><summary>Instrument techniques</summary><p class="hint">When Violin I plays Melody and Violin II plays Harmony, Violin II automatically follows Violin I's actual notes with a lower chord-tone harmony. Protected Violin II measures remain unchanged.</p><div class="editor"><details class="control-fold" open><summary>Piano accompaniment figure</summary><h3>Piano accompaniment figure</h3><p class="muted">For Piano with the Chords role, use a moving upper-staff figure and, for chord-inversion figures, an independent bass pulse. Variations alter inversions and register. These are arranging heuristics; use the Note Editor for individual counterlines and gestures.</p><div class="two"><label>Figure for {{chosenSection}}<select :value="pianoFigureForSection()" @change="setPianoFigure"><option v-for="kind in FIGURE_KINDS" :key="kind" :value="kind">{{figureLabels[kind]}}</option></select></label><div class="align-bottom"><button class="secondary" @click="nextPianoFigureVariation">Try next piano variation ({{(project.pianoFigureVariation?.[chosenSection]??0)+1}})</button></div></div></details></div><div class="editor"><details class="control-fold" open><summary>Contrabass playing style</summary><h3>Contrabass playing style</h3><p class="muted">For the Bass role, choose a section-wide technique: traditional tango pulse, short pizzicato, sustained arco legato, emphatic marcato, quarter-note walking bass, or syncopated habanera. These change the generated notes, not merely their labels. Override individual measures in Orchestration. Protected manual notes are retained.</p><label>Contrabass style for {{chosenSection}}<select :value="bassSetting()" @change="setBassSetting"><option v-for="tech in bassTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select></label></details></div><div class="editor"><details class="control-fold" open><summary>Violin chord accompaniment</summary><h3>Violin chord accompaniment</h3><p class="muted">For the Chords role, tango staccato and pizzicato play exactly one chord tone per beat. Unaccented notes are extremely short; selected marcato beats are louder and longer. Choose marcato beats for each violin in this section (1-based, e.g. 1,3). Defaults depend on the style profile and can be overridden; these are arranging heuristics, not fixed composer rules. Arpeggio and pizzicato arpeggio play exactly four successive single notes across the entire measure (not four per beat). Select ascending, descending, or alternating direction below. Double stop, sustained and block remain optional techniques.</p><div class="role-list"><div v-for="inst in (['Violin I','Violin II'] as const)" :key="inst" class="role-row"><span>{{rosterDisplayName(inst)}}</span><select :value="violinSetting(inst)" @change="setViolinSetting(inst,$event)"><option v-for="tech in violinTechniques" :key="tech" :value="tech">{{tech.replaceAll('_',' ')}}</option></select><label class="hint">Arpeggio direction <select :value="violinArpeggioDirection(inst)" @change="setViolinArpeggioDirection(inst,$event)" :aria-label="`Arpeggio direction for ${inst}`"><option value="alternate">Alternate each measure</option><option value="up">Up</option><option value="down">Down</option></select></label><label class="hint">Marcato beats <input type="text" :value="violinMarcatoText(inst)" @change="setViolinMarcato(inst,$event)" placeholder="1,3" aria-label="Marcato beats for violin chord accompaniment"/></label></div></div></details></div><div class="editor"><details class="control-fold" open><summary>Bandoneon following</summary><h3>Bandoneon following</h3><p class="muted">Choose a source and how to follow it for this section. Following overrides the bandoneon's role when the source has notes.</p><div v-for="inst in (['Bandoneon I','Bandoneon II'] as const)" :key="inst" class="two"><label>{{rosterDisplayName(inst)}} follows<select :value="followSetting(inst).target" @change="setFollow(inst,'target',$event)"><option v-for="target in followTargets" :key="target" :value="target">{{rosterDisplayName(target)}}</option></select></label><label>Method<select :value="followSetting(inst).method" @change="setFollow(inst,'method',$event)"><option v-for="method in followMethods" :key="method" :value="method">{{method}}</option></select></label></div></details></div></details><details class="orchestration-section-settings"><summary>Activity &amp; expression</summary><div class="editor"><details class="control-fold" open><summary>Instrument difficulty and activity</summary><h3>Instrument difficulty and activity</h3><p class="muted">Activity is a deterministic target for measures containing musical material, not beats sounded. Explicit Rest roles remain silent. The level limits technical complexity without automatically making the part sparse.</p><div class="role-list"><div v-for="inst in activeRoster" :key="inst" class="role-row"><span>{{rosterDisplayName(inst)}}</span><select :value="instrumentDifficulty(inst)" @change="setInstrumentDifficulty(inst,$event)"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select><label class="hint">Activity <input type="number" min="0" max="100" step="5" :value="instrumentTarget(inst)" @change="setInstrumentTarget(inst,$event)"/> %</label><label class="hint">Dynamics offset <input type="number" min="-25" max="25" step="5" :value="instrumentDynamicsOffset(inst)" @change="setInstrumentDynamicsOffset(inst,$event)"/></label></div></div></details></div><div class="editor"><details class="control-fold" open><summary>Dynamics and phrase expression</summary><h3>Dynamics and phrase expression</h3><label><input type="checkbox" :checked="project.melodyDucking?.enabled??true" @change="setDuckingEnabled"/> Lower accompanying parts while another part carries the melody (keep contrabass unchanged)</label><label>Accompaniment reduction (%)<input type="range" min="0" max="75" step="5" :value="project.melodyDucking?.reduction??22" @input="setDuckingReduction"/>{{project.melodyDucking?.reduction??22}}%</label><label><input type="checkbox" :checked="project.expression?.enabled??true" @change="toggleExpression('enabled',$event)"/> Export dynamics and scale generated velocities</label><label>Dynamic at start of {{chosenSection}}<select :value="sectionDynamic()" @change="setSectionDynamic"><option v-for="d in dynamicMarks" :key="d" :value="d">{{d}}</option></select></label><label><input type="checkbox" :checked="project.expression?.crescendo??true" @change="toggleExpression('crescendo',$event)"/> Add section crescendos</label></details></div></details><details class="orchestration-section-settings"><summary>Articulation &amp; gestures</summary><div class="editor"><details class="control-fold" open><summary>Eight-bar articulation and measure overrides</summary><h3>Eight-bar articulation and measure overrides</h3><p class="muted">Default: approximately eight measures marcato/staccato alternating with lyrical legato (arco for bowed violin). Bandoneon legato describes connected phrasing, not bowing. Violin II and Bandoneon II switches are staggered for variation.</p><label><input type="checkbox" :checked="project.articulation?.enabled??true" @change="project.articulation??=defaultArticulation();project.articulation.enabled=($event.target as HTMLInputElement).checked"/> Generate articulation cycles</label><label>Measures per phase<input type="number" min="1" max="32" :value="project.articulation?.phraseBars??8" @change="project.articulation??=defaultArticulation();project.articulation.phraseBars=Math.max(1,Math.min(32,Number(($event.target as HTMLInputElement).value)||8))"/></label><label>Override measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}}</option></select></label><div class="role-list"><div v-for="inst in activeRoster.filter(i=>i.startsWith('Violin')||i.startsWith('Bandoneon'))" :key="inst" class="role-row"><span>{{rosterDisplayName(inst)}}</span><select :value="barArticulation(inst)" @change="setBarArticulation(inst,$event)"><option v-for="art in articulationModes" :key="art" :value="art">{{art.replaceAll('_',' ')}}</option></select><small class="hint">{{inferredArticulation(inst)}}</small></div></div><p class="hint">Press Generate orchestra after changing articulation. An explicit override takes precedence over the default cycle.</p></details></div><div class="editor"><details class="control-fold" open><summary>Tango gestures</summary><h3>Tango gestures</h3><p class="muted">First experimental gesture: insert a two-note piano approach before beat 3 of the selected measure.</p><div class="two"><label>Target measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.chord}}</option></select></label><div class="align-bottom"><button class="secondary" @click="addArrastre">+ Simple arrastre lead-in</button></div></div><p class="hint">Profiles model selected accompaniment, accent and expression tendencies; these are configurable heuristics, not transcriptions of any specific recording.</p></details></div></details></div></div></details><details class="control-fold score-review-details"><summary>Score details · {{scoreStats(score)}} notes across {{activeRoster.length}} parts</summary><p class="hint">Inspect note events for a measure, open any instrument’s notes and protect manual or imported edits from regeneration. This is not an engraved score; use Files → Export MusicXML for MuseScore.</p><div class="score-details-actions"><label>Measure<select v-model.number="selectedBar"><option v-for="(b,i) in project.bars" :key="i" :value="i">{{i+1}} · {{b.section}} · {{b.chord}}</option></select></label><div class="align-bottom"><button class="secondary" @click="exportXml">Export score to MuseScore ↗</button></div></div><div class="score-rows"><div v-for="entry in currentNotes" :key="entry.inst" class="score-row"><div class="score-name"><strong>{{rosterDisplayName(entry.inst)}}</strong><button class="secondary score-edit-link" @click="openNoteEditor(entry.inst,selectedBar)">Edit notes</button><small class="muted">{{activitySummary(entry.inst)}}% measures active</small><label class="protect"><input type="checkbox" :checked="!!project.protectedBars[`${entry.inst}:${selectedBar}`]" @change="setProtected(entry.inst,selectedBar,($event.target as HTMLInputElement).checked)"/> Protect</label></div><div class="notes score-notes-shortcut" :title="`Double-click to edit ${entry.inst} notes in measure ${selectedBar+1}`" @dblclick="openNoteEditor(entry.inst,selectedBar)"><span v-for="(n,i) in entry.notes" :key="i" class="note-chip">{{midiName(n.pitch+(project.transposeSemitones??0))}} <small>{{n.duration}} beat</small></span><span v-if="!entry.notes.length" class="muted">Rest</span></div></div></div></details>
 </section>
 <section v-else-if="active==='rhythm'" ref="rhythmEditorRegion" class="rhythm-editor-section" tabindex="-1" @keydown="handleRhythmEditorKey">
-  
-  <p class="muted">Apply a rhythmic template to selected orchestra parts. Pitches and chord voicings are retained, including separate piano bass and treble registers. Rhythm edits are saved as protected note changes; the lead-sheet harmony is never modified.</p>
+  <div class="rhythm-range-toolbar" role="group" aria-label="Rhythm measure selection">
+    <button type="button" class="secondary" :disabled="capturePlaying||rhythmAuditionPlaying!==null||rhythmStart<=1" @click="shiftRhythmRange(-1)" aria-label="Previous rhythm measure range">←</button>
+    <label>Start measure
+      <select v-model.number="rhythmStart" :disabled="capturePlaying||rhythmAuditionPlaying!==null" @change="normalizeRhythmRange('start')" aria-label="Rhythm start measure">
+        <option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option>
+      </select>
+    </label>
+    <label>End measure
+      <select v-model.number="rhythmEnd" :disabled="capturePlaying||rhythmAuditionPlaying!==null" @change="normalizeRhythmRange('end')" aria-label="Rhythm end measure">
+        <option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option>
+      </select>
+    </label>
+    <button type="button" class="secondary" :disabled="capturePlaying||rhythmAuditionPlaying!==null||rhythmEnd>=project.bars.length" @click="shiftRhythmRange(1)" aria-label="Next rhythm measure range">→</button>
+    <button type="button" class="secondary" :disabled="capturePlaying||rhythmAuditionPlaying!==null" @click="selectRhythmSection">Current section</button>
+    <button type="button" class="secondary" :disabled="capturePlaying||rhythmAuditionPlaying!==null" @click="selectRhythmSong">Entire song</button>
+    <span class="rhythm-range-summary">{{rhythmMeasures.length}} measures · {{rhythmTargets.length}} parts · {{rhythmProtectedCount}} protected</span>
+    <details class="rhythm-settings-menu">
+      <summary class="secondary" aria-label="Rhythm settings" title="Rhythm settings"><AppIcon name="settings"/></summary>
+      <div class="rhythm-settings-panel">
+        <strong>Rhythm settings</strong>
+        <label>Apply behavior
+          <select v-model="rhythmMode">
+            <option value="rhythm">Retiming, durations and accents</option>
+            <option value="accents">Accents and articulation only</option>
+          </select>
+        </label>
+        <label class="rhythm-overwrite"><input type="checkbox" v-model="rhythmOverwrite"/> Overwrite protected manual edits (confirmation required)</label>
+        <label>Pattern-loop sound
+          <select v-model="rhythmLoopSound"><option value="clicks">Rhythm clicks</option><option value="instrument">Selected instrument notes</option></select>
+        </label>
+        <small class="hint">The selected measure range controls Apply, the before/after preview, and rhythm tap recording. Protected notes stay unchanged unless explicitly allowed.</small>
+      </div>
+    </details>
+  </div>
   <div class="rhythm-workspace">
     <div class="editor rhythm-primary">
-      <details class="control-fold" open><summary>Rhythm pattern, loop and editing controls</summary>
-      <h3>1 · Choose a rhythm</h3>
-      <label>Rhythm preset<select v-model="rhythmPreset"><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
-      <p class="hint">{{rhythmPresetInfo.description}} · Changing the preset or reference instrument reloads the grid; apply or finish your edits before switching.</p>
-      <label>Reference instrument<select v-model="rhythmPreviewInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-      <div class="rhythm-loop-controls" aria-label="Rhythm loop playback">
-        <button type="button" :class="rhythmLoopPlaying?'play':'primary'" @click="toggleRhythmLoop">{{rhythmLoopPlaying?'■ Stop rhythm loop':'▶ Loop edited rhythm'}}</button>
-        <label>Sound<select v-model="rhythmLoopSound"><option value="clicks">Rhythm clicks</option><option value="instrument">Selected instrument notes</option></select></label>
-        <label>Measure<input v-model.number="rhythmLoopMeasure" type="number" min="1" :max="project.bars.length"/></label>
-        <span class="hint" role="status">{{rhythmLoopPlaying?`Playing beat ${rhythmLoopBeat+1} of ${project.beats}`:'Stopped · edits can be heard on the next loop'}}</span>
-      </div>
-      <div class="editor live-capture" aria-label="Tap rhythm recording">
-        <LiveCaptureTransport kind="rhythm" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
-          :metronome="captureMetronome" :count-in="captureCountIn"
-          :status="captureRecording?(captureCountingIn?'Count-in · '+(capturePlayBeat+1)+'/'+project.beats:'Rec · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1)):capturePlaying?'Play · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1):'Measures '+(captureFirst+1)+'–'+(captureLast+1)+' · '+captureTaps.length+' taps'"
-          @play="toggleCapturePlay" @record="toggleCaptureRecord" @loop="captureLoopEnabled=!captureLoopEnabled"
-          @metronome="captureMetronome=!captureMetronome" @count-in="captureCountIn=!captureCountIn">
-          <template #settings>
-            <label>From measure<input type="number" min="1" :max="project.bars.length" v-model.number="captureFrom" :disabled="capturePlaying"/></label>
-            <label>To measure<input type="number" :min="captureFrom" :max="project.bars.length" v-model.number="captureTo" :disabled="capturePlaying"/></label>
-            <button type="button" class="secondary" :disabled="capturePlaying" @click="captureSetRangeToCurrent">Use selected measure</button>
-            <label>Tap latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
-            <p class="hint">Play auditions the selected measures without recording. Record starts playback and captures taps; Loop repeats the range when enabled.</p>
-          </template>
-        </LiveCaptureTransport>
-        <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter on this pad</span></button>
-          <div v-if="vocalAlignmentEnabled&&vocalCapturedNotes.length&&!captureRecording" class="capture-vocal-alignment">
-          <h4>Review lyric alignment (draft only)</h4>
-          <p class="hint">Each recorded note is matched in order to a lyric note. Correct the assignment before applying; multiple notes may share a syllable.</p>
-          <p v-if="!vocalAlignmentSource.length" class="hint">No lyric-bearing Voice notes in this range. Record normally or select a phrase containing lyrics.</p>
-          <div v-for="entry in vocalAlignmentPreview" :key="entry.index" class="capture-vocal-alignment-row">
-            <span>{{midiName(entry.pitch)}} · m{{entry.bar+1}} beat {{Number((entry.beat+1).toFixed(2))}}</span>
-            <select :value="entry.lyricIndex" :disabled="!vocalAlignmentSource.length" @change="setVocalAlignmentIndex(entry.index,Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="(lyric,i) in vocalAlignmentSource" :key="i" :value="i">{{i+1}} · {{lyric.lyric}}</option>
+      <div class="rhythm-editor-top">
+        <div class="rhythm-preset-choice">
+          <label>Rhythm
+            <select v-model="rhythmPreset" aria-label="Select rhythm preset or My rhythms">
+              <optgroup label="Built-in rhythms">
+                <option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option>
+              </optgroup>
+              <optgroup label="My rhythms">
+                <option v-if="!customRhythms.length" value="__no_custom__" disabled>No saved rhythms yet</option>
+                <option v-for="item in customRhythms" :key="item.id" :value="item.id" :disabled="item.beats!==project.beats">{{item.name}} · {{item.beats}}/4{{item.beats!==project.beats?' (different meter)':''}}</option>
+              </optgroup>
             </select>
-          </div>
+          </label>
+          <label>Reference instrument
+            <select v-model="rhythmPreviewInstrument" aria-label="Reference instrument for rhythm preset">
+              <option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option>
+            </select>
+          </label>
+          <button type="button" class="secondary rhythm-reload" @click="loadRhythmPreset" title="Discard grid edits and reload the selected rhythm"><AppIcon name="refresh-cw"/> Reload</button>
         </div>
-      <details class="capture-draft-review">
-          <summary>Review rhythm take · {{rhythmCaptureTaps.length}} taps</summary>
-          <div class="live-capture-actions"><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button><button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button></div>
-          <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`rhythm-take-${b}`"><strong>Measure {{b+1}}</strong><div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div></div>
-          <div class="live-capture-actions"><label>Edit captured measure<select v-model.number="captureEditBar"><option v-for="b in captureBarNumbers" :key="b" :value="b+1">{{b+1}}</option></select></label><button type="button" class="secondary" :disabled="!captureTaps.length" @click="loadCaptureBarToRhythm">Load into rhythm grid ↑</button><button type="button" class="secondary" @click="saveRhythmGridToCapture">Save edited grid to take</button><button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedRhythm">Apply recorded take to selected instruments</button></div>
-          <p class="hint">Applying the draft uses the selected instruments and protected-edit setting. Edit a captured measure in the grid and save it back before applying a phrase.</p>
+        <p class="rhythm-preset-description">{{rhythmPresetInfo.description}}</p>
+        <details class="rhythm-save-custom">
+          <summary>＋ Save this pattern as My rhythm</summary>
+          <div class="rhythm-save-fields">
+            <label>Name <input v-model="rhythmNewName" maxlength="64" placeholder="e.g. My syncopated milonga" aria-label="Custom rhythm name"/></label>
+            <button type="button" class="primary" :disabled="!rhythmPattern.length" @click="saveNamedRhythm"><AppIcon name="save"/> Save / update</button>
+            <button v-if="customRhythms.some(item=>item.id===rhythmPreset)" type="button" class="secondary" @click="deleteSelectedCustomRhythm"><AppIcon name="trash"/> Delete saved pattern</button>
+          </div>
+          <small class="hint">My rhythms are saved in this browser and appear in other songs of the same meter. They are separate from song files and do not automatically sync between devices.</small>
         </details>
-        <p v-if="captureFeedback" class="capture-feedback" role="status" aria-live="polite">{{captureFeedback}}</p>
       </div>
+      <div class="rhythm-edit-title"><strong>Edit attacks</strong><div class="rhythm-loop-controls" aria-label="Rhythm pattern loop playback">
+        <button type="button" class="secondary" :disabled="capturePlaying||rhythmAuditionPlaying!==null" @click="toggleRhythmLoop">{{rhythmLoopPlaying?'■ Stop pattern loop':'▶ Loop pattern'}}</button>
+        <span class="rhythm-loop-state" role="status">{{rhythmLoopPlaying?'Beat '+(rhythmLoopBeat+1)+' / '+project.beats:'Tap to add · drag edges to resize'}}</span>
+      </div></div>
       <div class="rhythm-ruler" :style="{'--rhythm-beats':project.beats}"><span v-for="beat in project.beats" :key="beat" :class="{'rhythm-current-beat':rhythmLoopPlaying&&rhythmLoopBeat===beat-1}">{{beat}}</span></div>
-      <Teleport to="body"><div v-if="rhythmMenuSlot" class="context-sheet-backdrop" @click.self="closeRhythmMenu()">
+<Teleport to="body"><div v-if="rhythmMenuSlot" class="context-sheet-backdrop" @click.self="closeRhythmMenu()">
   <div class="context-sheet-dialog rhythm-context-dialog" role="dialog" aria-modal="true" tabindex="-1" :aria-label="'Rhythm attack options for beat '+(rhythmMenuSlot.beat+1)" @keydown.esc.stop.prevent="closeRhythmMenu()">
     <div class="context-sheet-header"><strong>Rhythm attack · beat {{Number((rhythmMenuSlot.beat+1).toFixed(2))}}</strong><button type="button" class="secondary" @click="closeRhythmMenu()">✕ Close</button></div>
     <p>Duration {{rhythmMenuSlot.duration}} beats · {{rhythmMenuSlot.accent?'accented':'unaccented'}}. Changes affect the editable grid; apply the pattern separately to change instrument notes.</p>
@@ -5100,34 +5263,111 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <span class="rhythm-resize-handle" role="presentation" title="Drag to change written duration" @pointerdown="rhythmResizeDown($event,i)" @pointermove="rhythmResizeMove" @pointerup="rhythmResizeUp" @pointercancel="rhythmResizeUp" @click.stop>↔</span>
         </button>
       </div>
-      <p class="hint">Tap an empty sixteenth-note grid cell to add an attack. Select a bar to edit it; drag its right edge to resize. Long-press, right-click, Shift+F10 or choose ⋯ Options for nearby settings. Gaps are rests. A preset is only the starting point.</p>
-      <p class="editor-shortcut-help"><strong>Keyboard:</strong> Delete / Backspace remove selected attack · ← → select attacks · + / − change duration · A toggle accent · S split · L loop · Esc deselect. Shortcuts pause while typing in fields.</p>
+
       <div v-if="rhythmSelectedSlot" class="rhythm-event-properties">
-        <div class="rhythm-selected-context-action"><strong>Selected attack · beat {{Number((rhythmSelectedSlot.beat+1).toFixed(2))}}</strong><button type="button" class="secondary" @click="openRhythmMenu(rhythmSelected)">⋯ Options</button></div>
+        <div class="rhythm-selected-context-action"><strong>Selected attack · beat {{Number((rhythmSelectedSlot.beat+1).toFixed(2))}}</strong><button type="button" class="secondary" @click="openRhythmMenu(rhythmSelected)">⋯ Edit</button></div>
         <label>Attack beat<input type="number" min="1" :max="project.beats" step="0.25" :value="rhythmSelectedSlot.beat+1" @change="rhythmEdit({beat:Number(($event.target as HTMLInputElement).value)-1})"/></label>
-        <label>Written duration (beats)<input type="number" min="0.25" :max="project.beats-rhythmSelectedSlot.beat" step="0.25" :value="rhythmSelectedSlot.duration" @change="rhythmEdit({duration:Number(($event.target as HTMLInputElement).value)})"/></label>
+        <label>Duration (beats)<input type="number" min="0.25" :max="project.beats-rhythmSelectedSlot.beat" step="0.25" :value="rhythmSelectedSlot.duration" @change="rhythmEdit({duration:Number(($event.target as HTMLInputElement).value)})"/></label>
         <label>Accent<select :value="rhythmSelectedSlot.accent?'accent':'normal'" @change="rhythmEdit({accent:($event.target as HTMLSelectElement).value==='accent'})"><option value="accent">Accented</option><option value="normal">Normal</option></select></label>
-        <div class="rhythm-step-actions"><button class="secondary" type="button" @click="rhythmDurationStep(-1)">− ¼ beat</button><button class="secondary" type="button" @click="rhythmDurationStep(1)">+ ¼ beat</button><button class="secondary" type="button" @click="rhythmSplit">Split attack</button><button class="secondary" type="button" @click="rhythmDelete">Delete attack</button></div>
+        <div class="rhythm-step-actions">
+          <button class="secondary" type="button" @click="rhythmDurationStep(-1)">− ¼ beat</button>
+          <button class="secondary" type="button" @click="rhythmDurationStep(1)">+ ¼ beat</button>
+          <button class="secondary" type="button" @click="rhythmSplit">Split</button>
+          <button class="secondary" type="button" @click="rhythmDelete">Delete</button>
+        </div>
       </div>
-      <div class="rhythm-step-actions"><button type="button" class="secondary" @click="loadRhythmPreset">↻ Reload preset</button><button type="button" class="secondary" @click="rhythmPattern=[];rhythmSelected=-1">Clear grid</button></div>
-      <label>What to apply<select v-model="rhythmMode"><option value="rhythm">Rhythm, written durations and accents</option><option value="accents">Accents and articulation only (keep timing)</option></select></label>
-    </details></div>
+      <div class="rhythm-step-actions">
+        <button type="button" class="secondary" @click="rhythmPattern=[];rhythmSelected=-1">Clear grid</button>
+        <small class="hint">Empty grid spaces are rests. Selected attacks can also be edited by long press or right-click.</small>
+      </div>
+      <details class="rhythm-capture-fold">
+        <summary><AppIcon name="record"/> Record your own rhythm (tap input)</summary>
+        <div class="editor live-capture" aria-label="Tap rhythm recording">
+          <LiveCaptureTransport kind="rhythm" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
+            :metronome="captureMetronome" :count-in="captureCountIn"
+            :status="captureRecording?(captureCountingIn?'Count-in · '+(capturePlayBeat+1)+'/'+project.beats:'Rec · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1)):capturePlaying?'Play · m'+(capturePlayBar+1)+' beat '+(capturePlayBeat+1):'Measures '+(captureFirst+1)+'–'+(captureLast+1)+' · '+rhythmCaptureTaps.length+' taps'"
+            @play="toggleCapturePlay" @record="toggleCaptureRecord" @loop="captureLoopEnabled=!captureLoopEnabled"
+            @metronome="captureMetronome=!captureMetronome" @count-in="captureCountIn=!captureCountIn">
+            <template #settings>
+              <label>Tap latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+              <p class="hint">Range: measures {{rhythmStart}}–{{rhythmEnd}}, chosen above. Record captures touches; Play auditions; Loop repeats the selection when enabled.</p>
+            </template>
+          </LiveCaptureTransport>
+          <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event)" @click="captureKeyboardClick($event)" aria-label="Tap rhythm now">TAP RHYTHM<span>Touch or press Space / Enter</span></button>
+          <details class="capture-draft-review">
+            <summary>Review rhythm take · {{rhythmCaptureTaps.length}} taps</summary>
+            <div class="live-capture-actions">
+              <button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureUndo">Undo last tap</button>
+              <button type="button" class="secondary" :disabled="!captureTaps.length" @click="captureClear">Clear draft</button>
+            </div>
+            <div class="live-capture-take" v-for="b in captureBarNumbers" :key="'rhythm-take-'+b">
+              <strong>Measure {{b+1}}</strong>
+              <div class="capture-beat-strip"><span v-for="slot in captureBarRhythm(b)" :key="slot.beat">{{Number((slot.beat+1).toFixed(2))}} · {{slot.duration}} beat</span><em v-if="!captureBarRhythm(b).length">No taps</em></div>
+            </div>
+            <div class="live-capture-actions">
+              <label>Edit captured measure<select v-model.number="captureEditBar"><option v-for="b in captureBarNumbers" :key="b" :value="b+1">{{b+1}}</option></select></label>
+              <button type="button" class="secondary" :disabled="!captureTaps.length" @click="loadCaptureBarToRhythm">Load into grid ↑</button>
+              <button type="button" class="secondary" @click="saveRhythmGridToCapture">Save grid to take</button>
+              <button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedRhythm">Apply recorded take</button>
+            </div>
+          </details>
+          <p v-if="captureFeedback" class="capture-feedback" role="status">{{captureFeedback}}</p>
+        </div>
+      </details>
+    </div>
     <div class="editor rhythm-secondary">
-      <details class="control-fold" open><summary>Instrument selection and apply controls</summary>
-      <h3>2 · Select instruments</h3>
-      <div class="rhythm-quick"><button class="secondary" type="button" @click="chooseRhythmGroup('rhythm')">Rhythm section</button><button class="secondary" type="button" @click="chooseRhythmGroup('all')">All parts</button><button class="secondary" type="button" @click="chooseRhythmGroup('none')">Clear</button></div>
-      <div class="rhythm-instruments"><label v-for="inst in activeRoster" :key="inst" class="rhythm-instrument"><input type="checkbox" :checked="rhythmTargets.includes(inst)" @change="toggleRhythmTarget(inst,($event.target as HTMLInputElement).checked)"/> {{rosterDisplayName(inst)}}</label></div>
-      <h3>3 · Choose measures</h3>
-      <label>Apply to<select v-model="rhythmScope"><option value="range">Measure range</option><option value="section">One section</option><option value="song">Entire song</option></select></label>
-      <label v-if="rhythmScope==='section'">Section<select v-model="rhythmSection"><option v-for="section in sections" :key="section" :value="section">{{section}}</option></select></label>
-      <div v-if="rhythmScope==='range'" class="two"><label>First measure<input type="number" min="1" :max="project.bars.length" v-model.number="rhythmStart"/></label><label>Last measure<input type="number" min="1" :max="project.bars.length" v-model.number="rhythmEnd"/></label></div>
-      <p class="hint">{{rhythmTargets.length}} instruments × {{rhythmMeasures.length}} measures. {{rhythmProtectedCount}} already protected.</p>
-      <label class="rhythm-overwrite"><input type="checkbox" v-model="rhythmOverwrite"/> Overwrite protected manual edits (confirmation required)</label>
-      <button type="button" class="primary rhythm-apply" @click="applyRhythmSelection">Apply edited rhythm to selected parts</button>
+      <div class="rhythm-parts-header"><h3>Instruments &amp; preview</h3><span>{{rhythmTargets.length}} selected</span></div>
+      <details class="rhythm-part-picker">
+        <summary>Choose instruments · {{rhythmTargets.map(i=>rosterDisplayName(i)).join(', ')||'None'}}</summary>
+        <div class="rhythm-quick">
+          <button class="secondary" type="button" @click="chooseRhythmGroup('rhythm')">Rhythm section</button>
+          <button class="secondary" type="button" @click="chooseRhythmGroup('all')">All parts</button>
+          <button class="secondary" type="button" @click="chooseRhythmGroup('none')">Clear</button>
+        </div>
+        <div class="rhythm-instruments">
+          <label v-for="inst in activeRoster" :key="inst" class="rhythm-instrument"><input type="checkbox" :checked="rhythmTargets.includes(inst)" @change="toggleRhythmTarget(inst,($event.target as HTMLInputElement).checked)"/> {{rosterDisplayName(inst)}}</label>
+        </div>
+      </details>
+      <div class="rhythm-comparison-panel">
+        <div class="rhythm-comparison-heading"><strong>Before → After</strong><small>Preview part: {{rosterDisplayName(rhythmPreviewTarget)}}</small></div>
+        <p class="hint">These are the existing and proposed score notes in the selected measures. The same algorithm is used by Apply. Protected measures remain unchanged unless overwrite is enabled.</p>
+        <div class="rhythm-compare-actions" role="group" aria-label="Audition rhythm before and after">
+          <button type="button" class="secondary" :disabled="capturePlaying||rhythmLoopPlaying||!rhythmPreviewRows.length" :aria-pressed="rhythmAuditionPlaying==='before'" @click="auditionRhythmComparison('before')">{{rhythmAuditionPlaying==='before'?'■ Stop':'▶ Original'}}</button>
+          <button type="button" class="primary" :disabled="capturePlaying||rhythmLoopPlaying||!rhythmPreviewRows.length" :aria-pressed="rhythmAuditionPlaying==='after'" @click="auditionRhythmComparison('after')">{{rhythmAuditionPlaying==='after'?'■ Stop':'▶ Proposed'}}</button>
+        </div>
+        <p v-if="rhythmPreviewRows.length" class="rhythm-compare-status" role="status">
+          {{rhythmPreviewChangeCount}} of {{rhythmPreviewRows.length}} measures change for this part
+          <span v-if="rhythmPreviewRows.length>24"> · audio previews first 24 selected measures</span>
+        </p>
+        <p v-else class="hint">Select a part with notes and add at least one rhythm attack to see the preview.</p>
+        <div class="rhythm-compare-measures">
+          <div v-for="row in rhythmPreviewVisible" :key="row.bar" class="rhythm-compare-measure">
+            <div class="rhythm-compare-measure-heading"><strong>M{{row.bar+1}} · {{project.bars[row.bar].chord}}</strong><small>{{row.status==='changed'?'Changed':row.status==='protected'?'Protected · unchanged':row.status==='silent'?'No notes':'Unchanged'}}</small></div>
+            <div class="rhythm-compare-line">
+              <span>Before</span>
+              <div class="rhythm-compare-lane" :class="{'rhythm-compare-empty':!row.before.length}" :title="'Original score notes in measure '+(row.bar+1)">
+                <span v-for="(note,i) in row.before" :key="'before-'+i" class="rhythm-compare-note before" :class="{'is-accented':note.accent}" :style="{left:100*(note.start-row.bar*project.beats)/project.beats+'%',width:100*Math.min(note.duration,project.beats-(note.start-row.bar*project.beats))/project.beats+'%',top:rhythmPreviewNoteTop(note,row.before)+'px'}" :title="midiName(note.pitch)+' · beat '+Number((note.start-row.bar*project.beats+1).toFixed(2))+' · '+note.duration+' beats'"></span>
+              </div>
+            </div>
+            <div class="rhythm-compare-line">
+              <span>After</span>
+              <div class="rhythm-compare-lane" :class="{'rhythm-compare-empty':!row.after.length}" :title="'Proposed score notes in measure '+(row.bar+1)">
+                <span v-for="(note,i) in row.after" :key="'after-'+i" class="rhythm-compare-note after" :class="{'is-accented':note.accent}" :style="{left:100*(note.start-row.bar*project.beats)/project.beats+'%',width:100*Math.min(note.duration,project.beats-(note.start-row.bar*project.beats))/project.beats+'%',top:rhythmPreviewNoteTop(note,row.after)+'px'}" :title="midiName(note.pitch)+' · beat '+Number((note.start-row.bar*project.beats+1).toFixed(2))+' · '+note.duration+' beats'"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="rhythmPreviewPageCount>1" class="rhythm-compare-pages">
+          <button type="button" class="secondary" :disabled="rhythmPreviewPage===0" @click="rhythmPreviewPage=Math.max(0,rhythmPreviewPage-1)">← Previous</button>
+          <span>{{rhythmPreviewPage+1}} / {{rhythmPreviewPageCount}}</span>
+          <button type="button" class="secondary" :disabled="rhythmPreviewPage>=rhythmPreviewPageCount-1" @click="rhythmPreviewPage=Math.min(rhythmPreviewPageCount-1,rhythmPreviewPage+1)">Next →</button>
+        </div>
+      </div>
+      <button type="button" class="primary rhythm-apply" :disabled="capturePlaying||rhythmAuditionPlaying!==null||!rhythmTargets.length||!rhythmPattern.length||!rhythmMeasures.length" @click="applyRhythmSelection">Apply proposed rhythm to selected parts</button>
+      <p class="hint rhythm-apply-safety">Changes are protected in the score and can be undone. Melody parts and overwriting protected measures still require confirmation.</p>
       <p v-if="rhythmFeedback" class="rhythm-feedback" role="status">{{rhythmFeedback}}</p>
-    </details></div>
+    </div>
   </div>
-  <p class="hint">The editable pattern is applied to all selected parts; for piano, bass and treble retain their original pitches and voicings. Silent measures are skipped. Melody/voice changes require confirmation. Applied note edits are protected through regeneration and exported to MusicXML and .tango.json backups. Presets are starting-point heuristics, not transcriptions.</p>
 </section>
 <section v-else-if="active==='notes'" ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore}" @keydown="handleNoteEditorKey">
   <div v-if="noteFocusMode" class="note-focus-toolbar note-unified-focus-toolbar" role="toolbar" aria-label="Focused note editor controls">
@@ -5558,7 +5798,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 </div>
 </div>
-    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
+    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">Touch gestures on notes and empty note cells edit music rather than scroll the page. To navigate a large grid, swipe its measure headings or pitch-label column.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
     <section v-if="noteInst.startsWith('Voice')" class="lyric-workspace" aria-label="Lyric alignment editor">
       <div class="section-heading"><h3>Lyrics · note-aligned timeline</h3><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous lyrics measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.beats}} beats</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next lyrics measure">›</button></div>
       <p class="hint">Each segment follows the written note onset and duration. The strip joins adjacent segments visually; rests remain visible as empty space. Editing lyrics never changes note timing, pitch or playback articulation.</p>
@@ -6790,4 +7030,178 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .new-lead-line-text span{overflow-wrap:anywhere}
 .new-lead-line-text small{opacity:.75}
 .new-lead-line-row select{min-width:95px}
+
+/* One musical intent per touch: note lanes are editable, not a pan surface.
+   The measure heading and pitch-label column remain available for navigation. */
+@media(pointer:coarse){
+ .note-continuous-grid .note-lane-grid,
+ .note-continuous-grid .note-grid-cell,
+ .note-continuous-grid .note-bar,
+ .rhythm-track,.rhythm-step-cell,.rhythm-event{
+  touch-action:none!important;
+  overscroll-behavior:contain;
+  -webkit-user-select:none;user-select:none
+ }
+ .note-grid-scroll{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+ .note-continuous-measure-heads,.note-continuous-measure-heads .note-multibar-title,
+ .note-continuous-pitch-label{touch-action:pan-x pan-y}
+}
+/* One visible rhythm range, shared by Apply, comparison and tap recording. */
+.rhythm-range-toolbar{
+ display:flex;align-items:end;flex-wrap:wrap;gap:6px 9px;
+ margin:4px 0 10px;padding:8px 10px;border:1px solid #4f6475;
+ border-radius:10px;background:#203341
+}
+.rhythm-range-toolbar>button{height:40px;min-width:39px;padding:6px 9px}
+.rhythm-range-toolbar label{margin:0;flex:0 1 135px;min-width:95px;font-size:11px;font-weight:700}
+.rhythm-range-toolbar label select{height:40px;min-height:40px;margin:3px 0 0;padding:5px 7px;font-size:12px;width:100%}
+.rhythm-range-summary{font-size:11px;color:#ccdae5;flex:1 1 160px}
+.rhythm-settings-menu{position:relative;flex:0 0 auto;margin-left:auto}
+.rhythm-settings-menu>summary{
+ display:flex;align-items:center;justify-content:center;list-style:none;
+ height:40px;width:42px;border-radius:8px;border:1px solid #718698;background:#263e50;
+ color:#f0ddbb;cursor:pointer
+}
+.rhythm-settings-menu>summary::-webkit-details-marker{display:none}
+.rhythm-settings-menu[open]>summary{border-color:#e4bc82;background:#4d5149}
+.rhythm-settings-panel{
+ position:absolute;z-index:90;top:calc(100% + 7px);right:0;
+ display:grid;gap:10px;min-width:255px;width:285px;
+ max-width:calc(100vw - 24px);max-height:65dvh;overflow-y:auto;
+ padding:13px;border:1px solid #7891a2;border-radius:10px;background:#1b2d3a;
+ box-shadow:0 18px 38px #0009
+}
+.rhythm-settings-panel strong{font-size:13px;color:#e9cc9c}
+.rhythm-settings-panel label{display:block;width:100%;max-width:100%;margin:0;font-size:12px}
+.rhythm-settings-panel select{min-height:38px;width:100%;margin:4px 0 0}
+.rhythm-settings-panel .rhythm-overwrite{display:flex;align-items:flex-start;gap:8px}
+.rhythm-settings-panel .rhythm-overwrite input{flex:0 0 17px;width:17px;height:17px;margin:2px 0}
+.rhythm-settings-panel .hint{margin:0}
+/* Rhythm editing: essential actions above the grid, recording behind one fold. */
+.rhythm-workspace{grid-template-columns:minmax(0,1.14fr) minmax(300px,.86fr);gap:12px}
+.rhythm-workspace>.editor{margin-top:0;padding:13px;min-width:0}
+.rhythm-editor-top{display:grid;gap:5px;margin-bottom:11px}
+.rhythm-preset-choice{display:flex;align-items:end;flex-wrap:wrap;gap:8px}
+.rhythm-preset-choice label{margin:0;flex:1 1 170px;min-width:125px}
+.rhythm-preset-choice label select{margin-top:4px;padding:7px 8px}
+.rhythm-preset-choice .rhythm-reload{min-height:40px;font-size:12px}
+.rhythm-preset-description{color:#c5d2da;font-size:12px;line-height:1.45;margin:2px 0}
+.rhythm-save-custom{border:1px solid #3e5869;border-radius:8px;padding:7px 9px;background:#1b2b37}
+.rhythm-save-custom>summary{cursor:pointer;font-size:12px;font-weight:750;color:#f0d2a5;line-height:1.3}
+.rhythm-save-fields{display:flex;flex-wrap:wrap;align-items:end;gap:7px;margin:9px 0}
+.rhythm-save-fields label{flex:1 1 190px;min-width:100px;margin:0}
+.rhythm-save-fields input{margin-top:4px}
+.rhythm-save-fields button{min-height:40px}
+.rhythm-save-custom .hint{display:block;line-height:1.4}
+.rhythm-edit-title{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:10px 0 5px}
+.rhythm-edit-title>strong{font-size:13px;color:#f0d8b3}
+.rhythm-edit-title .rhythm-loop-controls{margin:0;gap:6px}
+.rhythm-loop-controls button{padding:6px 10px;font-size:12px}
+.rhythm-loop-state{font-size:11px;color:#c7d7e3}
+.rhythm-track{margin-top:0}
+.rhythm-event-properties{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:8px 0}
+.rhythm-event-properties .rhythm-selected-context-action{grid-column:1/-1}
+.rhythm-event-properties .rhythm-step-actions{grid-column:1/-1;margin:0}
+.rhythm-event-properties input,.rhythm-event-properties select{margin-top:4px;min-width:0;padding:6px 8px}
+.rhythm-primary>.rhythm-step-actions{margin:8px 0}
+.rhythm-primary>.rhythm-step-actions>.hint{flex:1 1 180px;margin:0}
+.rhythm-capture-fold{margin:11px 0 0;border:1px solid #485f70;border-radius:9px;padding:0 9px;background:#172a38}
+.rhythm-capture-fold>summary{display:flex;align-items:center;gap:7px;cursor:pointer;padding:10px 3px;color:#e6c899;font-weight:750;font-size:13px}
+.rhythm-capture-fold>summary .app-icon{width:16px;height:16px}
+.rhythm-capture-fold[open]>summary{border-bottom:1px solid #456072}
+.rhythm-capture-fold>.live-capture{margin:8px 0;border:0;padding:7px;background:#1a2c39}
+.rhythm-parts-header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 8px}
+.rhythm-parts-header h3{font-size:15px;margin:0}
+.rhythm-parts-header span{font-size:11px;color:#b9cad6}
+.rhythm-part-picker{margin:0 0 10px;padding:0 9px;border:1px solid #405767;border-radius:8px}
+.rhythm-part-picker>summary{cursor:pointer;font-size:12px;font-weight:750;color:#e4d2b4;padding:9px 1px;line-height:1.45}
+.rhythm-part-picker[open]>summary{border-bottom:1px solid #465a69}
+.rhythm-part-picker .rhythm-quick{margin:8px 0}
+.rhythm-part-picker .rhythm-quick button{padding:6px 9px;min-height:36px}
+.rhythm-part-picker .rhythm-instruments{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-bottom:9px}
+.rhythm-part-picker .rhythm-instrument{min-width:0;font-size:11px;padding:7px}
+.rhythm-comparison-panel{border:1px solid #546d7c;border-radius:10px;padding:10px;background:#1b2b38}
+.rhythm-comparison-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+.rhythm-comparison-heading>strong{color:#e9c78c;font-size:14px}
+.rhythm-comparison-heading>small{color:#bfcbd5;font-size:11px}
+.rhythm-comparison-panel>.hint{margin:5px 0 9px;line-height:1.4}
+.rhythm-compare-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:7px 0}
+.rhythm-compare-actions button{flex:1;min-width:96px;min-height:40px;font-size:12px}
+.rhythm-compare-status{font-size:11px;color:#d4e1e9;margin:7px 0}
+.rhythm-compare-measures{display:grid;gap:8px;max-height:460px;overflow-y:auto}
+.rhythm-compare-measure{border:1px solid #3b5566;border-radius:7px;padding:6px;background:#182633}
+.rhythm-compare-measure-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 0 5px}
+.rhythm-compare-measure-heading strong{font-size:11px;color:#e6c9a2}
+.rhythm-compare-measure-heading small{font-size:10px;color:#b7cbd9}
+.rhythm-compare-line{display:grid;grid-template-columns:43px minmax(0,1fr);align-items:center;gap:6px;margin:4px 0}
+.rhythm-compare-line>span{font-size:10px;color:#b8c9d6}
+.rhythm-compare-lane{
+ position:relative;height:36px;min-width:0;overflow:hidden;border:1px solid #435e71;border-radius:5px;
+ background:repeating-linear-gradient(to right,#253847 0,#253847 calc(25% - 1px),#475f70 calc(25% - 1px),#475f70 25%)
+}
+.rhythm-compare-empty{background:#1c2b37}
+.rhythm-compare-note{
+ display:block;position:absolute;height:7px;min-width:3px;max-width:100%;border-radius:2px;
+ box-shadow:inset 0 1px #fff3;border:1px solid #d6e6ee;pointer-events:auto
+}
+.rhythm-compare-note.before{background:#7ca9c7;border-color:#a7c5db}
+.rhythm-compare-note.after{background:#d2aa72;border-color:#ffe0b1}
+.rhythm-compare-note.is-accented{height:9px;border-width:2px}
+.rhythm-compare-pages{display:flex;align-items:center;justify-content:space-between;gap:7px;margin:8px 0 0}
+.rhythm-compare-pages button{min-height:35px;padding:5px 8px;font-size:11px}
+.rhythm-compare-pages span{font-size:11px}
+.rhythm-apply{margin:11px 0 4px;min-height:43px}
+.rhythm-apply-safety{margin:4px 0 10px;line-height:1.45}
+@media(max-width:980px){.rhythm-workspace{grid-template-columns:1fr}}
+@media(max-width:700px){
+ .rhythm-range-toolbar{gap:6px;padding:7px}
+ .rhythm-range-toolbar label{flex:1 1 110px}
+ .rhythm-range-toolbar>button{flex:0 0 auto;font-size:12px}
+ .rhythm-range-toolbar .rhythm-range-summary{flex-basis:100%;order:8}
+ .rhythm-settings-menu{order:7;margin-left:auto}
+ .rhythm-workspace>.editor{padding:9px}
+ .rhythm-event-properties{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:400px){
+ .rhythm-range-toolbar label{flex:1 1 calc(50% - 10px)}
+ .rhythm-range-toolbar>button{padding:6px}
+ .rhythm-part-picker .rhythm-instruments{grid-template-columns:1fr}
+ .rhythm-compare-line{grid-template-columns:37px minmax(0,1fr);gap:4px}
+}
+/* Phone transport: Performance is a first-class action, not a hidden menu item.
+   The former Files folder glyph looked like Open and was inconsistently aligned. */
+@media(max-width:1120px){
+ .app-topbar .topbar-playback{align-items:center!important}
+ .app-topbar .topbar-playback .performance-topbar-button{
+  display:inline-flex!important;align-items:center;justify-content:center;
+  flex:0 0 42px;width:42px!important;min-width:42px!important;
+  min-height:42px!important;height:42px!important;padding:6px!important;
+  box-sizing:border-box;vertical-align:middle
+ }
+ .app-topbar .topbar-playback .performance-topbar-button>span{display:none!important}
+ .app-topbar .topbar-playback .performance-topbar-button .app-icon{width:19px;height:19px}
+ .app-topbar .topbar-files .files-summary,
+ .app-topbar .compact-workspace-summary,
+ .app-topbar .topbar-playback .playback-speed-menu>summary{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  box-sizing:border-box;height:42px!important;min-height:42px!important;
+  margin:0!important;vertical-align:middle
+ }
+ .app-topbar .topbar-compact-actions{align-items:center}
+}
+@media(max-width:400px){
+ .app-topbar .topbar-playback .performance-topbar-button{
+  flex-basis:38px;width:38px!important;min-width:38px!important
+ }
+ .app-topbar .topbar-files .files-summary{min-width:36px!important}
+}
+/* The song tempo belongs next to practice speed, but is edited independently. */
+.app-topbar .playback-speed-options .song-tempo-edit{
+ margin:7px 0 0;padding-top:9px;border-top:1px solid #4f6272;font-size:11px;
+ color:#e6d6b9;display:block;max-width:none
+}
+.app-topbar .playback-speed-options .song-tempo-edit input{
+ width:100%;margin:5px 0 0;min-height:39px;padding:7px 9px;font-size:14px;
+ font-variant-numeric:tabular-nums;color:#f0f5f8;background:#11202c
+}
 </style>

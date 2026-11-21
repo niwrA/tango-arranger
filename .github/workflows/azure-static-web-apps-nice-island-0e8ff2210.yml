@@ -39,6 +39,9 @@ jobs:
       - name: Test keyboard and string capture timing
         run: npm run test:instrument-capture
 
+      - name: Test rhythm preview, custom rhythms and editor gestures
+        run: node tests/rhythm-workflow.cjs && node tests/rhythm-editor.cjs && node tests/live-capture-layout.cjs && node tests/topbar-map-layout.cjs && node tests/tap-capture.cjs
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 

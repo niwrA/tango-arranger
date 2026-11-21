@@ -23,7 +23,7 @@ const states=['capturePlaying','captureRecording','captureLoopEnabled','rhythmCa
  'instrumentCaptureEvents','instrumentCaptureBase','instrumentCaptureSession','instrumentCaptureRangeMatches',
  'heldCaptureKeys','captureMonitorPitches','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
  'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureEditedRhythms',
- 'captureSession','captureSynth','captureKeySynth','captureClickSynth','captureKind','captureFirst','captureLast',
+ 'captureSession','captureSynth','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
  'captureBarNumbers','captureInputSource','captureMuteBacking'];
 const extracted=[],found=new Set();
 for(const statement of ast.statements){
