@@ -83,13 +83,13 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
   // makes the MusicXML direction below fail TypeScript compilation.
   const notationNotes=notes.flatMap(n=>n.gesture?.partner?
     [n,{...n,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]:[n]);
-  const events=notationNotes.map(n=>({gesture:n.gesture,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
+  const events=notationNotes.map(n=>({gesture:n.gesture,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
   // overlapping melody/chord notes a valid succession of tied chords.
   const quantum=30;
-  const snapped=events.map(n=>({...n,start:Math.max(0,Math.round(n.start/quantum)*quantum),end:Math.min(barTicks,Math.round(n.end/quantum)*quantum)})).filter(n=>n.end>n.start);
+  const snapped=events.map(n=>({...n,start:Math.max(0,Math.round(n.start/quantum)*quantum),end:Math.min(barTicks,Math.round(n.end/quantum)*quantum),originStart:Math.round(n.originStart/quantum)*quantum,originEnd:Math.round(n.originEnd/quantum)*quantum})).filter(n=>n.end>n.start);
   const boundaries=new Set<number>([0,barTicks]);
   for(const n of snapped){boundaries.add(n.start);boundaries.add(n.end);}
   const points=[...boundaries].sort((a,b)=>a-b);
@@ -111,11 +111,12 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
       else for(let j=0;j<pitches.length;j++){
         const pitch=pitches[j],sources=active.filter(n=>n.pitch===pitch);
         const begin=at+elapsed,endSegment=begin+dur;
-        const latest=sources.reduce((a,b)=>a.start>=b.start?a:b);
-        const tieStop=latest.start<begin;
-        // A fresh attack of the same pitch must not be connected by a tie.
-        const reattack=snapped.some(n=>n.pitch===pitch&&n.start===endSegment&&n.start>latest.start);
-        const tieStart=latest.end>endSegment&&!reattack;
+        const latest=sources.reduce((a,b)=>a.originStart>=b.originStart?a:b);
+        // Clipping a bar must not turn an incoming sustain into a new attack.
+        // Conversely, a genuine repeated note at the same pitch breaks the tie.
+        const tieStop=latest.originStart<begin;
+        const reattack=notationNotes.some(n=>n.pitch===pitch&&Math.abs(Math.round((n.start-offset)*DIV/quantum)*quantum-endSegment)<1e-7&&Math.round((n.start-offset)*DIV/quantum)*quantum>latest.originStart);
+        const tieStart=latest.originEnd>endSegment&&!reattack;
         const ties=`${tieStop?'<tie type="stop"/>':''}${tieStart?'<tie type="start"/>':''}`;
         const isAttack=!tieStop;
         if(isAttack&&j===0){
