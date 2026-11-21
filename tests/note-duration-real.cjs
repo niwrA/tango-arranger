@@ -19,7 +19,7 @@ function load(file,imports={}){
 }
 const edit=load('src/noteEditing.ts');
 const music=load('src/music.ts');
-const io=load('src/io.ts',{'./music':music});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),./music':music});
 let passes=0;
 function test(name,fn){fn();passes++;console.log('PASS',name)}
 test('dragging right by two grid cells lengthens note by 0.5 beats',()=>assert.equal(edit.dragWrittenDuration(1,88,44,0.25,0,4),1.5));
