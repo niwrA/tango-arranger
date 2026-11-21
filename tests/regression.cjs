@@ -18,7 +18,7 @@ function load(file,imports={}){
   return mod.exports;
 }
 const music=load('src/music.ts');
-const io=load('src/io.ts',{'./music':music});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let passes=0;
 function test(label,fn){fn();passes++;console.log('PASS',label);}
 const project=music.demoProject();

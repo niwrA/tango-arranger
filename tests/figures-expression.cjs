@@ -92,7 +92,7 @@ test('loop exports slide target and note swell without changing note duration',(
   assert.equal(events[0].durationSeconds,0.45);
 });
 test('MusicXML exports hairpin range, gliss text and note swell without invalid durations',()=>{
-  const io=load('src/io.ts',{'./music':music,'jszip':class JSZip{},'@tonejs/midi':{Midi:class Midi{}}});
+  const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music,'jszip':class JSZip{},'@tonejs/midi':{Midi:class Midi{}}});
   const example=music.blankProject({sections:1,measuresPerSection:2});
   example.bars[0].chord='Dm';example.bars[1].chord='G7';
   example.expressionRanges=[{instrument:'Violin I',startMeasure:0,endMeasure:1,from:55,to:112}];
@@ -123,7 +123,7 @@ test('partial-measure crescendo affects only selected beat interval',()=>{
   assert.equal(events[2].velocity,80);
 });
 test('MusicXML hairpin offsets can begin and end inside one measure',()=>{
-  const io=load('src/io.ts',{'./music':music,'jszip':class JSZip{},'@tonejs/midi':{Midi:class Midi{}}});
+  const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music,'jszip':class JSZip{},'@tonejs/midi':{Midi:class Midi{}}});
   const example=music.blankProject({sections:1,measuresPerSection:1});example.bars[0].chord='Dm';
   example.expressionRanges=[{instrument:'Violin II',startMeasure:0,endMeasure:0,startBeat:1,endBeat:3,from:50,to:105}];
   const xml=io.exportMusicXml(example,music.generate(example));

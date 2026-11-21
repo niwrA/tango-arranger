@@ -24,7 +24,7 @@ function load(file,imports={}){
   return mod.exports;
 }
 const music=load('src/music.ts');
-const io=load('src/io.ts',{'./music':music});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 (async()=>{
   const p=music.blankProject({title:'Vals & <Tango>',bpm:108,beats:3,measures:4});
   const score=music.generate(p);

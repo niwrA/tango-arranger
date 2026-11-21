@@ -1,3 +1,4 @@
+import {duplicateTempoExpressions} from './tempoExpressions';
 import {sectionSpans,sectionLetter,sectionKey,type Project,type Score} from './music';
 
 export type DuplicatedSection={project:Project;sourceLabel:string;label:string;destination:number;measures:number};
@@ -47,7 +48,7 @@ export function duplicateProjectSection(original:Project,index:number):Duplicate
    .filter(range=>range.startMeasure>=source.start&&range.endMeasure<source.start+source.measures)
    .map(range=>({...clone(range),startMeasure:range.startMeasure+destination-source.start,
      endMeasure:range.endMeasure+destination-source.start}));
- const project:Project={...current,bars,
+ const project:Project={...current,bars,tempoExpressions:duplicateTempoExpressions(current.tempoExpressions,source.start,source.measures,destination),
    sectionKeys:{...current.sectionKeys,[label]:sectionKey(current,sourceLabel)},
    roles:copySectionMap(current.roles),
    generatedScore:cloneScore(current.generatedScore),

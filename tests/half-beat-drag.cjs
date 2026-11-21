@@ -18,7 +18,7 @@ function load(file,imports={}){
 }
 const edit=load('src/noteEditing.ts');
 const music=load('src/music.ts');
-const io=load('src/io.ts',{'./music':music});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 const vue=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
 const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
 let count=0;function test(name,fn){fn();count++;console.log('PASS',name);}

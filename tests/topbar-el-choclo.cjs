@@ -24,7 +24,7 @@ function load(file,imports={}){
 }
 const music=load('src/music.ts');
 const preset=load('src/presets/el-choclo.ts',{'./el-choclo-source.json':{default:source},'../music':music});
-const io=load('src/io.ts',{'./music':music});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 const p=preset.createElChocloStudy();
 check('header playback precedes song picker',()=>assert.ok(app.indexOf('topbar-playback')<app.indexOf('header-song-picker')));
 check('song actions follow selector',()=>{const header=app.split('<header class="app-topbar">')[1].split('</header>')[0];assert.ok(header.indexOf('header-song-picker')<header.indexOf('aria-label="New blank song"'));assert.ok(header.indexOf('aria-label="New blank song"')<header.indexOf('aria-label="Save song now"'));assert.ok(header.indexOf('aria-label="Save song now"')<header.indexOf('song-menu'));});

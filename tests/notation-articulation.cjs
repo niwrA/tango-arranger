@@ -10,7 +10,7 @@ function load(file,imports={}){
  },mod,mod.exports);
  return mod.exports;
 }
-const music=load('src/music.ts'),io=load('src/io.ts',{'./music':music});
+const music=load('src/music.ts'),io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let checks=0;function test(label,fn){fn();checks++;console.log('PASS',label);}
 const p=music.blankProject({sections:1,measuresPerSection:1,beats:4});
 p.bars[0].chord='Dm';p.roles.A['Violin I']='melody';

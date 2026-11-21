@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');const cp=require('node:child_process');
 let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
 function load(file,imports={}){const compiled=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;const mod={exports:{}};vm.runInNewContext(`(function(require,module,exports){${compiled}\n})`,{console,localStorage:{getItem:()=>null,setItem:()=>{}},Blob,URL},{filename:file})((name)=>{if(imports[name])return imports[name];if(name==='@tonejs/midi')return {Midi:class Midi{}};if(name==='jszip')return class JSZip{};throw Error('Missing dependency '+name);},mod,mod.exports);return mod.exports;}
-const music=load('src/music.ts');const io=load('src/io.ts',{'./music':music});
+const music=load('src/music.ts');const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let p=music.demoProject();assert.equal(music.projectInstruments(p).length,7);
 p=music.setProjectRoster(p,[...music.FACTORY_INSTRUMENTS,'Violin III','Violin IV','Voice II']);
 assert.equal(music.projectInstruments(p).length,10);

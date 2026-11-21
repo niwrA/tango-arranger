@@ -18,7 +18,7 @@ function load(file,imports={}){
 }
 const edit=load('src/noteEditing.ts');
 const music=load('src/music.ts');
-const io=load('src/io.ts',{'./music':music});
+const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let passes=0;
 function test(name,fn){fn();passes++;console.log('PASS',name);}
 test('middle drag shifts note one beat to the right',()=>assert.equal(edit.dragWrittenNotePosition(0.5,1,176,44,0.25,4),1.5));

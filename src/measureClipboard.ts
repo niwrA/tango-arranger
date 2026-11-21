@@ -1,3 +1,4 @@
+import {moveTempoExpressions,validateTempoExpressions,type TempoExpressions} from './tempoExpressions';
 import {generate,mergeScores,instrumentRange,projectInstruments,type Project,type Score,type Note,type Instrument,type Bar,type Role,type MeasureDynamics,type Articulation,type ViolinTechnique,type BassTechnique} from './music';
 
 /** Zero-based, inclusive ranges internally. User-facing controls use 1-based measures. */
@@ -9,6 +10,7 @@ export type MeasureClipboard={
  version:1;beats:number;count:number;sourceStart:number;instruments:Instrument[];
  fields:MeasureFields;bars:Bar[];parts:Record<Instrument,{notes:Note[];slots:Slot[]}>;
  expressionRanges:NonNullable<Project['expressionRanges']>;
+ tempoExpressions?:TempoExpressions;
 };
 export type PasteMode='overwrite'|'insert';
 export type PastePreview={length:number;destination:number;mode:PasteMode;newTotal:number;incomingNotes:number;replacedNotes:number;protectedMeasures:number;warning:string};
@@ -89,7 +91,13 @@ export function copyMeasureRange(p:Project,score:Score,range:MeasureRange,instru
  const expressionRanges=fields.settings?(p.expressionRanges??[]).filter(r=>
    instruments.includes(r.instrument)&&r.startMeasure>=range.start&&r.endMeasure<=range.end)
    .map(r=>({...deep(r),startMeasure:r.startMeasure-range.start,endMeasure:r.endMeasure-range.start})):[];
- return {version:1,beats:p.beats,count,sourceStart:range.start,instruments:[...(fields.notes||fields.settings?instruments:[])],fields:deep(fields),bars,parts,expressionRanges};
+ const includeTempo=fields.settings&&instruments.length===projectInstruments(p).length;
+ const tempoExpressions:TempoExpressions|undefined=includeTempo&&p.tempoExpressions?{
+  ritardandos:p.tempoExpressions.ritardandos.filter(r=>r.startMeasure>=range.start&&r.endMeasure<=range.end).map(r=>({...deep(r),startMeasure:r.startMeasure-range.start,endMeasure:r.endMeasure-range.start})),
+  fermatas:p.tempoExpressions.fermatas.filter(r=>r.measure>=range.start&&r.measure<=range.end).map(r=>({...deep(r),measure:r.measure-range.start})),
+  aTempoMeasures:p.tempoExpressions.aTempoMeasures.filter(m=>m>=range.start&&m<=range.end).map(m=>m-range.start)
+ }:undefined;
+ return {version:1,beats:p.beats,count,sourceStart:range.start,instruments:[...(fields.notes||fields.settings?instruments:[])],fields:deep(fields),bars,parts,expressionRanges,tempoExpressions};
 }
 function targetPairs(p:Project,clip:MeasureClipboard,targetInstrument?:Instrument):[Instrument,Instrument][]{
  if(targetInstrument){
@@ -174,6 +182,7 @@ function structuralEdit(p:Project,mode:ShiftMode,from:number,to:number):Project{
  const map=(bar:number)=>mode==='insert'?(bar>=from?bar+count:bar):(bar>=from&&bar<to?null:bar>=to?bar-count:bar);
  return {
   ...p,
+  tempoExpressions:moveTempoExpressions(p.tempoExpressions,mode,from,to),
   protectedBars:remapMeasureRecord(p.protectedBars,map)??{},
   measureRoles:remapMeasureRecord(p.measureRoles,map),
   measureDynamics:remapMeasureRecord(p.measureDynamics,map),
@@ -250,6 +259,14 @@ export function clearMeasureRange(original:Project,score:Score,range:MeasureRang
   }
  }
  if(fields.settings)next.expressionRanges=withoutExpressionInside(next.expressionRanges,range,instruments,next.beats);
+ if(fields.settings&&instruments.length===projectInstruments(next).length&&next.tempoExpressions){
+  const e=next.tempoExpressions;
+  next.tempoExpressions={
+   ritardandos:e.ritardandos.filter(r=>r.endMeasure<range.start||r.startMeasure>range.end),
+   fermatas:e.fermatas.filter(f=>f.measure<range.start||f.measure>range.end),
+   aTempoMeasures:e.aTempoMeasures.filter(m=>m<range.start||m>range.end)
+  };
+ }
  if(fields.notes){
   for(const inst of affected){
    next.generatedScore=applyScoreSelection(next.generatedScore??score,inst,range,[],next.beats);
@@ -323,6 +340,20 @@ export function pasteMeasureRange(original:Project,score:Score,clip:MeasureClipb
   const copied=pairs.flatMap(([source,target])=>clip.expressionRanges.filter(r=>r.instrument===source)
    .map(r=>({...deep(r),instrument:target,startMeasure:r.startMeasure+destination,endMeasure:r.endMeasure+destination})));
   next.expressionRanges=[...existing,...copied];
+  if(clip.tempoExpressions&&pairs.length===projectInstruments(next).length&&!targetInstrument){
+   const window={start:destination,end:destination+clip.count-1};
+   const old=next.tempoExpressions??{ritardandos:[],fermatas:[],aTempoMeasures:[]};
+   const saved=clip.tempoExpressions,copy=<T>(x:T):T=>deep(x);
+   next.tempoExpressions={
+    ritardandos:[...old.ritardandos.filter(r=>r.endMeasure<window.start||r.startMeasure>window.end),
+      ...saved.ritardandos.map(r=>({...copy(r),startMeasure:r.startMeasure+destination,endMeasure:r.endMeasure+destination}))],
+    fermatas:[...old.fermatas.filter(f=>f.measure<window.start||f.measure>window.end),
+      ...saved.fermatas.map(f=>({...copy(f),measure:f.measure+destination}))],
+    aTempoMeasures:[...old.aTempoMeasures.filter(m=>m<window.start||m>window.end),
+      ...saved.aTempoMeasures.map(m=>m+destination)]
+   };
+   validateTempoExpressions(next,next.tempoExpressions);
+  }
  }
  if(fields.chords||fields.melody||fields.settings)next.generatedScore=mergeScores(next,generate(next));
  if(fields.chords||fields.melody||(fields.notes&&pairs.some(([,target])=>target.startsWith('Voice'))))next.leadLyrics=undefined;
