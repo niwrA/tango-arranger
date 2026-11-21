@@ -15,6 +15,18 @@ Tango Arranger is a local-first Vue/TypeScript workbench for arranging Argentine
 - [Release notes and version history](CHANGELOG.md)
 - [Installation, workflow and project guidance](#installation-and-running)
 
+## Measure range editing (Lead Sheet / Orchestration / Rhythm / Note Editor)
+
+Open **Select / copy / paste measures** at the top of an editing workspace. On iPad, **press and hold** the first measure number (Lead Sheet or Note Editor) or an orchestration cell to mark an anchor, and **tap** the last measure to select the inclusive range. On desktop, click and Shift-click. Alternatively enter **From** and **To**, or choose a whole section. The selection is maintained while switching workspaces as long as the measure tools remain open.
+
+Choose **one instrument** or **all instruments** and select the content to copy: chords, lead melody, note events, attached lyric syllables, and instrument-level roles/dynamics/expression. The default is instrument notes + lyrics; **Everything** explicitly selects every supported content type. After copying, choose the destination measure and **Overwrite** or **Insert**. When one source instrument was copied, the notes can go to a different destination instrument, e.g. Voice to Bandoneon I; turn off lyric copying to create an instrumental melody. Cross-instrument pastes validate playable pitch ranges and reject unsupported instrument-specific ornament/fingering data rather than guessing.
+
+**Preview** summarizes the operation before **Confirm**; clearing selected instrument notes protects their intentional silence from regeneration, while structural insert/delete shifts later note events, per-measure settings, and saved difficulty editions. Whole-section deletion remains a separate section-header action. Structural edits invalidate absolute phrase plans and require reading lyrics back from the song. **Undo/Redo** use the existing project-history stack; back up a valued project using Files before substantial changes.
+
+For Pequeña, copying section C (measures 66–98) appends E (131–163). Copy the first part's Voice notes into Bandoneon I without lyrics, then clear/Rest Voice for those measures; the later Voice notes remain independently editable for the vocal reprise.
+
+**Verification:** Run the measure-clipboard regression script to exercise copy/paste, cross-instrument transfer, intentional Voice rests, structural index preservation, and the real Pequeña C-to-E use case. Native iPad Safari interactions still require physical-device acceptance testing.
+
 ## Installation and running
 
 Requires Node.js 20+ and npm with package-registry access.
