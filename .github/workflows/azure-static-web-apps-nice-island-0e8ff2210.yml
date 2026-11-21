@@ -33,6 +33,9 @@ jobs:
           VITE_APP_BUILD_SHA: ${{ github.sha }}
         run: npm run build
 
+      - name: Test expressive tempo, fermata and native MuseScore ties
+        run: node tests/tempo-expression-export.cjs
+
       - name: Test leadsheet import and vocal phrase alignment
         run: node tests/new-song-leadsheet.cjs && node tests/microphone-pitch.cjs && node tests/microphone-tuner.cjs && node tests/microphone-recording.cjs && node tests/pitch-postprocess.cjs && node tests/instrument-badge.cjs
 
