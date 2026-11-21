@@ -131,14 +131,14 @@ check('top bar keeps Performance visible and separates file operations from Impo
  assert.ok(header.includes('aria-label="Import and export"'));
  assert.ok(header.includes('topbar-measure-tools'));
 });
-check('empty note cells scroll vertically while note dragging and rhythm editing remain protected',()=>{
+check('empty note cells pan horizontally and vertically while note dragging remains protected',()=>{
  const start=app.indexOf('/* On touch devices, empty note cells');
  const end=app.indexOf('/* One visible rhythm range',start);
  assert.ok(start>=0&&end>start,'Expected coarse-pointer touch rules');
  const touch=app.slice(start,end);
  const emptyCells=touch.split('.note-continuous-grid .note-grid-cell{')[1]?.split('}')[0]??'';
  const noteBars=touch.split('.note-continuous-grid .note-bar,')[1]?.split('}')[0]??'';
- assert.ok(emptyCells.includes('touch-action:pan-y!important;'),'Empty note cells must scroll vertically');
+ assert.ok(emptyCells.includes('touch-action:pan-x pan-y!important;'),'Empty note cells must pan horizontally and vertically');
  assert.ok(noteBars.includes('touch-action:none!important;'),'Note bars must retain drag/resize gestures');
  assert.ok(noteBars.includes('.rhythm-track,.rhythm-step-cell,.rhythm-event'),'Rhythm controls must retain touch gestures');
  assert.ok(touch.includes('overscroll-behavior-y:auto;'),'Page scrolling must not be trapped at the grid boundary');

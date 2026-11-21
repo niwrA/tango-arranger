@@ -45,6 +45,9 @@ jobs:
       - name: Test rhythm preview, custom rhythms and editor gestures
         run: node tests/rhythm-workflow.cjs && node tests/rhythm-editor.cjs && node tests/live-capture-layout.cjs && node tests/topbar-map-layout.cjs && node tests/tap-capture.cjs
 
+      - name: Test virtualized note grid and follow-scrolling
+        run: node tests/note-grid-virtualization.cjs
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 
