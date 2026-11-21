@@ -16,7 +16,7 @@ function example(){
  p.bars[4].chord='D,A7';p.bars[4].melody=[{pitch:69,start:0,duration:1,lyric:'paz'}];
  p.bars[5].chord='B7';p.bars[5].melody=[{pitch:71,start:0,duration:1}];
  p.roles.B.Voice='melody';p.roles.B['Bandoneon I']='harmony';
- p.generatedScore={Voice:[{pitch:69,start:12,duration:1,lyric:'paz',syllabic:'single'},{pitch:70,start:15,duration:1,lyric:'flor'}],
+ p.generatedScore={Voice:[{pitch:69,start:12,duration:1,lyric:'paz',syllabic:'single'},{pitch:70,start:15,duration:1,lyric:'flor'},{pitch:71,start:24,duration:1,lyric:'later'}],
  'Bandoneon I':[{pitch:64,start:12,duration:1},{pitch:65,start:15,duration:1}]};
  p.importedScore={Voice:p.generatedScore.Voice.map(n=>({...n}))};
  p.protectedBars['Voice:4']=true;p.protectedBars['Voice:5']=true;
@@ -65,16 +65,18 @@ check('clearing protected Voice notes retains silence after regeneration',()=>{
  const n=clearMeasureRange(p,p.generatedScore,{start:4,end:5},['Voice'],partOnly,true);
  assert.equal(n.protectedBars['Voice:4'],true);
  assert.equal(n.measureRoles['Voice:4'],'rest');
- assert.equal(n.importedScore.Voice.length,0);
+ assert.equal(n.importedScore.Voice.length,1);
+ assert.equal(n.importedScore.Voice[0].start,24);
  assert.equal(mergeScores(n,generate(n)).Voice.some(note=>note.start>=12&&note.start<18),false);
- assert.equal(p.importedScore.Voice.length,2);
+ assert.equal(p.importedScore.Voice.length,3);
 });
 check('insert shifts source, lyrics and all difficulty editions without dropping them',()=>{
  const p=example();
  const n=insertBlankMeasures(p,6,2);
  assert.equal(n.bars.length,14);
  assert.equal(n.bars[6].chord,'');
- assert.equal(n.generatedScore.Voice.find(note=>note.pitch===70).start,21);
+ assert.equal(n.generatedScore.Voice.find(note=>note.pitch===70).start,15);
+ assert.equal(n.generatedScore.Voice.find(note=>note.pitch===71).start,30);
  assert.equal(n.partEditions.Voice.easy.notes[1].start,33);
  assert.equal(n.partEditions.Voice.easy.protectedMeasures[0],11);
  assert.equal(n.expressionRanges[0].endMeasure,7);
@@ -85,6 +87,7 @@ check('delete shifts later scores, metadata, editions while preserving earlier n
  const n=deleteMeasureRange(p,{start:5,end:6});
  assert.equal(n.bars.length,10);
  assert.equal(n.generatedScore.Voice.some(note=>note.start===15),false);
+ assert.equal(n.generatedScore.Voice.find(note=>note.pitch===71).start,18);
  assert.equal(n.partEditions.Voice.easy.notes[1].start,21);
  assert.equal(n.partEditions.Voice.easy.protectedMeasures[0],7);
  assert.equal(n.measureDynamics['Voice:7'].start,'f');
