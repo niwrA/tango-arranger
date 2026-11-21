@@ -5,8 +5,10 @@ import LeadMelodyGrid from './LeadMelodyGrid.vue';
 import {duplicateProjectSection} from './sectionDuplication';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
+import MicrophoneTuner from './MicrophoneTuner.vue';
 import {vocalPhrases,suggestVocalAlignment,alignedLyric} from './vocalPhraseAlignment';
 import {detectMonophonicPitch} from './microphonePitch';
+import {microphoneScoreMidi} from './microphoneTuner';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
@@ -972,7 +974,7 @@ async function toggleRhythmLoop(){
       if(rhythmLoopSound.value==='instrument'&&originals.length){
         const notes=retimeMeasure(originals,inst,b,project.value.beats,slots,'rhythm',project.value.pianoSplitPitch??60);
         const events=measureLoopEvents(notes,b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value);
-        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(Math.max(0,Math.min(127,event.pitch+captureTranspose.value)),'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
+        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }else{
         for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/effectivePlaybackBpm.value,slot.accent?0.95:0.55);
       }
@@ -1157,6 +1159,8 @@ async function startCaptureTransport(recording:boolean){
   const session=captureSession;
   const first=captureFirst.value,last=captureLast.value;
   const editor=active.value;
+  const playbackTranspose=(project.value.transposeSemitones??0)
+    +(editor==='notes'&&captureInputSource.value==='microphone'?captureTranspose.value:0);
   try{
     Tone=await startAudioFromGesture();
     if(session!==captureSession||active.value!==editor)return;
@@ -1178,12 +1182,12 @@ async function startCaptureTransport(recording:boolean){
        if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
       for(const inst of INSTRUMENTS){
         const events=measureLoopEvents(currentScore[inst]??[],b,project.value.beats,project.value.bpm,
-          project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value);
+          playbackTranspose,project.value.expressionRanges??[],inst,project.value);
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
           if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
-            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,pitch:event.pitch+captureTranspose.value,durationSeconds:duration},onset);
+            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
         }
@@ -1210,7 +1214,7 @@ async function startCaptureTransport(recording:boolean){
           const ordered=[...ascending.slice(rootIndex),...ascending.slice(0,rootIndex).map(p=>p+12)];
           const degree=beat%ordered.length;
           const cycle=Math.floor(beat/ordered.length);
-          const pitch=ordered[degree]+12*cycle+captureTranspose.value;
+          const pitch=ordered[degree]+12*cycle+playbackTranspose;
           captureKeySynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
             Math.min(0.65,0.8*60/(project.value.bpm*captureSpeed.value)),time,0.45);
         }else if(captureMetronome.value){
@@ -1245,18 +1249,27 @@ async function startCaptureTransport(recording:boolean){
       },endSeconds);
     }
     transport.start();
-  }catch(error){stopPlayback();captureFeedback.value=`Could not start playback: ${String(error)}`;}
+    return playbackTranspose;
+  }catch(error){
+    if(session!==captureSession||active.value!==editor)return;
+    stopPlayback();captureFeedback.value=`Could not start playback: ${String(error)}`;
+  }
 }
 // Microphone audio is local to the browser; no audio is uploaded.
 const captureInputSource=ref<'instrument'|'microphone'>('instrument');
 const captureMuteBacking=ref(true);
 const microphoneStatus=ref('');
-const microphoneDetectedPitch=ref<number|null>(null);
-const microphoneInputLevel=ref(0);
+const microphoneEstimate=ref<ReturnType<typeof detectMonophonicPitch>>(null);
 // 0 = reject quiet signals, 100 = accept very quiet signals (and potentially more noise).
 const microphoneSensitivity=ref(70);
 const microphoneInputDb=ref<number|null>(null);
 const microphoneMonitoring=ref(false);
+const microphoneListening=ref(false);
+const microphoneStarting=ref(false);
+const microphoneSessionShift=ref<number|null>(null);
+const microphoneThresholdDb=computed(()=>-30-microphoneSensitivity.value*0.5);
+const microphoneScoreShift=computed(()=>(project.value.transposeSemitones??0)+captureTranspose.value);
+const microphoneDisplayShift=computed(()=>microphoneSessionShift.value??microphoneScoreShift.value);
 let microphoneStream:MediaStream|null=null;
 let microphoneContext:AudioContext|null=null;
 let microphoneFrame=0;
@@ -1290,33 +1303,56 @@ function stopMicrophoneCapture(){
  if(microphoneActive&&captureRecording.value){
   try{finishMicrophoneNote(captureElapsedBeats());}catch{/* Audio transport may already be disposed. */}
  }
- microphoneActive=null;microphoneCandidate=null;microphoneDetectedPitch.value=null;
- microphoneInputLevel.value=0;microphoneInputDb.value=null;microphoneMonitoring.value=false;
+ microphoneActive=null;microphoneCandidate=null;microphoneEstimate.value=null;
+ microphoneInputDb.value=null;microphoneMonitoring.value=false;microphoneListening.value=false;
+ microphoneStarting.value=false;
+ microphoneSessionShift.value=null;
+ microphoneStatus.value='';
  microphoneStream?.getTracks().forEach(track=>track.stop());microphoneStream=null;
  if(microphoneContext){void microphoneContext.close().catch(()=>{});microphoneContext=null;}
 }
 async function recordFromMicrophone(monitorOnly=false){
- if(capturePlaying.value){stopPlayback();return;}
- if(microphoneMonitoring.value){stopMicrophoneCapture();microphoneStatus.value='Microphone monitoring stopped.';return;}
+ if(capturePlaying.value||microphoneStarting.value){stopPlayback();return;}
+ if(microphoneMonitoring.value&&monitorOnly){stopMicrophoneCapture();return;}
+ // Also cancel pending audio startup before requesting another microphone stream.
+ stopPlayback();
  if(!navigator.mediaDevices?.getUserMedia){microphoneStatus.value='Microphone capture requires HTTPS and a browser with media device support.';return;}
- const generation=++microphoneGeneration;
+ let generation=++microphoneGeneration;
+ microphoneStarting.value=true;
  microphoneStatus.value='Requesting microphone permission…';
+ let acquiredStream:MediaStream|null=null;
  try{
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+  acquiredStream=stream;
   if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
+  let scoreShift=microphoneScoreShift.value;
   if(!monitorOnly){
-   await startCaptureTransport(true);
-   if(!captureRecording.value){stream.getTracks().forEach(t=>t.stop());return;}
+   const starting=startCaptureTransport(true);
+   // Transport startup deliberately stops the previous session synchronously.
+   generation=microphoneGeneration;
+   microphoneStarting.value=true;
+   const transpose=await starting;
+   if(generation!==microphoneGeneration||!captureRecording.value||transpose===undefined){
+    stream.getTracks().forEach(t=>t.stop());
+    if(generation===microphoneGeneration){microphoneStarting.value=false;microphoneStatus.value='';}
+    return;
+   }
+   scoreShift=transpose;
   }
-  const activeGeneration=++microphoneGeneration;
+  const activeGeneration=generation=++microphoneGeneration;
   const context=new AudioContext();
   microphoneStream=stream;microphoneContext=context;
+  if(context.state==='suspended')await context.resume();
+  if(activeGeneration!==microphoneGeneration)return;
+  microphoneStarting.value=false;
   microphoneMonitoring.value=monitorOnly;
+  microphoneListening.value=true;
+  microphoneSessionShift.value=monitorOnly?null:scoreShift;
   const source=context.createMediaStreamSource(stream);
   const analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=0;
   source.connect(analyser);
   const samples=new Float32Array(analyser.fftSize);
-  microphoneStatus.value=monitorOnly?'Microphone test active · adjust sensitivity while watching the meter and pitch. No notes are recorded.':'Microphone ready · sing or whistle after the count-in. Watch Detected pitch below.';
+  microphoneStatus.value=monitorOnly?'Microphone test · no notes are recorded. Press Record when ready.':'Sing one note at a time after the count-in; review the draft before applying.';
   const tick=()=>{
    if(activeGeneration!==microphoneGeneration||(!monitorOnly&&!captureRecording.value))return;
    analyser.getFloatTimeDomainData(samples);
@@ -1327,16 +1363,15 @@ async function recordFromMicrophone(monitorOnly=false){
    const rms=Math.sqrt(energy/samples.length);
    // A logarithmic meter makes quiet microphone signals visible without playing them through speakers.
    microphoneInputDb.value=rms>0?Math.max(-90,Math.round(20*Math.log10(rms))):-90;
-   microphoneInputLevel.value=Math.max(0,Math.min(100,Math.round((microphoneInputDb.value+60)/60*100)));
    // Sensitivity controls the minimum usable input level, independently of the display meter.
    // -80 dBFS at maximum sensitivity; -30 dBFS at minimum sensitivity.
-   const minimumRms=Math.pow(10,(-30-microphoneSensitivity.value*0.5)/20);
+   const minimumRms=Math.pow(10,microphoneThresholdDb.value/20);
    const gain=rms>=minimumRms?Math.min(128,0.08/rms):0;
    const pitchSamples=new Float32Array(samples.length);
    if(gain)for(let i=0;i<samples.length;i++)pitchSamples[i]=samples[i]*gain;
    const estimate=gain?detectMonophonicPitch(pitchSamples,context.sampleRate,32.7,4200):null;
-   const pitch=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi)-captureTranspose.value)):null;
-   microphoneDetectedPitch.value=estimate?Math.max(0,Math.min(127,Math.round(estimate.midi))):null;
+   const pitch=estimate?microphoneScoreMidi(estimate.midi,scoreShift):null;
+   microphoneEstimate.value=estimate;
    const elapsed=monitorOnly?-1:captureElapsedBeats();
    if(elapsed>=0){
     if(pitch!==null){
@@ -1356,11 +1391,16 @@ async function recordFromMicrophone(monitorOnly=false){
   };
   microphoneFrame=requestAnimationFrame(tick);
  }catch(error){
-  microphoneStatus.value='Microphone unavailable: '+String(error);
+  acquiredStream?.getTracks().forEach(track=>track.stop());
+  if(generation!==microphoneGeneration)return;
   stopMicrophoneCapture();
   if(!monitorOnly&&capturePlaying.value)stopPlayback();
+  microphoneStatus.value='Microphone unavailable: '+String(error);
  }
 }
+// A hidden tuner must never leave microphone monitoring running.
+watch(captureInputSource,()=>stopPlayback());
+watch(noteEditorTab,tab=>{if(tab!=='capture')stopPlayback();});
 function toggleCapturePlay(){
   if(capturePlaying.value){stopPlayback();return;}
   void startCaptureTransport(false);
@@ -1561,7 +1601,7 @@ function selectVocalCapturePhrase(value:string){
  if(!phrase||capturePlaying.value)return;
  noteLoopFrom.value=phrase.start;noteLoopTo.value=phrase.end;
  syncVisibleMeasureSelection();
- captureFeedback.value='Vocal phrase selected. Record with Keys or Strings, then review lyric alignment before applying.';
+  captureFeedback.value='Vocal phrase selected. Record a take, then review lyric alignment before applying.';
 }
 const vocalAlignmentEnabled=ref(true);
 const vocalAlignmentSource=computed(()=>{
@@ -1576,7 +1616,7 @@ const captureTakeExport=computed(()=>JSON.stringify({
   measures:{from:captureFirst.value+1,to:captureLast.value+1},
   input:captureInputSource.value,
   sensitivityPercent:captureInputSource.value==='microphone'?microphoneSensitivity.value:null,
-   recordingTransposeSemitones:captureTranspose.value,
+  recordingTransposeSemitones:captureInputSource.value==='microphone'?captureTranspose.value:0,
   notes:vocalCapturedNotes.value.map(n=>({
     measure:n.bar+1,beat:Number((n.beat+1).toFixed(3)),
     pitchMidi:n.pitch,pitchName:midiName(n.pitch),durationBeats:n.duration??null,
@@ -2861,7 +2901,7 @@ async function toggleNoteLoop(){
     transport.start();
   }catch(error){message.value=`Measure loop unavailable: ${String(error)}. Check browser audio permissions.`;stopPlayback();}
 }
-watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value)stopPlayback();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
+watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value||microphoneStarting.value||microphoneListening.value)stopPlayback();else stopMicrophoneCapture();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
 watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=effectivePlaybackBpm.value;});
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
@@ -4791,31 +4831,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
       <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
-        <label>Recording input <select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
-        <label v-if="captureInputSource==='microphone'"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording (recommended without headphones)</label>
-        <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Microphone sensitivity: {{microphoneSensitivity}}% <input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
-        <p v-if="captureInputSource==='microphone'" class="hint">Increase sensitivity for quiet singing or whistling (up to −80 dBFS); reduce it if background noise produces false notes. At very high sensitivity, noise may create spurious notes. Changes take effect immediately.</p>
-        <button v-if="captureInputSource==='microphone'" type="button" class="secondary" :disabled="capturePlaying" @click="microphoneMonitoring?(stopMicrophoneCapture(),microphoneStatus='Microphone monitoring stopped.'):recordFromMicrophone(true)">{{microphoneMonitoring?'Stop microphone test':'Test microphone'}}</button>
-        <p v-if="captureInputSource==='microphone'" class="hint">Use Test microphone to adjust sensitivity before recording, without starting playback or capturing notes. Press Record to request microphone access. Sing, whistle or play one note at a time. Backing is muted by default to avoid speaker bleed; count-in and metronome remain available. Detected notes remain a draft until Apply.</p>
-        <div v-if="captureInputSource==='microphone'" class="capture-mic-monitor" aria-label="Microphone input monitor">
-          <label for="capture-mic-level">Microphone input level: {{microphoneInputDb===null?'Not monitoring':microphoneInputDb+' dBFS'}}</label>
-          <progress id="capture-mic-level" :value="microphoneInputLevel" max="100" style="width:100%;max-width:320px"></progress>
-          <p>Detected pitch: {{microphoneDetectedPitch===null?'None':midiName(microphoneDetectedPitch)}}</p>
-          <p class="hint">If the meter moves but no pitch appears, the microphone is receiving audio but pitch detection is not locking on. The app captures note events, not a replayable audio recording.</p>
-        </div>
-        <p v-if="microphoneStatus" role="status">{{microphoneStatus}}</p>
-      </div>
-      <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
-        <h3>Vocal phrase → melody</h3>
-        <label>Choose phrase (sets the recording measure range)
-          <select :value="vocalPhraseSelection" :disabled="capturePlaying" @change="selectVocalCapturePhrase(($event.target as HTMLSelectElement).value)">
-            <option value="" disabled>Select a lyric phrase</option>
-            <option v-for="(phrase,i) in vocalCapturePhrases" :key="i" :value="String(i)">Measures {{phrase.start}}–{{phrase.end}} · {{phrase.label}}</option>
-          </select>
-        </label>
-        <p class="hint">Record the selected measures using the keyboard or string input below. You can also adjust the normal Start/End controls.</p>
-        <label><input type="checkbox" v-model="vocalAlignmentEnabled"/> Align recorded notes to existing Voice lyrics on Apply</label>
-
+        <label class="capture-source-select">Recording input<select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
+        <label>Speed<select v-model.number="captureSpeed" :disabled="capturePlaying||microphoneStarting" aria-label="Recording speed"><option :value="1">100%</option><option :value="0.75">75%</option><option :value="0.5">50%</option></select></label>
+        <label v-if="captureInputSource==='microphone'">Recording key<select v-model.number="captureTranspose" :disabled="capturePlaying||microphoneStarting" aria-label="Recording key shift"><option v-for="shift in 25" :key="shift" :value="shift-13">{{shift===13?'Original key':(shift>13?'+':'')+(shift-13)+' semitones'}}</option></select></label>
+        <button v-if="captureInputSource==='microphone'" type="button" class="secondary capture-mic-test" :disabled="capturePlaying" :aria-pressed="microphoneMonitoring" @click="recordFromMicrophone(true)">{{microphoneStarting?'Cancel microphone request':microphoneMonitoring?'Stop microphone test':'Test microphone'}}</button>
       </div>
       
       <LiveCaptureTransport kind="melody" :playing="capturePlaying" :recording="captureRecording" :loop="captureLoopEnabled"
@@ -4824,20 +4843,27 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         @play="toggleCapturePlay" @record="toggleCaptureRecord" @loop="captureLoopEnabled=!captureLoopEnabled"
         @metronome="captureMetronome=!captureMetronome" @count-in="captureCountIn=!captureCountIn">
         <template #extras>
+         <template v-if="captureInputSource==='instrument'">
           <div v-if="captureFingerboardRows.length" class="capture-layout-switch" role="group" aria-label="Live input layout">
             <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
             <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keys</button>
           </div>
           <button type="button" class="capture-enlarge-button" :aria-pressed="captureLargeView" :aria-label="captureLargeView?'Compact instrument input':'Enlarge instrument input'" :title="captureLargeView?'Compact instrument':'Enlarge instrument'" @click="captureLargeView=!captureLargeView"><AppIcon :name="captureLargeView?'minimize':'maximize'"/></button>
+         </template>
         </template>
 
         <template #settings>
+         <div class="capture-settings-grid">
           <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label>
           <label>Quantization<select v-model="captureQuantize" :disabled="capturePlaying"><option value="auto">Auto (measure articulation)</option><option value="1">Quarter</option><option value="0.5">Eighth</option><option value="0.25">Sixteenth</option><option value="0.125">Thirty-second</option></select></label>
-          <label v-if="captureInputSource==='microphone'">Recording key shift<select v-model.number="captureTranspose" :disabled="capturePlaying"><option v-for="shift in 25" :key="shift" :value="shift-13">{{shift===13?'Original key':(shift>13?'+':'')+(shift-13)+' semitones'}}</option></select></label>
-          <p v-if="captureInputSource==='microphone'&&captureTranspose" class="hint">Backing and count-in play {{Math.abs(captureTranspose)}} semitones {{captureTranspose>0?'higher':'lower'}}. Sing in that key; recorded Voice notes are shifted back to the original key. The song itself is unchanged.</p>
-          <label>Recording speed<select v-model.number="captureSpeed" :disabled="capturePlaying"><option :value="1">100%</option><option :value="0.75">75%</option><option :value="0.5">50%</option></select></label>
           <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
+          <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Sensitivity · {{microphoneSensitivity}}%<input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
+         </div>
+         <template v-if="captureInputSource==='microphone'">
+          <label class="capture-setting-check"><input type="checkbox" v-model="captureMuteBacking"/> Mute backing while recording</label>
+          <p class="hint">Increase sensitivity for quiet input; reduce it if noise produces notes. Use headphones when backing or metronome is audible.</p>
+         </template>
+         <template v-else>
           <label v-if="noteInst.startsWith('Violin')&&captureInputLayout==='fingerboard'">Violin finger gesture<select v-model="captureViolinMode"><option value="auto">Auto · note / slide / vibrato / sirena</option><option value="notes">Notes only</option><option value="slide">Slide into final note</option><option value="vibrato">Mark vibrato</option></select></label>
           <div v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length" class="capture-fret-settings">
             <label>First semitone<select v-model.number="captureFretStart"><option v-for="start in MAX_VISUAL_FRET+2-captureFretCount" :key="start-1" :value="start-1">{{start===1?'Open strings':start-1}}</option></select></label>
@@ -4850,9 +4876,24 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
             <label>End note<select v-model.number="captureEndPitch" @change="changeCaptureKeyboardEnd"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
             <label>Rhythm pad pitch<select v-model.number="capturePitch"><option v-for="pitch in capturePitchOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
           </div>
-          <p class="hint">Play listens without capturing. Record starts playback and records notes; Loop repeats the selected measures. New passes replace the draft unless Overdub is selected. Apply only after reviewing.</p>
+         </template>
+          <details class="capture-recording-help"><summary>Recording help</summary>
+           <p v-if="captureInputSource==='microphone'" class="hint">Test microphone tunes without recording. The large note is the pitch you sing; Score is the note that will be saved. Recording key shifts the backing and count-in temporarily; captured notes return to the score key. Audio is processed locally; only note and pitch data are kept.</p>
+           <p class="hint">Play auditions the selected measures. Record captures a draft; Loop repeats. Each pass replaces the draft unless Overdub is selected. Review before Apply.</p>
+          </details>
         </template>
       </LiveCaptureTransport>
+      <MicrophoneTuner v-if="captureInputSource==='microphone'" :estimate="microphoneEstimate" :input-db="microphoneInputDb"
+        :active="microphoneListening" :score-shift-semitones="microphoneDisplayShift" :threshold-db="microphoneThresholdDb"/>
+      <p v-if="captureInputSource==='microphone'&&microphoneStatus" class="capture-feedback" role="status">{{microphoneStatus}}</p>
+      <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
+        <label>Lyric phrase<select :value="vocalPhraseSelection" :disabled="capturePlaying||!vocalCapturePhrases.length" aria-label="Choose vocal phrase (sets recording measures)" @change="selectVocalCapturePhrase(($event.target as HTMLSelectElement).value)">
+          <option value="" disabled>{{vocalCapturePhrases.length?'Select a lyric phrase':'No lyric phrases'}}</option>
+          <option v-for="(phrase,i) in vocalCapturePhrases" :key="i" :value="String(i)">Measures {{phrase.start}}–{{phrase.end}} · {{phrase.label}}</option>
+        </select></label>
+        <label class="capture-setting-check"><input type="checkbox" v-model="vocalAlignmentEnabled"/> Align lyrics on Apply</label>
+      </div>
+    <template v-if="captureInputSource==='instrument'">
       <span v-if="captureLastExpression&&captureInputLayout==='fingerboard'" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
     <template v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length">
      <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin'),'capture-large-instrument':captureLargeView}" role="group" :aria-label="`Playable ${noteInst} string positions`">
@@ -4863,7 +4904,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <button v-for="fret in captureFrets" :key="fret" type="button" class="capture-fingerboard-key"
            :class="{selected:capturePitch===string.midi+fret,'is-open':fret===0,'is-held':captureHeldDisplay.includes(string.midi+fret)}"
            :data-string-midi="string.midi" :data-pitch="string.midi+fret"
-           :disabled="captureStringPitch(string.midi,fret)===null||(captureRecording&&captureInputSource==='microphone')"
+           :disabled="captureStringPitch(string.midi,fret)===null"
            :aria-label="`${string.name} string at ${fret===0?'open':'semitone '+fret}, ${midiName(string.midi+fret)}`"
            :title="midiName(string.midi+fret)"
            @pointerdown.prevent.stop="captureViolinFingerDown($event,string.midi+fret,string.midi)" @pointermove.prevent.stop="captureViolinFingerMove($event)"
@@ -4878,18 +4919,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
     </template>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" :disabled="captureRecording&&captureInputSource==='microphone'" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
 
-      <button type="button" class="capture-tap-pad" :disabled="!captureRecording||(active==='notes'&&captureInputSource==='microphone')" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
+      <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
+    </template>
       <details class="capture-draft-review">
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
       <div v-if="captureTakeWarnings.length" class="capture-feedback" role="status"><strong>Possible cleanup candidates (not changed automatically):</strong><p v-for="warning in captureTakeWarnings" :key="warning">{{warning}}</p></div>
       <div class="live-capture-actions" role="group" aria-label="Recorded note actions">
-<button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureUndo" title="Undo last note" aria-label="Undo last note"><AppIcon name="undo-2"/></button>
-<button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureClear" title="Clear all notes" aria-label="Clear all notes"><AppIcon name="trash-2"/></button>
+<button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureUndo" title="Undo last note" aria-label="Undo last note"><AppIcon name="arrow-left"/></button>
+<button type="button" class="secondary icon-action" :disabled="capturePlaying||!captureTaps.length" @click="captureClear" title="Clear all notes" aria-label="Clear all notes"><AppIcon name="trash"/></button>
 <button type="button" class="secondary icon-action" :disabled="!vocalCapturedNotes.length" @click="copyCaptureTake" title="Copy recorded notes for analysis" aria-label="Copy recorded notes for analysis"><AppIcon name="copy"/></button>
 <button type="button" class="secondary icon-action" :disabled="capturePlaying||!vocalCapturedNotes.length" @click="playDraftAll" title="Play all captured notes" aria-label="Play all captured notes"><AppIcon name="play"/></button>
-<button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody" :title="'Apply notes to '+rosterDisplayName(noteInst)"><AppIcon name="check"/> Apply to {{rosterDisplayName(noteInst)}}</button>
+<button type="button" class="primary" :disabled="capturePlaying||!captureTaps.length" @click="applyCapturedMelody" :title="'Apply notes to '+rosterDisplayName(noteInst)"><AppIcon name="list-check"/> Apply to {{rosterDisplayName(noteInst)}}</button>
 </div>
 <p v-if="captureTakeCopyStatus" role="status">{{captureTakeCopyStatus}}</p>
 <div class="live-capture-take" v-for="b in captureBarNumbers" :key="`melody-take-${b}`">

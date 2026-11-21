@@ -19,19 +19,31 @@ export function detectMonophonicPitch(samples:Float32Array,sampleRate:number,min
   }
   differences[lag]=sum;
  }
- let cumulative=0,best=0,bestValue=1;
+ // Keep the normalized curve so both neighbors are available for a fractional
+ // lag estimate. Integer sample lags alone make a cents display visibly jump.
+ let cumulative=0;
  for(let lag=1;lag<=high;lag++){
   cumulative+=differences[lag];
-  if(lag<low)continue;
-  const normalized=differences[lag]*lag/(cumulative||1);
+  differences[lag]=differences[lag]*lag/(cumulative||1);
+ }
+ let best=0,bestValue=1;
+ for(let lag=low;lag<=high;lag++){
+  const normalized=differences[lag];
   if(normalized<bestValue){bestValue=normalized;best=lag;}
-  if(normalized<0.12&&lag>=low){
-   const next=lag<high?differences[lag+1]*(lag+1)/(cumulative+differences[lag+1]||1):1;
+  if(normalized<0.12){
+   const next=lag<high?differences[lag+1]:1;
    if(normalized<=next){best=lag;bestValue=normalized;break;}
   }
  }
  if(!best||bestValue>0.22)return null;
- const frequency=sampleRate/best;
+ let period=best;
+ if(best>1&&best<high){
+  const left=differences[best-1],center=differences[best],right=differences[best+1];
+  const curvature=left-2*center+right;
+  if(curvature>0&&center<=left&&center<=right)
+   period+=Math.max(-0.5,Math.min(0.5,(left-right)/(2*curvature)));
+ }
+ const frequency=sampleRate/period;
  const midi=69+12*Math.log2(frequency/440);
  return Number.isFinite(midi)?{midi,frequency,clarity:1-bestValue}:null;
 }
