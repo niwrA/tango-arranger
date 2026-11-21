@@ -71,14 +71,14 @@ export function performanceTempoAtBeat(p:TimingProject,beat:number):number{
  }
  return tempo;
 }
-export function tempoAutomationPoints(p:TimingProject):TempoPoint[]{
+export function tempoAutomationPoints(p:TimingProject,forNotation=false):TempoPoint[]{
  const e=normalizedTempoExpressions(p),times=new Set<number>();
  for(const r of e.ritardandos){
   const start=r.startMeasure*p.beats,end=(r.endMeasure+1)*p.beats-1;
   for(let b=start;b<=end+1e-7;b+=0.5)times.add(Number(Math.min(b,end).toFixed(6)));
  }
  for(const b of e.aTempoMeasures)times.add(b*p.beats);
- for(const f of e.fermatas){
+ if(!forNotation)for(const f of e.fermatas){
   times.add((f.measure+1)*p.beats-1);
   const end=(f.measure+1)*p.beats;
   if(end<p.bars.length*p.beats)times.add(end);
@@ -87,7 +87,7 @@ export function tempoAutomationPoints(p:TimingProject):TempoPoint[]{
  for(const beat of [...times].sort((a,b)=>a-b)){
   const label=e.ritardandos.some(r=>r.startMeasure*p.beats===beat)?'rit.':
    e.aTempoMeasures.some(m=>m*p.beats===beat)?'a tempo':undefined;
-  const bpm=Number(performanceTempoAtBeat(p,beat).toFixed(4));
+  const bpm=Number((forNotation?writtenTempoAtBeat(p,beat):performanceTempoAtBeat(p,beat)).toFixed(4));
   if(label||!points.length||!near(bpm,points[points.length-1].bpm))points.push({beat,bpm,...(label?{label}:{})});
  }
  return points;
@@ -95,6 +95,7 @@ export function tempoAutomationPoints(p:TimingProject):TempoPoint[]{
 /** Approximate the changing beat duration by integrating 1/4-beat slices, including fermata stretch. */
 export function soundingSeconds(p:TimingProject,startBeat:number,durationBeats:number,speed=1):number{
  if(!Number.isFinite(durationBeats)||durationBeats<0||!Number.isFinite(speed)||speed<=0)throw Error('Invalid playback duration');
+ if(!p.tempoExpressions||(!p.tempoExpressions.ritardandos?.length&&!p.tempoExpressions.fermatas?.length))return durationBeats*60/(p.bpm*speed);
  let result=0;
  for(let b=startBeat;b<startBeat+durationBeats-1e-8;){
   const step=Math.min(0.25,startBeat+durationBeats-b);
