@@ -79,7 +79,7 @@ check('insert shifts source, lyrics and all difficulty editions without dropping
  assert.equal(n.generatedScore.Voice.find(note=>note.pitch===71).start,30);
  assert.equal(n.partEditions.Voice.easy.notes[1].start,33);
  assert.equal(n.partEditions.Voice.easy.protectedMeasures[0],11);
- assert.equal(n.expressionRanges[0].endMeasure,7);
+ assert.equal(n.expressionRanges[0].endMeasure,5); // Inserting AFTER the hairpin leaves it unchanged.
  assert.equal(n.measureRoles['Bandoneon I:5'],'fill');
 });
 check('delete shifts later scores, metadata, editions while preserving earlier notes',()=>{
