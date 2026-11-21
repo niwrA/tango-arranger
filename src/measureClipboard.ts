@@ -1,3 +1,4 @@
+import {moveTempoExpressions} from './tempoExpressions';
 import {generate,mergeScores,instrumentRange,projectInstruments,type Project,type Score,type Note,type Instrument,type Bar,type Role,type MeasureDynamics,type Articulation,type ViolinTechnique,type BassTechnique} from './music';
 
 /** Zero-based, inclusive ranges internally. User-facing controls use 1-based measures. */
@@ -174,6 +175,7 @@ function structuralEdit(p:Project,mode:ShiftMode,from:number,to:number):Project{
  const map=(bar:number)=>mode==='insert'?(bar>=from?bar+count:bar):(bar>=from&&bar<to?null:bar>=to?bar-count:bar);
  return {
   ...p,
+  tempoExpressions:moveTempoExpressions(p.tempoExpressions,mode,from,to),
   protectedBars:remapMeasureRecord(p.protectedBars,map)??{},
   measureRoles:remapMeasureRecord(p.measureRoles,map),
   measureDynamics:remapMeasureRecord(p.measureDynamics,map),
