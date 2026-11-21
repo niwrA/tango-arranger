@@ -387,9 +387,10 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       });
       if(!voices.length){
         const rests=chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`);
-        if(staffIndex===0&&timing.fermatas.some(mark=>mark.measure===barIndex&&mark.instrument===inst)){
-          rests[rests.length-1]=rests[rests.length-1].replace('</Rest>','<Articulation><subtype>fermata</subtype></Articulation></Rest>');
-        }
+        const fermata=staffIndex===0?timing.fermatas.find(mark=>mark.measure===barIndex&&mark.instrument===inst):undefined;
+        if(fermata)rests[rests.length-1]=rests[rests.length-1].replace('</Rest>','<Articulation><subtype>fermata</subtype></Articulation></Rest>');
+        const cue=fermata?.waitForCue?'<StaffText><text>colla voce · wait for cue</text></StaffText>':'';
+        if(cue)rests.splice(rests.length-1,0,cue);
         voices.push(`<voice>${signature+initialTempo+tempoXml+dynamicsXml+chordPrefix}${rests.join('')}</voice>`);
       }
       return `<Measure>${voices.join('')}</Measure>`;
