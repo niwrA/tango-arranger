@@ -23,7 +23,7 @@ export function validateTempoExpressions(p:TimingProject,expressions:TempoExpres
   if(!Number.isInteger(mark.measure)||mark.measure<0||mark.measure>=total)throw Error('Fermata measure is outside the song');
   if(!Number.isFinite(mark.stretch)||mark.stretch<1.25||mark.stretch>5)throw Error('Fermata stretch must be 1.25–5');
   if(typeof mark.waitForCue!=='boolean')throw Error('Invalid singer-cue mode');
-  if(!p.instruments?.includes(mark.instrument))throw Error('Select an active instrument for the fermata');
+  if(p.instruments?.length&&!p.instruments.includes(mark.instrument))throw Error('Select an active instrument for the fermata');
   if(cueMeasures.has(mark.measure))throw Error('Only one score-wide fermata is allowed per measure');
   cueMeasures.add(mark.measure);
  }
