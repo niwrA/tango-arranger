@@ -2542,6 +2542,20 @@ const measureSelectedParts=computed(()=>measureCopyScope.value==='all'?projectIn
 const measureEditableFields=['chords','melody','notes','lyrics','settings'] as const;
 const measureFieldLabels:Record<keyof MeasureFields,string>={chords:'Chords',melody:'Lead melody',notes:'Instrument notes',lyrics:'Lyrics attached to notes',settings:'Roles, dynamics and expression'};
 function resetMeasureEditPreview(){measurePending.value=null;measurePreview.value='';measurePreviewWarnings.value='';}
+function toggleMeasureEditTools(){
+ if(!measureEditOpen.value){
+  if(active.value==='arrange'){
+   measureFrom.value=overviewStart.value;measureTo.value=overviewEnd.value;measureCopyInstrument.value=overviewInstrument.value;
+  }else if(active.value==='rhythm'){
+   measureFrom.value=rhythmStart.value;measureTo.value=rhythmEnd.value;measureCopyInstrument.value=rhythmTargets.value[0]??'Voice';
+  }else if(active.value==='notes'){
+   measureFrom.value=noteLoopFrom.value;measureTo.value=noteLoopTo.value;measureCopyInstrument.value=noteInst.value;
+  }else{measureFrom.value=selectedBar.value+1;measureTo.value=selectedBar.value+1;measureCopyInstrument.value='Voice';}
+  measureAnchor.value=measureFrom.value-1;measureAwaitingEndpoint.value=false;
+ }
+ measureEditOpen.value=!measureEditOpen.value;
+ resetMeasureEditPreview();
+}
 function prepareMeasureInputs(){
  const count=project.value.bars.length;
  measureFrom.value=Math.max(1,Math.min(count,Math.floor(measureFrom.value)||1));
@@ -2582,10 +2596,14 @@ function chooseMeasureFields(which:'all'|'instrument'|'harmony'|'custom'){
  resetMeasureEditPreview();
 }
 function setCopyField(key:keyof MeasureFields,checked:boolean){
- measureCopyFields.value={...measureCopyFields.value,[key]:checked};resetMeasureEditPreview();
+ measureCopyFields.value={...measureCopyFields.value,[key]:checked};
+ if(!measureCopyFields.value.notes&&!measureCopyFields.value.melody)measureCopyFields.value.lyrics=false;
+ resetMeasureEditPreview();
 }
 function setPasteField(key:keyof MeasureFields,checked:boolean){
- measurePasteFields.value={...measurePasteFields.value,[key]:checked};resetMeasureEditPreview();
+ measurePasteFields.value={...measurePasteFields.value,[key]:checked};
+ if(!measurePasteFields.value.notes&&!measurePasteFields.value.melody)measurePasteFields.value.lyrics=false;
+ resetMeasureEditPreview();
 }
 function copySelectedMeasures(){
  try{
@@ -5144,7 +5162,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  
 <section v-if="['lead','arrange','rhythm','notes'].includes(active)" class="measure-edit-shell" aria-label="Measure range editing">
  <div class="measure-edit-header">
-  <button type="button" class="secondary" :aria-expanded="measureEditOpen" @click="measureEditOpen=!measureEditOpen;resetMeasureEditPreview()"><AppIcon name="copy"/> {{measureEditOpen?'Close measure tools':'Select / copy / paste measures'}}</button>
+  <button type="button" class="secondary" :aria-expanded="measureEditOpen" @click="toggleMeasureEditTools"><AppIcon name="copy"/> {{measureEditOpen?'Close measure tools':'Select / copy / paste measures'}}</button>
   <span v-if="measureEditOpen" class="hint">iPad: press and hold the first measure number or orchestration cell, then tap the last measure. Desktop: click, then Shift-click.</span>
  </div>
  <div v-if="measureEditOpen" class="measure-edit-body">
@@ -5157,7 +5175,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
    <label>Content preset<select :value="''" @change="chooseMeasureFields(($event.target as HTMLSelectElement).value as 'all'|'instrument'|'harmony'|'custom');($event.target as HTMLSelectElement).value=''"><option value="" disabled>Choose…</option><option value="all">Everything</option><option value="instrument">Instrument notes + lyrics</option><option value="harmony">Chords + lead melody</option></select></label>
   </div>
   <div class="measure-edit-fields" role="group" aria-label="Measure content">
-   <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+   <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="field==='lyrics'&&!measureCopyFields.notes&&!measureCopyFields.melody" :checked="measureCopyFields[field]" @change="setCopyField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
   </div>
   <div class="measure-edit-actions">
    <button type="button" class="primary" @click="copySelectedMeasures"><AppIcon name="copy"/> Copy selected</button>
@@ -5173,7 +5191,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label v-if="measureClipboard?.instruments.length===1">Paste notes into<select v-model="measurePasteTarget" @change="resetMeasureEditPreview"><option value="__same__">Same instrument</option><option v-for="inst in activeRoster.filter(i=>!measureClipboard?.instruments.includes(i))" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
    </div>
    <div v-if="measureClipboard" class="measure-edit-fields" role="group" aria-label="Paste content">
-    <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
+    <label v-for="field in measureEditableFields" :key="field"><input type="checkbox" :disabled="!measureClipboard.fields[field]||(field==='lyrics'&&!measurePasteFields.notes&&!measurePasteFields.melody)" :checked="measurePasteFields[field]" @change="setPasteField(field,($event.target as HTMLInputElement).checked)"/>{{measureFieldLabels[field]}}</label>
    </div>
    <div class="measure-edit-actions">
     <button type="button" class="secondary" :disabled="!measureClipboard" @click="previewMeasureOperation('paste')">Preview paste</button>
