@@ -242,7 +242,25 @@ export function resizeSections(p:Project,lengths:number[]):Project {
     }
     return result;
   };
-  return {...p,bars,sectionKeys,roles,
+  const remapTempoExpressions=():TempoExpressions|undefined=>{
+    if(!p.tempoExpressions)return undefined;
+    const e=p.tempoExpressions;
+    const shift=(m:number)=>indexMap.get(m);
+    return {
+      ritardandos:e.ritardandos.flatMap(r=>{
+        const start=shift(r.startMeasure),end=shift(r.endMeasure);
+        return start!==undefined&&end!==undefined&&end-start===r.endMeasure-r.startMeasure
+          ?[{...r,startMeasure:start,endMeasure:end}]:[];
+      }),
+      fermatas:e.fermatas.flatMap(f=>{
+        const measure=shift(f.measure);return measure===undefined?[]:[{...f,measure}];
+      }),
+      aTempoMeasures:e.aTempoMeasures.flatMap(m=>{
+        const measure=shift(m);return measure===undefined?[]:[measure];
+      })
+    };
+  };
+  return {...p,bars,sectionKeys,roles,tempoExpressions:remapTempoExpressions(),
     orchestration:{contrabass,violin,bandoneon},violinMarcatoBeats,violinArpeggioDirections,expression:{...(p.expression??defaultExpression()),sections:dynamics},
     pianoFigures:Object.fromEntries(lengths.map((_,i)=>[sectionLetter(i),p.pianoFigures?.[old[i]?.label]??'chords_up'])),
     pianoFigureVariation:Object.fromEntries(lengths.map((_,i)=>[sectionLetter(i),p.pianoFigureVariation?.[old[i]?.label]??0])),
