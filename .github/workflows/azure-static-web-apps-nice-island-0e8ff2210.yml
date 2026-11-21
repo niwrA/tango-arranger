@@ -34,7 +34,7 @@ jobs:
         run: npm run build
 
       - name: Test leadsheet import and vocal phrase alignment
-        run: node tests/new-song-leadsheet.cjs && node tests/microphone-pitch.cjs && node tests/microphone-tuner.cjs && node tests/microphone-recording.cjs && node tests/instrument-badge.cjs
+        run: node tests/new-song-leadsheet.cjs && node tests/microphone-pitch.cjs && node tests/microphone-tuner.cjs && node tests/microphone-recording.cjs && node tests/pitch-postprocess.cjs && node tests/instrument-badge.cjs
 
       - name: Test tango gesture expression and export
         run: npm run test:gestures

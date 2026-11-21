@@ -10,6 +10,7 @@ import MicrophoneTuner from './MicrophoneTuner.vue';
 import {vocalPhrases,suggestVocalAlignment,alignedLyric} from './vocalPhraseAlignment';
 import {detectMonophonicPitch} from './microphonePitch';
 import {microphoneScoreMidi} from './microphoneTuner';
+import {reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS,type PitchPostprocessOptions,type ProcessedPitchNote} from './pitchPostprocess';
 import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
@@ -107,9 +108,22 @@ function stopPlayback(){
   const wasPlayingArrangement=playing.value;
   // Invalidate a pending Tone.start() before it can schedule anything.
   noteLoopSession++;rhythmLoopSession++;captureSession++;
-  if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value){Tone.getTransport().stop();Tone.getTransport().cancel();}
-  synth?.releaseAll();for(const voice of instrumentSynths.values())voice.releaseAll();for(const voice of samplePlayers.values())voice.releaseAll();loopSynth?.releaseAll();rhythmLoopSynth?.triggerRelease();captureSynth?.releaseAll();captureKeySynth?.releaseAll();captureClickSynth?.triggerRelease();
-  playing.value=false;playbackOrigin.value=null;if(wasPlayingArrangement)audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
+  // A failed node release must not strand the flags in the recording state.
+  // Continue cleanup so the next Play click can start a fresh audio session.
+  let cleanupError:unknown=null;
+  const safeRelease=(release:()=>void)=>{try{release();}catch(error){cleanupError??=error;}};
+  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)){
+    safeRelease(()=>{Tone.getTransport().stop();Tone.getTransport().cancel();});
+  }
+  safeRelease(()=>synth?.releaseAll());
+  for(const voice of instrumentSynths.values())safeRelease(()=>voice.releaseAll());
+  for(const voice of samplePlayers.values())safeRelease(()=>voice.releaseAll());
+  safeRelease(()=>loopSynth?.releaseAll());safeRelease(()=>rhythmLoopSynth?.triggerRelease());
+  safeRelease(()=>captureSynth?.releaseAll());safeRelease(()=>captureKeySynth?.releaseAll());
+  safeRelease(()=>captureClickSynth?.triggerRelease());
+  if(cleanupError)audioStatus.value='Audio cleanup warning: '+String(cleanupError);
+  playing.value=false;playbackOrigin.value=null;
+  if(wasPlayingArrangement||audioStatus.value==='Starting playback…')audioStatus.value='Playback stopped';noteLoopPlaying.value=false;noteLoopBeat.value=-1;
   rhythmLoopPlaying.value=false;rhythmLoopBeat.value=-1;
   capturePlaying.value=false;captureRecording.value=false;captureCountingIn.value=false;capturePlayBar.value=-1;capturePlayBeat.value=-1;heldCaptureKeys.clear();captureMonitorPitches.clear();captureViolinTraces.clear();captureHeldDisplay.value=[];captureRecordedPass=-1;
 }
@@ -117,7 +131,8 @@ function selectProjectInEditor(p:Project){
   closeRhythmMenu();closeDynamicsContext();
   closeInstrumentContext();
   phrasePlanDraft.value=undefined;
-  stopPlayback();syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
+  stopPlayback();rawPitchFrames.value=[];rawPitchSession.value=null;pitchPreviewNotes.value=[];originalMicrophoneTake.value=[];pitchRawRevision.value++;
+  syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
   overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
@@ -1154,14 +1169,14 @@ function captureUndo(){
   delete captureEditedRhythms.value[removed.bar];
   captureFeedback.value='Removed last tap from the draft.';
 }
-async function startCaptureTransport(recording:boolean){
+async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:number){
   if(!project.value.bars.length)return;
   stopPlayback();
   const session=captureSession;
   const first=captureFirst.value,last=captureLast.value;
   const editor=active.value;
-  const playbackTranspose=(project.value.transposeSemitones??0)
-    +(editor==='notes'&&captureInputSource.value==='microphone'?captureTranspose.value:0);
+  const playbackTranspose=frozenPlaybackTranspose??((project.value.transposeSemitones??0)
+    +(editor==='notes'&&captureInputSource.value==='microphone'?captureTranspose.value:0));
   try{
     Tone=await startAudioFromGesture();
     if(session!==captureSession||active.value!==editor)return;
@@ -1273,6 +1288,9 @@ const microphoneScoreShift=computed(()=>(project.value.transposeSemitones??0)+ca
 const microphoneDisplayShift=computed(()=>microphoneSessionShift.value??microphoneScoreShift.value);
 let microphoneStream:MediaStream|null=null;
 let microphoneContext:AudioContext|null=null;
+let microphoneSource:MediaStreamAudioSourceNode|null=null;
+let microphoneAnalyser:AnalyserNode|null=null;
+let microphoneSilentSink:GainNode|null=null;
 let microphoneFrame=0;
 let microphoneActive:{pitch:number;start:number;last:number}|null=null;
 let microphoneCandidate:{pitch:number;frames:number}|null=null;
@@ -1309,8 +1327,17 @@ function stopMicrophoneCapture(){
  microphoneStarting.value=false;
  microphoneSessionShift.value=null;
  microphoneStatus.value='';
+ // The microphone uses the same Tone.js AudioContext as playback. Disconnect
+ // only input nodes: closing it here would also disable arrangement playback.
+ microphoneSource?.disconnect();microphoneSource=null;
+ microphoneAnalyser?.disconnect();microphoneAnalyser=null;
+ microphoneSilentSink?.disconnect();microphoneSilentSink=null;
  microphoneStream?.getTracks().forEach(track=>track.stop());microphoneStream=null;
- if(microphoneContext){void microphoneContext.close().catch(()=>{});microphoneContext=null;}
+ microphoneContext=null;
+ if(captureRecording.value&&rawPitchSession.value?.mode==='recording'&&rawPitchFrames.value.length){
+  originalMicrophoneTake.value=melodyCaptureTaps.value.map(t=>({...t}));
+  reprocessPitchTake();
+ }
 }
 async function recordFromMicrophone(monitorOnly=false){
  if(capturePlaying.value||microphoneStarting.value){stopPlayback();return;}
@@ -1318,6 +1345,9 @@ async function recordFromMicrophone(monitorOnly=false){
  // Also cancel pending audio startup before requesting another microphone stream.
  stopPlayback();
  if(!navigator.mediaDevices?.getUserMedia){microphoneStatus.value='Microphone capture requires HTTPS and a browser with media device support.';return;}
+ // Unlock output on the original user gesture, before the microphone permission
+ // dialog can consume activation. Keep its rejection handled during that dialog.
+ const audioReady=startAudioFromGesture().then(tone=>({tone,error:null as unknown}),error=>({tone:null,error}));
  let generation=++microphoneGeneration;
  microphoneStarting.value=true;
  microphoneStatus.value='Requesting microphone permission…';
@@ -1326,8 +1356,9 @@ async function recordFromMicrophone(monitorOnly=false){
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
   acquiredStream=stream;
   if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
-  // Capture settings before asynchronous transport startup can outlive changes
-  // to the editor. Frame-level sensitivity/tempo/latency track live adjustments.
+  // Freeze the recording key and range before waiting for audio startup.
+  // Capture settings are not allowed to drift during a permission/unlock dialog.
+  // Frame-level sensitivity/tempo/latency still track live adjustments.
   const sessionSettings={
    mode:monitorOnly?'test' as const:'recording' as const,
    instrument:noteInst.value,tempoBpm:project.value.bpm,beatsPerMeasure:project.value.beats,
@@ -1339,8 +1370,12 @@ async function recordFromMicrophone(monitorOnly=false){
    countInBeats:!monitorOnly&&captureCountIn.value?project.value.beats:0
   };
   let scoreShift=microphoneScoreShift.value;
+  const unlocked=await audioReady;
+  if(!unlocked.tone)throw unlocked.error;
+  Tone=unlocked.tone;
+  if(generation!==microphoneGeneration){stream.getTracks().forEach(t=>t.stop());return;}
   if(!monitorOnly){
-   const starting=startCaptureTransport(true);
+   const starting=startCaptureTransport(true,scoreShift);
    // Transport startup deliberately stops the previous session synchronously.
    generation=microphoneGeneration;
    microphoneStarting.value=true;
@@ -1353,22 +1388,30 @@ async function recordFromMicrophone(monitorOnly=false){
    scoreShift=transpose;
   }
   const activeGeneration=generation=++microphoneGeneration;
-  const context=new AudioContext();
+  const context=Tone.getContext().rawContext as AudioContext;
   microphoneStream=stream;microphoneContext=context;
   if(context.state==='suspended')await context.resume();
-  if(activeGeneration!==microphoneGeneration)return;
+  if(context.state!=='running')throw Error('Audio output is '+context.state+'; use Test sound to check the browser audio engine.');
+  if(activeGeneration!==microphoneGeneration){stream.getTracks().forEach(track=>track.stop());return;}
   microphoneStarting.value=false;
   microphoneMonitoring.value=monitorOnly;
   microphoneListening.value=true;
   microphoneSessionShift.value=monitorOnly?null:scoreShift;
   const source=context.createMediaStreamSource(stream);
   const analyser=context.createAnalyser();analyser.fftSize=4096;analyser.smoothingTimeConstant=0;
-  source.connect(analyser);
+  // A zero-gain sink keeps the analyser rendering in browsers that suspend
+  // unconnected processing graphs, without routing microphone sound to speakers.
+  const silentSink=context.createGain();silentSink.gain.value=0;
+  source.connect(analyser);analyser.connect(silentSink);silentSink.connect(context.destination);
+  microphoneSource=source;microphoneAnalyser=analyser;microphoneSilentSink=silentSink;
   const samples=new Float32Array(analyser.fftSize);
   // Reset only after permission, transport and analyser startup succeeded. The
   // previous trace remains available after a denied or cancelled start.
   rawPitchSession.value={...sessionSettings,sampleRateHz:context.sampleRate,soundingTransposeSemitones:scoreShift};
-  rawPitchFrames.value=[];rawPitchTruncated.value=false;rawPitchCopyStatus.value='';
+  rawPitchFrames.value=[];pitchRawRevision.value++;
+  pitchPreviewNotes.value=[];pitchPreviewFingerprint.value='';
+  originalMicrophoneTake.value=[];
+  rawPitchTruncated.value=false;rawPitchCopyStatus.value='';
   const rawStartedAt=context.currentTime;
   let lastRawBucket=-1;
   microphoneStatus.value=monitorOnly?'Microphone test · no notes are recorded. Press Record when ready.':'Sing one note at a time after the count-in; review the draft before applying.';
@@ -1700,6 +1743,179 @@ async function copyRawPitch(){
  try{await navigator.clipboard.writeText(rawPitchExport.value);rawPitchCopyStatus.value='Raw pitch timeline copied.';}
  catch{rawPitchCopyStatus.value='Clipboard unavailable. Copy from the expanded JSON below.';}
 }
+
+// Reprocessing is a proposal. Raw frames, the original microphone draft, the
+// currently edited draft and the score are four distinct layers.
+const pitchProcessing=ref<PitchPostprocessOptions>({...DEFAULT_PITCH_POSTPROCESS});
+const pitchPreviewNotes=ref<ProcessedPitchNote[]>([]);
+const originalMicrophoneTake=ref<HeldCapture[]>([]);
+const pitchRawRevision=ref(0);
+const pitchPreviewFingerprint=ref('');
+const pitchPostprocessStatus=ref('');
+const pitchPreviewKey=computed(()=>JSON.stringify({
+ revision:pitchRawRevision.value,options:pitchProcessing.value,
+ frames:rawPitchFrames.value.length,range:rawPitchSession.value?.measures
+}));
+const pitchPreviewStale=computed(()=>pitchPreviewFingerprint.value!==pitchPreviewKey.value);
+const pitchPreviewRangeMatches=computed(()=>{
+ const s=rawPitchSession.value;
+ return !!s&&s.mode==='recording'&&s.instrument===noteInst.value&&
+  s.measures.from===captureFirst.value+1&&s.measures.to===captureLast.value+1&&
+  s.beatsPerMeasure===project.value.beats;
+});
+const pitchPreviewOverlaps=computed(()=>pitchPreviewNotes.value.some((n,i,all)=>
+ i>0&&n.startBeat<all[i-1].startBeat+all[i-1].durationBeats-0.0001));
+const pitchPreviewDisplay=computed(()=>pitchPreviewNotes.value.map((n,index)=>{
+ const s=rawPitchSession.value;
+ const beats=s?.beatsPerMeasure??project.value.beats;
+ const measure=(s?.measures.from??captureFirst.value+1)+Math.floor(n.startBeat/beats);
+ return {...n,index,measure,beat:Number((1+n.startBeat%beats).toFixed(3))};
+}));
+function reprocessPitchTake():void{
+ const s=rawPitchSession.value;
+ if(!s||s.mode!=='recording'||!rawPitchFrames.value.length||microphoneListening.value||microphoneStarting.value)return;
+ const total=(s.measures.to-s.measures.from+1)*s.beatsPerMeasure;
+ pitchPreviewNotes.value=reprocessPitchFrames(rawPitchFrames.value,pitchProcessing.value,s.soundingTransposeSemitones,total);
+ pitchPreviewFingerprint.value=pitchPreviewKey.value;
+ pitchPostprocessStatus.value=pitchPreviewNotes.value.length+
+  ' proposed notes from '+rawPitchFrames.value.length+' raw pitch frames. Review before using this version.';
+}
+function selectRecordedPitchRange():void{
+ const s=rawPitchSession.value;
+ if(!s||!projectInstruments(project.value).includes(s.instrument)||s.measures.to>project.value.bars.length||
+    s.beatsPerMeasure!==project.value.beats){
+  pitchPostprocessStatus.value='This recording does not fit the current song roster, length or time signature.';return;
+ }
+ noteInst.value=s.instrument;noteLoopFrom.value=s.measures.from;noteLoopTo.value=s.measures.to;
+ captureInputSource.value='microphone';
+ pitchPostprocessStatus.value='Selected the recorded instrument and measure range.';
+}
+function previewPitchError(messageText:string){pitchPostprocessStatus.value=messageText;}
+function editPitchPreviewNote(index:number):void{
+ const n=pitchPreviewNotes.value[index],s=rawPitchSession.value;
+ if(!n||!s)return;
+ const pitchText=window.prompt('Written MIDI pitch (0–127)',String(n.pitch));
+ if(pitchText===null)return;
+ const pitch=Number(pitchText);
+ const startText=window.prompt('Start in beats from recording start (0 is first downbeat)',String(n.startBeat));
+ if(startText===null)return;
+ const startBeat=Number(startText);
+ const durationText=window.prompt('Duration in beats',String(n.durationBeats));
+ if(durationText===null)return;
+ const durationBeats=Number(durationText);
+ const total=(s.measures.to-s.measures.from+1)*s.beatsPerMeasure;
+ if(!Number.isInteger(pitch)||pitch<0||pitch>127||!Number.isFinite(startBeat)||
+   startBeat<0||startBeat>=total||!Number.isFinite(durationBeats)||durationBeats<=0||
+   startBeat+durationBeats>total+0.0001){previewPitchError('Invalid pitch, start or duration; preview unchanged.');return;}
+ const updated=[...pitchPreviewNotes.value];
+ updated[index]={...n,pitch,startBeat:Number(startBeat.toFixed(6)),durationBeats:Number(durationBeats.toFixed(6))};
+ pitchPreviewNotes.value=updated.sort((a,b)=>a.startBeat-b.startBeat);
+ previewPitchError('Updated proposed note. Check for overlaps, then audition or use as draft.');
+}
+function splitPitchPreviewNote(index:number):void{
+ const n=pitchPreviewNotes.value[index];
+ if(!n)return;
+ const text=window.prompt('Split at beat from the recording start (same pitch can be repeated)',String(Number((n.startBeat+n.durationBeats/2).toFixed(3))));
+ if(text===null)return;
+ const beat=Number(text);
+ if(!Number.isFinite(beat)||beat<=n.startBeat+0.06||beat>=n.startBeat+n.durationBeats-0.06){
+  previewPitchError('Split must lie inside the note, leaving at least 0.06 beat on both sides.');return;
+ }
+ const first={...n,durationBeats:Number((beat-n.startBeat).toFixed(6)),vibrato:false};
+ const second={...n,startBeat:Number(beat.toFixed(6)),durationBeats:Number((n.startBeat+n.durationBeats-beat).toFixed(6)),vibrato:false};
+ pitchPreviewNotes.value=[...pitchPreviewNotes.value.slice(0,index),first,second,...pitchPreviewNotes.value.slice(index+1)];
+ previewPitchError('Split one note into two attacks; both pitches remain editable.');
+}
+function removePitchPreviewNote(index:number):void{
+ pitchPreviewNotes.value=pitchPreviewNotes.value.filter((_,i)=>i!==index);
+ previewPitchError('Removed one note from the proposal only.');
+}
+function togglePitchPreviewVibrato(index:number):void{
+ pitchPreviewNotes.value=pitchPreviewNotes.value.map((n,i)=>i===index?{...n,vibrato:!n.vibrato}:n);
+}
+function auditionPitchPreviewNote(n:ProcessedPitchNote):void{
+ void auditionDraft([{beat:0,pitch:n.pitch,duration:n.durationBeats,held:true,vibrato:n.vibrato}]);
+}
+async function auditionPitchPreview():Promise<void>{
+ const s=rawPitchSession.value;
+ if(!s||capturePlaying.value||pitchPreviewStale.value||!pitchPreviewNotes.value.length)return;
+ try{
+  const readyTone=await startAudioFromGesture();Tone=readyTone;
+  const voice=ensureCaptureKeySynth();
+  const secondsPerBeat=60/(s.tempoBpm*s.recordingSpeed);
+  const origin=Tone.now()+0.08;
+  for(const n of pitchPreviewNotes.value){
+   const sounding=n.pitch+(project.value.transposeSemitones??0);
+   if(sounding<0||sounding>127)continue;
+   voice.triggerAttackRelease(Tone.Frequency(sounding,'midi').toFrequency(),
+    Math.max(0.07,n.durationBeats*secondsPerBeat*0.9),origin+n.startBeat*secondsPerBeat,0.65);
+  }
+  pitchPostprocessStatus.value='Auditioning the proposal with its original rests and note positions.';
+ }catch(error){previewPitchError('Cannot audition: '+String(error));}
+}
+function usePitchPreviewAsDraft():void{
+ const s=rawPitchSession.value;
+ if(!s||capturePlaying.value||microphoneStarting.value||!pitchPreviewRangeMatches.value||
+    pitchPreviewStale.value||pitchPreviewOverlaps.value||!pitchPreviewNotes.value.length)return;
+ const taps:HeldCapture[]=[];
+ const total=(s.measures.to-s.measures.from+1)*s.beatsPerMeasure;
+ for(const note of pitchPreviewNotes.value){
+  let cursor=note.startBeat,remaining=Math.min(note.durationBeats,total-cursor),first=true;
+  while(remaining>0.00001&&cursor<total-0.00001){
+   const bar=s.measures.from-1+Math.floor(cursor/s.beatsPerMeasure);
+   const beat=Number((cursor%s.beatsPerMeasure).toFixed(6));
+   const duration=Math.min(remaining,s.beatsPerMeasure-beat);
+   if(duration<=0)break;
+   taps.push({bar,beat,pitch:note.pitch,duration:Number(duration.toFixed(6)),
+     ...(first&&note.vibrato?{vibrato:true}:{})});
+   cursor+=duration;remaining-=duration;first=false;
+  }
+ }
+ melodyCaptureTaps.value=taps;
+ captureFeedback.value='Using '+pitchPreviewNotes.value.length+' reprocessed notes as the editable draft. The song score is unchanged until Apply.';
+}
+function restoreMicrophoneOriginal():void{
+ if(!pitchPreviewRangeMatches.value||capturePlaying.value||!originalMicrophoneTake.value.length)return;
+ melodyCaptureTaps.value=originalMicrophoneTake.value.map(n=>({...n}));
+ captureFeedback.value='Restored the original live microphone draft. The raw pitch timeline and score are unchanged.';
+}
+async function loadRawPitchJson(event:Event):Promise<void>{
+ const input=event.target as HTMLInputElement;
+ const file=input.files?.[0];input.value='';
+ if(!file||capturePlaying.value||microphoneListening.value||microphoneStarting.value)return;
+ try{
+  if(file.size>15000000)throw Error('File exceeds the 15 MB safety limit.');
+  const data=JSON.parse(await file.text()) as Record<string,unknown>;
+  const session=data as unknown as RawPitchSession;
+  if(data.format!=='tango-arranger-raw-pitch'||data.version!==1||session.mode!=='recording'||
+     !session.measures||!Number.isInteger(session.measures.from)||!Number.isInteger(session.measures.to)||
+     session.measures.from<1||session.measures.to<session.measures.from||
+     session.measures.to>project.value.bars.length||!projectInstruments(project.value).includes(session.instrument)||
+     session.beatsPerMeasure!==project.value.beats||!Number.isFinite(session.tempoBpm)||session.tempoBpm<=0||
+     !Number.isFinite(session.recordingSpeed)||session.recordingSpeed<=0||
+     !Number.isFinite(session.soundingTransposeSemitones)||!Number.isFinite(session.sampleRateHz)||
+     !Array.isArray(data.frames)||data.frames.length>rawPitchFrameLimit)throw Error('Invalid recording or incompatible song, instrument or measure range.');
+  const frames=data.frames as RawPitchFrame[];
+  if(!frames.every(f=>f&&Number.isFinite(f.timeSeconds)&&
+      (f.beat===null||Number.isFinite(f.beat))&&(f.midi===null||Number.isFinite(f.midi))&&
+      (f.clarity===null||Number.isFinite(f.clarity))&&Number.isFinite(f.levelDbfs)))
+    throw Error('Invalid pitch frames.');
+  stopPlayback();
+  rawPitchSession.value={mode:session.mode,instrument:session.instrument,tempoBpm:session.tempoBpm,
+   beatsPerMeasure:session.beatsPerMeasure,measures:{...session.measures},
+   sampleRateHz:session.sampleRateHz,sensitivityPercent:session.sensitivityPercent,
+   recordingTransposeSemitones:session.recordingTransposeSemitones,
+   songTransposeSemitones:session.songTransposeSemitones,
+   soundingTransposeSemitones:session.soundingTransposeSemitones,
+   recordingSpeed:session.recordingSpeed,latencyCorrectionMs:session.latencyCorrectionMs,
+   countInBeats:session.countInBeats};
+  rawPitchFrames.value=frames;rawPitchTruncated.value=data.truncated===true;
+  pitchRawRevision.value++;originalMicrophoneTake.value=[];pitchPreviewNotes.value=[];pitchPreviewFingerprint.value='';
+  selectRecordedPitchRange();reprocessPitchTake();
+  captureFeedback.value='Loaded the raw pitch timeline locally. Review the proposed notes; the current draft and score were not changed.';
+ }catch(error){captureFeedback.value='Could not load raw pitch JSON: '+String(error);}
+}
+
 const captureTakeCopyStatus=ref('');
 async function copyCaptureTake(){
   try{
@@ -1776,7 +1992,8 @@ function applyCapturedMelody(){
         if(alignVoice){Object.assign(note,lyricAssignments[appliedAlignmentIndex]??{});appliedAlignmentIndex++;}
         if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
         if(t.approachSlideFrom!==undefined||t.vibrato||t.gesture){
-          note.technique='arco';note.articulation='legato';
+          if(noteInst.value.startsWith('Violin'))note.technique='arco';
+          note.articulation='legato';
         }
         if(t.approachSlideFrom!==undefined)note.approachSlideFrom=t.approachSlideFrom;
         if(t.vibrato)note.vibrato=true;
@@ -2827,6 +3044,7 @@ async function testAudio(){
 async function play(origin:PlaybackOrigin){
   // Both play buttons always start a fresh pass. Stop is a separate control.
   stopPlayback();
+  audioStatus.value='Starting playback…';
   const session=noteLoopSession;
   const startMeasure=origin==='selected'?selectedBar.value:0;
   performanceBeat.value=startMeasure*project.value.beats;
@@ -2836,7 +3054,10 @@ async function play(origin:PlaybackOrigin){
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession)return;
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
-    await prepareSamples(projectInstruments(project.value));
+    // Network sample preloading must never block the transport. Notes use the
+    // synth fallback until optional samples are available.
+    if(audioEngine.value==='samples')void prepareSamples(projectInstruments(project.value))
+      .catch(error=>{sampleStatus.value='Sample loading failed: '+String(error);});
     if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
     let noteCount=0;
@@ -2865,7 +3086,11 @@ async function play(origin:PlaybackOrigin){
     audioStatus.value=`Playing from measure ${window.startMeasure+1} · ${noteCount} notes · ${Math.round(effectivePlaybackBpm.value)} BPM (${rehearsalSpeed.value}×) · audio context ${Tone.getContext().state}`;
     transport.scheduleOnce(()=>{if(session!==noteLoopSession)return;playing.value=false;playbackOrigin.value=null;audioStatus.value='Playback finished';transport.stop();synth?.releaseAll();},beatOffsetTicks((project.value.bars.length-startMeasure)*project.value.beats+0.25,transport.PPQ));
     transport.start();playing.value=true;playbackOrigin.value=origin;
-  }catch(error){message.value=`Playback unavailable: ${String(error)}`;stopPlayback();}
+  }catch(error){
+    stopPlayback();
+    audioStatus.value='Playback unavailable: '+String(error);
+    message.value=audioStatus.value;
+  }
 }
 // Contextual previews use the same audio transport as arrangement playback.
 // Lead-sheet preview plays piano chord voicings; map preview isolates one instrument.
@@ -4952,6 +5177,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span>Pitch data · <strong>{{rawPitchFrames.length}}</strong> frames</span>
         <button type="button" class="secondary" :disabled="microphoneListening||microphoneStarting||!rawPitchFrames.length" @click="copyRawPitch"><AppIcon name="copy"/> Copy pitch data</button>
         <button type="button" class="secondary" :disabled="microphoneListening||microphoneStarting||!rawPitchFrames.length" @click="saveRawPitch" title="Download pitch data as a JSON file"><AppIcon name="file-down"/> Save JSON file</button>
+        <label class="capture-pitch-import">Load raw pitch JSON <input type="file" accept=".json,application/json" :disabled="capturePlaying||microphoneListening||microphoneStarting" @change="loadRawPitchJson" aria-label="Load raw microphone pitch JSON"/></label>
         <details @toggle="rawPitchJsonOpen=($event.target as HTMLDetailsElement).open">
           <summary>JSON</summary>
           <textarea v-if="rawPitchJsonOpen&&!microphoneListening&&!microphoneStarting&&rawPitchFrames.length" readonly rows="10" :value="rawPitchExport" aria-label="Raw microphone pitch timeline JSON"></textarea>
@@ -4960,6 +5186,50 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <p v-if="rawPitchTruncated" class="hint">Frame limit reached. This export contains the first {{rawPitchFrameLimit}} frames.</p>
         <p v-if="rawPitchCopyStatus" class="capture-feedback" role="status">{{rawPitchCopyStatus}}</p>
       </div>
+
+      <details v-if="rawPitchSession?.mode==='recording'&&rawPitchFrames.length" class="capture-postprocess" open>
+        <summary>Reprocess recorded pitch · {{pitchPreviewNotes.length}} proposed notes</summary>
+        <p class="hint">The raw timeline stays unchanged. Try different settings, audition the proposal and correct note boundaries before using it as a draft. Count-in notes are excluded; opening rests are preserved.</p>
+        <div class="capture-settings-grid">
+          <label>Pitch estimate<select v-model="pitchProcessing.pitchMode" :disabled="microphoneListening||microphoneStarting"><option value="median">Median sustained pitch</option><option value="onset">Opening pitch</option></select></label>
+          <label>Pitch tuning bias · {{pitchProcessing.pitchBiasCents>=0?'+':''}}{{pitchProcessing.pitchBiasCents}} cents
+            <input type="range" min="-50" max="50" step="5" v-model.number="pitchProcessing.pitchBiasCents" :disabled="microphoneListening||microphoneStarting" aria-label="Pitch quantization tuning bias in cents"/>
+          </label>
+          <label>Note onset grid<select v-model.number="pitchProcessing.onsetGridBeats" :disabled="microphoneListening||microphoneStarting">
+            <option :value="0">Raw timing</option><option :value="1">Quarter</option><option :value="0.5">Eighth</option><option :value="0.25">Sixteenth</option><option :value="0.125">Thirty-second</option>
+          </select></label>
+          <label>Note duration grid<select v-model.number="pitchProcessing.durationGridBeats" :disabled="microphoneListening||microphoneStarting">
+            <option :value="0">Raw duration</option><option :value="1">Quarter</option><option :value="0.5">Eighth</option><option :value="0.25">Sixteenth</option><option :value="0.125">Thirty-second</option>
+          </select></label>
+          <label>Note separation<select v-model="pitchProcessing.separation" :disabled="microphoneListening||microphoneStarting">
+            <option value="sensitive">Sensitive · more attacks</option><option value="balanced">Balanced</option><option value="conservative">Conservative · fewer fragments</option>
+          </select></label>
+          <label class="capture-setting-check"><input type="checkbox" v-model="pitchProcessing.detectVibrato" :disabled="microphoneListening||microphoneStarting"/> Annotate likely vibrato</label>
+        </div>
+        <div class="live-capture-actions" role="group" aria-label="Pitch reprocessing actions">
+          <button type="button" class="secondary" :disabled="microphoneListening||microphoneStarting||capturePlaying" @click="reprocessPitchTake"><AppIcon name="refresh-cw"/> Reprocess with settings</button>
+          <button type="button" class="secondary" :disabled="capturePlaying||pitchPreviewStale||!pitchPreviewNotes.length" @click="auditionPitchPreview"><AppIcon name="play"/> Audition with rests</button>
+          <button type="button" class="primary" :disabled="capturePlaying||pitchPreviewStale||pitchPreviewOverlaps||!pitchPreviewNotes.length||!pitchPreviewRangeMatches" @click="usePitchPreviewAsDraft">Use preview as draft</button>
+          <button type="button" class="secondary" :disabled="capturePlaying||!originalMicrophoneTake.length||!pitchPreviewRangeMatches" @click="restoreMicrophoneOriginal">Restore original take</button>
+        </div>
+        <p v-if="pitchPreviewStale" class="capture-feedback" role="status">Settings or raw input changed. Press Reprocess to update this preview; the current draft is untouched.</p>
+        <p v-if="pitchPreviewOverlaps" class="capture-feedback" role="alert">Edited notes overlap. Adjust their timing before using this proposal.</p>
+        <p v-if="!pitchPreviewRangeMatches" class="capture-feedback" role="status">Recording belongs to a different instrument or measure range. <button type="button" class="secondary" :disabled="capturePlaying" @click="selectRecordedPitchRange">Select recorded instrument and measures</button></p>
+        <p v-if="pitchPostprocessStatus" class="hint" role="status">{{pitchPostprocessStatus}}</p>
+        <div v-if="!pitchPreviewStale&&pitchPreviewNotes.length" class="capture-postprocess-notes" aria-label="Editable proposed notes">
+          <div v-for="n in pitchPreviewDisplay" :key="n.index" class="capture-postprocess-note">
+            <button type="button" class="secondary" :disabled="capturePlaying" @click="auditionPitchPreviewNote(n)" :title="'Audition '+midiName(n.pitch)">
+              M{{n.measure}} · beat {{n.beat}} · <strong>{{midiName(n.pitch)}}</strong> · {{Number(n.durationBeats.toFixed(3))}} beats
+            </button>
+            <small>{{n.intonationCents>0?'+':''}}{{n.intonationCents}}¢ · {{n.supportFrames}} frames{{n.vibrato?' · vibrato?':''}}</small>
+            <button type="button" class="secondary" :disabled="capturePlaying" @click="editPitchPreviewNote(n.index)">Edit</button>
+            <button type="button" class="secondary" :disabled="capturePlaying||n.durationBeats<0.25" @click="splitPitchPreviewNote(n.index)">Split</button>
+            <button type="button" class="secondary" :disabled="capturePlaying" @click="togglePitchPreviewVibrato(n.index)">{{n.vibrato?'Unmark vibrato':'Mark vibrato'}}</button>
+            <button type="button" class="secondary" :disabled="capturePlaying" @click="removePitchPreviewNote(n.index)" :aria-label="'Remove proposed note '+(n.index+1)">×</button>
+          </div>
+        </div>
+        <p class="hint">Vibrato is an unverified suggestion from ~20 Hz pitch samples, not a sung-syllable detector. Repeated identical pitches may require Split; edit the reviewed draft before Apply to score. A new recording replaces the in-memory raw trace; save its JSON to keep it.</p>
+      </details>
       <div v-if="noteInst.startsWith('Voice')" class="capture-vocal-phrase" aria-label="Vocal phrase to melody">
         <label>Lyric phrase<select :value="vocalPhraseSelection" :disabled="capturePlaying||!vocalCapturePhrases.length" aria-label="Choose vocal phrase (sets recording measures)" @change="selectVocalCapturePhrase(($event.target as HTMLSelectElement).value)">
           <option value="" disabled>{{vocalCapturePhrases.length?'Select a lyric phrase':'No lyric phrases'}}</option>

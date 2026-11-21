@@ -1561,3 +1561,18 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  .capture-transport-extras{margin-left:auto}
  .capture-settings-menu{margin-left:0}
 }
+
+/* Non-destructive microphone postprocessing and note validation. */
+.capture-postprocess{margin:9px 0;padding:8px 10px;border:1px solid #3d5c6b;border-radius:9px;background:#162b37}
+.capture-postprocess>summary{cursor:pointer;font-weight:750;font-size:13px;color:#d9ebf5}
+.capture-postprocess[open]>summary{padding-bottom:7px;border-bottom:1px solid #3d5c6b}
+.capture-postprocess .capture-settings-grid{margin:9px 0}
+.capture-postprocess .live-capture-actions{display:flex;flex-wrap:wrap;gap:7px;margin:9px 0}
+.capture-postprocess-notes{max-height:420px;overflow-y:auto;border:1px solid #364f5d;border-radius:7px}
+.capture-postprocess-note{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:6px;border-bottom:1px solid #334c58}
+.capture-postprocess-note:last-child{border-bottom:0}
+.capture-postprocess-note>button:first-child{flex:1 1 230px;text-align:left}
+.capture-postprocess-note small{font-size:11px;color:#bad3e1;min-width:130px}
+.capture-pitch-import{display:inline-flex;align-items:center;gap:6px;font-size:12px;flex-wrap:wrap}
+.capture-pitch-import input{max-width:190px;font-size:11px}
+@media(max-width:600px){.capture-postprocess{padding:7px}.capture-postprocess-note>button:first-child{flex-basis:100%}.capture-pitch-import input{max-width:145px}}

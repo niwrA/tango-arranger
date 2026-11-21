@@ -21,7 +21,7 @@ check('Transport buttons are independent, accessible and share one component',()
  for(const icon of ["'metronome'","'count-in'","'repeat'","'record'"])assert.ok(icons.includes(icon),icon);
 });
 check('Play is audition only, record starts playback and captures',()=>{
- assert.ok(app.includes('async function startCaptureTransport(recording:boolean)'));
+ assert.ok(app.includes('async function startCaptureTransport(recording:boolean'));
  assert.ok(app.includes('void startCaptureTransport(false)'));
  assert.ok(app.includes('void startCaptureTransport(true)'));
  assert.ok(app.includes('captureRecording.value=recording'));

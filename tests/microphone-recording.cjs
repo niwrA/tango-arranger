@@ -10,7 +10,7 @@ const ast=ts.createSourceFile('App.ts',script,ts.ScriptTarget.ES2022,true,ts.Scr
 // Execute the production functions, not copies of their control flow. Only
 // browser/audio boundaries and Vue's ref/watch scheduling are simulated here.
 const functionNames=['stopPlayback','startCaptureTransport','recordFromMicrophone',
- 'stopMicrophoneCapture','finishMicrophoneNote','beginMelodyPassOnNote','captureGrid','captureElapsedBeats'];
+ 'stopMicrophoneCapture','finishMicrophoneNote','beginMelodyPassOnNote','captureGrid','captureElapsedBeats','reprocessPitchTake'];
 const stateNames=['capturePlaying','captureRecording','captureLoopEnabled','melodyCaptureTaps',
  'captureFrom','captureTo','captureLatency','captureMetronome','captureCountIn','captureCountingIn',
  'captureSpeed','captureTranspose','captureQuantize','captureTakeMode','captureRecordedPass',
@@ -20,8 +20,11 @@ const stateNames=['capturePlaying','captureRecording','captureLoopEnabled','melo
  'microphoneStatus','microphoneEstimate','microphoneSensitivity','microphoneInputDb',
  'microphoneMonitoring','microphoneListening','microphoneStarting','microphoneSessionShift',
  'microphoneThresholdDb','microphoneScoreShift','microphoneDisplayShift','microphoneStream',
- 'microphoneContext','microphoneFrame','microphoneActive','microphoneCandidate','microphoneGeneration',
- 'rawPitchFrameInterval','rawPitchFrameLimit','rawPitchFrames','rawPitchSession','rawPitchTruncated','rawPitchExport','rawPitchCopyStatus'];
+ 'microphoneContext','microphoneSource','microphoneAnalyser','microphoneSilentSink',
+ 'microphoneFrame','microphoneActive','microphoneCandidate','microphoneGeneration',
+ 'rawPitchFrameInterval','rawPitchFrameLimit','rawPitchFrames','rawPitchSession','rawPitchTruncated','rawPitchExport','rawPitchCopyStatus',
+ 'pitchProcessing','pitchPreviewNotes','originalMicrophoneTake','pitchRawRevision',
+ 'pitchPreviewFingerprint','pitchPostprocessStatus','pitchPreviewKey'];
 const extracted=[];
 const found=new Set();
 for(const statement of ast.statements){
@@ -59,6 +62,7 @@ const {measureLoopEvents}=loadModule('measureLoop');
 const {chordAt,chordTones}=loadModule('music');
 const {addCapturedTap}=loadModule('tapCapture');
 const {microphoneScoreMidi}=loadModule('microphoneTuner');
+const {reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS}=loadModule('pitchPostprocess');
 const ref=value=>({value});
 const computed=get=>({get value(){return get();}});
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
@@ -66,7 +70,7 @@ async function settle(){await Promise.resolve();await Promise.resolve();}
 
 function harness(){
  const permissions=[],unlocks=[],resumes=[],streams=[],contexts=[],frames=new Map(),watches=[];
- const expressive=[];let frameId=0,permissionCalls=0,unlockCalls=0;
+ const expressive=[];let frameId=0,permissionCalls=0,unlockCalls=0,sharedAudioContext=null;
  const transport={seconds:0,position:0,bpm:{value:120},repeats:[],once:[],starts:0,
   stop(){},cancel(){this.repeats=[];this.once=[];},start(){this.starts++;},
   scheduleRepeat(callback,interval,at){this.repeats.push({callback,interval,at});},
@@ -77,14 +81,21 @@ function harness(){
   triggerAttackRelease(pitch,duration,time,velocity){this.calls.push({pitch,duration,time,velocity});}
   releaseAll(){} triggerRelease(){}
  }
- const tone={Synth,PolySynth:Synth,getTransport:()=>transport,getContext:()=>({rawContext:{}}),
+ const tone={Synth,PolySynth:Synth,getTransport:()=>transport,getContext:()=>({rawContext:sharedAudioContext}),
   getDraw:()=>({schedule:callback=>callback()}),Frequency:pitch=>({toFrequency:()=>pitch})};
  const ctx={console,module:{exports:{}},ref,computed,watch:(target,callback)=>watches.push({target,callback}),
   project:ref({bars:[{chord:'C',section:'A'}],beats:4,bpm:120,transposeSemitones:0,melodyDucking:{enabled:false}}),
   active:ref('notes'),noteInst:ref('Voice'),noteEditorTab:ref('capture'),noteLoopFrom:ref(1),noteLoopTo:ref(1),
   score:ref({Voice:[]}),INSTRUMENTS:['Voice'],Tone:tone,
-  startAudioFromGesture:()=>{unlockCalls++;return unlocks.length?unlocks.shift():Promise.resolve(tone);},
+  startAudioFromGesture:()=>{
+   unlockCalls++;
+   if(!sharedAudioContext)sharedAudioContext=new ctx.AudioContext();
+   const resume=sharedAudioContext.state==='suspended'?sharedAudioContext.resume():Promise.resolve();
+   const loaded=unlocks.length?unlocks.shift():Promise.resolve(tone);
+   return Promise.all([loaded,resume]).then(([module])=>module);
+  },
   measureLoopEvents,chordAt,chordTones,addCapturedTap,microphoneScoreMidi,
+  reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS,
   playExpressiveEvent:(_audio,event,time)=>expressive.push({event,time}),
   detectMonophonicPitch:()=>ctx.estimate,
   estimate:{midi:69,frequency:440,clarity:0.99},sampleAmplitude:0.1,
@@ -101,11 +112,15 @@ function harness(){
   const stream={track,getTracks:()=>[track]};streams.push(stream);return stream;
  }
  ctx.AudioContext=class{
-  constructor(){this.sampleRate=48000;this.currentTime=100;this.closed=false;this.state=resumes.length?'suspended':'running';contexts.push(this);}
-  resume(){return resumes.length?resumes.shift():Promise.resolve();}
+  constructor(){
+   this.sampleRate=48000;this.currentTime=100;this.closed=false;
+   this.state=resumes.length?'suspended':'running';this.destination={};contexts.push(this);
+  }
+  async resume(){await (resumes.length?resumes.shift():Promise.resolve());this.state='running';}
   close(){this.closed=true;return Promise.resolve();}
-  createMediaStreamSource(){return {connect(){}};}
-  createAnalyser(){return {fftSize:4096,getFloatTimeDomainData:samples=>samples.fill(ctx.sampleAmplitude)};}
+  createMediaStreamSource(){return {connect(){},disconnect(){}};}
+  createAnalyser(){return {fftSize:4096,connect(){},disconnect(){},getFloatTimeDomainData:samples=>samples.fill(ctx.sampleAmplitude)};}
+  createGain(){return {gain:{value:1},connect(){},disconnect(){}};}
  };
  vm.runInNewContext(productionCode,ctx,{filename:'App.microphone-test.js'});
  const api=ctx.module.exports,state=api.state;
@@ -134,7 +149,7 @@ function harness(){
   assert.match(h.state().microphoneStatus.value,/permission denied/);
   assert.equal(h.state().microphoneStarting.value,false);
   assert.equal(h.state().microphoneListening.value,false);assert.equal(h.state().capturePlaying.value,false);
-  assert.equal(h.contexts.length,0);assert.equal(h.frames.size,0);
+  assert.equal(h.contexts.length,1);assert.equal(h.contexts[0].closed,false);assert.equal(h.frames.size,0);
  });
  await check('a second action cancels a pending permission request',async()=>{
   const h=harness(),permission=deferred();h.permissions.push(permission.promise);
@@ -169,7 +184,7 @@ function harness(){
   assert.equal(tested.track.stopped,true);assert.equal(h.state().microphoneMonitoring.value,false);
   assert.equal(h.state().captureRecording.value,true);assert.equal(h.state().microphoneListening.value,true);
   assert.equal(h.transport.starts,1);assert.equal(h.permissionCalls,2);
-  h.api.stopPlayback();assert.ok(h.contexts.every(context=>context.closed));assert.equal(h.frames.size,0);
+  h.api.stopPlayback();assert.ok(h.contexts.every(context=>!context.closed));assert.equal(h.frames.size,0);
  });
  await check('source and subtab changes cancel deferred transport startup',async()=>{
   for(const target of ['source','subtab']){
@@ -188,7 +203,7 @@ function harness(){
   const starting=h.api.recordFromMicrophone(true);await settle();
   assert.equal(h.contexts.length,1);assert.equal(h.state().microphoneListening.value,false);
   h.api.stopPlayback();resume.resolve();await starting;
-  assert.equal(h.contexts[0].closed,true);assert.equal(h.streams[0].track.stopped,true);
+  assert.equal(h.contexts[0].closed,false);assert.equal(h.streams[0].track.stopped,true);
   assert.equal(h.state().microphoneListening.value,false);assert.equal(h.frames.size,0);
  });
  await check('a canceled transport startup failure cannot stop a newer microphone test',async()=>{
@@ -284,7 +299,7 @@ function harness(){
   const permission=deferred();h.permissions.push(permission.promise);
   const deniedStart=h.api.recordFromMicrophone(true);h.api.stopPlayback();permission.resolve(h.makeStream());await deniedStart;
   assert.equal(h.state().rawPitchExport.value,previous);
-  const resume=deferred();h.resumes.push(resume.promise);
+  const resume=deferred();h.resumes.push(resume.promise);h.contexts[0].state='suspended';
   const cancelledStart=h.api.recordFromMicrophone(true);await settle();h.api.stopPlayback();resume.resolve();await cancelledStart;
   assert.equal(h.state().rawPitchExport.value,previous);
   await h.api.recordFromMicrophone(false);
