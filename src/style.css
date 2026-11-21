@@ -1219,10 +1219,6 @@ label{line-height:1.35}
   vertical-align:middle;
   flex-wrap:nowrap;
 }
-@media(max-width:650px){
-  .song-map-scroll .song-map .sticky-instrument,
-  .song-map-scroll .song-map tbody th.sticky-instrument{width:340px;min-width:340px;max-width:340px}
-}
 
 
 /* Desktop toolbar: one control height, aligned groups, predictable spacing. */
@@ -1423,6 +1419,46 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  }
  .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-row-preview{
   max-width:112px;gap:2px
+ }
+}
+
+/* Phone orchestration: keep the pinned column narrow enough to see measures.
+   Bound its contents as well: an auto-layout table can grow to their minimum
+   width even when the cells declare a smaller width. */
+@media(max-width:650px){
+ .song-map-scroll{--map-instrument-width:144px}
+ .song-map-scroll .song-map .sticky-instrument,
+ .song-map-scroll .song-map tbody th.sticky-instrument{
+  width:var(--map-instrument-width);min-width:var(--map-instrument-width);max-width:var(--map-instrument-width);
+  padding:5px;white-space:normal
+ }
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout{
+  grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
+  width:calc(var(--map-instrument-width) - 12px);max-width:100%;align-items:stretch
+ }
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-heading-button{
+  grid-column:1/-1;display:block;width:100%;min-width:0;max-width:100%;
+  height:auto;min-height:36px;padding:3px;white-space:normal;overflow-wrap:anywhere;
+  text-overflow:clip;font-size:11px;line-height:1.3
+ }
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-context-trigger{
+  width:100%;min-width:0;max-width:none;height:40px;min-height:40px
+ }
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-row-preview{
+  grid-column:2/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  width:100%;min-width:0;max-width:none;margin:0;gap:4px
+ }
+ .song-map-scroll .song-map tbody th.sticky-instrument .instrument-heading-layout .instrument-row-preview button{
+  width:100%;min-width:0;max-width:100%;height:40px;min-height:40px;
+  padding:3px 2px;overflow:hidden;text-overflow:ellipsis
+ }
+ /* Override the more specific legacy phone tabs, not just .tabs buttons. */
+ .layout>main .tabs.workspace-menu{
+  align-items:stretch;gap:3px;margin-left:0;margin-right:0;padding:4px
+ }
+ .layout>main .tabs.workspace-menu button{
+  flex:0 0 112px;min-width:0;max-width:112px;min-height:44px;
+  padding:6px 8px;white-space:normal;overflow-wrap:anywhere;line-height:1.25
  }
 }
 
