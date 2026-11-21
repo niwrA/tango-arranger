@@ -6,7 +6,7 @@ const {blankProject,generate,mergeScores,sectionSpans}=load('src/music.ts');
 const {duplicateProjectSection}=load('src/sectionDuplication.ts');
 const {
  ALL_MEASURE_FIELDS,copyMeasureRange,pasteMeasureRange,previewMeasurePaste,
- clearMeasureRange,insertBlankMeasures,deleteMeasureRange
+ clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasureMove,moveMeasureRange
 }=load('src/measureClipboard.ts');
 let checks=0;
 function check(title,fn){fn();checks++;console.log('PASS '+title);}
@@ -125,6 +125,65 @@ check('real Pequeña C can be duplicated as E and Voice melody copied into bando
  assert.ok(mergeScores(done,generate(done)).Voice.some(n=>n.start>=441));
  assert.equal(p.bars.length,130);
 });
+
+check('direct move overwrites destination and removes source notes without changing song length',()=>{
+ const p=example(),before=JSON.stringify(p);
+ const preview=previewMeasureMove(p,p.generatedScore,{start:4,end:5},['Voice'],partOnly,8,'overwrite');
+ assert.equal(preview.incomingNotes,2);
+ const next=moveMeasureRange(p,p.generatedScore,{start:4,end:5},['Voice'],partOnly,8,'overwrite');
+ assert.equal(next.bars.length,p.bars.length);
+ assert.deepEqual(next.generatedScore.Voice.filter(n=>n.start>=24&&n.start<30).map(n=>n.pitch),[69,70]);
+ assert.equal(next.generatedScore.Voice.some(n=>n.start>=12&&n.start<18),false);
+ assert.equal(next.importedScore.Voice.some(n=>n.start>=12&&n.start<18),false);
+ assert.equal(next.protectedBars['Voice:4'],true);
+ assert.equal(next.protectedBars['Voice:8'],true);
+ assert.equal(next.measureRoles['Voice:4'],'rest');
+ assert.equal(mergeScores(next,generate(next)).Voice.some(n=>n.start>=12&&n.start<18),false);
+ assert.equal(JSON.stringify(p),before);
+});
+check('moving chords and lead melody removes originals and copies into destination',()=>{
+ const p=example(),fields={chords:true,melody:true,notes:false,lyrics:true,settings:false};
+ const next=moveMeasureRange(p,p.generatedScore,{start:4,end:5},[],fields,8,'overwrite');
+ assert.equal(next.bars[4].chord,'');
+ assert.equal(next.bars[5].chord,'');
+ assert.equal(next.bars[4].melody.length,0);
+ assert.equal(next.bars[8].chord,'D,A7');
+ assert.equal(next.bars[8].melody[0].lyric,'paz');
+});
+check('insert move shifts subsequent music without deleting measures and protects empty original',()=>{
+ const p=example();
+ const next=moveMeasureRange(p,p.generatedScore,{start:4,end:5},['Voice'],partOnly,8,'insert');
+ assert.equal(next.bars.length,14);
+ assert.deepEqual(next.generatedScore.Voice.filter(n=>n.start>=24&&n.start<30).map(n=>n.pitch),[69,70]);
+ assert.equal(next.generatedScore.Voice.find(n=>n.pitch===71).start,30);
+ assert.equal(mergeScores(next,generate(next)).Voice.some(n=>n.start>=12&&n.start<18),false);
+});
+check('overlapping same-instrument move is safely rejected without mutation',()=>{
+ const p=example(),original=JSON.stringify(p);
+ assert.throws(()=>previewMeasureMove(p,p.generatedScore,{start:4,end:5},['Voice'],partOnly,5,'overwrite'),/overlaps its source/);
+ assert.throws(()=>moveMeasureRange(p,p.generatedScore,{start:4,end:5},['Voice'],partOnly,5,'overwrite'),/overlaps its source/);
+ assert.equal(JSON.stringify(p),original);
+});
+check('Pequeña E source 131–163 cannot overwrite at 147 and gives a clear range error',()=>{
+ const p=JSON.parse(fs.readFileSync('src/presets/pequena-2.json','utf8'));
+ const e=duplicateProjectSection(p,2).project;
+ const clip=copyMeasureRange(e,mergeScores(e,e.generatedScore),{start:130,end:162},['Voice'],partOnly);
+ assert.throws(()=>previewMeasurePaste(e,mergeScores(e,e.generatedScore),clip,146,'overwrite',partOnly),/do not fit/);
+ assert.equal(clip.count,33);
+ assert.equal(e.bars.length,163);
+});
+check('taskbar workflow keeps manually typed destination when copying and supplies inline feedback',()=>{
+ const app=fs.readFileSync('src/App.vue','utf8');
+ const start=app.indexOf('function copySelectedMeasures(){');
+ const stop=app.indexOf('function previewMeasureOperation(',start);
+ assert.ok(start>=0&&stop>start);
+ const body=app.slice(start,stop);
+ assert.ok(!body.includes('measurePasteAt.value='),'Copy selected must not rewrite manually entered destination');
+ for(const fragment of ['measure-tools-backdrop','measure-tools-dialog','measure-tools-validation','measure-tools-feedback','Preview move','Confirm {{measurePending}}','topbar-measure-tools','File · Current song','Import / Export','moveMeasureRange('])
+  assert.ok(app.includes(fragment),fragment);
+ assert.ok(!app.includes('<section v-if="['+"'lead','arrange','rhythm','notes'"+'].includes(active)" class="measure-edit-shell"'),'Measure editing should not occupy full page');
+});
+
 const app=fs.readFileSync('src/App.vue','utf8'),css=fs.readFileSync('src/style.css','utf8');
 check('shared toolbar exposed across workspaces with long-hold anchor and preview actions',()=>{
  for(const fragment of ['measure-edit-shell','beginMeasureHold(measure)','onMeasureRangeTap(i,$event)','onMeasureRangeTap(span.start+offset-1,$event)','startNoteMeasureRangeHold(barIndex)','previewMeasureOperation','applyMeasureOperation','measurePasteTarget'])assert.ok(app.includes(fragment),fragment);
