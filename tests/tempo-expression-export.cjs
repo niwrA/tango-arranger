@@ -15,6 +15,7 @@ function test(name,fn){fn();checked++;console.log('PASS '+name);}
 async function check(name,fn){await fn();checked++;console.log('PASS '+name);}
 function project(){
  const p=blankProject({sections:2,measuresPerSection:[3,4],beats:3,title:'Rubato test',bpm:120});
+ p.instruments=projectInstruments(p);
  p.tempoExpressions={
   ritardandos:[{startMeasure:3,endMeasure:5,toPercent:60}],
   fermatas:[{measure:5,instrument:'Voice',stretch:2,waitForCue:true}],
