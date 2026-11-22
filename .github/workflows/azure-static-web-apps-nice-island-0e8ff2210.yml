@@ -48,6 +48,9 @@ jobs:
       - name: Test virtualized note grid and follow-scrolling
         run: node tests/note-grid-virtualization.cjs
 
+      - name: Test phone header and section action layout
+        run: node tests/phone-section-layout.cjs
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 

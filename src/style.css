@@ -1671,3 +1671,104 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .expressive-timing-marks button{min-height:30px}
 .singer-cue-continue{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;min-height:38px}
 @media(max-width:600px){.expressive-timing-grid>label{flex:1 1 calc(50% - 10px)}.expressive-timing-grid>button{flex:1 1 auto}}
+
+
+/* Phone header and section cards: keep all actions inside the viewport. */
+@media(max-width:760px){
+  /* A two-row header avoids the orphaned More button shown on iPhone. The
+     transport stays on its own row; song, File, Measures and More share one
+     row without depending on flex-wrap or the obsolete three-row grid. */
+  .shell:not(.performance-live)>.app-topbar{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto auto auto!important;
+    grid-template-areas:"playback playback playback playback" "song files measures more"!important;
+    gap:5px!important;
+    padding:6px 8px 8px!important;
+    align-items:center!important;
+    width:100%;max-width:100%;min-width:0;
+    box-sizing:border-box
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-playback{
+    grid-area:playback!important;
+    width:100%!important;min-width:0;
+    padding:0!important;margin:0!important;
+    border:0!important;
+    justify-content:flex-start!important;
+    overflow:visible
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-song{
+    grid-area:song!important;
+    flex:initial!important;width:100%!important;min-width:0!important;
+    padding:0!important;margin:0!important;border:0!important;
+    gap:5px
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-song .header-song-picker{
+    width:0!important;min-width:0!important;max-width:100%!important;
+    flex:1 1 0!important;text-overflow:ellipsis
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-song .topbar-song-label{
+    display:none!important
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-files{
+    grid-area:files!important;
+    order:initial!important;margin:0!important;padding:0!important;
+    min-width:0;justify-self:end
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-measure-tools{
+    grid-area:measures!important;
+    order:initial!important;margin:0!important;padding:0!important;
+    min-width:0;justify-self:end
+  }
+  .shell:not(.performance-live)>.app-topbar>.topbar-compact-actions{
+    grid-area:more!important;
+    order:initial!important;display:flex;justify-self:end;
+    margin:0!important;padding:0!important;min-width:0
+  }
+  .shell:not(.performance-live)>.app-topbar .topbar-group{
+    box-sizing:border-box
+  }
+  /* Section actions are genuine two-column buttons, not a clipped single row.
+     Keep the section header and key selector within the card. */
+  .lead-sections .lead-section{min-width:0;max-width:100%}
+  .lead-sections .lead-section-heading{
+    display:grid!important;grid-template-columns:minmax(0,1fr);
+    align-items:start;gap:8px;padding:10px;min-width:0;box-sizing:border-box
+  }
+  .lead-sections .lead-section-title{min-width:0;max-width:100%;gap:6px}
+  .lead-sections .lead-section-select{min-width:0;max-width:100%;white-space:normal}
+  .lead-sections .lead-section-select>span{min-width:0}
+  .lead-sections .lead-section-actions{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));
+    align-items:stretch;gap:6px;width:100%;max-width:100%;min-width:0;
+    margin:0!important;padding:0
+  }
+  .lead-sections .lead-section-actions>.lead-section-start-control{
+    grid-column:1/-1;display:flex;align-items:center;gap:8px;
+    min-width:0;max-width:100%;white-space:normal;margin:0
+  }
+  .lead-sections .lead-section-actions>.lead-section-start-control input{
+    flex:0 0 72px;min-width:60px;max-width:80px;width:72px;
+    box-sizing:border-box
+  }
+  .lead-sections .lead-section-actions>.lead-section-copy{
+    width:100%;max-width:100%;min-width:0;min-height:42px;
+    display:inline-flex;align-items:center;justify-content:center;
+    white-space:normal;overflow-wrap:anywhere;text-align:center;
+    box-sizing:border-box;padding:7px 8px
+  }
+  .lead-sections .lead-section-heading>.lead-key-label{
+    width:100%;min-width:0;max-width:100%;margin:0
+  }
+  .lead-sections .lead-section-heading>.lead-key-label select{
+    width:100%;min-width:0;max-width:100%;box-sizing:border-box
+  }
+}
+@media(max-width:380px){
+  .shell:not(.performance-live)>.app-topbar{
+    grid-template-columns:minmax(0,1fr) 40px 40px 40px!important;
+    column-gap:4px!important
+  }
+  .shell:not(.performance-live)>.app-topbar .topbar-playback{
+    gap:2px!important
+  }
+}
