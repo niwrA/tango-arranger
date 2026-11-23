@@ -96,6 +96,14 @@ function detection(pitch,startBeat,durationBeats=.5){
  assert.equal(measures[2].detected.some(s=>s.row===1),false);
  assert.equal(feedbackStatus(rows[3]),'missed');
 }
+{
+ const {practiceRecordingPulse:pulse}=load('src/practiceRecordingPulse.ts');
+ assert.deepEqual(pulse(-3,3,6,33),{phase:'count-in',measure:null,beat:1,progress:0});
+ assert.deepEqual(pulse(-.25,3,6,33),{phase:'count-in',measure:null,beat:3,progress:.75});
+ assert.deepEqual(pulse(0,3,6,33),{phase:'recording',measure:33,beat:1,progress:0});
+ assert.deepEqual(pulse(3.5,3,6,33),{phase:'recording',measure:34,beat:1,progress:.5});
+ assert.equal(pulse(6,3,6,33).phase,'finish');
+}
 const {practiceTargets}=load('src/practiceTargets.ts');
 const bass={pitch:48,start:0,duration:1};
 const middle={pitch:55,start:0,duration:1};

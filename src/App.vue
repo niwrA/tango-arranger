@@ -5584,6 +5584,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="arrow-left"/> Performance</button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
          </div>
+         <div v-if="instrumentLearnMode" id="practice-recording-beat" class="instrument-focus-recording-beat"></div>
        </header>
        <div v-if="!instrumentLearnMode" class="instrument-focus-status" aria-live="off">
          <span>Measure <strong>{{performanceBar+1}}</strong> / {{project.bars.length}}</span>
@@ -7604,6 +7605,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 .instrument-focus-panel{min-height:100%;display:flex;flex-direction:column;gap:clamp(8px,1.5dvh,18px);padding:clamp(10px,2vw,25px);box-sizing:border-box;color:#e6eff5}
 .instrument-focus-header{position:sticky;top:env(safe-area-inset-top);z-index:10;background:#101f2b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.instrument-focus-recording-beat{flex:1 0 100%;min-width:0}
+.instrument-focus-recording-beat:empty{display:none}
 .instrument-focus-title{min-width:0;flex:1 1 200px}
 .instrument-focus-title small{font-size:12px;color:#bed0db;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .instrument-focus-title h2{font-size:clamp(25px,3vw,42px);margin:3px 0 0;line-height:1.1;color:#ffe0ac}

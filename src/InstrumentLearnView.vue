@@ -14,6 +14,8 @@ import {practiceTargets,type ChordTarget,type PracticeStaff} from './practiceTar
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import PracticeTakeTimeline from './PracticeTakeTimeline.vue';
+import PracticeRecordingBeat from './PracticeRecordingBeat.vue';
+import type {PracticeRecordingClock} from './practiceRecordingPulse';
 
 const props=defineProps<{
  instrument:Instrument;songTitle:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
@@ -119,13 +121,7 @@ const takeClockAdjusted=computed(()=>Boolean(takeResult.value&&(
 function exportTake(){
  if(takeExport.value)download(JSON.stringify(takeExport.value,null,2),'tango-arranger-practice-take.json','application/json');
 }
-const takeStatus=computed(()=>{
- const beat=takeBeat.value;
- if(beat===null)return '';
- if(beat<0)return `Count-in · ${Math.floor(beat+props.beatsPerMeasure)+1} / ${props.beatsPerMeasure}`;
- if(beat>=(to.value-from.value+1)*props.beatsPerMeasure)return 'Finishing recording';
- return `Recording · measure ${from.value+Math.floor(beat/props.beatsPerMeasure)} · beat ${Math.floor(beat%props.beatsPerMeasure)+1}`;
-});
+const recordingClock=shallowRef<PracticeRecordingClock|null>(null);
 const takeSummary=computed(()=>{
  const counts={correct:0,wrong:0,missed:0,extra:0,'unresolved-repeat':0};
  for(const row of takeResult.value?.rows??[]){
@@ -229,7 +225,7 @@ async function listenToNotes(){
   demoTimer=setTimeout(stopDemo,100+(rangeEnd-rangeStart)*secondsPerBeat*1000);
  }catch(error){stopDemo();micStatus.value='Could not play the exercise: '+String(error);}
 }
-function cancelTake(){take=null;takeBeat.value=null;}
+function cancelTake(){take=null;takeBeat.value=null;recordingClock.value=null;}
 async function startTake(){
  if(take){cancelTake();restart();return;}
  if(!targets.value.length||!microphoneSupported.value||busy.value||demoPlaying.value)return;
@@ -239,6 +235,7 @@ async function startTake(){
  restart();
  take={startMs:performance.now()+msPerBeat*props.beatsPerMeasure,msPerBeat,
   totalBeats:(to.value-from.value+1)*props.beatsPerMeasure,frames:[],targetIndex:0};
+ recordingClock.value={startMs:take.startMs,msPerBeat,totalBeats:take.totalBeats};
  takeBeat.value=-props.beatsPerMeasure;
 }
 function finishTake(analysisHalfWindowMs:number){
@@ -424,7 +421,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   </div>
   <p v-if="family==='Voice'" class="learn-mic-instructions">{{allowAnyOctave?'Sing the written note in any octave.':'Sing each note in its written octave.'}}</p>
   <p v-else-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
-  <p v-if="takeStatus" class="learn-take-status" role="status">{{takeStatus}} · {{Math.round(bpm)}} BPM</p>
+  <Teleport v-if="recordingClock" to="#practice-recording-beat">
+   <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
+  </Teleport>
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
@@ -580,7 +579,6 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-navigation{justify-content:center}
 .learn-mic-instructions{margin:0;text-align:center;font-size:12px;color:#b7cbd8}
 .learn-target .learn-companion-notes{max-width:100%;overflow-wrap:anywhere;color:#aebfcd}
-.learn-take-status{margin:0;text-align:center;font-weight:650;color:#f4d49e}
 .learn-feedback{min-width:0;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
 .learn-feedback-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px}
 .learn-feedback-actions h3{margin-right:auto}
