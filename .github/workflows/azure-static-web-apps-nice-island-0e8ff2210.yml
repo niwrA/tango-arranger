@@ -75,8 +75,12 @@ jobs:
       - name: Test MusicXML parsing, score alignment and protected merges
         run: npm run test:alignment
 
+      - name: Test Home Screen update detection
+        run: node tests/app-update.cjs
+
       - name: Verify production output
         run: |
+          grep -Fq '<meta name="tango-build" content="${{ github.sha }}">' dist/index.html
           test -f dist/index.html
           test -d dist/assets
           if grep -q '/src/main.ts' dist/index.html; then

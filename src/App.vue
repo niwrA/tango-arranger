@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
+import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
 const ScorePreview=defineAsyncComponent(()=>import('./ScorePreview.vue'));
@@ -35,7 +36,8 @@ let Tone:typeof import('tone');
 import {version as appVersion} from '../package.json';
 // A release version changes only when package.json is updated. Identify each
 // deployed build separately so users can verify which commit is running.
-const appBuildId=(import.meta.env.VITE_APP_BUILD_SHA||'').slice(0,7);
+const runningAppBuild=import.meta.env.VITE_APP_BUILD_SHA||'';
+const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
@@ -849,9 +851,68 @@ function loadSelectedRoster(){const preset=rosterPresets.value.find(p=>p.name===
 function deleteSelectedRoster(){try{rosterPresets.value=removeRosterPreset(rosterPresetSelection.value);rosterPresetSelection.value='';}catch(e){message.value=String(e);}}
 function makeRosterDefault(){try{setDefaultRoster(projectInstruments(project.value));message.value='Current roster is now the default for new songs.';}catch(e){message.value=String(e);}}
 
+const availableAppBuild=ref('');
+const reloadingApp=ref(false);
+const updateError=ref('');
+let appUpdateRequest:AbortController|undefined;
+let appUpdateTimer:ReturnType<typeof setInterval>|undefined;
+const appUpdateBusy=computed(()=>instrumentLearnMode.value||playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||
+ Boolean(rhythmAuditionPlaying.value)||capturePlaying.value||captureRecording.value||
+ microphoneStarting.value||microphoneListening.value);
+async function checkAppUpdate(){
+ if(!runningAppBuild||document.visibilityState!=='visible'||appUpdateRequest||reloadingApp.value)return;
+ const request=new AbortController();
+ appUpdateRequest=request;
+ const timeout=setTimeout(()=>request.abort(),8000);
+ try{
+  const build=await fetchAppBuild(new URL(import.meta.env.BASE_URL,window.location.href),request.signal);
+  if(build&&!request.signal.aborted)availableAppBuild.value=build===runningAppBuild?'':build;
+ }catch{/* Offline or temporarily unavailable. The next foreground check retries. */}
+ finally{
+  clearTimeout(timeout);
+  if(appUpdateRequest===request)appUpdateRequest=undefined;
+ }
+}
+async function applyAppUpdate(){
+ if(!availableAppBuild.value||!libraryReady.value||appUpdateBusy.value||reloadingApp.value)return;
+ reloadingApp.value=true;
+ updateError.value='';
+ const version=editVersion,build=availableAppBuild.value;
+ try{
+  await flushAutosave();
+  if(appUpdateBusy.value||version!==editVersion){
+   updateError.value='Playback or editing resumed. Reload when ready.';
+   reloadingApp.value=false;
+   return;
+  }
+  const url=appUpdateUrl(window.location.href,build);
+  window.location.replace(url.href);
+ }catch{
+  updateError.value='Could not save the current song. Try again after autosave succeeds.';
+  reloadingApp.value=false;
+ }
+}
+onMounted(()=>{
+ const cleanUrl=cleanAppUpdateUrl(window.location.href,runningAppBuild);
+ if(cleanUrl)window.history.replaceState(window.history.state,'',cleanUrl.href);
+ if(!runningAppBuild)return;
+ window.addEventListener('pageshow',checkAppUpdate);
+ window.addEventListener('online',checkAppUpdate);
+ appUpdateTimer=setInterval(checkAppUpdate,5*60*1000);
+ void checkAppUpdate();
+});
+onBeforeUnmount(()=>{
+ clearInterval(appUpdateTimer);
+ appUpdateRequest?.abort();
+ window.removeEventListener('pageshow',checkAppUpdate);
+ window.removeEventListener('online',checkAppUpdate);
+});
 function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
 onMounted(()=>{document.addEventListener('fullscreenchange',onPerformanceFullscreenChange);window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);window.addEventListener('resize',refreshNoteGridViewportOnResize);void nextTick(()=>refreshNoteGridViewport(false));});
-function saveIfHidden(){if(document.visibilityState==='hidden')saveOnLeave();}
+function saveIfHidden(){
+ if(document.visibilityState==='hidden')saveOnLeave();
+ else void checkAppUpdate();
+}
 onBeforeUnmount(()=>{document.removeEventListener('fullscreenchange',onPerformanceFullscreenChange);window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);window.removeEventListener('resize',refreshNoteGridViewportOnResize);if(noteGridScrollFrame)cancelAnimationFrame(noteGridScrollFrame);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
@@ -5387,6 +5448,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
   </div>
 </header>
+<div v-if="availableAppBuild&&(!performanceMode||!appUpdateBusy)&&!(active==='notes'&&noteEditorTab==='capture')" class="topbar-status app-update-banner">
+  <span role="status">{{updateError||(appUpdateBusy?'Update available after playback or recording.':'A new version of Tango Arranger is available.')}}</span>
+  <button type="button" class="secondary" :disabled="!libraryReady||appUpdateBusy||reloadingApp" @click="applyAppUpdate">{{reloadingApp?'Saving…':'Save song &amp; reload'}}</button>
+</div>
 <div v-if="statusVisible && !statusDismissed && !performanceMode && actionableError" class="topbar-status topbar-error-only" role="alert" aria-live="assertive"><span class="topbar-status-text">{{message}}</span><button type="button" class="topbar-status-close" title="Dismiss status message" aria-label="Dismiss status message" @click="statusDismissed=true;statusVisible=false"><AppIcon name="x"/></button></div>
 <div v-if="projectDrawerOpen" class="app-modal-backdrop" @click.self="closeSongSettings" @keydown.esc.stop.prevent="closeSongSettings" @keydown.tab="trapModalTab">
   <section id="song-settings-modal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="song-settings-title">
