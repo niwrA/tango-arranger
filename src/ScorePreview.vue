@@ -9,74 +9,86 @@ const props=defineProps<{
   score:Score;
   instrument:Instrument;
   fromMeasure:number;
+  toMeasure:number;
 }>();
 
 const host=ref<HTMLElement|null>(null);
-const firstMeasure=ref(1);
-const measureCount=ref(4);
-const loading=ref(false);
+const loading=ref(true);
 const error=ref('');
 const displayedRange=computed(()=>{
   const total=Math.max(1,props.project.bars.length);
-  const first=Math.max(1,Math.min(total,Math.round(firstMeasure.value)));
-  const last=Math.min(total,first+measureCount.value-1);
-  return {first,last,total};
+  const first=Math.max(1,Math.min(total,props.fromMeasure));
+  const last=Math.max(first,Math.min(total,props.toMeasure));
+  return {first,last};
 });
 
 let osmd:OpenSheetMusicDisplay|undefined;
 let resizeObserver:ResizeObserver|undefined;
 let contentTimer:ReturnType<typeof setTimeout>|undefined;
-let resizeTimer:ReturnType<typeof setTimeout>|undefined;
+let layoutTimer:ReturnType<typeof setTimeout>|undefined;
+let layoutFrame=0;
 let generation=0;
+let loaded=false;
+let observedWidth=0;
 
-function setDrawRange(){
-  if(!osmd)return;
+function renderRange(){
+  const renderer=osmd;
+  if(!renderer||!loaded)return;
+  cancelAnimationFrame(layoutFrame);
   const {first,last}=displayedRange.value;
-  osmd.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last});
-  osmd.render();
+  renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last});
+  renderer.resetIncrementalRendering();
+  loading.value=true;
+  error.value='';
+  const draw=()=>{
+    try{
+      if(last-first<12)renderer.render();
+      else if(!renderer.renderNext({measures:12}).done){
+        layoutFrame=requestAnimationFrame(draw);
+        return;
+      }
+    }catch(cause){error.value=`Could not render this part: ${String(cause)}`;}
+    loading.value=false;
+  };
+  draw();
 }
 
-async function renderScore(loadMusicXml:boolean){
-  if(!osmd||!host.value)return;
+async function reloadScore(){
+  const renderer=osmd;
+  if(!renderer)return;
   const current=++generation;
+  cancelAnimationFrame(layoutFrame);
+  loaded=false;
   loading.value=true;
   error.value='';
   try{
-    const {first,last}=displayedRange.value;
-    osmd.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last});
-    if(loadMusicXml){
-      const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument});
-      await osmd.load(xml);
-      if(current!==generation)return;
-    }
-    osmd.render();
+    const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument});
+    await renderer.load(xml);
+    if(current!==generation)return;
+    loaded=true;
+    renderRange();
   }catch(cause){
-    if(current===generation)error.value=`Could not render this part: ${String(cause)}`;
-  }finally{
-    if(current===generation)loading.value=false;
+    if(current!==generation)return;
+    error.value=`Could not load this part: ${String(cause)}`;
+    loading.value=false;
   }
 }
 
 function scheduleContentRender(){
   if(contentTimer)clearTimeout(contentTimer);
-  contentTimer=setTimeout(()=>{void renderScore(true);},180);
+  contentTimer=setTimeout(()=>{contentTimer=undefined;void reloadScore();},180);
 }
 
-watch(()=>props.fromMeasure,(measure)=>{
-  firstMeasure.value=Math.min(Math.max(1,props.project.bars.length),measure+1);
-});
-watch(()=>props.project.bars.length,(length)=>{
-  firstMeasure.value=Math.min(Math.max(1,length),firstMeasure.value);
-  scheduleContentRender();
-});
+function scheduleLayout(){
+  clearTimeout(layoutTimer);
+  layoutTimer=setTimeout(()=>{if(!contentTimer)renderRange();},140);
+}
+
 watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{deep:true});
-watch([firstMeasure,measureCount],()=>{
-  if(osmd)try{setDrawRange();}catch(cause){error.value=`Could not update the measure window: ${String(cause)}`;}
-});
+watch(displayedRange,scheduleLayout);
 
 onMounted(()=>{
   if(!host.value)return;
-  firstMeasure.value=Math.min(Math.max(1,props.project.bars.length),props.fromMeasure+1);
   osmd=new OpenSheetMusicDisplay(host.value,{
     autoResize:false,
     backend:'svg',
@@ -85,23 +97,24 @@ onMounted(()=>{
     drawCredits:false,
     drawPartNames:false,
     drawMeasureNumbers:true,
-    drawFromMeasureNumber:displayedRange.value.first,
-    drawUpToMeasureNumber:displayedRange.value.last,
+    disableCursor:true,
   });
-  resizeObserver=new ResizeObserver(()=>{
-    if(resizeTimer)clearTimeout(resizeTimer);
-    resizeTimer=setTimeout(()=>{
-      try{osmd?.render();}catch(cause){error.value=`Could not resize the score: ${String(cause)}`;}
-    },140);
+  observedWidth=host.value.clientWidth;
+  resizeObserver=new ResizeObserver(([entry])=>{
+    const width=Math.round(entry.contentRect.width);
+    if(width<=0||width===observedWidth)return;
+    observedWidth=width;
+    scheduleLayout();
   });
   resizeObserver.observe(host.value);
-  void renderScore(true);
+  void reloadScore();
 });
 
 onBeforeUnmount(()=>{
   generation++;
   if(contentTimer)clearTimeout(contentTimer);
-  if(resizeTimer)clearTimeout(resizeTimer);
+  if(layoutTimer)clearTimeout(layoutTimer);
+  cancelAnimationFrame(layoutFrame);
   resizeObserver?.disconnect();
   osmd?.dispose();
   osmd=undefined;
@@ -110,24 +123,7 @@ onBeforeUnmount(()=>{
 
 <template>
   <section class="score-preview editor" aria-label="Read-only staff notation preview">
-    <div class="score-preview-heading">
-      <div>
-        <h3>Staff notation · {{instrument}}</h3>
-        <p class="hint">Read-only preview from the current MusicXML export. Notes are edited in the piano roll.</p>
-      </div>
-      <div class="score-preview-controls">
-        <label>From measure
-          <input v-model.number="firstMeasure" type="number" min="1" :max="displayedRange.total" />
-        </label>
-        <label>Measures
-          <select v-model.number="measureCount" aria-label="Number of measures in score preview">
-            <option v-for="count in [1,2,3,4]" :key="count" :value="count">{{count}}</option>
-          </select>
-        </label>
-        <span class="hint">Showing {{displayedRange.first}}–{{displayedRange.last}} of {{displayedRange.total}}</span>
-      </div>
-    </div>
-    <p v-if="loading" class="hint" role="status">Engraving score…</p>
+    <p v-if="loading" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
     <div ref="host" class="score-preview-canvas" :aria-busy="loading" />
   </section>
@@ -135,15 +131,9 @@ onBeforeUnmount(()=>{
 
 <style scoped>
 .score-preview{margin:6px 0;padding:12px;background:#f8fafc;color:#18222c;border:1px solid #b9c7d3;border-radius:10px;overflow:hidden}
-.score-preview-heading,.score-preview-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.score-preview-heading h3{margin:0 0 3px;font-size:1rem}
-.score-preview-heading p{margin:0}
-.score-preview-controls{justify-content:flex-start}
-.score-preview-controls label{display:flex;align-items:center;gap:6px;font-size:.85rem}
-.score-preview-controls input{width:5.5rem}
-.score-preview-controls select{width:4.5rem}
-.score-preview-canvas{min-height:92px;margin-top:10px;overflow-x:auto;overflow-y:hidden}
+.score-preview-status{margin:0 0 6px}
+.score-preview-canvas{min-height:92px;overflow-x:auto}
 .score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto}
 .score-preview-error{color:#a32828}
-@media(max-width:640px){.score-preview{padding:8px}.score-preview-heading{align-items:flex-start}.score-preview-canvas{margin-inline:-4px}}
+@media(max-width:640px){.score-preview{padding:8px}.score-preview-canvas{margin-inline:-4px}}
 </style>

@@ -3,12 +3,14 @@ import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import type {Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,sensitivityThresholdDb} from './learnPitch';
+import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
+import {compareLearnTake,type LearnTakeRow} from './learnTake';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 
 const props=defineProps<{
  instrument:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
- initialMeasure:number;concertTranspose:number;referenceHz:number;
+ initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;
 }>();
 const emit=defineEmits<{(event:'exit'):void}>();
 const from=ref(props.initialMeasure);
@@ -21,6 +23,7 @@ const settingsOpen=ref(false);
 const tolerance=ref(20);
 const holdMs=ref(400);
 const autoAdvance=ref(true);
+const autoRepeat=ref(true);
 const layout=ref<'notes'|'diagram'|'both'>('both');
 const cursor=ref(0);
 const micStatus=ref('Microphone off');
@@ -41,6 +44,27 @@ const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.ro
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
+const takeLeadInBeats=0.75;
+const takeReleaseBeats=1;
+const upcoming=computed(()=>targets.value.slice(cursor.value+1,cursor.value+4));
+const demoPlaying=ref(false);
+const takeBeat=ref<number|null>(null);
+const takeResult=ref<LearnTakeRow[]|null>(null);
+const takeStatus=computed(()=>{
+ const beat=takeBeat.value;
+ if(beat===null)return '';
+ if(beat<0)return `Count-in · ${Math.floor(beat+props.beatsPerMeasure)+1} / ${props.beatsPerMeasure}`;
+ if(beat>=(to.value-from.value+1)*props.beatsPerMeasure)return 'Finishing recording';
+ return `Recording · measure ${from.value+Math.floor(beat/props.beatsPerMeasure)} · beat ${Math.floor(beat%props.beatsPerMeasure)+1}`;
+});
+const takeSummary=computed(()=>{
+ const counts={correct:0,wrong:0,missed:0,extra:0};
+ for(const row of takeResult.value??[]){
+  if(row.kind==='matched')counts[row.target.pitch===row.played.pitch?'correct':'wrong']++;
+  else counts[row.kind]++;
+ }
+ return counts;
+});
 function pitchLabel(midi:number){
  const labels=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
  const p=Math.round(midi);
@@ -49,11 +73,9 @@ function pitchLabel(midi:number){
 function setRange(start:number,end:number){
  const first=Math.max(1,Math.min(props.totalMeasures,Math.round(start)||1));
  const last=Math.max(first,Math.min(props.totalMeasures,Math.round(end)||first));
- from.value=first;to.value=last;cursor.value=0;
- accepted.value=false;stableSince=0;armed=true;
+ from.value=first;to.value=last;
 }
 watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;setRange(from.value,to.value);});
-watch(targets,()=>{cursor.value=0;accepted.value=false;stableSince=0;armed=true;});
 let stream:MediaStream|null=null;
 let audio:AudioContext|null=null;
 let source:MediaStreamAudioSourceNode|null=null;
@@ -64,14 +86,106 @@ let generation=0;
 let stableSince=0;
 let armed=true;
 let lastAnalyzed=0;
+let repeatTimer:ReturnType<typeof setTimeout>|undefined;
+let demoAudio:AudioContext|null=null;
+let demoTimer:ReturnType<typeof setTimeout>|undefined;
+let demoTailUntil=0;
+let take:{startMs:number;msPerBeat:number;totalBeats:number;frames:PitchFrame[];targetIndex:number}|null=null;
+
+watch([targets,()=>props.referenceHz,()=>props.concertTranspose,()=>props.bpm],()=>{
+ stopDemo();cancelTake();takeResult.value=null;restart();
+});
+watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
+ clearTimeout(repeatTimer);
+ if(complete&&repeat&&!preview)repeatTimer=setTimeout(()=>{
+  const readyForAttack=armed;
+  restart();
+  armed=readyForAttack;
+ },900);
+});
 function moveCursor(direction:number){
  cursor.value=Math.max(0,Math.min(targets.value.length,cursor.value+direction));
  stableSince=0;armed=false;accepted.value=false;
 }
 function restart(){
+ clearTimeout(repeatTimer);
  cursor.value=0;stableSince=0;armed=true;accepted.value=false;
 }
+function stopDemo(){
+ clearTimeout(demoTimer);
+ const previous=demoAudio;
+ demoAudio=null;
+ if(previous){demoTailUntil=performance.now()+180;void previous.close().catch(()=>{});}
+ demoPlaying.value=false;
+}
+async function listenToNotes(){
+ if(demoPlaying.value){stopDemo();return;}
+ if(!targets.value.length||take||busy.value)return;
+ try{
+  const ctx=new AudioContext();
+  demoAudio=ctx;demoPlaying.value=true;
+  stableSince=0;accepted.value=false;armed=false;
+  await ctx.resume();
+  if(demoAudio!==ctx)return;
+  const secondsPerBeat=60/props.bpm;
+  const rangeStart=(from.value-1)*props.beatsPerMeasure;
+  const rangeEnd=to.value*props.beatsPerMeasure;
+  const start=ctx.currentTime+0.04;
+  for(const note of targets.value){
+   const at=start+(note.start-rangeStart)*secondsPerBeat;
+   const end=at+Math.max(0.01,(Math.min(rangeEnd,note.start+note.duration)-note.start)*secondsPerBeat);
+   const fade=Math.min(0.035,(end-at)/3);
+   const tone=ctx.createOscillator(),gain=ctx.createGain();
+   tone.type='triangle';tone.frequency.value=expectedFrequency(note.pitch+props.concertTranspose,referenceHz.value);
+   gain.gain.setValueAtTime(0,at);
+   gain.gain.linearRampToValueAtTime(0.08,at+fade);
+   gain.gain.setValueAtTime(0.08,end-fade);
+   gain.gain.linearRampToValueAtTime(0,end);
+   tone.connect(gain);gain.connect(ctx.destination);tone.start(at);tone.stop(end);
+   tone.onended=()=>{tone.disconnect();gain.disconnect();};
+  }
+  demoTimer=setTimeout(stopDemo,100+(rangeEnd-rangeStart)*secondsPerBeat*1000);
+ }catch(error){stopDemo();micStatus.value='Could not play the exercise: '+String(error);}
+}
+function cancelTake(){take=null;takeBeat.value=null;}
+async function startTake(){
+ if(take){cancelTake();restart();return;}
+ if(!targets.value.length||!microphoneSupported.value||busy.value||demoPlaying.value)return;
+ if(!listening.value)await startMicrophone();
+ if(!listening.value)return;
+ const msPerBeat=60000/props.bpm;
+ restart();
+ take={startMs:performance.now()+msPerBeat*props.beatsPerMeasure,msPerBeat,
+  totalBeats:(to.value-from.value+1)*props.beatsPerMeasure,frames:[],targetIndex:0};
+ takeBeat.value=-props.beatsPerMeasure;
+}
+function finishTake(){
+ if(!take)return;
+ const {frames,totalBeats}=take;
+ const rangeStart=(from.value-1)*props.beatsPerMeasure;
+ const performed=reprocessPitchFrames(frames,{
+  ...DEFAULT_PITCH_POSTPROCESS,pitchBiasCents:0,onsetGridBeats:0,durationGridBeats:0,
+ },props.concertTranspose,totalBeats+takeLeadInBeats+takeReleaseBeats)
+  .map(note=>({...note,startBeat:note.startBeat-takeLeadInBeats}));
+ const expected=targets.value.map(note=>{
+  const startBeat=Math.max(0,note.start-rangeStart);
+  return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),pitch:note.pitch};
+ });
+ takeResult.value=compareLearnTake(expected,performed);
+ cancelTake();restart();armed=false;
+}
+function scoreLocation(beat:number){
+ if(beat<0)return `Before m${from.value}`;
+ if(beat>=(to.value-from.value+1)*props.beatsPerMeasure)return `After m${to.value}`;
+ const measure=Math.floor(beat/props.beatsPerMeasure);
+ return `${from.value+measure} · ${(1+beat-measure*props.beatsPerMeasure).toFixed(2)}`;
+}
+function signed(value:number,unit:string,precision=2){
+ const number=Number(value.toFixed(precision));
+ return `${number>0?'+':''}${number.toFixed(precision)}${unit}`;
+}
 function stopMicrophone(){
+ if(take){cancelTake();restart();}
  generation++;
  if(frame)cancelAnimationFrame(frame);
  frame=0;
@@ -108,6 +222,8 @@ async function startMicrophone(){
   stream=acquired;acquired=null;audio=ctx;ctx=null;source=input;analyser=meter;silence=mute;
   listening.value=true;busy.value=false;micStatus.value='Listening · no accompaniment';
   const samples=new Float32Array(meter.fftSize);
+  const normalized=new Float32Array(samples.length);
+  const analysisHalfWindowMs=500*meter.fftSize/input.context.sampleRate;
   const tick=(time:number)=>{
    if(id!==generation||!listening.value)return;
    if(time-lastAnalyzed>=55){
@@ -119,13 +235,33 @@ async function startMicrophone(){
     const levelDb=rms>0?20*Math.log10(rms):-90;
     inputDb.value=Math.max(-90,Math.round(levelDb));
     const gain=levelDb>=inputThreshold.value?Math.min(100,0.08/rms):0;
-    const normalized=new Float32Array(samples.length);
     if(gain)for(let i=0;i<samples.length;i++)normalized[i]=samples[i]*gain;
-    const reading=gain?detectMonophonicPitch(normalized,audio!.sampleRate,65,2000):null;
+    const reading=gain&&!demoPlaying.value&&time>=demoTailUntil?detectMonophonicPitch(normalized,input.context.sampleRate,65,2000):null;
     frequency.value=reading?.frequency??null;
     detectedMidi.value=reading&&reading.clarity>=0.7?reading.midi:null;
     detectedClarity.value=reading?.clarity??null;
-    if(!current.value){stableSince=0;}
+    if(take){
+     const beat=(time-take.startMs)/take.msPerBeat;
+     const sampleBeat=beat-analysisHalfWindowMs/take.msPerBeat;
+     if(sampleBeat>=take.totalBeats+takeReleaseBeats)finishTake();
+     else{
+      takeBeat.value=Math.max(-props.beatsPerMeasure,beat);
+      if(sampleBeat>=-takeLeadInBeats)take.frames.push({
+       timeSeconds:(time-take.startMs-analysisHalfWindowMs)/1000,beat:sampleBeat+takeLeadInBeats,
+       midi:reading?69+12*Math.log2(reading.frequency/referenceHz.value):null,
+       clarity:reading?.clarity??null,levelDbfs:levelDb,
+      });
+      const absoluteBeat=(from.value-1)*props.beatsPerMeasure+Math.max(0,beat);
+      while(take.targetIndex+1<targets.value.length&&targets.value[take.targetIndex+1].start<=absoluteBeat+1e-6)take.targetIndex++;
+      cursor.value=take.targetIndex;
+     }
+    }else if(demoPlaying.value||time<demoTailUntil){stableSince=0;}
+    else if(!current.value){
+     stableSince=0;
+     const last=targets.value.at(-1);
+     const lastCents=last&&reading?deviationCents(reading.frequency,last.pitch+props.concertTranspose,referenceHz.value):null;
+     if(detectedMidi.value===null||lastCents===null||Math.abs(lastCents)>tolerance.value)armed=true;
+    }
     else if(detectedMidi.value===null||!nearTarget.value){
      stableSince=0;armed=true;accepted.value=false;
     }else if(armed){
@@ -145,12 +281,12 @@ async function startMicrophone(){
   if(id===generation){stopMicrophone();micStatus.value='Microphone could not start: '+String(error);}
  }
 }
-onBeforeUnmount(stopMicrophone);
+onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
  <section class="learn-workspace" aria-label="Learn instrument notes">
   <div class="learn-topline">
-   <div><strong>Learn · {{instrument}}</strong><small>One note at a time, without accompaniment</small></div>
+   <div><strong>Learn · {{instrument}}</strong></div>
    <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
   </div>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
@@ -161,19 +297,31 @@ onBeforeUnmount(stopMicrophone);
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
    <label>View<select v-model="layout"><option value="notes">Note guide</option><option value="diagram">Instrument diagram</option><option value="both">Both</option></select></label>
    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
-   <small>Pitch accuracy is checked first. Timing and note durations are not yet graded. This session never edits the song.</small>
+   <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Restart after the last note</label>
   </div>
+  <div class="learn-navigation" role="group" aria-label="Exercise playback and recording">
+   <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||busy" :aria-pressed="demoPlaying" @click="listenToNotes">{{demoPlaying?'Stop preview':'▶ Listen to notes'}}</button>
+   <button v-if="microphoneSupported" type="button" class="primary" :disabled="!targets.length||demoPlaying||busy" @click="startTake">{{takeBeat===null?'Record for feedback':'Cancel recording'}}</button>
+  </div>
+  <p v-if="takeStatus" class="learn-take-status" role="status">{{takeStatus}} · {{Math.round(bpm)}} BPM</p>
   <div class="learn-display" :class="{'learn-display-both':layout==='both'}">
    <div v-if="layout!=='diagram'" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
-    <div class="learn-target" aria-live="polite">
-     <template v-if="done"><strong>Pass complete</strong><span>Review or restart to practise again.</span></template>
-     <template v-else-if="current"><small>PLAY NOW</small><strong>{{pitchLabel(targetMidi??current.pitch)}}</strong><span>Measure {{Math.floor(current.start/beatsPerMeasure)+1}} · beat {{Number(current.start%beatsPerMeasure+1).toFixed(2)}} · {{current.duration}} beats</span></template>
-     <template v-else><strong>No written notes</strong><span>Choose another range in Settings.</span></template>
+    <div v-if="current" class="learn-note-cards">
+     <div class="learn-target learn-target-current" aria-live="polite">
+      <small>PLAY NOW</small><strong>{{pitchLabel(targetMidi??current.pitch)}}</strong>
+      <span>M{{Math.floor(current.start/beatsPerMeasure)+1}} · beat {{(current.start%beatsPerMeasure+1).toFixed(2)}}</span>
+      <span>{{current.duration}} beats</span>
+     </div>
+     <div v-for="(note,index) in upcoming" :key="cursor+index+1" class="learn-target">
+      <small>{{index===0?'NEXT':`THEN ${index+1}`}}</small><strong>{{pitchLabel(note.pitch+concertTranspose)}}</strong>
+      <span>M{{Math.floor(note.start/beatsPerMeasure)+1}} · beat {{(note.start%beatsPerMeasure+1).toFixed(2)}}</span>
+      <span>{{note.duration}} beats</span>
+     </div>
     </div>
-    <div v-if="targets.length" class="learn-note-strip" aria-label="Written note sequence">
-     <span v-for="(note,i) in targets.slice(0,80)" :key="i" :class="{current:i===cursor,complete:i<cursor}" :title="'Measure '+(Math.floor(note.start/beatsPerMeasure)+1)+' · '+pitchLabel(note.pitch)">{{pitchLabel(note.pitch)}}</span>
-     <small v-if="targets.length>80">Showing first 80 of {{targets.length}} notes</small>
+    <div v-else class="learn-target learn-empty" role="status">
+     <template v-if="done"><strong>Pass complete</strong><span>{{autoRepeat?'Starting again…':'Press Restart to practise again.'}}</span></template>
+     <template v-else><strong>No written notes</strong><span>Choose another range in Settings.</span></template>
     </div>
    </div>
   <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
@@ -194,15 +342,37 @@ onBeforeUnmount(stopMicrophone);
    </div>
   </div>
    <div v-if="layout!=='notes'" class="learn-diagram">
-    <slot name="diagram" :target-pitch="current?.pitch??null" :current-beat="current?Math.floor(current.start%beatsPerMeasure)+1:1"/>
+    <slot name="diagram" :target-pitch="current?.pitch??null" :current-beat="current?Math.floor(current.start%beatsPerMeasure)+1:1" :show-target-label="layout==='diagram'"/>
    </div>
   </div>
   <div class="learn-navigation">
-   <button type="button" class="secondary" :disabled="cursor===0" @click="moveCursor(-1)">← Previous note</button>
-   <button type="button" class="secondary" :disabled="cursor>=targets.length" @click="moveCursor(1)">Next note →</button>
-   <button type="button" class="secondary" @click="restart">Restart</button>
+   <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)">← Previous note</button>
+   <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying" @click="moveCursor(1)">Next note →</button>
+   <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart">Restart</button>
   </div>
-  <p class="learn-footnote">This first version uses note names and the existing instrument diagram. Traditional engraved notation, generated chord exercises, and recorded-take comparison will be added separately.</p>
+  <section v-if="takeResult" class="learn-feedback" aria-label="Feedback from your last recording">
+   <h3>Last recording</h3>
+   <p>{{takeSummary.correct}} correct pitches · {{takeSummary.wrong}} wrong · {{takeSummary.missed}} missed · {{takeSummary.extra}} extra</p>
+   <p class="hint">Timing and duration are estimates in beats. Negative values mean early or short. Intonation is relative to the expected pitch.</p>
+   <div class="learn-feedback-scroll">
+    <table>
+     <thead><tr><th scope="col">Measure · beat</th><th scope="col">Expected</th><th scope="col">Detected</th><th scope="col">Onset</th><th scope="col">Duration</th><th scope="col">Intonation</th></tr></thead>
+     <tbody>
+      <tr v-for="(row,index) in takeResult" :key="index">
+       <td>{{scoreLocation(row.kind==='extra'?row.played.startBeat:row.target.startBeat)}}</td>
+       <td>{{row.kind==='extra'?'—':pitchLabel(row.target.pitch+concertTranspose)}}</td>
+       <td :class="{'learn-feedback-wrong':row.kind!=='matched'||row.played.pitch!==row.target.pitch}">
+        <template v-if="row.kind==='missed'">Missed</template>
+        <template v-else>{{pitchLabel(row.played.pitch+concertTranspose)}}{{row.kind==='extra'?' · extra':row.played.pitch!==row.target.pitch?' · wrong':''}}</template>
+       </td>
+       <td>{{row.kind==='matched'?signed(row.played.startBeat-row.target.startBeat,''):'—'}}</td>
+       <td>{{row.kind==='matched'?signed(row.played.durationBeats-row.target.durationBeats,''):row.kind==='extra'?row.played.durationBeats.toFixed(2):'—'}}</td>
+       <td>{{row.kind==='matched'&&row.played.pitch===row.target.pitch?signed(row.played.intonationCents,'¢',0):'—'}}</td>
+      </tr>
+     </tbody>
+    </table>
+   </div>
+  </section>
  </section>
 </template>
 <style scoped>
@@ -211,7 +381,6 @@ onBeforeUnmount(stopMicrophone);
 .learn-topline{justify-content:space-between}
 .learn-topline>div{display:flex;flex-direction:column;gap:2px}
 .learn-topline strong{font-size:18px;color:#f4d49e}
-.learn-topline small,.learn-footnote{font-size:12px;color:#b7cbd8}
 .learn-settings-toggle{min-height:40px}
 .learn-settings{display:flex;align-items:end;flex-wrap:wrap;gap:9px;padding:10px;border:1px solid #607787;background:#1d303f;border-radius:9px}
 .learn-settings label{display:flex;flex-direction:column;gap:5px;flex:1 1 135px;font-size:12px;min-width:105px}
@@ -231,16 +400,15 @@ onBeforeUnmount(stopMicrophone);
 .learn-display-both>.learn-tuner{grid-column:1/-1;grid-row:2}
 .learn-guide,.learn-diagram{min-width:0;border:1px solid #4d6678;background:#1a2a36;border-radius:9px;padding:10px}
 .learn-progress{font-size:12px;color:#b8cad6}
-.learn-target{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:95px;text-align:center}
-.learn-target strong{font-size:clamp(30px,5vw,58px);color:#f4cf95;line-height:1.1}
+.learn-note-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:5px}
+.learn-target{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:95px;text-align:center;border:1px solid #587080;border-radius:6px;background:#243847;padding:4px 1px}
+.learn-target strong{font-size:clamp(22px,4vw,48px);color:#e5eef5;line-height:1.1;white-space:nowrap}
+.learn-target-current{background:#50422f;border-color:#d8ad70}
+.learn-target-current strong{color:#f4cf95}
+.learn-empty{margin-top:5px}
+.learn-empty strong{white-space:normal}
 .learn-target small,.learn-target span{font-size:12px;color:#c6d5dd}
-.learn-note-strip{display:flex;align-items:center;flex-wrap:wrap;gap:5px;max-height:95px;overflow-y:auto}
-.learn-note-strip>span{font-size:12px;padding:5px 7px;border:1px solid #587080;border-radius:5px}
-.learn-note-strip>span.current{border-color:#e1b576;background:#635039;color:#fff2d5}
-.learn-note-strip>span.complete{color:#a3dec8;background:#204638;border-color:#539c7f}
-.learn-note-strip>small{font-size:11px}
 .learn-diagram{display:flex;align-items:center;justify-content:center;min-height:125px}
-.learn-diagram :deep(.performance-chord-diagram){max-width:100%}
 .learn-tuner{padding:10px;border-radius:9px;background:#1a2c39;border:1px solid #526c7d;display:flex;flex-direction:column;gap:7px}
 .learn-tuner-title{justify-content:space-between;gap:8px;min-width:0}
 .learn-tuner-title .learn-mic-toggle{min-height:42px;min-width:82px;border:1px solid #6a8293;background:#344759;color:#e8eff4;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:750;white-space:nowrap;flex:0 0 auto}
@@ -258,10 +426,16 @@ onBeforeUnmount(stopMicrophone);
 .learn-mic-row small{color:#b7cddd}
 .learn-mic-row button,.learn-navigation button{min-height:42px}
 .learn-navigation{justify-content:center}
-.learn-footnote{margin:0}
+.learn-take-status{margin:0;text-align:center;font-weight:650;color:#f4d49e}
+.learn-feedback{min-width:0;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
+.learn-feedback h3,.learn-feedback p{margin:0 0 5px}
+.learn-feedback-scroll{overflow-x:auto;max-height:320px}
+.learn-feedback table{width:100%;border-collapse:collapse;white-space:nowrap;font-variant-numeric:tabular-nums}
+.learn-feedback td,.learn-feedback th{padding:5px 8px;text-align:left;border-bottom:1px solid #526c7d}
+.learn-feedback th{position:sticky;top:0;background:#1a2c39}
+.learn-feedback-wrong{color:#ffc2a7}
 @media(max-width:760px){
 .learn-workspace{gap:5px}
-.learn-topline>div>small{display:none}
 .learn-topline strong{font-size:15px}
 .learn-topline .learn-settings-toggle{min-height:38px}
 .learn-display{gap:5px}
@@ -269,11 +443,10 @@ onBeforeUnmount(stopMicrophone);
 .learn-display-both>.learn-guide,.learn-display-both>.learn-tuner,.learn-display-both>.learn-diagram{grid-column:1;grid-row:auto}
 .learn-guide,.learn-diagram{padding:6px}
 .learn-progress{font-size:11px}
-.learn-target{min-height:54px;gap:2px}
-.learn-target strong{font-size:clamp(25px,7vw,38px)}
+.learn-target{min-height:64px;gap:2px}
+.learn-target strong{font-size:clamp(20px,6.8vw,36px)}
+.learn-target small{font-size:10px}
 .learn-target span{font-size:10px}
-.learn-note-strip{max-height:40px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}
-.learn-note-strip>span{flex:0 0 auto}
 .learn-settings{padding:7px}
 .learn-tuner{padding:6px;gap:3px}
 .learn-tuner-title strong{font-size:16px}
@@ -282,7 +455,6 @@ onBeforeUnmount(stopMicrophone);
 .learn-tuner-ends{font-size:10px}
 .learn-navigation{gap:4px}
 .learn-navigation button{min-height:39px;padding:5px 8px;font-size:12px}
-.learn-footnote{display:none}
 }
 @media(max-width:380px){.learn-mic-row meter{max-width:24%;width:60px;flex-basis:60px}.learn-tuner-title .learn-mic-toggle{min-width:69px;padding:4px 6px}}
 </style>

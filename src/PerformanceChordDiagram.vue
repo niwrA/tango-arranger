@@ -9,7 +9,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;targetPitch?:number|null}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -29,6 +29,10 @@ const activeMidi=computed(()=>new Set(props.activePitches));
 const activeClasses=computed(()=>new Set(props.activePitches.map(n=>((n%12)+12)%12)));
 function isPlayingPitch(midi:number){return activeMidi.value.has(midi);}
 function isTarget(midi:number){return props.targetPitch!==null&&props.targetPitch!==undefined&&props.targetPitch===midi;}
+function isTargetStop(openMidi:number,offset:number){
+ if(!isTarget(openMidi+offset)||offset===0)return false;
+ return family.value!=='Violin'||props.violinPosition?.openMidi===openMidi;
+}
 const targetName=computed(()=>props.targetPitch===null||props.targetPitch===undefined?'':midiLabel(props.targetPitch));
 function isPlayingTone(tone:number){return activeClasses.value.has(tone);}
 function shouldDimTone(midi:number){return props.dimUnplayedChordTones&&isTone(midi)&&!isPlayingPitch(midi);}
@@ -114,8 +118,8 @@ const diagramDescription=computed(()=>{
 </script>
 
 <template>
- <div class="performance-instrument-diagram" :class="{'is-focus':props.focus,'has-learn-target':props.targetPitch!==null&&props.targetPitch!==undefined}" :aria-label="instrument+' chord note reference. '+diagramDescription">
-   <div v-if="props.targetPitch!==null&&props.targetPitch!==undefined" class="diagram-learn-target" role="status">PLAY NOW <strong>{{targetName}}</strong><span>Highlighted in amber where represented on the instrument</span></div>
+ <div class="performance-instrument-diagram" :class="{'is-focus':props.focus,'is-learn':props.learn}" :aria-label="instrument+' chord note reference. '+diagramDescription">
+   <div v-if="props.showTargetLabel&&targetName" class="diagram-learn-target" role="status">PLAY NOW <strong>{{targetName}}</strong><span>Highlighted in amber where represented on the instrument</span></div>
    <div class="diagram-measure-chords" role="group" :aria-label="'Current measure chords, beat '+activeBeat+' of '+currentBeats.length">
     <span v-for="(symbol,index) in currentBeats" :key="index" class="diagram-chord-beat" :class="{'is-current-beat':activeBeat===index+1,'is-continuation':symbol==='–'}" :aria-label="'Beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
       <strong>{{symbol}}</strong>
@@ -170,10 +174,10 @@ const diagramDescription=computed(()=>{
          :class="{'is-chord-tone':isTone(string.midi+offset),'is-root':isRoot(string.midi+offset),
            'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),
            'is-measure-note':isPlannedStringPitch(string.midi,string.midi+offset),
-           'is-learn-target':isTarget(string.midi+offset),
+           'is-learn-target':isTargetStop(string.midi,offset),
            'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}"
          :title="midiLabel(string.midi+offset)+(fingerFor(string.midi,string.midi+offset)!==null?' · suggested finger '+fingerFor(string.midi,string.midi+offset):'')">
-         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)||isPlannedStringPitch(string.midi,string.midi+offset)||isTarget(string.midi+offset)">{{fingerFor(string.midi,string.midi+offset)??noteName(string.midi+offset)}}</span>
+         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)||isPlannedStringPitch(string.midi,string.midi+offset)||isTargetStop(string.midi,offset)">{{fingerFor(string.midi,string.midi+offset)??noteName(string.midi+offset)}}</span>
        </span>
      </div>
    </div>
@@ -437,5 +441,21 @@ const diagramDescription=computed(()=>{
 .diagram-piano .diagram-black-key.is-learn-target,
 .diagram-tone-pill.is-learn-target{background:#ffd166!important;color:#201c13!important;border:2px solid #fff2a8!important;box-shadow:inset 0 0 0 2px #9a641b,0 0 0 3px #ffcf66,0 0 15px #ffcf6688!important;opacity:1!important;filter:none!important;z-index:9}
 .diagram-fingerboard .diagram-open-label.is-learn-target strong{color:#2d2116}
-@media(max-width:760px){.has-learn-target .diagram-chord-beat{height:28px!important}.has-learn-target .diagram-next-chord-beat{height:24px!important}.has-learn-target .diagram-learn-target{padding:3px 5px}.has-learn-target .diagram-learn-target strong{font-size:18px}.has-learn-target .diagram-learn-target span{display:none}.has-learn-target .diagram-fingerboard{height:clamp(110px,22dvh,170px)!important;min-height:110px!important}}
+.performance-instrument-diagram.is-focus.is-learn{gap:7px}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard{
+ display:grid;grid-auto-rows:minmax(26px,auto);height:auto;min-height:0;max-height:none;
+ padding:6px;gap:3px;align-content:start;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-violin-position{
+ position:static;height:auto;min-width:0;font-size:12px;line-height:26px;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-string-row{grid-template-columns:clamp(27px,7vw,52px) repeat(8,minmax(0,1fr));gap:3px}
+.performance-instrument-diagram.is-focus.is-learn .diagram-guided-string-row{grid-template-columns:clamp(60px,15vw,95px) repeat(8,minmax(0,1fr))}
+.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop,.is-learn .diagram-open-label{
+ box-sizing:border-box;height:26px;display:flex;align-items:center;
+}
+.is-learn .diagram-open-label{padding-inline:2px;border:2px solid transparent;border-radius:4px}
+.is-learn .diagram-string-stop.is-learn-target,.is-learn .diagram-open-label.is-learn-target{box-shadow:inset 0 0 0 1px #9a641b!important}
+.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span{font-size:clamp(10px,1.8vw,16px);line-height:1}
+@media(max-width:760px){.is-learn .diagram-chord-beat{height:28px!important}.is-learn .diagram-next-chord-beat{height:24px!important}.is-learn .diagram-learn-target{padding:3px 5px}.is-learn .diagram-learn-target strong{font-size:18px}.is-learn .diagram-learn-target span{display:none}}
 </style>

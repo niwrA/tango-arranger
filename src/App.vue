@@ -267,8 +267,10 @@ function closeOpenTopbarMenusOnOutside(event:PointerEvent){
 const compactHelp=ref(localStorage.getItem('tango-compact-help')!=='false');
 watch(compactHelp,value=>localStorage.setItem('tango-compact-help',String(value)));
 const advancedToolsOpen=ref(false);
-const noteEditorTab=ref<'notes'|'capture'|'figures'|'expression'>((()=>{
- try{const tab=localStorage.getItem('tango-note-editor-subtab');return ['notes','capture','figures','expression'].includes(tab??'')?tab as 'notes'|'capture'|'figures'|'expression':'notes';}catch{return 'notes';}
+const noteTabOrder=['notes','score','capture','figures','expression'] as const;
+type NoteEditorTab=(typeof noteTabOrder)[number];
+const noteEditorTab=ref<NoteEditorTab>((()=>{
+ try{const tab=localStorage.getItem('tango-note-editor-subtab');return noteTabOrder.find(item=>item===tab)??'notes';}catch{return 'notes';}
 })());
 watch(noteEditorTab,tab=>{try{localStorage.setItem('tango-note-editor-subtab',tab);}catch{/* Storage disabled. */}});
 // Focused note editing is a temporary, full-viewport UI state; it is not stored in the song.
@@ -379,8 +381,7 @@ function selectFocusMeasure(bar:number){
   openNoteEditor(noteInst.value,bar);
 }
 
-function setNoteEditorTab(tab:'notes'|'capture'|'figures'|'expression'){noteEditorTab.value=tab;noteDetailsPopup.value=false;noteFocusMore.value=false;}
-const noteTabOrder=['notes','capture','figures','expression'] as const;
+function setNoteEditorTab(tab:NoteEditorTab){noteEditorTab.value=tab;noteDetailsPopup.value=false;noteFocusMore.value=false;}
 function handleNoteTabKey(event:KeyboardEvent){
   if(!(event.target as HTMLElement|null)?.closest('[role="tab"]'))return;
   const key=event.key;
@@ -4110,7 +4111,6 @@ function setDuckingReduction(e:Event){project.value.melodyDucking??={enabled:tru
 const currentExpressionRanges=computed(()=>project.value.expressionRanges?.map((r,index)=>({...r,index})).filter(r=>r.instrument===noteInst.value)??[]);
 const slideSupported=computed(()=>noteInst.value!=='Piano'&&selectedEvent.value?.technique!=='pizzicato');
 const noteInst=ref<Instrument>('Violin I');
-const scorePreviewOpen=ref(false);
 watch(noteInst,inst=>{try{localStorage.setItem('tango-last-note-instrument',inst);}catch{/* Storage disabled. */}});
 const noteEditorRegion=ref<HTMLElement|null>(null);
 const noteStep=ref(0.5);
@@ -5094,6 +5094,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
     <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button>
     <button v-if="waitingForSingerCue" type="button" class="primary singer-cue-continue" @click="continueAfterSingerCue" aria-label="Continue playback after singer cue"><AppIcon name="play"/> Continue · singer cue</button>
+    <div class="playback-speed-actions">
     <details class="topbar-menu playback-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="playback-speed-summary" :title="'Playback speed '+Math.round(rehearsalSpeed*100)+'% · '+Math.round(effectivePlaybackBpm)+' BPM'" :aria-label="'Playback speed '+rehearsalSpeed+' times song tempo. Tap to adjust'">{{rehearsalSpeed}}×<AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel playback-speed-options" role="group" aria-label="Rehearsal playback speed" @click="closeTopbarMenuOnAction($event)">
@@ -5111,6 +5112,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         </label>
       </div>
     </details>
+    <button v-if="performanceMode" type="button" class="secondary icon-action performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="performanceMode=false"><AppIcon name="arrow-left"/></button>
+    </div>
     <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span v-if="audioEngine==='samples'&&/unavailable/i.test(sampleStatus)" class="header-save-status" role="status">{{sampleStatus}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span v-if="/fail|unavailable|error/i.test(audioStatus)" class="header-save-status" role="alert">{{audioStatus}}</span></div></details>
   </div>
@@ -5200,7 +5203,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
           <button type="button" class="secondary" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble diagrams</button>
           <button type="button" class="secondary" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
           <button type="button" class="secondary" @click="togglePerformanceFullscreen"><AppIcon name="maximize"/> {{performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Full screen'}}</button>
-          <button type="button" class="secondary" @click="performanceMode=false"><AppIcon name="arrow-left"/> Return to editor</button>
         </template>
       </div>
     </details>
@@ -5214,12 +5216,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble</button>
       <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
     </div>
-    <div class="performance-stage-actions" role="group" aria-label="Stage and editor controls">
+    <div class="performance-stage-actions">
       <button type="button" class="secondary performance-stage-action performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen (if supported)'" :aria-label="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen'" @click="togglePerformanceFullscreen">
         <AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/><span>{{performanceFullscreenActive||performanceStageCompact?'Exit screen':'Full screen'}}</span>
-      </button>
-      <button type="button" class="secondary performance-stage-action performance-editor-button" title="Leave performance mode and return to editor" aria-label="Leave performance mode and return to editor" @click="performanceMode=false">
-        <AppIcon name="arrow-left"/><span>Editor</span>
       </button>
     </div>
   </div>
@@ -5332,7 +5331,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            </div>
            <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
            <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
-           <details v-if="!instrumentLearnMode" class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+           <div class="playback-speed-actions">
+           <details class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
               <summary class="playback-speed-summary" :aria-label="'Playback speed '+rehearsalSpeed+' times; choose rehearsal tempo'">{{rehearsalSpeed}}× <AppIcon name="chevron-down"/></summary>
               <div class="topbar-menu-panel playback-speed-options" @click="closeTopbarMenuOnAction($event)">
                 <strong class="files-group-title">Rehearsal speed</strong>
@@ -5346,6 +5346,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
                 <span class="playback-speed-note">Rehearsal only · the written BPM is unchanged.</span>
               </div>
             </details>
+            <button type="button" class="secondary performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="performanceMode=false"><AppIcon name="arrow-left"/></button>
+           </div>
            <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-learn" aria-label="Learn this instrument's notes" title="Enter Learn mode for this instrument" @click="enterInstrumentLearn"><AppIcon name="graduation-cap"/></button>
            <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="arrow-left"/> Performance</button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
@@ -5367,8 +5369,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
-           <template #diagram="{targetPitch,currentBeat}"><PerformanceChordDiagram :focus="true" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" @exit="exitInstrumentLearn">
+           <template #diagram="{targetPitch,currentBeat,showTargetLabel}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
          <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
@@ -6011,7 +6013,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="note-focus-range">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
     <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop'}}</button>
-    <button type="button" class="secondary score-preview-toggle" :aria-expanded="scorePreviewOpen" @click="scorePreviewOpen=!scorePreviewOpen">{{scorePreviewOpen?'Hide score':'♫ Score'}}</button>
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
   <div v-if="!noteFocusMode" class="compact-note-toolbar note-unified-toolbar" role="toolbar" aria-label="Note editing workspace">
@@ -6021,19 +6022,21 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="note-edition-selector">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
     <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
-    <button type="button" class="secondary score-preview-toggle" :aria-expanded="scorePreviewOpen" @click="scorePreviewOpen=!scorePreviewOpen">{{scorePreviewOpen?'Hide score':'♫ Score'}}</button>
     <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
     <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
     <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
     <button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
   </div>
-  <ScorePreview v-if="scorePreviewOpen" :project="project" :score="score" :instrument="noteInst" :from-measure="selectedBar" />
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
-    <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">♫ Notes &amp; properties</button>
-    <button id="note-tab-capture" type="button" role="tab" :aria-selected="noteEditorTab==='capture'" :tabindex="noteEditorTab==='capture'?0:-1" aria-controls="note-panel-capture" :class="{selected:noteEditorTab==='capture'}" @click="setNoteEditorTab('capture')">● Live input</button>
-    <button id="note-tab-figures" type="button" role="tab" :aria-selected="noteEditorTab==='figures'" :tabindex="noteEditorTab==='figures'?0:-1" aria-controls="note-panel-figures" :class="{selected:noteEditorTab==='figures'}" @click="setNoteEditorTab('figures')">♪ Figures</button>
-    <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">◁ Dynamics &amp; expression</button>
+    <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">Edit</button>
+    <button id="note-tab-score" type="button" role="tab" :aria-selected="noteEditorTab==='score'" :tabindex="noteEditorTab==='score'?0:-1" aria-controls="note-panel-score" :class="{selected:noteEditorTab==='score'}" @click="setNoteEditorTab('score')">Score</button>
+    <button id="note-tab-capture" type="button" role="tab" :aria-selected="noteEditorTab==='capture'" :tabindex="noteEditorTab==='capture'?0:-1" aria-controls="note-panel-capture" :class="{selected:noteEditorTab==='capture'}" @click="setNoteEditorTab('capture')">Record</button>
+    <button id="note-tab-figures" type="button" role="tab" :aria-selected="noteEditorTab==='figures'" :tabindex="noteEditorTab==='figures'?0:-1" aria-controls="note-panel-figures" :class="{selected:noteEditorTab==='figures'}" @click="setNoteEditorTab('figures')">Figures</button>
+    <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
+  <section id="note-panel-score" v-show="noteEditorTab==='score'" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
+    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" />
+  </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
       <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
@@ -6702,6 +6705,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 }
 .note-editor-section:not(.note-focus-mode) .note-subtabs{margin:3px 0 4px;padding:0;gap:4px}
 .note-editor-section:not(.note-focus-mode) .note-subtabs button{padding:7px 10px}
+@media(max-width:600px){
+ .note-editor-section:not(.note-focus-mode) .note-subtabs{grid-template-columns:repeat(5,minmax(0,1fr))}
+ .note-editor-section:not(.note-focus-mode) .note-subtabs button{padding-inline:2px;font-size:12px;min-height:38px}
+}
 .note-editor-section:not(.note-focus-mode) .note-editor-panel{
   padding:0;
   margin:0;
@@ -6717,7 +6724,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-editor-section.note-focus-mode.note-focus-has-selection{
   padding-bottom:calc(96px + env(safe-area-inset-bottom));
 }
-/* The same four accessible editing tools work in both normal and focus modes. */
+/* The same tabs work in both normal and focus modes. */
 .note-editor-section.note-focus-mode>.note-subtabs{
   display:flex!important;
   flex-wrap:nowrap;
@@ -7336,7 +7343,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .performance-live .performance-stage-actions .performance-fullscreen-button[aria-pressed="true"]{
  background:#455563;border-color:#d5ae77;color:#fff1da;
 }
-.performance-live .performance-stage-actions .performance-editor-button{border-color:#80705c;background:#322d29;color:#f4dcbf}
+.playback-speed-actions{display:flex;align-items:center;flex:0 0 auto;gap:4px}
+.playback-speed-actions .performance-editor-button{order:3;width:42px;min-width:42px;height:42px;min-height:42px;padding:6px;border-color:#80705c;background:#322d29;color:#f4dcbf}
+.playback-speed-actions .performance-editor-button .app-icon{width:18px;height:18px;flex:none}
 .performance-live .performance-stage-actions .app-icon{width:18px;height:18px;flex:0 0 18px}
 @media(max-width:1100px){
  .performance-live .performance-stage-actions .performance-stage-action span{display:none}
@@ -7380,7 +7389,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 .instrument-focus-panel{min-height:100%;display:flex;flex-direction:column;gap:clamp(8px,1.5dvh,18px);padding:clamp(10px,2vw,25px);box-sizing:border-box;color:#e6eff5}
-.instrument-focus-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.instrument-focus-header{position:sticky;top:env(safe-area-inset-top);z-index:10;background:#101f2b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .instrument-focus-title{min-width:0;flex:1 1 200px}
 .instrument-focus-title small{font-size:12px;color:#bed0db;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .instrument-focus-title h2{font-size:clamp(25px,3vw,42px);margin:3px 0 0;line-height:1.1;color:#ffe0ac}

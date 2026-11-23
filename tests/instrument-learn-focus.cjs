@@ -13,7 +13,7 @@ assert.match(app,/v-if="!instrumentLearnMode" type="button" class="secondary ins
 assert.match(app,/v-if="!instrumentLearnMode" class="instrument-focus-hint"/);
 assert.match(component,/detectMonophonicPitch/);
 assert.match(component,/navigator\.mediaDevices\.getUserMedia/);
-assert.match(component,/onBeforeUnmount\(stopMicrophone\)/);
+assert.match(component,/onBeforeUnmount\(\(\)=>\{[^}]*stopDemo\(\);stopMicrophone\(\);\}\)/);
 assert.match(component,/stream\?\.getTracks\(\)\.forEach\(t=>t\.stop\(\)\)/);
 assert.match(component,/const tolerance=ref\(20\)/);
 assert.match(component,/const holdMs=ref\(400\)/);
@@ -22,7 +22,9 @@ assert.match(component,/if\(autoAdvance\.value&&cursor\.value<targets\.value\.le
 assert.match(component,/v-if="settingsOpen" id="learn-settings"/);
 assert.match(component,/selectedRange|measures \{\{from\}\}–\{\{to\}\}/);
 assert.match(component,/aria-label="Target-aware pitch tuner"/);
-assert.match(component,/traditional engraved notation|Traditional engraved notation/);
+assert.match(component,/Record for feedback/);
+assert.match(component,/reprocessPitchFrames\(frames/);
+assert.match(component,/compareLearnTake\(expected,performed\)/);
 assert.match(icons,/'graduation-cap'/);
 assert.doesNotMatch(component,/saveProject|project\.value\.generatedScore|localStorage\.setItem/);
 console.log('Learn focus toggle, microphone cleanup and settings checks passed');

@@ -210,7 +210,7 @@ check('fullscreen and editor exit are separate equal-size controls with clear ic
  assert.ok(appIcons.includes("maximize:'M8 3H5"));
  assert.ok(appIcons.includes("minimize:'M8 8H3"));
  assert.ok(app.includes('class="performance-stage-actions"'));
- assert.ok(app.includes('class="secondary performance-stage-action performance-editor-button"'));
+ assert.match(app,/<\/details>\s*<button v-if="performanceMode"[^>]*class="secondary icon-action performance-editor-button"[^>]*aria-label="Return to editor"/);
  assert.ok(app.includes('class="secondary performance-stage-action performance-fullscreen-button"'));
  assert.ok(app.includes('performanceFullscreenActive||performanceStageCompact?\'minimize\':\'maximize\''));
  assert.ok(app.includes('class="performance-topbar-view-switch"'));

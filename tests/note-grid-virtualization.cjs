@@ -60,9 +60,10 @@ const enterFocus=vue.match(/function enterNoteFocusMode\(\)\{[\s\S]*?\n\}/)?.[0]
 assert.ok(enterFocus,'Focus entry function is present');
 assert.doesNotMatch(enterFocus,/noteEditorTab\.value\s*=\s*'notes'/,'entering focus keeps the selected tool');
 assert.match(vue,/\.note-editor-section\.note-focus-mode>\.note-subtabs\{\s*display:flex!important/,'Focus has visible tool tabs');
-for(const tab of ['notes','capture','figures','expression']){
+for(const tab of ['notes','score','capture','figures','expression']){
   assert.ok(vue.includes(`<section id="note-panel-${tab}" v-show="noteEditorTab==='${tab}'"`),`Focus retains the ${tab} tool panel`);
 }
+assert.match(vue,/<ScorePreview[^>]*:from-measure="noteLoopFrom" :to-measure="noteLoopTo"/,'Score follows the Note Editor range');
 assert.doesNotMatch(styles,/\.note-focus-mode[^\n]*\.note-subtabs\{display:none!important\}/,'global styles must not hide focus tabs');
 assert.doesNotMatch(styles,/\.note-focus-mode #note-panel-capture[^\n]*display:none!important/,'global styles must not hide alternate tools');
 assert.match(vue,/<div class="note-editor-meta"/,'context and snap share a compact row');
