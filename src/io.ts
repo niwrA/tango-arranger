@@ -83,8 +83,41 @@ function notationChords(chord:string,beats:number,skip:number):ChordChange[]{
   const active=changes.filter(change=>change.beat<=skip).at(-1);
   return [...(active?[{...active,beat:0}]:[]),...changes.filter(change=>change.beat>skip).map(change=>({...change,beat:change.beat-skip}))];
 }
+// Match the note-head grid so small differences in imported timing do not
+// create a direction in what engraves as a contiguous passage.
+const NOTATION_QUANTUM=30;
+const notationTick=(beat:number)=>Math.round(Math.round(beat*DIV)/NOTATION_QUANTUM)*NOTATION_QUANTUM;
+function legatoPassageStarts(notes:readonly Note[]):ReadonlySet<number>{
+  const attacks=new Map<number,{end:number;nonLegatoEnd:number}>();
+  for(const note of notes){
+    const start=notationTick(note.start),end=notationTick(note.start+note.duration);
+    if(!(end>start))continue;
+    const attack=attacks.get(start)??{end:start,nonLegatoEnd:start};
+    attack.end=Math.max(attack.end,end);
+    if(note.articulation!=='legato')attack.nonLegatoEnd=Math.max(attack.nonLegatoEnd,end);
+    attacks.set(start,attack);
+  }
+  const starts=new Set<number>();
+  let soundingUntil=-Infinity,nonLegatoUntil=-Infinity,wasLegato=false;
+  for(const [start,attack] of [...attacks].sort(([a],[b])=>a-b)){
+    nonLegatoUntil=Math.max(nonLegatoUntil,attack.nonLegatoEnd);
+    const legato=nonLegatoUntil<=start;
+    if(legato&&(!wasLegato||start>soundingUntil))starts.add(start);
+    wasLegato=legato;
+    soundingUntil=Math.max(soundingUntil,attack.end);
+  }
+  return starts;
+}
+function grandStaffNotes(p:Project,inst:Instrument,notes:Note[]):[Note[],Note[]]{
+  const staves:[Note[],Note[]]=[[],[]];
+  for(const note of notes){
+    const staff=partStaffForNote(note,inst,p.pianoSplitPitch??60,p.transposeSemitones??0);
+    staves[staff-1].push(note);
+  }
+  return staves;
+}
 type NoteheadColors=ReadonlyMap<Note,string>;
-function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number,fermata=false,noteheadColors?:NoteheadColors,skip=0){
+function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number,fermata=false,noteheadColors?:NoteheadColors,skip=0,legatoStarts=legatoPassageStarts(notes)){
   const barTicks=Math.round((beats-skip)*DIV),offset=bar*beats+skip;
   // Keep note-level dynamics in the export event projection; omitting subito
   // makes the MusicXML direction below fail TypeScript compilation.
@@ -100,7 +133,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
   // overlapping melody/chord notes a valid succession of tied chords.
-  const quantum=30;
+  const quantum=NOTATION_QUANTUM;
   const snapped=events.map(n=>({...n,start:Math.max(0,Math.round(n.start/quantum)*quantum),end:Math.min(barTicks,Math.round(n.end/quantum)*quantum),originStart:Math.round(n.originStart/quantum)*quantum,originEnd:Math.round(n.originEnd/quantum)*quantum})).filter(n=>n.end>n.start);
   const boundaries=new Set<number>([0,barTicks]);
   for(const n of snapped){boundaries.add(n.start);boundaries.add(n.end);}
@@ -108,15 +141,15 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
   let out='';
   const voiceTag=voice?`<voice>${voice}</voice>`:'';
   const staffTag=staff?`<staff>${staff}</staff>`:'';
-  let activeTechnique:'pizzicato'|'arco'|null=null;let activeArticulation='';
+  let activeTechnique:'pizzicato'|'arco'|null=null;
   for(let i=0;i<points.length-1;i++){
     const at=points[i],end=points[i+1],active=snapped.filter(n=>n.start<=at&&n.end>=end).sort((a,b)=>a.pitch-b.pitch);
     const pitches=[...new Set(active.map(n=>n.pitch))];
     let elapsed=0;
     for(const dur of chunks(end-at)){
       const nextTechnique=active.find(n=>n.technique)?.technique??'arco';
-      const mode=active.find(n=>n.articulation)?.articulation??'';
-      if(pitches.length&&mode!==activeArticulation){if(mode==='legato')out+=`<direction placement="above"><direction-type><words>legato</words></direction-type></direction>`;activeArticulation=mode;}
+      if(elapsed===0&&pitches.length&&legatoStarts.has(notationTick(offset)+at))
+        out+=`<direction placement="above"><direction-type><words>legato</words></direction-type>${staffTag}</direction>`;
       if(pitches.length&&active.some(n=>n.technique)&&nextTechnique!==activeTechnique){out+=`<direction><direction-type><words>${nextTechnique==='pizzicato'?'pizz.':'arco'}</words></direction-type><sound pizzicato="${nextTechnique==='pizzicato'?'yes':'no'}"/></direction>`;activeTechnique=nextTechnique;}
       const [type,dots]=durationType(dur),dot=dots?'<dot/>':'';
       if(!pitches.length)out+=`<note><rest/><duration>${dur}</duration>${voiceTag}<type>${type}</type>${dot}${staffTag}${fermata&&i===points.length-2&&at+elapsed+dur===barTicks?'<notations><fermata type="upright"/></notations>':''}</note>`;
@@ -172,21 +205,18 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
 /** Two independent, full-length piano voices. A backup rewinds the measure
  * before writing the lower staff, preserving simultaneous bass and chords. */
 export function writePianoMeasure(p:Project,notes:Note[],bar:number,key:string,noteheadColors?:NoteheadColors):string {
-  return writeGrandStaffMeasure(p,'Piano',notes,bar,key,noteheadColors);
+  const pickup=openingPickupBeats(p);
+  const visibleNotes=pickup?notes.filter(note=>note.start>=p.beats-pickup-1e-7):notes;
+  return writeGrandStaffMeasure(p,'Piano',grandStaffNotes(p,'Piano',visibleNotes),bar,key,noteheadColors);
 }
 
-function writeGrandStaffMeasure(p:Project,inst:Instrument,notes:Note[],bar:number,key:string,noteheadColors?:NoteheadColors):string {
-  const transpose=p.transposeSemitones??0;
-  const upper:Note[]=[],lower:Note[]=[];
-  for(const note of notes){
-    const destination=partStaffForNote(note,inst,p.pianoSplitPitch??60,transpose)===1?upper:lower;
-    destination.push(note);
-  }
+function writeGrandStaffMeasure(p:Project,inst:Instrument,staves:[Note[],Note[]],bar:number,key:string,noteheadColors?:NoteheadColors,legato?:readonly ReadonlySet<number>[]):string {
+  const [upper,lower]=staves;
   // Both voices fill the measure, including rests, so the backup is exact.
   const hold=p.tempoExpressions?.fermatas?.some(f=>f.measure===bar&&f.instrument===inst);
   const pickup=bar===0?openingPickupBeats(p):0;
   const skip=pickup?p.beats-pickup:0;
-  return writeVoice(upper,bar,p.beats,key,1,1,Boolean(hold),noteheadColors,skip)+`<backup><duration>${(p.beats-skip)*DIV}</duration></backup>`+writeVoice(lower,bar,p.beats,key,2,2,false,noteheadColors,skip);
+  return writeVoice(upper,bar,p.beats,key,1,1,Boolean(hold),noteheadColors,skip,legato?.[0])+`<backup><duration>${(p.beats-skip)*DIV}</duration></backup>`+writeVoice(lower,bar,p.beats,key,2,2,false,noteheadColors,skip,legato?.[1]);
 }
 /** Compressed MusicXML (MXL), not MuseScore's proprietary MSCZ format. */
 export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Blob>{
@@ -453,6 +483,10 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
 
   const instruments=options?.onlyInstrument?[options.onlyInstrument]:projectInstruments(p);
   const grandStaves=new Set(instruments.filter(inst=>partUsesGrandStaff(p,inst,transposed[inst]??[])));
+  const notationStaves=new Map(instruments.map(inst=>[inst,grandStaves.has(inst)?grandStaffNotes(p,inst,transposed[inst]??[]):undefined]));
+  const legatoDirections=new Map(instruments.map(inst=>[
+    inst,(notationStaves.get(inst)??[transposed[inst]??[]]).map(legatoPassageStarts),
+  ]));
   const previewColors=new Map<Instrument,NoteheadColors>();
   if(options?.onlyInstrument&&options.previewNoteheadColors){
     const inst=options.onlyInstrument;
@@ -521,7 +555,7 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
   };
   let sectionOrdinal=-1;
   const sectionMarks=p.bars.map((bar,b)=>{if(sectionStarts(b))sectionOrdinal++;return sectionOrdinal<0?'':sectionLetter(sectionOrdinal);});
-  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="${pickup&&b===0?'yes':'no'}" number="${pickup?b:b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${grandStaves.has(inst)?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&sectionStarts(b)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${i===0?tempoDirections(b):''}${fermataDirection(inst,b)}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?notationChords(bar.chord,p.beats,barShift(b)).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${grandStaves.has(inst)?writeGrandStaffMeasure(p,inst,transposed[inst]??[],b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),previewColors.get(inst)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),undefined,undefined,timing.fermatas.some(f=>f.measure===b&&f.instrument===inst),previewColors.get(inst),barShift(b))}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
+  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="${pickup&&b===0?'yes':'no'}" number="${pickup?b:b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${grandStaves.has(inst)?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&sectionStarts(b)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${i===0?tempoDirections(b):''}${fermataDirection(inst,b)}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?notationChords(bar.chord,p.beats,barShift(b)).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${grandStaves.has(inst)?writeGrandStaffMeasure(p,inst,notationStaves.get(inst)!,b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),previewColors.get(inst),legatoDirections.get(inst)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),undefined,undefined,timing.fermatas.some(f=>f.measure===b&&f.instrument===inst),previewColors.get(inst),barShift(b),legatoDirections.get(inst)?.[0])}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
   return head+body+'</score-partwise>';
 }
 

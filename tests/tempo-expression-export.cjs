@@ -145,6 +145,46 @@ test('MusicXML exposes rit./a tempo, discrete tempo, attached fermata and colla 
  assert.ok(parts[voiceIndex][5].toString().includes('<fermata'),'fermata belongs to Voice measure 6');
  for(const [i,part] of parts.entries())if(i!==voiceIndex)assert.ok(!part[5].toString().includes('<fermata'),'fermata must not bleed into another part');
 });
+test('legato directions follow passages across barlines and respect rests and staccato',()=>{
+ const p=blankProject({sections:1,measuresPerSection:4,beats:3});
+ const voice=[
+  {pitch:67,start:0,duration:1.5,articulation:'legato'},
+  {pitch:69,start:1.5,duration:1.5,articulation:'legato'},
+  {pitch:71,start:3,duration:1,articulation:'legato'},
+  {pitch:72,start:4,duration:1,articulation:'staccato'},
+  {pitch:74,start:4,duration:1,articulation:'legato'},
+  {pitch:69,start:5,duration:1,articulation:'legato'},
+  {pitch:67,start:7,duration:1,articulation:'legato'},
+ ];
+ const xml=exportMusicXml(p,{Voice:voice},{onlyInstrument:'Voice'});
+ const measures=xmlParts(xml)[0].map(measure=>measure.toString());
+ assert.deepEqual(measures.map(m=>(m.match(/<words>legato<\/words>/g)||[]).length),[1,1,1,0]);
+ assert.match(measures[0],/<type>quarter<\/type><dot\/>/);
+ assert.doesNotMatch(measures[0],/<staccato\/>/);
+ assert.match(measures[1],/<staccato\/>[\s\S]*<words>legato<\/words>/);
+ assert.doesNotMatch(measures[1],/<words>legato<\/words>[\s\S]*<staccato\/>/);
+ assert.equal(validateMusicXmlDurations(xml,3,1).length,0);
+});
+test('independent piano staves can carry different articulations at the same beat',()=>{
+ const p=blankProject({sections:1,measuresPerSection:2,beats:3});
+ const notes=[
+  {pitch:45,start:0,duration:3,articulation:'legato'},
+  {pitch:48,start:3,duration:3,articulation:'legato'},
+  {pitch:72,start:0,duration:1,articulation:'staccato'},
+ ];
+ const xml=exportMusicXml(p,{Piano:notes},{onlyInstrument:'Piano'});
+ assert.equal((xml.match(/<words>legato<\/words>/g)||[]).length,1);
+ assert.match(xml,/<words>legato<\/words><\/direction-type><staff>2<\/staff>/);
+ assert.match(xml,/<staff>1<\/staff><notations><articulations><staccato\/>/);
+ assert.equal(validateMusicXmlDurations(xml,3,1).length,0);
+});
+test('Pequeña closing vocal passage shows one legato direction across 19 measures',()=>{
+ const p=JSON.parse(fs.readFileSync('src/presets/pequena-2.json','utf8'));
+ const notes=p.generatedScore.Voice.filter(n=>n.start>=440);
+ const xml=exportMusicXml(p,{Voice:notes},{onlyInstrument:'Voice',engravingPreview:true});
+ assert.equal((xml.match(/<words>legato<\/words>/g)||[]).length,1);
+ assert.match(xml,/<dot\/>/);
+});
 test('score engraving keeps written tempo markings and omits automation text',()=>{
  const p=project(),score=generate(p);
  const xml=exportMusicXml(p,score,{onlyInstrument:'Voice',engravingPreview:true});
