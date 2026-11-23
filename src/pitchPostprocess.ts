@@ -102,7 +102,19 @@ export function reprocessPitchFrames(
    const levelNotch=nearbyBefore.length>=2&&nearbyAfter.length>=2&&
      Math.min(median(nearbyBefore),median(nearbyAfter))-s.level>=dipThreshold+3&&
      s.time-group[0].time>=0.15;
-   if(elapsed>gapLimit||articulation||jump||levelNotch)close();
+   // The practice recorder samples pitch roughly every 0.167 beats, so a
+   // re-attack may appear as just one low-level frame. Compare peaks across
+   // three frames on each side rather than relying on tightly spaced samples.
+   const left=samples.slice(Math.max(0,i-3),i);
+   const right=samples.slice(i+1,i+4);
+   const localDip=left.length===3&&right.length===3&&
+    left[0].time>=group[0].time&&
+    s.time-group[0].time>=0.28&&
+    Math.max(...left.map(x=>x.level))-s.level>=6&&
+    Math.max(...right.map(x=>x.level))-s.level>=4&&
+    Math.abs(median(left.map(x=>x.pitch))-median(right.map(x=>x.pitch)))<0.5&&
+    Math.abs(median(left.map(x=>x.pitch))-s.pitch)<0.5;
+   if(elapsed>gapLimit||articulation||jump||levelNotch||localDip)close();
   }
   group.push(s);
  }
