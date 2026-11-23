@@ -49,6 +49,21 @@ function measureLabel(index:number){
  return 'Measure '+(props.from+index);
 }
 function pitch(p:number){return props.pitchLabel(p+props.transpose);}
+function alignedStart(row:Extract<LearnTakeRow,{kind:'matched'}>){return (row.played.startBeat-props.clock.offsetBeats)/props.clock.tempoScale;}
+function alignedDuration(row:Extract<LearnTakeRow,{kind:'matched'}>){return row.played.durationBeats/props.clock.tempoScale;}
+function pitchGrade(cents:number){const value=Math.abs(cents);return value<=10?'excellent':value<=20?'good':value<=35?'noticeable':'needs-work';}
+function pitchGradeLabel(cents:number){return ({excellent:'Excellent',good:'Good',noticeable:'Noticeable','needs-work':'Needs work'})[pitchGrade(cents)];}
+function beatMs(beats:number){return Math.round(beats*60000/150);}
+function timing(row:Extract<LearnTakeRow,{kind:'matched'}>){
+ const onset=alignedStart(row)-row.target.startBeat;
+ const duration=alignedDuration(row)-row.target.durationBeats;
+ return {onset,duration,release:onset+duration};
+}
+const matchedStats=computed(()=>{
+ const matches=props.rows.filter((r):r is Extract<LearnTakeRow,{kind:'matched'}>=>r.kind==='matched'&&r.pitchMatches);
+ const median=(values:number[])=>{if(!values.length)return null;const sorted=values.sort((a,b)=>a-b);return (sorted[Math.floor((sorted.length-1)/2)]+sorted[Math.ceil((sorted.length-1)/2)])/2;};
+ return {pitch:median(matches.map(r=>Math.abs(r.played.intonationCents))),onset:median(matches.map(r=>Math.abs(timing(r).onset))),release:median(matches.map(r=>Math.abs(timing(r).release)))};
+});
 function signed(value:number,places=2){
  const rounded=Number(value.toFixed(places));
  return (rounded>0?'+':'')+rounded.toFixed(places);
@@ -65,6 +80,13 @@ function signed(value:number,places=2){
     <strong>{{summary[status]}}</strong> {{label}}
    </li>
   </ul>
+  <div class="practice-performance-summary" aria-label="Performance precision">
+   <span v-if="matchedStats.pitch!==null">Median pitch deviation <strong>{{Math.round(matchedStats.pitch)}}¢</strong></span>
+   <span v-if="matchedStats.onset!==null">Median onset deviation <strong>{{signed(matchedStats.onset)}} beats</strong></span>
+   <span v-if="matchedStats.release!==null">Median release deviation <strong>{{signed(matchedStats.release)}} beats</strong></span>
+   <span v-if="summary['unresolved-repeat']">Articulation uncertain <strong>{{summary['unresolved-repeat']}}</strong></span>
+  </div>
+  <div class="practice-precision-legend" aria-label="Pitch precision colors"><span>Pitch precision</span><i class="grade-excellent"></i> Excellent (≤10¢) <i class="grade-good"></i> Good (≤20¢) <i class="grade-noticeable"></i> Noticeable (≤35¢) <i class="grade-needs-work"></i> Needs work (&gt;35¢)</div>
   <div class="practice-timeline-navigation">
    <span>Scroll along the take to compare expected and detected notes.</span>
    <div v-if="scrollLimit>1" role="group" aria-label="Scroll recording timeline">
@@ -83,7 +105,7 @@ function signed(value:number,places=2){
      </div>
      <div v-for="lane in (['expected','detected'] as const)" :key="lane" class="practice-track" :aria-label="lane==='expected'?'Expected notes':'Detected notes'">
       <button v-for="note in timeline.lanes[lane]" v-show="!reviewOnly||note.status!=='correct'"
-       :key="note.row" type="button" :class="['practice-bar','result-'+note.status]"
+        :key="note.row" type="button" :class="['practice-bar','result-'+note.status, lane==='detected'&&rows[note.row].kind==='matched'&&rows[note.row].pitchMatches?'grade-'+pitchGrade(rows[note.row].played.intonationCents):'']"
        :style="{left:`calc(${note.start-timeline.start} * var(--beat-width))`,width:`calc(${note.duration} * var(--beat-width))`}"
        :aria-pressed="selected===note.row"
        :aria-label="`${measureLabel(Math.floor(note.start/beats))}, ${lane} ${pitch(note.pitch)}, ${feedbackStatuses[note.status]}`"
@@ -97,16 +119,28 @@ function signed(value:number,places=2){
    <span>{{measureLabel(Math.floor((detail.kind==='extra'?(detail.played.startBeat-clock.offsetBeats)/clock.tempoScale:detail.target.startBeat)/beats))}}</span>
    <span v-if="detail.kind!=='extra'">Expected {{pitch(detail.target.pitch)}}</span>
    <span v-if="detail.kind==='matched'||detail.kind==='extra'">Detected {{pitch(detail.played.pitch)}}</span>
-   <span v-if="detail.kind==='matched'">{{signed((detail.played.startBeat-clock.offsetBeats)/clock.tempoScale-detail.target.startBeat)}} beats onset</span>
-   <span v-if="detail.kind==='matched'">{{signed(detail.played.durationBeats/clock.tempoScale-detail.target.durationBeats)}} beats duration</span>
-   <span v-if="detail.kind==='matched'&&detail.pitchMatches">{{signed(detail.played.intonationCents,0)}}¢ intonation</span>
-   <span v-if="detail.kind==='unresolved-repeat'">The detector heard a sustained pitch through this onset.</span>
+   <template v-if="detail.kind==='matched'">
+    <span>Start <strong>{{signed(timing(detail).onset)}} beats</strong> ({{timing(detail).onset>0?'late':'early'}})</span>
+    <span>End <strong>{{signed(timing(detail).release)}} beats</strong> ({{timing(detail).release>0?'late':'early'}})</span>
+    <span>Duration <strong>{{signed(timing(detail).duration)}} beats</strong> ({{timing(detail).duration>0?'longer':'shorter'}})</span>
+    <span v-if="detail.pitchMatches" :class="'grade-text-'+pitchGrade(detail.played.intonationCents)">Pitch {{signed(detail.played.intonationCents,0)}}¢ · {{pitchGradeLabel(detail.played.intonationCents)}}</span>
+   </template>
+   <span v-if="detail.kind==='unresolved-repeat'">Articulation uncertain: continuous pitch detected across the expected onset. This is not evidence of a missed or incorrect re-articulation.</span>
   </div>
  </div>
 </template>
 
 <style scoped>
 .practice-timeline{display:grid;gap:10px}
+.practice-performance-summary{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12px;color:#d6e8ee}
+.practice-performance-summary strong{color:#fff;font-variant-numeric:tabular-nums}
+.practice-precision-legend{display:flex;align-items:center;flex-wrap:wrap;gap:5px;font-size:11px;color:#c4d5e0}
+.practice-precision-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-left:6px}
+.grade-excellent{--pitch-grade:#4ddbb4;background:#4ddbb4}
+.grade-good{--pitch-grade:#9bd477;background:#9bd477}
+.grade-noticeable{--pitch-grade:#f0c269;background:#f0c269}
+.grade-needs-work{--pitch-grade:#ee9477;background:#ee9477}
+.grade-text-excellent{color:#4ddbb4}.grade-text-good{color:#9bd477}.grade-text-noticeable{color:#f0c269}.grade-text-needs-work{color:#ee9477}
 .result-correct{--result:#7de3b5}
 .result-wrong{--result:#ffa073}
 .result-missed{--result:#f68faf}
@@ -132,7 +166,9 @@ function signed(value:number,places=2){
  background-size:var(--measure-width) 100%,var(--beat-width) 100%}
 .practice-track .practice-bar{position:absolute;top:4px;height:31px;min-height:0;min-width:4px;box-sizing:border-box;overflow:hidden;text-overflow:clip;white-space:nowrap;margin:0;padding:0;
  border:1px solid var(--result);border-radius:4px;background:var(--result);color:#10212b;font-size:11px;font-weight:800;line-height:1}
+.practice-track .practice-bar[class*="grade-"]{background:var(--pitch-grade);border-color:var(--pitch-grade)}
 .practice-track .practice-bar.result-missed,.practice-track .practice-bar.result-unresolved-repeat{background:#233647;border-style:dashed;color:var(--result)}
+.practice-track .practice-bar.result-unresolved-repeat{background:repeating-linear-gradient(135deg,#233647,#233647 5px,#32495b 5px,#32495b 10px)}
 .practice-track .practice-bar[aria-pressed="true"],.practice-track .practice-bar:focus-visible{outline:2px solid white;outline-offset:0;z-index:1}
 .practice-detail{display:flex;margin-top:6px;align-items:center;flex-wrap:wrap;gap:5px 12px;padding:7px;background:#102330;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums}
 </style>
