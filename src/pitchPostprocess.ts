@@ -102,18 +102,18 @@ export function reprocessPitchFrames(
    const levelNotch=nearbyBefore.length>=2&&nearbyAfter.length>=2&&
      Math.min(median(nearbyBefore),median(nearbyAfter))-s.level>=dipThreshold+3&&
      s.time-group[0].time>=0.15;
-   // Same-pitch re-attacks often remain fully voiced in a pitch tracker. Look for
-   // a short, local amplitude valley followed by recovery, not just missing frames.
-   // Compare both sides of the valley; a gradual diminuendo must not split.
-   const window=Math.max(0.055,Math.min(0.13,dt*2.5));
-   const left=samples.slice(Math.max(0,i-8),i).filter(x=>s.time-x.time<=window);
-   const right=samples.slice(i+1,i+9).filter(x=>x.time-s.time<=window);
-   const localDip=left.length>=2&&right.length>=2&&
-    median(left.map(x=>x.level))-s.level>=dipThreshold&&
-    median(right.map(x=>x.level))-s.level>=dipThreshold&&
+   // The practice recorder samples pitch roughly every 0.167 beats, so a
+   // re-attack may appear as just one low-level frame. Compare peaks across
+   // three frames on each side rather than relying on tightly spaced samples.
+   const left=samples.slice(Math.max(0,i-3),i);
+   const right=samples.slice(i+1,i+4);
+   const localDip=left.length===3&&right.length===3&&
+    left[0].time>=group[0].time&&
+    s.time-group[0].time>=0.28&&
+    Math.max(...left.map(x=>x.level))-s.level>=6&&
+    Math.max(...right.map(x=>x.level))-s.level>=4&&
     Math.abs(median(left.map(x=>x.pitch))-median(right.map(x=>x.pitch)))<0.5&&
-    s.time-group[0].time>=0.15;
-   // Split at the recovering frame, retaining the valley in the preceding note.
+    Math.abs(median(left.map(x=>x.pitch))-s.pitch)<0.5;
    if(elapsed>gapLimit||articulation||jump||levelNotch||localDip)close();
   }
   group.push(s);
