@@ -1872,3 +1872,7 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 @media(max-width:1120px){
  .app-topbar .singer-cue-continue>span{display:none}
 }
+
+.note-merge-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0}
+.note-merge-controls span{font-size:.85rem}
+.note-bar.note-merge-selected,.note-event-button.note-merge-selected{outline:2px dashed #f8dc9d;outline-offset:-3px;z-index:6}

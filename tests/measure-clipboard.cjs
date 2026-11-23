@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
-const {blankProject,generate,mergeScores,sectionSpans}=load('src/music.ts');
+const {blankProject,generate,mergeScores,mergeInstrumentNotes,sectionSpans}=load('src/music.ts');
 const {duplicateProjectSection}=load('src/sectionDuplication.ts');
 const {
  ALL_MEASURE_FIELDS,copyMeasureRange,pasteMeasureRange,previewMeasurePaste,
@@ -111,8 +111,29 @@ check('section boundary and overall song safety guards',()=>{
  assert.throws(()=>pasteMeasureRange(p,p.generatedScore,clip,11,'overwrite',partOnly),/do not fit/);
  assert.throws(()=>pasteMeasureRange({...p,beats:4},p.generatedScore,clip,8,'overwrite',partOnly),/time signature/);
 });
+check('merging notes across measures preserves other attacks, protects edits and joins lyrics',()=>{
+ const p=blankProject({sections:1,measuresPerSection:4,beats:3});
+ const first={pitch:72,start:2.5,duration:.5,lyric:'ca',syllabic:'begin',lyric2:'un'};
+ const second={pitch:74,start:6,duration:1,lyric:'sa',syllabic:'end',lyric2:'día'};
+ const middle={pitch:69,start:4,duration:.5};
+ const companion={pitch:67,start:6,duration:.5};
+ const score={Voice:[first,middle,second,companion],Piano:[{pitch:48,start:6,duration:1}]};
+ p.importedScore={Voice:[{pitch:80,start:4,duration:1}]};
+ const result=mergeInstrumentNotes(p,score,'Voice',second,first);
+ assert.equal(result.note.pitch,72);
+ assert.equal(result.note.duration,4.5);
+ assert.equal(result.note.lyric,'casa');
+ assert.equal(result.note.syllabic,'single');
+ assert.equal(result.note.lyric2,'un día');
+ const regenerated=mergeScores(result.project,generate(result.project));
+ assert.deepEqual(regenerated.Voice.filter(n=>n.start<9).map(n=>[n.pitch,n.start,n.duration]),[[72,2.5,4.5],[69,4,.5],[67,6,.5]]);
+ assert.deepEqual(result.project.generatedScore.Piano,score.Piano);
+ assert.deepEqual(score.Voice,[first,middle,second,companion]);
+ assert.throws(()=>mergeInstrumentNotes(p,score,'Voice',first,first),/different notes/);
+ assert.throws(()=>mergeInstrumentNotes(p,score,'Voice',second,companion),/successive notes/);
+});
 check('real Pequeña C can be duplicated as E and Voice melody copied into bandoneon',()=>{
- const p=JSON.parse(fs.readFileSync('src/presets/pequena-2.json','utf8'));
+ const p=JSON.parse(fs.readFileSync('tests/fixtures/pequena-2-original.json','utf8'));
  const copied=duplicateProjectSection(p,2).project;
  assert.equal(copied.bars.length,163);
  assert.equal(sectionSpans(copied)[4].label,'E');
@@ -165,7 +186,7 @@ check('overlapping same-instrument move is safely rejected without mutation',()=
  assert.equal(JSON.stringify(p),original);
 });
 check('Pequeña E source 131–163 cannot overwrite at 147 and gives a clear range error',()=>{
- const p=JSON.parse(fs.readFileSync('src/presets/pequena-2.json','utf8'));
+ const p=JSON.parse(fs.readFileSync('tests/fixtures/pequena-2-original.json','utf8'));
  const e=duplicateProjectSection(p,2).project;
  const clip=copyMeasureRange(e,mergeScores(e,e.generatedScore),{start:130,end:162},['Voice'],partOnly);
  assert.throws(()=>previewMeasurePaste(e,mergeScores(e,e.generatedScore),clip,146,'overwrite',partOnly),/do not fit/);

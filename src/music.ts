@@ -1262,6 +1262,51 @@ export function replaceInstrumentNoteAcrossMeasures(p:Project,current:Score,inst
   next=replaceInstrumentMeasure(next,next.generatedScore??current,inst,targetBar,target);
   return next;
 }
+/** Combine two selected attacks into one written note spanning their full extent. */
+export function mergeInstrumentNotes(p:Project,current:Score,inst:Instrument,one:Note,two:Note):{project:Project;note:Note}{
+  const notes=current[inst]??[];
+  if(one===two||!notes.includes(one)||!notes.includes(two))throw Error('Select two different notes in the same part');
+  const [first,second]=one.start<=two.start?[one,two]:[two,one];
+  if(Math.abs(first.start-second.start)<1e-8&&first.pitch!==second.pitch)
+    throw Error('Select successive notes to merge pitches from separate attacks');
+  const end=Math.max(first.start+first.duration,second.start+second.duration);
+  const merged:Note={...first,duration:end-first.start};
+  if(merged.duration!==first.duration)delete merged.rhythmSource;
+  for(const [text,position,extend] of [['lyric','syllabic','melisma'],['lyric2','syllabic2','melisma2']] as const){
+    if(!second[text])continue;
+    if(!first[text]){
+      merged[text]=second[text];
+      merged[position]=second[position];
+      merged[extend]=second[extend];
+      continue;
+    }
+    const joinsNext=first[position]==='begin'||first[position]==='middle';
+    const joinsPrevious=second[position]==='middle'||second[position]==='end';
+    const startsInside=first[position]==='middle'||first[position]==='end';
+    const endsInside=second[position]==='begin'||second[position]==='middle';
+    merged[text]=first[text]+(joinsNext&&joinsPrevious?'':' ')+second[text];
+    merged[position]=startsInside?(endsInside?'middle':'end'):(endsInside?'begin':'single');
+    merged[extend]=second[extend];
+  }
+  const barOf=(note:Note)=>Math.floor((note.start+1e-8)/p.beats);
+  const from=barOf(first),to=barOf(second);
+  const remaining=notes.filter(n=>n!==one&&n!==two);
+  const fromNotes=remaining.filter(n=>barOf(n)===from);
+  const toNotes=from===to?[]:remaining.filter(n=>barOf(n)===to);
+  const protectedEnd=[...fromNotes,...toNotes].reduce((latest,n)=>Math.max(latest,n.start+n.duration),end);
+  const last=Math.ceil((protectedEnd-1e-8)/p.beats)-1;
+  const imported=p.importedScore??current;
+  // When extending a note protects another bar, record its current audible
+  // notes as well. The protected edition must not replace them with stale data.
+  const newlyProtected=(n:Note)=>barOf(n)>from&&barOf(n)<=last&&!p.protectedBars[`${inst}:${barOf(n)}`];
+  let next:Project={...p,importedScore:{...imported,[inst]:[
+    ...(imported[inst]??[]).filter(n=>!newlyProtected(n)),...notes.filter(newlyProtected),
+  ]}};
+  if(from!==to)next=replaceInstrumentMeasure(next,current,inst,to,toNotes);
+  next=replaceInstrumentMeasure(next,next.generatedScore??current,inst,from,[...fromNotes,merged]);
+  return {project:next,note:merged};
+}
+
 /** Remove manual protection and restore generator output for this measure only. */
 export function resetInstrumentMeasure(p:Project,inst:Instrument,barIndex:number):Project {
   if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');

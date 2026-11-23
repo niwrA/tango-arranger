@@ -231,8 +231,24 @@ function notesInNativeScore(mscx,beats){
   assert.ok(starts>0);
   assert.equal(starts,stops);
  });
+ await check('built-in song copies retain their uploaded rosters, editions and expressive ending',async()=>{
+  const loadPreset=name=>JSON.parse(fs.readFileSync('src/presets/'+name+'.json','utf8'));
+  const pequena=loadPreset('pequena-2');
+  const melodia=loadPreset('la-melodia-de-nuestros-adios');
+  assert.equal(pequena.bars.length,165);
+  assert.equal(pequena.tempoExpressions.fermatas[0].measure,164);
+  assert.equal(pequena.tempoExpressions.fermatas[0].waitForCue,true);
+  assert.ok(pequena.partEditions['Bandoneon I'].advanced);
+  assert.equal(melodia.bars.length,94);
+  assert.ok(projectInstruments(melodia).includes('Trumpet'));
+  assert.ok(melodia.partEditions.Voice.intermediate);
+  for(const p of [pequena,melodia]){
+   const xml=exportMusicXml(p,p.generatedScore,{onlyInstrument:'Voice'});
+   assert.equal(validateMusicXmlDurations(xml,p.beats,1).length,0);
+  }
+ });
  await check('Pequeña full native MuseScore score has no ties to different staves, voices or pitches',async()=>{
-  const p=JSON.parse(fs.readFileSync('src/presets/pequena-2.json','utf8'));
+  const p=JSON.parse(fs.readFileSync('tests/fixtures/pequena-2-original.json','utf8'));
   const mscx=(await exportMuseScoreMscz(p,p.generatedScore)).files['score.mscx'];
   const staves=notesInNativeScore(mscx,p.beats);
   let starts=0,stops=0;

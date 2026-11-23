@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
+import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -39,8 +39,7 @@ const appBuildId=(import.meta.env.VITE_APP_BUILD_SHA||'').slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import pequenaStudy from './presets/pequena-2.json';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -164,19 +163,18 @@ async function adoptLocalSong(p:Project){
 async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
-  if(id==='__example_pequena_2__'){
+  if(id==='__example_pequena_2__'||id==='__example_la_melodia__'){
     select.value=localSongId.value;
     try{
       await flushAutosave();
-      // Refresh the factory study's piano part with the current generator.
-      // The bundled generatedScore predates left-hand bass support; keep
-      // the remaining preset parts and all protected transcription edits.
-      const study=snapshot(pequenaStudy as Project);
-      study.generatedScore={...(study.generatedScore??generate(study)),Piano:generate(study).Piano};
+      const {default:source}=id==='__example_pequena_2__'
+        ?await import('./presets/pequena-2.json?raw')
+        :await import('./presets/la-melodia-de-nuestros-adios.json?raw');
+      const study=JSON.parse(source) as Project;
       await adoptLocalSong(study);
       active.value='arrange';
-      message.value='Opened a new editable Pequeña 2 — Vals study (130 measures). Melody and lyric alignment remain provisional; review against the printed score.';
-    }catch(error){message.value=`Could not create Pequeña 2 study: ${String(error)}`;}
+      message.value=`Opened a new editable copy of ${study.title} (${study.bars.length} measures).`;
+    }catch(error){message.value=`Could not open built-in song: ${String(error)}`;}
     return;
   }
   if(id==='__example_el_choclo__'){
@@ -4628,6 +4626,42 @@ function shiftPianoRegister(staff:'treble'|'bass',semitones:number){
   else pianoBassCenter.value=Math.max(lo+8,Math.min(Math.min(hi,pianoSplit.value-1)-8,pianoBassCenter.value+semitones));
 }
 const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
+const mergeAnchor=shallowRef<Note>();
+const mergeTarget=shallowRef<Note>();
+const mergeFirstPitch=computed(()=>{
+ const first=mergeAnchor.value,second=mergeTarget.value;
+ return first&&second?displayPitch(first.start<=second.start?first.pitch:second.pitch):'';
+});
+function cancelNoteMerge(){mergeAnchor.value=undefined;mergeTarget.value=undefined;}
+watch([score,noteInst,noteEditorTab,active],cancelNoteMerge,{flush:'sync'});
+function chooseMergeTarget(note:Note){
+ if(mergeAnchor.value!==note)mergeTarget.value=note;
+}
+function mergeSelectedNotes(){
+ const first=mergeAnchor.value,second=mergeTarget.value;
+ if(!first||!second)return;
+ try{
+  const merged=mergeInstrumentNotes(project.value,score.value,noteInst.value,first,second);
+  project.value=merged.project;
+  activateGridMeasure(Math.floor((merged.note.start+1e-8)/project.value.beats));
+  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===merged.note.pitch&&n.start===merged.note.start&&n.duration===merged.note.duration);
+  message.value='Merged two notes.';
+ }catch(error){message.value='Could not merge notes: '+String(error);}
+}
+function selectNoteForEdit(note:Note,index:number){
+ if(mergeAnchor.value){chooseMergeTarget(note);return;}
+ selectNoteEvent(index);
+}
+function startGridNoteDrag(event:PointerEvent,note:Note){
+ if(mergeAnchor.value)return;
+ activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
+ beginNoteDrag(event,note.pitch,note.start%project.value.beats);
+}
+function selectGridNote(note:Note){
+ if(mergeAnchor.value){chooseMergeTarget(note);return;}
+ activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
+ noteBarClick(note.pitch,note.start%project.value.beats);
+}
 function selectScoreNote(note:Note){
   if(!(score.value[noteInst.value]??[]).includes(note))return;
   const measure=Math.floor((note.start+1e-7)/project.value.beats);
@@ -5249,7 +5283,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Vals (new editable copy · provisional)</option></optgroup></select>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
     <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
@@ -6517,6 +6551,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </details></div>
   </section>
   <section id="note-panel-notes" v-show="noteEditorTab==='notes'" role="tabpanel" aria-labelledby="note-tab-notes" class="inspector-open">
+    <div v-if="selectedEvent||mergeAnchor" class="note-merge-controls" role="group" aria-label="Merge notes">
+      <button v-if="!mergeAnchor" type="button" class="secondary" @click="mergeAnchor=selectedEvent">Merge with another note</button>
+      <template v-else>
+        <span role="status">{{mergeTarget?'One '+mergeFirstPitch+' note will span both selections.':'Select a second note in the grid or note list.'}}</span>
+        <button type="button" class="primary" :disabled="!mergeTarget" @click="mergeSelectedNotes">Merge notes</button>
+        <button type="button" class="secondary" @click="cancelNoteMerge">Cancel</button>
+      </template>
+    </div>
   <p v-if="false" class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
     <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
@@ -6594,7 +6636,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <template v-for="barIndex in noteGridMeasures" :key="barIndex">
           <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
         </template></div>
-        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="activateGridMeasure(Math.floor(n.start/project.beats));beginNoteDrag($event,pitch,n.start%project.beats)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="activateGridMeasure(Math.floor(n.start/project.beats));noteBarClick(pitch,n.start%project.beats)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="noteInst.startsWith('Voice')" class="note-bar-label note-bar-lyric" :title="(lyricVerse===1?n.lyric:n.lyric2)||'No lyric assigned'">{{(lyricVerse===1?n.lyric:n.lyric2)?.trim()||((lyricVerse===1?n.melisma:n.melisma2)?'—':'♪')}}</span><span v-else-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
+        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n,'note-merge-selected':mergeAnchor===n||mergeTarget===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="startGridNoteDrag($event,n)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="selectGridNote(n)" :aria-pressed="mergeAnchor?mergeAnchor===n||mergeTarget===n:selectedEvent===n"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="noteInst.startsWith('Voice')" class="note-bar-label note-bar-lyric" :title="(lyricVerse===1?n.lyric:n.lyric2)||'No lyric assigned'">{{(lyricVerse===1?n.lyric:n.lyric2)?.trim()||((lyricVerse===1?n.melisma:n.melisma2)?'—':'♪')}}</span><span v-else-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
       </div>
     </div>
   </div>
@@ -6615,7 +6657,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div v-if="selectedEvent" class="lyric-selected-editor"><label>Selected syllable · {{displayPitch(selectedEvent.pitch)}} · beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}}<input type="text" maxlength="160" :value="(lyricVerse===1?selectedEvent.lyric:selectedEvent.lyric2)??''" placeholder="Type a syllable" @change="updateSelectedNote(lyricVerse===1?'lyric':'lyric2',($event.target as HTMLInputElement).value)"/></label><label>Syllable position<select :value="(lyricVerse===1?selectedEvent.syllabic:selectedEvent.syllabic2)??'single'" @change="updateSelectedNote(lyricVerse===1?'syllabic':'syllabic2',($event.target as HTMLSelectElement).value)"><option value="single">Single</option><option value="begin">Beginning</option><option value="middle">Middle</option><option value="end">End</option></select></label><label><input type="checkbox" :checked="(lyricVerse===1?selectedEvent.melisma:selectedEvent.melisma2)??false" @change="updateSelectedNote(lyricVerse===1?'melisma':'melisma2',String(($event.target as HTMLInputElement).checked))"/> Extend syllable across following untexted notes</label><button type="button" class="secondary note-delete-action" @click="deleteSelectedNote" title="Delete this note and its attached lyric syllables">Delete note + lyrics</button></div>
       <div class="lyric-batch-editor"><label>Verse<select v-model.number="lyricVerse"><option :value="1">Verse 1</option><option :value="2">Verse 2</option></select></label><label><input type="checkbox" v-model="lyricAcrossMeasures"/> Continue into following measures</label><label class="lyric-batch-text">Paste lyrics (hyphens split syllables; underscores reserve melisma notes)<textarea v-model="lyricBatch" rows="4" placeholder="Don-de el rí-o se que-da…"/></label><button type="button" class="secondary" @click="applyLyricBatch">Align lyrics to note onsets</button></div>
     </section>
-    <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i}]" @click="selectNoteEvent(i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{gestureText(n)?' · '+gestureText(n):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}{{rhythmCue(n)?' · ◆ '+rhythmCue(n):''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
+    <h3>Notes in this measure</h3><div class="note-event-list"><button v-for="(n,i) in noteMeasure" :key="`${n.start}:${n.pitch}:${i}`" :class="['note-event-button',{selected:noteSelected===i,'note-merge-selected':mergeAnchor===n||mergeTarget===n}]" :aria-pressed="mergeAnchor?mergeAnchor===n||mergeTarget===n:noteSelected===i" @click="selectNoteForEdit(n,i)">{{displayPitch(n.pitch)}} · beat {{Number((n.start-selectedBar*project.beats+1).toFixed(2))}} · {{n.duration}} beats · {{n.articulation==='staccato'?'· Stacc.':n.articulation==='marcato_staccato'?'^ Marc.':n.articulation==='legato'?'Legato':'Plain'}}{{gestureText(n)?' · '+gestureText(n):''}}{{n.swellTo!==undefined?' · swell → '+n.swellTo:''}}{{rhythmCue(n)?' · ◆ '+rhythmCue(n):''}}</button><span v-if="!noteMeasure.length" class="muted">No notes. Tap a cell to add one.</span></div>
     <div v-if="noteDetailsPopup" class="note-properties-backdrop" @click.self="noteDetailsPopup=false"></div><div v-if="selectedEvent" :class="['note-properties',{'note-properties-popup':noteDetailsPopup}]" role="region" aria-label="Selected note properties"><div v-if="noteDetailsPopup" class="note-properties-popup-header"><strong>Note properties · {{displayPitch(selectedEvent.pitch)}}</strong><button type="button" class="secondary note-delete-action" @click="deleteSelectedNote">Delete note</button><button type="button" class="secondary" @click="noteDetailsPopup=false">✕ Close</button></div><div v-if="!noteFocusMode&&!noteDetailsPopup" class="inspector-heading"><strong>Note inspector</strong><button type="button" class="secondary note-delete-action" @click="deleteSelectedNote">Delete note</button></div><details class="control-fold selected-note-fold" open><summary>Essentials · {{displayPitch(selectedEvent.pitch)}} · {{selectedEvent.duration}} beats</summary><div class="note-editor-controls">
       <div class="note-rhythm-inspector" role="group" aria-label="Selected note rhythm source">
         <span v-if="rhythmCue(selectedEvent)">◆ {{rhythmCue(selectedEvent)}} · preset beat {{Number((selectedEvent.rhythmSource!.targetBeat+1).toFixed(2))}}</span>
