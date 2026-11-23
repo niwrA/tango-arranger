@@ -544,6 +544,17 @@ export function pianoStaffForPitch(pitch:number,splitPitch=60):1|2 {
   return pitch>=splitPitch?1:2;
 }
 
+export function partUsesGrandStaff(project:Project,inst:Instrument,notes:readonly Note[]):boolean {
+  return inst.startsWith('Piano')||
+    (inst.startsWith('Bandoneon')&&(Boolean(project.bandoneonGrandStaff?.[inst])||notes.some(note=>note.xmlStaff===2)));
+}
+
+/** Staff placement is a practice aid. It does not prescribe physical fingering. */
+export function partStaffForNote(note:Note,inst:Instrument,splitPitch=60,transpose=0):1|2 {
+  if(inst.startsWith('Bandoneon')&&(note.xmlStaff===1||note.xmlStaff===2))return note.xmlStaff;
+  return pianoStaffForPitch(note.pitch-transpose,splitPitch);
+}
+
 /** The piano accompanies, rather than replaces, the double bass.
  * Select the same root/fifth pitch class as the contrabass part but normally
  * an octave higher, in a comfortable left-hand F-clef register. A0-C8 remains

@@ -4,17 +4,20 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram';
 
 <script setup lang="ts">
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
-import type {Note} from './music';
+import {instrumentFamily,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,sensitivityThresholdDb} from './learnPitch';
 import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
 import {compareLearnTake,type LearnTakeRow} from './learnTake';
+import {practiceTargets,type ChordTarget,type PracticeStaff} from './practiceTargets';
+import {suggestStringMeasurePosition} from './stringPositionGuide';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 
 const props=defineProps<{
- instrument:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
+ instrument:Instrument;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
  initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;display:PracticeDisplay;
+ grandStaff:boolean;staffSplit:number;
 }>();
 const emit=defineEmits<{(event:'exit'):void;(event:'update:display',display:PracticeDisplay):void}>();
 const layout=computed({
@@ -40,13 +43,21 @@ const frequency=ref<number|null>(null);
 const detectedMidi=ref<number|null>(null);
 const detectedClarity=ref<number|null>(null);
 const accepted=ref(false);
-const microphoneSupported=computed(()=>props.instrument.startsWith('Violin')||props.instrument.startsWith('Voice'));
-const targets=computed(()=>props.notes
- .filter(n=>n.start>=((from.value-1)*props.beatsPerMeasure)-1e-6&&n.start<(to.value*props.beatsPerMeasure)-1e-6)
- .filter(n=>n.pitch>=0&&n.pitch<=127&&!n.xmlTieContinuation)
- .sort((a,b)=>a.start-b.start||a.pitch-b.pitch));
+const family=computed(()=>instrumentFamily(props.instrument));
+const microphoneSupported=computed(()=>['Violin','Voice','Contrabass','Bandoneon','Piano'].includes(family.value));
+const staff=ref<PracticeStaff>('all');
+const chordTarget=ref<ChordTarget>('highest');
+const practiceRange=computed(()=>props.notes.filter(note=>
+ note.start>=(from.value-1)*props.beatsPerMeasure-1e-6&&note.start<to.value*props.beatsPerMeasure-1e-6));
+const exercise=computed(()=>practiceTargets(practiceRange.value,props.instrument,props.staffSplit,props.grandStaff?staff.value:'all',chordTarget.value));
+const targets=computed(()=>exercise.value.targets);
+function targetPitch(note:Note){return exercise.value.pitches.get(note)??note.pitch;}
+function otherPitches(note:Note){
+ return (exercise.value.chords.get(note)??[]).filter(pitch=>pitch!==targetPitch(note))
+  .map(pitch=>pitchLabel(pitch+props.concertTranspose)).join(' · ');
+}
 const current=computed(()=>targets.value[cursor.value]??null);
-const targetMidi=computed(()=>current.value===null?null:current.value.pitch+props.concertTranspose);
+const targetMidi=computed(()=>current.value===null?null:targetPitch(current.value)+props.concertTranspose);
 const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value)??0):null);
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
@@ -65,6 +76,15 @@ const scoreMeasure=computed(()=>{
  return note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
 });
 const scoreCompleted=computed(()=>[...completedTargets.value]);
+const diagramPitches=computed(()=>{
+ const start=(scoreMeasure.value-1)*props.beatsPerMeasure;
+ const end=start+props.beatsPerMeasure;
+ return [...new Set(props.notes.filter(note=>note.start<end&&note.start+note.duration>start)
+  .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(point=>point.pitch)??[])]))];
+});
+const bassGuide=computed(()=>family.value==='Contrabass'&&current.value
+ ?suggestStringMeasurePosition('Contrabass',[{...current.value,pitch:targetPitch(current.value)}])
+ :null);
 const scoreDemoNotes=computed(()=>{
  if(demoBeat.value===null)return [];
  const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
@@ -165,7 +185,7 @@ async function listenToNotes(){
    const end=at+Math.max(0.01,(Math.min(rangeEnd,note.start+note.duration)-note.start)*secondsPerBeat);
    const fade=Math.min(0.035,(end-at)/3);
    const tone=ctx.createOscillator(),gain=ctx.createGain();
-   tone.type='triangle';tone.frequency.value=expectedFrequency(note.pitch+props.concertTranspose,referenceHz.value);
+   tone.type='triangle';tone.frequency.value=expectedFrequency(targetPitch(note)+props.concertTranspose,referenceHz.value);
    gain.gain.setValueAtTime(0,at);
    gain.gain.linearRampToValueAtTime(0.08,at+fade);
    gain.gain.setValueAtTime(0.08,end-fade);
@@ -187,7 +207,7 @@ async function startTake(){
  if(take){cancelTake();restart();return;}
  if(!targets.value.length||!microphoneSupported.value||busy.value||demoPlaying.value)return;
  if(!listening.value)await startMicrophone();
- if(!listening.value)return;
+ if(!listening.value||!targets.value.length)return;
  const msPerBeat=60000/props.bpm;
  restart();
  take={startMs:performance.now()+msPerBeat*props.beatsPerMeasure,msPerBeat,
@@ -204,7 +224,7 @@ function finishTake(){
   .map(note=>({...note,startBeat:note.startBeat-takeLeadInBeats}));
  const expected=targets.value.map(note=>{
   const startBeat=Math.max(0,note.start-rangeStart);
-  return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),pitch:note.pitch};
+  return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),pitch:targetPitch(note)};
  });
  takeResult.value=compareLearnTake(expected,performed);
  cancelTake();restart();armed=false;
@@ -251,13 +271,18 @@ async function startMicrophone(){
   if(ctx.state==='suspended')await ctx.resume();
   if(id!==generation){acquired.getTracks().forEach(t=>t.stop());void ctx.close();return;}
   const input=ctx.createMediaStreamSource(acquired);
-  const meter=ctx.createAnalyser();meter.fftSize=4096;meter.smoothingTimeConstant=0;
+  const lowRegister=family.value==='Contrabass'||family.value==='Piano'||family.value==='Bandoneon';
+  const sampleRate=ctx.sampleRate;
+  const stride=lowRegister?Math.max(2,Math.round(sampleRate/24000)):1;
+  const meter=ctx.createAnalyser();meter.fftSize=lowRegister&&sampleRate>50000?8192:4096;meter.smoothingTimeConstant=0;
   const mute=ctx.createGain();mute.gain.value=0;
   input.connect(meter);meter.connect(mute);mute.connect(ctx.destination);
   stream=acquired;acquired=null;audio=ctx;ctx=null;source=input;analyser=meter;silence=mute;
   listening.value=true;busy.value=false;micStatus.value='Listening · no accompaniment';
   const samples=new Float32Array(meter.fftSize);
-  const normalized=new Float32Array(samples.length);
+  const normalized=new Float32Array(Math.floor(samples.length/stride));
+  const minHz=lowRegister?24:65;
+  const maxHz=family.value==='Piano'?4500:2000;
   const analysisHalfWindowMs=500*meter.fftSize/input.context.sampleRate;
   const tick=(time:number)=>{
    if(id!==generation||!listening.value)return;
@@ -270,8 +295,12 @@ async function startMicrophone(){
     const levelDb=rms>0?20*Math.log10(rms):-90;
     inputDb.value=Math.max(-90,Math.round(levelDb));
     const gain=levelDb>=inputThreshold.value?Math.min(100,0.08/rms):0;
-    if(gain)for(let i=0;i<samples.length;i++)normalized[i]=samples[i]*gain;
-    const reading=gain&&!demoPlaying.value&&time>=demoTailUntil?detectMonophonicPitch(normalized,input.context.sampleRate,65,2000):null;
+    if(gain)for(let i=0;i<normalized.length;i++){
+     let sum=0;
+     for(let j=0;j<stride;j++)sum+=samples[i*stride+j];
+     normalized[i]=sum*gain/stride;
+    }
+    const reading=gain&&!demoPlaying.value&&time>=demoTailUntil?detectMonophonicPitch(normalized,sampleRate/stride,minHz,maxHz):null;
     frequency.value=reading?.frequency??null;
     detectedMidi.value=reading&&reading.clarity>=0.7?reading.midi:null;
     detectedClarity.value=reading?.clarity??null;
@@ -294,7 +323,7 @@ async function startMicrophone(){
     else if(!current.value){
      stableSince=0;
      const last=targets.value.at(-1);
-     const lastCents=last&&reading?deviationCents(reading.frequency,last.pitch+props.concertTranspose,referenceHz.value):null;
+     const lastCents=last&&reading?deviationCents(reading.frequency,targetPitch(last)+props.concertTranspose,referenceHz.value):null;
      if(detectedMidi.value===null||lastCents===null||Math.abs(lastCents)>tolerance.value)armed=true;
     }
     else if(detectedMidi.value===null||!nearTarget.value){
@@ -342,6 +371,10 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
+   <label v-if="grandStaff">Practice staff
+    <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>
+   </label>
+   <label>Chord target <select v-model="chordTarget"><option value="highest">Highest note</option><option value="lowest">Lowest note</option></select></label>
    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
    <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Restart after the last note</label>
   </div>
@@ -349,6 +382,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||busy" :aria-pressed="demoPlaying" @click="listenToNotes">{{demoPlaying?'Stop preview':'▶ Listen to notes'}}</button>
    <button v-if="microphoneSupported" type="button" class="primary" :disabled="!targets.length||demoPlaying||busy" @click="startTake">{{takeBeat===null?'Record for feedback':'Cancel recording'}}</button>
   </div>
+  <p v-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
   <p v-if="takeStatus" class="learn-take-status" role="status">{{takeStatus}} · {{Math.round(bpm)}} BPM</p>
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
@@ -359,7 +393,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
       <template v-if="demoPlaying">Listening · measure {{scoreMeasure}}</template>
       <template v-else-if="current">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</template>
       <template v-else-if="done">{{autoRepeat?'Starting again…':'Pass complete'}}</template>
-      <template v-else>No written notes in this range.</template>
+      <template v-else>No practice targets in this range.</template>
      </small>
     </div>
     <div v-else-if="current" class="learn-note-cards">
@@ -367,16 +401,18 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
       <small>PLAY NOW</small><strong>{{pitchLabel(targetMidi??current.pitch)}}</strong>
       <span>M{{Math.floor(current.start/beatsPerMeasure)+1}} · beat {{(current.start%beatsPerMeasure+1).toFixed(2)}}</span>
       <span>{{current.duration}} beats</span>
+      <span v-if="otherPitches(current)" class="learn-companion-notes" :aria-label="'Other notes at this attack: '+otherPitches(current)">{{otherPitches(current)}}</span>
      </div>
      <div v-for="(note,index) in upcoming" :key="cursor+index+1" class="learn-target">
-      <small>{{index===0?'NEXT':`THEN ${index+1}`}}</small><strong>{{pitchLabel(note.pitch+concertTranspose)}}</strong>
+      <small>{{index===0?'NEXT':`THEN ${index+1}`}}</small><strong>{{pitchLabel(targetPitch(note)+concertTranspose)}}</strong>
       <span>M{{Math.floor(note.start/beatsPerMeasure)+1}} · beat {{(note.start%beatsPerMeasure+1).toFixed(2)}}</span>
       <span>{{note.duration}} beats</span>
+      <span v-if="otherPitches(note)" class="learn-companion-notes" :aria-label="'Other notes at this attack: '+otherPitches(note)">{{otherPitches(note)}}</span>
      </div>
     </div>
     <div v-else class="learn-target learn-empty" role="status">
      <template v-if="done"><strong>Pass complete</strong><span>{{autoRepeat?'Starting again…':'Press Restart to practise again.'}}</span></template>
-     <template v-else><strong>No written notes</strong><span>Choose another range in Settings.</span></template>
+     <template v-else><strong>No practice targets</strong><span>Choose another range or staff in Settings.</span></template>
     </div>
    </div>
   <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
@@ -397,7 +433,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </div>
   </div>
    <div v-if="showDiagram" class="learn-diagram">
-    <slot name="diagram" :target-pitch="current?.pitch??null" :current-beat="current?Math.floor(current.start%beatsPerMeasure)+1:1" :show-target-label="!showGuide"/>
+    <slot name="diagram" :target-pitch="current?targetPitch(current):null" :current-beat="current?Math.floor(current.start%beatsPerMeasure)+1:1"
+     :show-target-label="!showGuide" :measure-pitches="diagramPitches" :bass-guide="bassGuide"/>
    </div>
   </div>
   <div class="learn-navigation">
@@ -484,6 +521,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-mic-row small{color:#b7cddd}
 .learn-mic-row button,.learn-navigation button{min-height:42px}
 .learn-navigation{justify-content:center}
+.learn-mic-instructions{margin:0;text-align:center;font-size:12px;color:#b7cbd8}
+.learn-target .learn-companion-notes{max-width:100%;overflow-wrap:anywhere;color:#aebfcd}
 .learn-take-status{margin:0;text-align:center;font-weight:650;color:#f4d49e}
 .learn-feedback{min-width:0;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
 .learn-feedback h3,.learn-feedback p{margin:0 0 5px}

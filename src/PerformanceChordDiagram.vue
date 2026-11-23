@@ -181,6 +181,13 @@ const diagramDescription=computed(()=>{
        </span>
      </div>
    </div>
+   <div v-else-if="props.learn&&family==='Bandoneon'" class="diagram-bandoneon-practice" role="group" aria-label="Bandoneon notes in the current measure">
+     <small>Notes in this measure</small>
+     <div class="diagram-tone-pills">
+       <span v-for="pitch in props.measurePitches" :key="pitch" class="diagram-tone-pill" :class="{'is-learn-target':isTarget(pitch)}">{{midiLabel(pitch)}}</span>
+       <span v-if="!props.measurePitches?.length">Rest</span>
+     </div>
+   </div>
    <div v-else class="diagram-targets" :class="'diagram-family-'+family.toLowerCase()" aria-label="Concert-pitch chord tone targets">
      <div class="diagram-targets-graphic" aria-hidden="true">
        <template v-if="family==='Bandoneon'">
@@ -442,6 +449,8 @@ const diagramDescription=computed(()=>{
 .diagram-tone-pill.is-learn-target{background:#ffd166!important;color:#201c13!important;border:2px solid #fff2a8!important;box-shadow:inset 0 0 0 2px #9a641b,0 0 0 3px #ffcf66,0 0 15px #ffcf6688!important;opacity:1!important;filter:none!important;z-index:9}
 .diagram-fingerboard .diagram-open-label.is-learn-target strong{color:#2d2116}
 .performance-instrument-diagram.is-focus.is-learn{gap:7px}
+.diagram-bandoneon-practice{display:grid;gap:8px;padding:10px;border:1px solid #495f72;border-radius:9px;text-align:center}
+.performance-instrument-diagram.is-focus .diagram-bandoneon-practice .diagram-tone-pill{min-width:0;min-height:36px;font-size:clamp(14px,2vw,22px)}
 .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard{
  display:grid;grid-auto-rows:minmax(26px,auto);height:auto;min-height:0;max-height:none;
  padding:6px;gap:3px;align-content:start;
