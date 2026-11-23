@@ -76,7 +76,7 @@ test('stopping microphone does not close the shared Tone output context',()=>{
  assert.match(app,/Tone\.getContext\(\)\.rawContext as AudioContext/);
 });
 test('arrangement playback does not await network sample loading',()=>{
- const begin=app.indexOf('async function play(origin:PlaybackOrigin)');const end=app.indexOf('async function previewPart(',begin);
+ const begin=app.indexOf('async function play(');const end=app.indexOf('async function previewPart(',begin);
  const play=app.slice(begin,end);
  assert.doesNotMatch(play,/await prepareSamples\(/);
  assert.match(play,/transport\.start\(\)/);

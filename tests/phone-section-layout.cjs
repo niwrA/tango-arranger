@@ -16,7 +16,7 @@ assert.match(final,/\.lead-sections \.lead-section-actions\{[\s\S]*?grid-templat
 assert.match(final,/\.lead-section-start-control\{[\s\S]*?grid-column:1\/-1/);
 assert.match(final,/\.lead-section-copy\{[\s\S]*?min-width:0/);
 assert.match(final,/\.lead-section-heading>\.lead-key-label\{[\s\S]*?width:100%/);
-for(const action of ['duplicateLeadSection(si)','beginSectionCopy(si)','copyChordsToSection(si)','deleteLeadSection(si)']){
+for(const action of ['duplicateLeadSection(span.sectionIndex)','beginSectionCopy(span.sectionIndex)','copyChordsToSection(span.sectionIndex)','deleteLeadSection(span.sectionIndex)']){
  assert.ok(vue.includes('@click="'+action+'"'),'Existing section action preserved: '+action);
 }
 console.log('Phone header and section card responsiveness checks passed');

@@ -7,7 +7,7 @@ assert.match(app,/const instrumentLearnMode=ref\(false\)/);
 assert.match(app,/function enterInstrumentLearn\(\)\{stopPlayback\(\);instrumentLearnMode\.value=true;\}/);
 assert.match(app,/function closePerformanceInstrument\(\)\{\s*instrumentLearnMode\.value=false/);
 assert.match(app,/aria-label="Learn this instrument's notes"/);
-assert.match(app,/v-if="instrumentLearnMode" :instrument="part.inst" :notes="score\[part.inst\]\?\?\[\]"/);
+assert.match(app,/v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore\[part.inst\]\?\?\[\]"/);
 assert.match(app,/v-if="!instrumentLearnMode" class="instrument-focus-status"/);
 assert.match(app,/v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play"/);
 assert.match(app,/v-if="!instrumentLearnMode" class="instrument-focus-hint"/);

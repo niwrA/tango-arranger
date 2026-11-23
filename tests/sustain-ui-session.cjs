@@ -14,7 +14,7 @@ check('sustained notation keeps its sounding gate even if an inherited style is 
  assert.ok(app.includes('held:true'));
 });
 check('normal score playback does not clip sustained note duration at the measure boundary',()=>{
- const start=app.indexOf('async function play(origin:PlaybackOrigin)');
+ const start=app.indexOf('async function play(');
  const end=app.indexOf('// Contextual previews',start);
  const section=app.slice(start,end);
  assert.ok(section.includes('const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)'));

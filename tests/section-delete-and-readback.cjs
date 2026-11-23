@@ -84,6 +84,6 @@ check('loading from song does not change the project until applying',()=>{
  assert.ok(app.includes('function deleteLeadSection(i:number)'));
  assert.ok(app.includes('deleteProjectSection(project.value,i)'));
  assert.ok(app.includes('window.confirm('));
- assert.ok(app.includes('@click="deleteLeadSection(si)"'));
+ assert.ok(app.includes('@click="deleteLeadSection(span.sectionIndex)"'));
 });
 console.log(count+' section delete and lyrics readback tests passed');

@@ -235,7 +235,7 @@ check('editor and stage speed popup controls the same musical-tick arrangement t
  assert.ok(app.includes('setRehearsalSpeed(speed)'));
  assert.ok(app.includes('tango-rehearsal-speed'));
  assert.ok(app.includes('transport.ticks/transport.PPQ'));
- assert.ok(app.includes('const whenTicks=beatOffsetTicks(n.start-window.startBeat,transport.PPQ)'));
+ assert.ok(app.includes('const whenTicks=beatOffsetTicks(n.start-transportStartBeat,transport.PPQ)'));
  assert.ok(app.includes('transport.bpm.value=effectivePlaybackBpm.value'));
  assert.ok(app.includes('playbackDuration(event.durationSeconds,rehearsalSpeed.value)'));
  assert.ok(!app.includes('Tone.getTransport().seconds*project.value.bpm/60'));
