@@ -6025,28 +6025,26 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
 </section>
 <section v-else-if="active==='notes'" ref="noteEditorRegion" class="note-editor-section" tabindex="-1" :class="{'note-focus-mode':noteFocusMode,'note-focus-more-open':noteFocusMore,'note-focus-has-selection':noteFocusMode&&noteEditorTab==='notes'&&!!selectedEvent}" @keydown="handleNoteEditorKey">
-  <div v-if="noteFocusMode" class="note-focus-toolbar note-unified-focus-toolbar" role="toolbar" aria-label="Focused note editor controls">
-    <button type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
-    <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
-    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
-    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
-    <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}} · {{instrumentSkillShort(noteInst)}}</strong>
-    <label class="note-focus-range">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
-    <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
-    <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop'}}</button>
-    <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
-  </div>
-  <div v-if="!noteFocusMode" class="compact-note-toolbar note-unified-toolbar" role="toolbar" aria-label="Note editing workspace">
-    <button v-if="noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button>
-    <button type="button" class="secondary" @click="returnToMap">← Map</button>
-    <label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-    <label class="note-edition-selector">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
-    <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
-    <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
-    <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
-    <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
-    <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
-    <button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
+  <div class="note-unified-toolbar" :class="noteFocusMode?'note-focus-toolbar':'compact-note-toolbar'" role="toolbar" :aria-label="noteFocusMode?'Focused note editor controls':'Note editing workspace'">
+    <div class="note-toolbar-part">
+      <strong v-if="noteFocusMode" class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}} · {{instrumentSkillShort(noteInst)}}</strong>
+      <label v-else>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+      <label>Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
+    </div>
+    <div class="note-toolbar-transport" role="group" aria-label="Measure selection and loop">
+      <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
+      <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
+    </div>
+    <div class="note-toolbar-actions">
+      <button v-if="noteFocusMode" type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
+      <button v-else type="button" class="secondary" @click="returnToMap">← Map</button>
+      <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
+      <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
+      <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
+      <button v-if="!noteFocusMode" type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
+      <button v-if="!noteFocusMode&&noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button>
+    </div>
+    <span v-if="noteFocusMode&&noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
     <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">Edit</button>
@@ -6656,22 +6654,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-properties-popup-header .note-delete-action{margin-left:auto}
 .lyric-selected-editor .note-delete-action{align-self:end}
 
-/* Unified Note Editor controls: one panel in normal mode, one in focus. */
-.note-unified-toolbar{align-items:end;gap:8px 10px}
-.note-unified-toolbar label{flex:1 1 110px;min-width:105px;max-width:220px}
-.note-unified-toolbar .note-focus-enter{margin-left:auto;border:1px solid #d0a66b;font-weight:700}
-.note-unified-focus-toolbar{align-items:center}
-.note-unified-focus-toolbar .note-focus-identity{white-space:nowrap}
-.note-unified-focus-toolbar .note-focus-range{display:flex;align-items:center;gap:6px}
-.note-unified-focus-toolbar .note-focus-range select{min-width:85px;max-width:150px;margin:0;padding:7px 5px}
-@media(max-width:700px){
-  .note-unified-toolbar{gap:6px}
-  .note-unified-toolbar label{flex:1 1 120px;max-width:none}
-  .note-unified-toolbar .note-focus-enter{margin-left:0}
-  .note-unified-focus-toolbar .note-focus-range{flex:1 1 145px;flex-wrap:wrap;white-space:normal}
-  .note-unified-focus-toolbar .note-focus-range select{width:100%;max-width:none}
-}
-
 /* Use the actual workspace width in normal mode, rather than offsetting a
    100%-wide section beyond the main content box with a negative margin.
    This also handles iPad breakpoints where the main padding differs. */
@@ -6682,47 +6664,38 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   margin-inline:0;
   padding-inline:0;
 }
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar{
-  display:flex;
-  align-items:center;
-  flex-wrap:nowrap;
-  gap:5px;
-  padding:3px 4px;
-  margin:0 0 4px;
-  border-radius:6px;
-  max-width:100%;
-  min-width:0;
-  box-sizing:border-box;
-  overflow-x:auto;
-  overflow-y:hidden;
-  -webkit-overflow-scrolling:touch;
+.note-editor-section .note-unified-toolbar{
+  display:flex;flex-wrap:wrap;align-items:end;gap:7px 10px;
+  box-sizing:border-box;min-width:0;
 }
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar button{
-  flex:0 0 auto;
-  padding:5px 7px;
-  min-height:36px;
-  font-size:12px;
+.note-editor-section .compact-note-toolbar.note-unified-toolbar{margin:0 0 4px;padding:6px;border-radius:6px}
+.note-editor-section .note-focus-toolbar.note-unified-toolbar{margin:0 -3px 3px;padding:5px 6px}
+.note-toolbar-part,.note-toolbar-transport,.note-toolbar-actions{min-width:0}
+.note-toolbar-part{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end;gap:5px;
+  flex:1 1 265px;max-width:380px;
 }
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar label{
-  flex:0 0 135px;
-  min-width:0;
-  max-width:none;
-  font-size:10px;
-  white-space:nowrap;
+.note-toolbar-part>label{display:grid;gap:3px;margin:0;min-width:0;font-size:11px}
+.note-toolbar-part .note-focus-identity{align-self:center;margin:0;min-width:0;white-space:normal;overflow-wrap:anywhere}
+.note-toolbar-transport{display:flex;align-items:end;gap:5px;flex:1 1 325px;max-width:440px}
+.note-toolbar-transport>.measure-range-control{
+  display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto;
+  align-items:end;gap:4px;flex:1 1 auto;
 }
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar label:first-of-type{flex-basis:172px}
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar select{
-  width:100%;
-  min-width:0;
-  max-width:100%;
-  margin-top:1px;
-  padding:4px 5px;
-  height:35px;
-  box-sizing:border-box;
+.note-toolbar-transport>.measure-range-control label{white-space:normal;margin:0}
+.note-editor-section .note-unified-toolbar select{
+  width:100%;min-width:0;max-width:none;min-height:42px;
+  margin:0;padding:4px 6px;box-sizing:border-box;font-size:13px;
 }
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar .note-focus-enter{
-  margin-left:auto;
-  white-space:nowrap;
+.note-toolbar-actions{display:flex;flex-wrap:wrap;gap:4px}
+.note-editor-section .note-unified-toolbar button{
+  flex:0 0 auto;min-height:42px;margin:0;padding:5px 7px;font-size:12px;white-space:nowrap;
+}
+.note-unified-toolbar .note-focus-enter{border-color:#d0a66b;font-weight:700}
+.note-unified-toolbar .note-loop-toggle{min-width:58px}
+@media(max-width:880px){
+  .note-editor-section .compact-note-toolbar.note-unified-toolbar{position:relative}
+  .note-toolbar-part,.note-toolbar-transport,.note-toolbar-actions{flex:1 0 100%;max-width:none}
 }
 .note-editor-section:not(.note-focus-mode) .note-subtabs{margin:3px 0 4px;padding:0;gap:4px}
 .note-editor-section:not(.note-focus-mode) .note-subtabs button{padding:7px 10px}
@@ -6770,35 +6743,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-editor-section.note-focus-mode #note-panel-capture>.editor{padding:8px}
 .note-editor-section.note-focus-mode .note-grid-scroll{max-height:calc(100dvh - 160px)}
 .note-editor-section.note-focus-mode.note-focus-has-selection .note-grid-scroll{max-height:calc(100dvh - 245px)}
-.note-editor-section.note-focus-mode .note-unified-focus-toolbar{
-  margin:0 -3px 3px;
-  padding:3px 5px;
-  display:flex;
-  flex-wrap:nowrap;
-  gap:5px;
-  overflow-x:auto;
-  overflow-y:hidden;
-  -webkit-overflow-scrolling:touch;
-}
-.note-editor-section.note-focus-mode .note-unified-focus-toolbar button{
-  min-height:36px;
-  padding:5px 7px;
-  flex:0 0 auto;
-}
-.note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-identity{
-  margin-right:auto;
-  flex:0 0 auto;
-}
-.note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range{
-  flex:0 0 auto;
-  white-space:nowrap;
-}
-.note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range select{
-  min-width:82px;
-  max-width:120px;
-  padding:4px;
-  height:35px;
-}
 .note-editor-section.note-focus-mode .note-editor-panel{margin:0;padding:0;border-radius:3px}
 .note-editor-section.note-focus-mode .note-staff-panel{margin:2px 0 4px}
 .note-editor-section.note-focus-mode .note-context-panel{margin:2px 0 3px;padding:2px 3px}
@@ -6806,17 +6750,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-editor-section .note-context-panel .note-context span{padding:3px 5px}
 @media(max-width:700px){
   .note-editor-section:not(.note-focus-mode){padding-inline:2px}
-  .note-editor-section:not(.note-focus-mode) .note-unified-toolbar{flex-wrap:nowrap;gap:4px;padding:2px}
-  .note-editor-section:not(.note-focus-mode) .note-unified-toolbar label{flex:0 0 125px}
-  .note-editor-section:not(.note-focus-mode) .note-unified-toolbar label:first-of-type{flex-basis:148px}
   .note-editor-section.note-focus-mode{padding-inline:2px}
   .note-editor-section.note-focus-mode.note-focus-has-selection{padding-bottom:calc(155px + env(safe-area-inset-bottom))}
   .note-editor-section.note-focus-mode .note-grid-scroll{max-height:calc(100dvh - 195px)}
   .note-editor-section.note-focus-mode.note-focus-has-selection .note-grid-scroll{max-height:calc(100dvh - 280px)}
-  .note-editor-section.note-focus-mode .note-unified-focus-toolbar{margin-inline:-2px;padding:2px 3px;gap:4px}
-  .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-identity{flex-basis:auto}
-  .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range{flex:0 0 auto;flex-wrap:nowrap}
-  .note-editor-section.note-focus-mode .note-unified-focus-toolbar .note-focus-range select{width:auto;max-width:120px}
 }
 
 .note-playability-warnings{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#372b21;border:1px solid #a9844b;border-radius:6px;padding:5px 8px;margin:3px 0 5px;font-size:11px}
@@ -6852,7 +6789,6 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .orchestration-edition-selectors{width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:5px}
 .instrument-edition-label{display:flex;flex-direction:column;gap:1px;font-size:11px;min-width:0}
 .instrument-edition-label select{width:100%;max-width:100%;padding:5px 6px;margin:0}
-.note-editor-section:not(.note-focus-mode) .note-unified-toolbar label.note-edition-selector{flex-basis:150px}
 @media(max-width:700px){.orchestration-edition-selectors{grid-template-columns:repeat(auto-fit,minmax(145px,1fr))}.orchestration-editions-bar{padding:4px}}
 
 /* Milestone 4: deliberate preset-onset cues and contextual instrument menus. */
