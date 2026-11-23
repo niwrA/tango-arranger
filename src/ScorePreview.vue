@@ -13,6 +13,8 @@ const props=withDefaults(defineProps<{
   toMeasure:number;
   selectedNote?:Note;
   completedNotes?:readonly Note[];
+  playingNotes?:readonly Note[];
+  activeMeasure?:number;
   interactive?:boolean;
 }>(),{interactive:true});
 const emit=defineEmits<{select:[note:Note];edit:[]}>();
@@ -41,6 +43,8 @@ let headsByNote=new Map<Note,SVGElement[]>();
 let focusedHead:SVGElement|undefined;
 let highlightedHeads:SVGElement[]=[];
 let completedHeads:SVGElement[]=[];
+let playingHeads=new Set<SVGElement>();
+let measureGroups:SVGGElement[]=[];
 
 function noteLabel(note:Note){
   const measure=Math.floor((note.start+1e-7)/props.project.beats);
@@ -73,6 +77,27 @@ function highlightCompleted(){
   for(const head of completedHeads)head.classList.add('score-note-completed');
 }
 
+function highlightActiveMeasure(){
+  for(const group of measureGroups)group.classList.remove('score-measure-active');
+  const measure=props.activeMeasure;
+  const container=host.value;
+  measureGroups=measure===undefined||!container?[]:
+    (osmd?.GraphicSheet?.MeasureList[measure-1]??[]).flatMap(staff=>{
+      const group=staff?.getSVGGElement();
+      return group&&container.contains(group)?[group]:[];
+    });
+  for(const group of measureGroups)group.classList.add('score-measure-active');
+  highlightPlayback();
+}
+
+function highlightPlayback(){
+  const next=new Set((props.playingNotes??[]).flatMap(note=>
+    (headsByNote.get(note)??[]).filter(head=>measureGroups.some(group=>group.contains(head)))));
+  for(const head of playingHeads)if(!next.has(head))head.classList.remove('score-note-playing');
+  for(const head of next)if(!playingHeads.has(head))head.classList.add('score-note-playing');
+  playingHeads=next;
+}
+
 function bindNoteheads(){
   if(!host.value)return;
   focusedHead=undefined;
@@ -96,6 +121,7 @@ function bindNoteheads(){
   if(first&&props.interactive)setTabStop(first);
   highlightCompleted();
   highlightSelection();
+  highlightActiveMeasure();
 }
 
 function eventHead(event:Event){
@@ -188,6 +214,8 @@ watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{de
 watch(displayedRange,scheduleLayout);
 watch(()=>props.selectedNote,highlightSelection);
 watch(()=>props.completedNotes,highlightCompleted);
+watch(()=>props.activeMeasure,highlightActiveMeasure);
+watch(()=>props.playingNotes,highlightPlayback);
 
 onMounted(()=>{
   if(!host.value)return;
@@ -245,6 +273,8 @@ onBeforeUnmount(()=>{
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
 .score-preview-interactive :deep(.score-notehead){cursor:pointer}
 .score-preview-canvas :deep(.score-note-completed),.score-preview-canvas :deep(.score-note-completed [fill]){fill:#24724f}
+.score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#176773}
+.score-preview-canvas :deep(.score-note-playing),.score-preview-canvas :deep(.score-note-playing [fill]){fill:#006d79}
 .score-preview-canvas :deep(.score-note-selected),.score-preview-canvas :deep(.score-note-selected [fill]),
 .score-preview-canvas :deep(.score-notehead:focus-visible),.score-preview-canvas :deep(.score-notehead:focus-visible [fill]){fill:#a44702}
 .score-preview-error{color:#a32828}

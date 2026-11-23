@@ -67,7 +67,7 @@ import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
 import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
-import {splitAtMeasureBoundaries,soundingPitchesAtBeat} from './performanceCues';
+import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
 import {stageInstrumentName} from './stageInstrumentName';
@@ -487,6 +487,8 @@ function flipPerformanceCard(inst:Instrument){performanceCardModes.value={...per
 function cardShowsDiagram(inst:Instrument){return performanceCardModes.value[inst]!=='cues';}
 /* Instrument focus is a separate CSS viewport, not browser fullscreen. */
 const performanceExpandedInstrument=ref<Instrument|null>(null);
+const performanceScoreView=ref<'off'|'score'|'both'>('off');
+const focusShowsScore=computed(()=>performanceScoreView.value!=='off');
 const instrumentLearnMode=ref(false);
 function enterInstrumentLearn(){stopPlayback();instrumentLearnMode.value=true;}
 function exitInstrumentLearn(){instrumentLearnMode.value=false;}
@@ -497,6 +499,7 @@ function setPerformanceCardMode(inst:Instrument,mode:'diagram'|'cues'){
 function openPerformanceInstrument(inst:Instrument,event:MouseEvent){
  performanceExpandTrigger=event.currentTarget as HTMLElement;
  instrumentLearnMode.value=false;
+ performanceScoreView.value='off';
  performanceExpandedInstrument.value=inst;
  void nextTick(()=>document.querySelector<HTMLElement>('.instrument-focus-close')?.focus());
 }
@@ -551,6 +554,18 @@ const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-
 watch(performanceBar,bar=>{if(performanceMode.value){try{localStorage.setItem('tango-last-performance-measure',String(bar));}catch{/* Storage disabled. */}}});
 const performanceSection=computed(()=>project.value.bars[performanceBar.value]?.section??'A');
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
+const performanceScoreFrom=computed(()=>Math.floor(performanceBar.value/2)*2+1);
+const performanceScoreTo=computed(()=>Math.min(project.value.bars.length,performanceScoreFrom.value+1));
+const performanceScoreNotes=computed(()=>{
+ const inst=performanceExpandedInstrument.value;
+ if(!inst||!focusShowsScore.value||instrumentLearnMode.value)return [];
+ const firstBeat=(performanceScoreFrom.value-1)*project.value.beats;
+ const lastBeat=performanceScoreTo.value*project.value.beats;
+ return (score.value[inst]??[]).filter(note=>note.start<lastBeat&&note.start+note.duration>firstBeat);
+});
+const performanceScorePlayingNotes=computed(()=>playing.value
+ ?soundingNotesAtBeat(performanceScoreNotes.value,performanceBeat.value,noteSoundingDuration)
+ :[]);
 /** Animated cue emphasis follows transport beat position rather than a free-running CSS timer. */
 const performanceBeatGlow=computed(()=>{
  if(!playing.value)return '0.13';
@@ -5344,11 +5359,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <div class="instrument-focus-title"><small>Instrument focus · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
          <div class="instrument-focus-toolbar">
            <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
-             <button type="button" :class="{selected:cardShowsDiagram(part.inst)}" :aria-pressed="cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
-             <button type="button" :class="{selected:!cardShowsDiagram(part.inst)}" :aria-pressed="!cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'cues')">Role &amp; cues</button>
+             <button type="button" :class="{selected:!focusShowsScore&&cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
+             <button type="button" :class="{selected:performanceScoreView==='score'}" :aria-pressed="performanceScoreView==='score'" @click="performanceScoreView='score'">Score</button>
+             <button type="button" :class="{selected:performanceScoreView==='both'}" :aria-pressed="performanceScoreView==='both'" @click="performanceScoreView='both'">Both</button>
+             <button type="button" :class="{selected:!focusShowsScore&&!cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&!cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'cues')">Role &amp; cues</button>
            </div>
-           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
-           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
+           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play" aria-label="Play from here" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
+           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-stop" aria-label="Stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
            <div class="playback-speed-actions">
            <details class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
               <summary class="playback-speed-summary" :aria-label="'Playback speed '+rehearsalSpeed+' times; choose rehearsal tempo'">{{rehearsalSpeed}}× <AppIcon name="chevron-down"/></summary>
@@ -5381,36 +5398,46 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            <button type="button" :class="{selected:focusMonitorMode==='mute'}" :aria-pressed="focusMonitorMode==='mute'" :aria-label="'Mute '+part.display+' and hear other instruments'" :title="'Mute '+part.display" @click="setFocusMonitorMode('mute')"><AppIcon name="volume-x"/><span>Mute</span></button>
          </div>
        </div>
-       <div v-if="!instrumentLearnMode&&cardShowsDiagram(part.inst)" class="instrument-focus-dynamic-band" role="group"
+       <div v-if="!instrumentLearnMode&&(focusShowsScore||cardShowsDiagram(part.inst))" class="instrument-focus-dynamic-band" role="group"
          :aria-label="'Dynamics now '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}"><small>NOW · M{{performanceBar+1}}</small><strong>{{part.dynamics}}</strong></span>
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
-       <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
+       <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" @exit="exitInstrumentLearn">
            <template #score="{from,to,expected,completed}">
              <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :selected-note="expected" :completed-notes="completed" :interactive="false" />
            </template>
            <template #diagram="{targetPitch,currentBeat,showTargetLabel}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
-         <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
+         <template v-else>
+         <ScorePreview v-if="focusShowsScore" :project="project" :score="score" :instrument="part.inst"
+           :from-measure="performanceScoreFrom" :to-measure="performanceScoreTo"
+           :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" :interactive="false" />
+         <PianoFocusView v-if="performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
-           :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="flipPerformanceCard(part.inst)"/>
-         <button v-else-if="cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
+           :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="performanceScoreView==='both'?performanceScoreView='score':flipPerformanceCard(part.inst)"/>
+         <button v-else-if="performanceScoreView==='off'&&cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show role and dynamics for '+part.display" title="Tap to show role and dynamics">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
              :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </button>
-         <button v-else type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
+         <div v-else-if="performanceScoreView==='both'" class="instrument-focus-score-diagram">
+           <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
+             :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
+             :active-pitches="part.activePitches" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
+         </div>
+         <button v-else-if="!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
            <PerformanceRoleCues :focus="true" :role="part.role" :next-role="part.nextRole"
              :articulation="part.articulation" :next-articulation="part.nextArticulation"
              :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
              :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
          </button>
+         </template>
        </div>
-       <p v-if="!instrumentLearnMode" class="instrument-focus-hint">Tap the large view to switch diagram and cues. Violin and bass positions and fingering numbers are schematic suggestions.</p>
+       <p v-if="!instrumentLearnMode" class="instrument-focus-hint" v-show="!focusShowsScore">Tap the large view to switch diagram and cues. Violin and bass positions and fingering numbers are schematic suggestions.</p>
      </section>
     </template>
   </div>
@@ -7357,7 +7384,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  padding:7px 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;line-height:1.15;
 }
 .instrument-focus-toolbar .app-icon{width:17px;height:17px}
-.instrument-focus-mode-switch{display:flex;gap:3px;padding:3px;border:1px solid #647b8b;border-radius:10px}
+.instrument-focus-mode-switch{display:flex;flex-wrap:wrap;max-width:100%;gap:3px;padding:3px;border:1px solid #647b8b;border-radius:10px}
 .instrument-focus-mode-switch button{min-height:36px;border:0;background:transparent}
 .instrument-focus-mode-switch button.selected{background:#e7bb80;color:#162631;font-weight:800}
 .instrument-focus-speed{display:flex;align-items:center;gap:6px;font-size:12px;color:#d2e0eb;font-weight:700}
@@ -7367,6 +7394,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .instrument-focus-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:10px 15px;border:1px solid #506777;border-radius:12px;background:#203344;font-size:clamp(13px,1.3vw,17px);font-variant-numeric:tabular-nums}
 .instrument-focus-status strong{color:#ffdaa0;font-size:1.25em}
 .instrument-focus-content{display:flex;justify-content:center;align-items:stretch;flex:1 1 auto;min-height:0}
+.instrument-focus-score-content{flex-direction:column;justify-content:flex-start;align-items:stretch;gap:8px}
+.instrument-focus-score-content>.score-preview{width:100%;max-width:1200px;box-sizing:border-box;align-self:center}
+.instrument-focus-score-diagram{width:100%;max-width:1100px;align-self:center;padding:8px;box-sizing:border-box}
 .instrument-focus-switch-area{width:100%;max-width:1200px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;align-items:stretch;padding:clamp(12px,2vw,28px);text-align:left;border:1px solid #627c8b;border-radius:16px;background:linear-gradient(150deg,#293d4c,#192936);color:#eaf4fa;cursor:pointer}
 .instrument-focus-switch-area:focus-visible{outline:3px solid #f6d29c;outline-offset:2px}
 .instrument-focus-hint{text-align:center;color:#b5c7d4;font-size:clamp(11px,1.1vw,14px);margin:0}
