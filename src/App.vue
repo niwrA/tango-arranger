@@ -66,7 +66,7 @@ import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} f
 import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
-import {arrangementPlaybackWindow,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
+import {arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
@@ -468,12 +468,17 @@ function setOpeningPickup(length:number){
 }
 const playbackStartBeat=ref(0);
 let selectedArrangementStartBeat=0;
+function beforeArrangementStart(){
+ if(!arrangementCountingIn.value||!Tone)return false;
+ const transport=Tone.getTransport();
+ return transport.ticks<(selectedArrangementStartBeat-playbackStartBeat.value)*transport.PPQ;
+}
 function setRehearsalSpeed(speed:RehearsalSpeed){
  rehearsalSpeed.value=normalizeRehearsalSpeed(speed);
  try{localStorage.setItem('tango-rehearsal-speed',String(rehearsalSpeed.value));}catch{/* Browser may disallow storage. */}
  // Musical beat scheduling allows live tempo changes without restarting a bar.
  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)&&!capturePlaying.value){
-  Tone.getTransport().bpm.value=playing.value&&!arrangementCountingIn.value?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;
+  Tone.getTransport().bpm.value=playing.value&&!beforeArrangementStart()?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;
  }
 }
 /** Song tempo is part of the composition; rehearsal speed is device-local. */
@@ -3660,7 +3665,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
         audioStatus.value='Fermata · waiting for singer cue';
       },beatOffsetTicks(pauseBeat,transport.PPQ));
     }
-    let noteCount=0;
+    let noteCount=0,firstAttack=Infinity;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
     // This is a guide tone, not sung or synthesized speech.
     for(const inst of projectInstruments(project.value)){for(const n of score.value[inst]??[]){
@@ -3670,6 +3675,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       if(seconds===null)continue;
       const whenTicks=beatOffsetTicks(n.start-transportStartBeat,transport.PPQ);
       noteCount++;
+      firstAttack=Math.min(firstAttack,n.start);
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
@@ -3690,19 +3696,21 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
     if(countInBeats){
       captureClickSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.04,sustain:0,release:0.04}}).toDestination();
       captureClickSynth.volume.value=-18;
-      for(let beat=0;beat<countInBeats;beat++){
+      const countInEndBeat=arrangementCountInEnd(window,project.value.beats,firstAttack);
+      const countInEndTick=Math.round(countInEndBeat*transport.PPQ);
+      for(let beat=0;beat*transport.PPQ<countInEndTick;beat++){
         transport.scheduleOnce(time=>captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time),beatOffsetTicks(beat,transport.PPQ));
       }
-      transport.scheduleOnce(time=>{
+      transport.scheduleOnce(()=>{
         if(session!==noteLoopSession)return;
         transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
-        Tone.getDraw().schedule(()=>{
-          if(session!==noteLoopSession)return;
-          arrangementCountingIn.value=false;
-          audioStatus.value=status;
-        },time);
       },beatOffsetTicks(countInBeats,transport.PPQ));
-      audioStatus.value='Count-in · one measure';
+      transport.scheduleOnce(time=>Tone.getDraw().schedule(()=>{
+        if(session!==noteLoopSession)return;
+        arrangementCountingIn.value=false;
+        if(!waitingForSingerCue.value)audioStatus.value=status;
+      },time),beatOffsetTicks(countInEndBeat,transport.PPQ));
+      audioStatus.value='Count-in';
     }
     transport.start();playing.value=true;playbackOrigin.value=origin;
   }catch(error){
@@ -3810,7 +3818,7 @@ async function toggleNoteLoop(){
   }catch(error){message.value=`Measure loop unavailable: ${String(error)}. Check browser audio permissions.`;stopPlayback();}
 }
 watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value||microphoneStarting.value||microphoneListening.value)stopPlayback();else stopMicrophoneCapture();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
-watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=playing.value&&!arrangementCountingIn.value?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;});
+watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=playing.value&&!beforeArrangementStart()?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;});
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
@@ -5351,7 +5359,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="app-modal-heading"><div><h2 id="song-settings-title">Song settings</h2><p>{{project.title||'Untitled tango'}}</p></div><button class="secondary icon-action modal-close" type="button" title="Close song settings" aria-label="Close song settings" @click="closeSongSettings"><AppIcon name="x"/></button></div>
     <div class="app-modal-content"><label>Title<input v-model="project.title"/></label>
       <div class="two"><label>Tempo (BPM)<input v-model.number="project.bpm" type="number" min="40" max="240"/></label><label>Beats per measure<input v-model.number="project.beats" type="number" min="2" max="4"/></label></div>
-      <label><span><input type="checkbox" v-model="arrangementCountIn"/> One-measure count-in before playback</span><small class="hint">The written pickup starts after the count-in.</small></label>
+      <label><span><input type="checkbox" v-model="arrangementCountIn"/> One-measure count-in before playback</span><small class="hint">Clicks continue through any rests before the first pickup note.</small></label>
       <label>Transpose arrangement (semitones)<input type="number" min="-24" max="24" step="1" :value="project.transposeSemitones??0" @change="setTranspose"/><small class="hint">Non-destructive transposition of playback, review, chords and MusicXML.</small></label>
       <label>Orchestra profile<select v-model="project.profile"><option v-for="[id,name] in profiles" :key="id" :value="id">{{name}}</option></select></label>
       <label>Overall difficulty<select v-model="project.difficulty"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select></label>

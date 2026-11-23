@@ -5,7 +5,7 @@ const root=path.resolve(__dirname,'..');
 const source=fs.readFileSync(path.join(root,'src/arrangementPlayback.ts'),'utf8');
 const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 const mod={exports:{}};vm.runInNewContext(`(function(module,exports){${code}\n})`,{})(mod,mod.exports);
-const {arrangementPlaybackWindow:window,arrangementEventTime:eventTime}=mod.exports;
+const {arrangementPlaybackWindow:window,arrangementEventTime:eventTime,arrangementCountInEnd:countInEnd}=mod.exports;
 let checks=0;function test(name,fn){fn();console.log('PASS',name);checks++;}
 test('start at beginning schedules complete song',()=>{const w=window(80,4,120,0);assert.equal(w.startBeat,0);assert.equal(w.durationSeconds,160);assert.equal(eventTime(0,w),0);assert.equal(eventTime(6,w),3);});
 test('a whole count-in precedes the shortened pickup and section A starts on its own downbeat',()=>{
@@ -18,6 +18,17 @@ test('a whole count-in precedes the shortened pickup and section A starts on its
  assert.equal(eventTime(3,w),.5);
  assert.equal(window(8,3,120,1,1,true).startBeat,3);
  assert.equal(window(8,3,120,0,1).transportStartBeat,2);
+});
+test('count-in continues through pickup rests up to the first written attack',()=>{
+ const pickup=window(8,4,120,0,2,true);
+ assert.equal(countInEnd(pickup,4,2),4);
+ assert.equal(countInEnd(pickup,4,3),5);
+ assert.equal(countInEnd(pickup,4,3.5),5.5);
+ assert.equal(countInEnd(pickup,4,4),4);
+ assert.equal(countInEnd(pickup,4,Infinity),4);
+ assert.equal(countInEnd(window(8,4,120,0,0,true),4,1),4);
+ assert.equal(countInEnd(window(8,4,120,1,2,true),4,5),4);
+ assert.equal(countInEnd(window(8,4,120,0,2,false),4,3.5),0);
 });
 test('selected measure starts at zero transport seconds',()=>{const w=window(80,4,120,10);assert.equal(w.startBeat,40);assert.equal(eventTime(40,w),0);assert.equal(eventTime(42,w),1);assert.equal(w.durationSeconds,140);});
 test('notes earlier than selected measure are skipped',()=>{const w=window(8,4,120,4);assert.equal(eventTime(15.99,w),null);assert.equal(eventTime(0,w),null);assert.equal(eventTime(16,w),0);});

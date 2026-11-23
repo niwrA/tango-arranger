@@ -18,6 +18,14 @@ export function arrangementPlaybackWindow(totalMeasures:number,beatsPerMeasure:n
   const countInBeats=withCountIn?beatsPerMeasure:0;
   return {startMeasure:clamped,startBeat,countInBeats,transportStartBeat:startBeat-countInBeats,durationSeconds:(totalMeasures*beatsPerMeasure-startBeat)*secondsPerBeat,secondsPerBeat};
 }
+/** Keep the full preparatory bar, then continue clicking through rests in a written pickup. */
+export function arrangementCountInEnd(window:ArrangementPlaybackWindow,beatsPerMeasure:number,firstAttack:number):number {
+  if(!window.countInBeats)return 0;
+  const startsAtPickup=window.startMeasure===0&&window.startBeat>0;
+  if(startsAtPickup&&firstAttack>=window.startBeat&&firstAttack<beatsPerMeasure)
+    return firstAttack-window.transportStartBeat;
+  return window.countInBeats;
+}
 /** Earlier note attacks are skipped; all scheduled events are relative to the new start. */
 export function arrangementEventTime(absoluteBeat:number,window:ArrangementPlaybackWindow):number|null {
   if(!Number.isFinite(absoluteBeat)||absoluteBeat<window.startBeat-1e-7)return null;
