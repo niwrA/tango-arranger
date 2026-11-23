@@ -8,12 +8,12 @@ import MeasureRangeControl from './MeasureRangeControl.vue';
 const props=defineProps<{
  instrument:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
- initialMeasure:number;concertTranspose:number;
+ initialMeasure:number;concertTranspose:number;referenceHz:number;
 }>();
 const emit=defineEmits<{(event:'exit'):void}>();
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
-const referenceHz=ref(props.instrument.startsWith('Violin')?442:440);
+const referenceHz=computed(()=>props.referenceHz);
 const sensitivity=ref(55);
 const inputDb=ref<number|null>(null);
 const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
@@ -52,7 +52,7 @@ function setRange(start:number,end:number){
  from.value=first;to.value=last;cursor.value=0;
  accepted.value=false;stableSince=0;armed=true;
 }
-watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;referenceHz.value=props.instrument.startsWith('Violin')?442:440;setRange(from.value,to.value);});
+watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;setRange(from.value,to.value);});
 watch(targets,()=>{cursor.value=0;accepted.value=false;stableSince=0;armed=true;});
 let stream:MediaStream|null=null;
 let audio:AudioContext|null=null;
@@ -156,7 +156,7 @@ onBeforeUnmount(stopMicrophone);
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
    <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
-   <label>Reference pitch (A4)<select v-model.number="referenceHz"><option v-for="hz in [438,440,441,442,443,444,445]" :key="hz" :value="hz">{{hz}} Hz</option></select></label>
+   <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
    <label>View<select v-model="layout"><option value="notes">Note guide</option><option value="diagram">Instrument diagram</option><option value="both">Both</option></select></label>
@@ -218,6 +218,8 @@ onBeforeUnmount(stopMicrophone);
 .learn-settings input[type=number],.learn-settings select{min-height:40px;width:100%;min-width:0;box-sizing:border-box}
 .learn-settings .learn-settings-range{flex:1 1 100%;min-width:0}
 .learn-settings label strong{font-size:11px;color:#f1d69e}
+.learn-reference-readout{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;flex:1 1 100%;font-size:12px;color:#d3e2ea}
+.learn-reference-readout small{color:#b8ccda;font-size:11px}
 .learn-settings label input[type=range]{min-width:0;width:100%}
 .learn-settings .learn-check{flex:1 1 100%;flex-direction:row;align-items:center}
 .learn-settings .learn-check input{width:18px;height:18px}

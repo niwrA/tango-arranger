@@ -55,7 +55,7 @@ jobs:
         run: node tests/section-icon-layout.cjs
 
       - name: Test instrument Learn focus and settings
-        run: node tests/instrument-learn-focus.cjs && node tests/learn-pitch-and-range.cjs
+        run: node tests/instrument-learn-focus.cjs && node tests/learn-pitch-and-range.cjs && node tests/project-tuning.cjs
 
       - name: Test tango gesture expression and export
         run: npm run test:gestures

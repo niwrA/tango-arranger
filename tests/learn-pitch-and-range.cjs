@@ -20,7 +20,7 @@ const learn=fs.readFileSync('src/InstrumentLearnView.vue','utf8');
 const app=fs.readFileSync('src/App.vue','utf8');
 const diagram=fs.readFileSync('src/PerformanceChordDiagram.vue','utf8');
 const range=fs.readFileSync('src/MeasureRangeControl.vue','utf8');
-assert.match(learn,/const referenceHz=ref\(props.instrument.startsWith\('Violin'\)\?442:440\)/);
+assert.match(learn,/const referenceHz=computed\(\(\)=>props.referenceHz\)/);
 assert.match(learn,/deviationCents\(frequency.value,targetMidi.value,referenceHz.value\)/);
 assert.match(learn,/sensitivityThresholdDb\(sensitivity.value\)/);
 assert.match(learn,/getUserMedia/);

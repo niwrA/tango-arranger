@@ -21,6 +21,7 @@ import PerformanceLyricLine from './PerformanceLyricLine.vue';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import InstrumentLearnView from './InstrumentLearnView.vue';
+import {DEFAULT_A4_HZ,MIN_A4_HZ,MAX_A4_HZ,validReferenceHz,tuningReferenceFor} from './instrumentTuning';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
@@ -763,6 +764,32 @@ function applyRoster(roster:string[]){
   catch(e){message.value=String(e);}
 }
 function rosterDisplayName(inst:string){return project.value.instrumentNames?.[inst]??inst;}
+function setProjectA4Reference(event:Event){
+ const input=event.target as HTMLInputElement;
+ const value=Number(input.value);
+ if(!validReferenceHz(value)){
+  input.value=String(project.value.tuning?.a4Hz??DEFAULT_A4_HZ);
+  message.value='Choose an A4 reference between '+MIN_A4_HZ+' and '+MAX_A4_HZ+' Hz.';
+  return;
+ }
+ project.value.tuning={a4Hz:value,overrides:{...project.value.tuning?.overrides}};
+}
+function setInstrumentA4Reference(inst:string,event:Event){
+ const input=event.target as HTMLInputElement;
+ const raw=input.value.trim();
+ const overrides={...project.value.tuning?.overrides};
+ if(!raw){delete overrides[inst];}
+ else {
+  const value=Number(raw);
+  if(!validReferenceHz(value)){
+   input.value=String(project.value.tuning?.overrides?.[inst]??'');
+   message.value='Choose an A4 reference between '+MIN_A4_HZ+' and '+MAX_A4_HZ+' Hz, or leave blank to inherit.';
+   return;
+  }
+  overrides[inst]=value;
+ }
+ project.value.tuning={a4Hz:validReferenceHz(project.value.tuning?.a4Hz)?project.value.tuning!.a4Hz:DEFAULT_A4_HZ,overrides};
+}
 function renameRosterPart(inst:string,event:Event){
   const input=event.target as HTMLInputElement;
   const name=input.value.trim().replace(/\\s+/g,' ');
@@ -5338,7 +5365,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
            <template #diagram="{targetPitch,currentBeat}"><PerformanceChordDiagram :focus="true" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
          <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
@@ -5594,7 +5621,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="editor"><details class="control-fold roster-management" open><summary>Orchestra roster · {{ activeRoster.length }} parts</summary>
   <p class="hint roster-help">Choose a built-in or saved roster, then add, reorder or remove instruments. Changing the roster clears generated parts but retains manual edits for instruments that remain.</p>
   <div class="two"><label>Instrument family<select v-model="newPartFamily"><option>Violin</option><option>Voice</option><option>Bandoneon</option><option>Piano</option><option>Contrabass</option><option>Guitar</option><option>Clarinet</option><option>Flute</option><option>Trumpet</option><option>Trombone</option></select></label><div class="align-bottom"><button type="button" @click="addRosterPart">+ Add instrument</button></div></div>
-  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+  <div class="roster-tuning-settings" role="group" aria-label="Project and instrument tuning reference">
+    <label>Project tuning · A4 (Hz)<input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.a4Hz??DEFAULT_A4_HZ" @change="setProjectA4Reference" aria-label="Project-wide A4 tuning reference in Hz"/></label>
+    <span class="hint">All instruments inherit this reference (default 442 Hz), unless overridden below. Used by Learn pitch detection; it does not transpose notes or change exported notation.</span>
+  </div>
+  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
   <div class="two"><label>Preset name<input v-model="rosterPresetName" placeholder="My tango orchestra"/></label><div class="align-bottom"><button type="button" @click="saveCurrentRoster">Save roster preset</button></div></div>
   <div class="two"><label>Saved rosters<select v-model="rosterPresetSelection"><option value="">Select a preset</option><option v-for="preset in rosterPresets" :key="preset.name" :value="preset.name">{{preset.name}}</option></select></label><div class="align-bottom"><button type="button" :disabled="!rosterPresetSelection" @click="loadSelectedRoster">Load</button><button type="button" class="secondary" :disabled="!rosterPresetSelection || ['Factory seven-part','Quartet','Sextet','Septet','Orquesta típica'].includes(rosterPresetSelection)" @click="deleteSelectedRoster">Delete</button></div></div>
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>
@@ -7925,4 +7956,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .instrument-focus-learn-content{overflow-y:auto;min-height:0;align-items:flex-start;justify-content:center;padding:8px;max-height:calc(100dvh - 170px)}
 .instrument-focus-toolbar .instrument-focus-learn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:42px;min-height:42px;padding:7px 10px}
 .instrument-focus-toolbar .instrument-focus-learn .app-icon{width:19px;height:19px}
+/* A4 is part of the song roster, with optional per-instrument overrides. */
+.roster-tuning-settings{display:flex;align-items:center;flex-wrap:wrap;gap:8px 15px;margin:9px 0;padding:9px 11px;border:1px solid #577181;border-radius:8px;background:#213544}
+.roster-tuning-settings label{display:flex;gap:7px;align-items:center;flex:0 0 auto;font-weight:700;font-size:13px}
+.roster-tuning-settings label input{width:83px;min-height:39px;box-sizing:border-box}
+.roster-tuning-settings>.hint{flex:1 1 220px;margin:0}
+.roster-parts .roster-tuning-override{display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;flex:0 0 auto}
+.roster-parts .roster-tuning-override input{width:81px;min-width:0;min-height:38px;box-sizing:border-box;font-size:13px}
+.roster-parts .roster-tuning-override small{font-size:10px;color:#e0c899}
+@media(max-width:700px){
+ .roster-tuning-settings{padding:7px;gap:5px}
+ .roster-parts .roster-tuning-override{flex:1 1 100%;justify-content:flex-start}
+}
 </style>
