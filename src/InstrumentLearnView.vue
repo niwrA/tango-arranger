@@ -2,14 +2,21 @@
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import type {Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
+import {deviationCents,expectedFrequency,sensitivityThresholdDb} from './learnPitch';
+import MeasureRangeControl from './MeasureRangeControl.vue';
 
 const props=defineProps<{
  instrument:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
+ measures:ReadonlyArray<{section:string}>;
  initialMeasure:number;concertTranspose:number;
 }>();
 const emit=defineEmits<{(event:'exit'):void}>();
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
+const referenceHz=ref(props.instrument.startsWith('Violin')?442:440);
+const sensitivity=ref(55);
+const inputDb=ref<number|null>(null);
+const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
 const tolerance=ref(20);
 const holdMs=ref(400);
@@ -30,7 +37,8 @@ const targets=computed(()=>props.notes
  .sort((a,b)=>a.start-b.start||a.pitch-b.pitch));
 const current=computed(()=>targets.value[cursor.value]??null);
 const targetMidi=computed(()=>current.value===null?null:current.value.pitch+props.concertTranspose);
-const cents=computed(()=>detectedMidi.value!==null&&targetMidi.value!==null?Math.round((detectedMidi.value-targetMidi.value)*100):null);
+const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value)??0):null);
+const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
 function pitchLabel(midi:number){
@@ -38,13 +46,13 @@ function pitchLabel(midi:number){
  const p=Math.round(midi);
  return labels[((p%12)+12)%12]+(Math.floor(p/12)-1);
 }
-function rangeChanged(){
- from.value=Math.max(1,Math.min(props.totalMeasures,Math.round(from.value)||1));
- to.value=Math.max(from.value,Math.min(props.totalMeasures,Math.round(to.value)||from.value));
- cursor.value=0;accepted.value=false;stableSince=0;armed=true;
+function setRange(start:number,end:number){
+ const first=Math.max(1,Math.min(props.totalMeasures,Math.round(start)||1));
+ const last=Math.max(first,Math.min(props.totalMeasures,Math.round(end)||first));
+ from.value=first;to.value=last;cursor.value=0;
+ accepted.value=false;stableSince=0;armed=true;
 }
-watch([from,to],rangeChanged);
-watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;rangeChanged();});
+watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;referenceHz.value=props.instrument.startsWith('Violin')?442:440;setRange(from.value,to.value);});
 watch(targets,()=>{cursor.value=0;accepted.value=false;stableSince=0;armed=true;});
 let stream:MediaStream|null=null;
 let audio:AudioContext|null=null;
@@ -72,7 +80,7 @@ function stopMicrophone(){
  source=null;analyser=null;silence=null;
  const previous=audio;audio=null;
  if(previous)void previous.close().catch(()=>{});
- listening.value=false;busy.value=false;
+ listening.value=false;busy.value=false;inputDb.value=null;
  frequency.value=null;detectedMidi.value=null;detectedClarity.value=null;
  stableSince=0;armed=true;accepted.value=false;
  micStatus.value='Microphone off';
@@ -108,7 +116,9 @@ async function startMicrophone(){
     let rms2=0;
     for(const sample of samples)rms2+=sample*sample;
     const rms=Math.sqrt(rms2/samples.length);
-    const gain=rms>=0.006?Math.min(100,0.08/rms):0;
+    const levelDb=rms>0?20*Math.log10(rms):-90;
+    inputDb.value=Math.max(-90,Math.round(levelDb));
+    const gain=levelDb>=inputThreshold.value?Math.min(100,0.08/rms):0;
     const normalized=new Float32Array(samples.length);
     if(gain)for(let i=0;i<samples.length;i++)normalized[i]=samples[i]*gain;
     const reading=gain?detectMonophonicPitch(normalized,audio!.sampleRate,65,2000):null;
@@ -144,9 +154,10 @@ onBeforeUnmount(stopMicrophone);
    <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
   </div>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
-   <label>Start measure<input v-model.number="from" type="number" min="1" :max="totalMeasures" inputmode="numeric"/></label>
-   <label>End measure<input v-model.number="to" type="number" :min="from" :max="totalMeasures" inputmode="numeric"/></label>
+   <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
+   <label>Reference pitch (A4)<select v-model.number="referenceHz"><option v-for="hz in [438,440,441,442,443,444,445]" :key="hz" :value="hz">{{hz}} Hz</option></select></label>
+   <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
    <label>View<select v-model="layout"><option value="notes">Note guide</option><option value="diagram">Instrument diagram</option><option value="both">Both</option></select></label>
    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
@@ -157,7 +168,7 @@ onBeforeUnmount(stopMicrophone);
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
     <div class="learn-target" aria-live="polite">
      <template v-if="done"><strong>Pass complete</strong><span>Review or restart to practise again.</span></template>
-     <template v-else-if="current"><small>PLAY NOW</small><strong>{{pitchLabel(current.pitch)}}</strong><span>Measure {{Math.floor(current.start/beatsPerMeasure)+1}} · beat {{Number(current.start%beatsPerMeasure+1).toFixed(2)}} · {{current.duration}} beats</span></template>
+     <template v-else-if="current"><small>PLAY NOW</small><strong>{{pitchLabel(targetMidi??current.pitch)}}</strong><span>Measure {{Math.floor(current.start/beatsPerMeasure)+1}} · beat {{Number(current.start%beatsPerMeasure+1).toFixed(2)}} · {{current.duration}} beats</span></template>
      <template v-else><strong>No written notes</strong><span>Choose another range in Settings.</span></template>
     </div>
     <div v-if="targets.length" class="learn-note-strip" aria-label="Written note sequence">
@@ -165,12 +176,12 @@ onBeforeUnmount(stopMicrophone);
      <small v-if="targets.length>80">Showing first 80 of {{targets.length}} notes</small>
     </div>
    </div>
-   <div v-if="layout!=='notes'" class="learn-diagram">
-    <slot name="diagram"/>
-   </div>
-  </div>
   <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
-   <div class="learn-tuner-title"><strong>Intonation · {{current?pitchLabel(current.pitch):'—'}}</strong><span :class="{'learn-in-tune':nearTarget}">{{cents===null?'Waiting for pitch…':(cents>0?'+':'')+cents+'¢'}}</span></div>
+   <div class="learn-tuner-title">
+    <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy" @click="startMicrophone"><span aria-hidden="true">🎙</span> {{busy?'Starting…':listening?'Mic on':'Mic off'}}</button>
+    <strong>Intonation · {{current?pitchLabel(targetMidi??current.pitch):'—'}}</strong>
+    <span :class="{'learn-in-tune':nearTarget}">{{cents===null?'—':(cents>0?'+':'')+cents+'¢'}}</span>
+   </div>
    <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
     <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
     <div class="learn-meter-center"></div>
@@ -178,9 +189,12 @@ onBeforeUnmount(stopMicrophone);
    </div>
    <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
    <div class="learn-mic-row">
-    <button v-if="microphoneSupported" type="button" :class="listening?'secondary':'primary'" :disabled="busy" @click="startMicrophone">{{busy?'Starting…':listening?'Stop microphone':'Start microphone'}}</button>
-    <span v-else>Microphone checking initially supports violin and voice; use manual stepping for this part.</span>
-    <small role="status">{{micStatus}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}}</small>
+    <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
+    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="targetHz!==null"> · target {{targetHz.toFixed(1)}} Hz</span></small>
+   </div>
+  </div>
+   <div v-if="layout!=='notes'" class="learn-diagram">
+    <slot name="diagram" :target-pitch="current?.pitch??null" :current-beat="current?Math.floor(current.start%beatsPerMeasure)+1:1"/>
    </div>
   </div>
   <div class="learn-navigation">
@@ -202,14 +216,20 @@ onBeforeUnmount(stopMicrophone);
 .learn-settings{display:flex;align-items:end;flex-wrap:wrap;gap:9px;padding:10px;border:1px solid #607787;background:#1d303f;border-radius:9px}
 .learn-settings label{display:flex;flex-direction:column;gap:5px;flex:1 1 135px;font-size:12px;min-width:105px}
 .learn-settings input[type=number],.learn-settings select{min-height:40px;width:100%;min-width:0;box-sizing:border-box}
+.learn-settings .learn-settings-range{flex:1 1 100%;min-width:0}
+.learn-settings label strong{font-size:11px;color:#f1d69e}
+.learn-settings label input[type=range]{min-width:0;width:100%}
 .learn-settings .learn-check{flex:1 1 100%;flex-direction:row;align-items:center}
 .learn-settings .learn-check input{width:18px;height:18px}
 .learn-settings>small{flex-basis:100%;color:#b8cdda}
 .learn-display{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;min-width:0}
 .learn-display-both{grid-template-columns:repeat(2,minmax(0,1fr))}
+.learn-display-both>.learn-guide{grid-column:1;grid-row:1}
+.learn-display-both>.learn-diagram{grid-column:2;grid-row:1}
+.learn-display-both>.learn-tuner{grid-column:1/-1;grid-row:2}
 .learn-guide,.learn-diagram{min-width:0;border:1px solid #4d6678;background:#1a2a36;border-radius:9px;padding:10px}
 .learn-progress{font-size:12px;color:#b8cad6}
-.learn-target{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:138px;text-align:center}
+.learn-target{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:95px;text-align:center}
 .learn-target strong{font-size:clamp(30px,5vw,58px);color:#f4cf95;line-height:1.1}
 .learn-target small,.learn-target span{font-size:12px;color:#c6d5dd}
 .learn-note-strip{display:flex;align-items:center;flex-wrap:wrap;gap:5px;max-height:95px;overflow-y:auto}
@@ -220,7 +240,11 @@ onBeforeUnmount(stopMicrophone);
 .learn-diagram{display:flex;align-items:center;justify-content:center;min-height:125px}
 .learn-diagram :deep(.performance-chord-diagram){max-width:100%}
 .learn-tuner{padding:10px;border-radius:9px;background:#1a2c39;border:1px solid #526c7d;display:flex;flex-direction:column;gap:7px}
-.learn-tuner-title{justify-content:space-between}
+.learn-tuner-title{justify-content:space-between;gap:8px;min-width:0}
+.learn-tuner-title .learn-mic-toggle{min-height:42px;min-width:82px;border:1px solid #6a8293;background:#344759;color:#e8eff4;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:750;white-space:nowrap;flex:0 0 auto}
+.learn-tuner-title .learn-mic-toggle.is-listening{background:#235447;border-color:#86d7aa;color:#e7fff2}
+.learn-tuner-title strong{margin-right:auto}
+.learn-mic-row meter{width:95px;max-width:30%;height:9px;flex:0 0 95px;accent-color:#80cda9}
 .learn-tuner-title strong{font-size:15px}
 .learn-tuner-title span{font-variant-numeric:tabular-nums;font-weight:750}
 .learn-in-tune{color:#79d7b4}
@@ -233,5 +257,30 @@ onBeforeUnmount(stopMicrophone);
 .learn-mic-row button,.learn-navigation button{min-height:42px}
 .learn-navigation{justify-content:center}
 .learn-footnote{margin:0}
-@media(max-width:760px){.learn-display-both{grid-template-columns:minmax(0,1fr)}.learn-guide,.learn-diagram{padding:8px}.learn-settings{padding:7px}}
+@media(max-width:760px){
+.learn-workspace{gap:5px}
+.learn-topline>div>small{display:none}
+.learn-topline strong{font-size:15px}
+.learn-topline .learn-settings-toggle{min-height:38px}
+.learn-display{gap:5px}
+.learn-display-both{grid-template-columns:minmax(0,1fr)}
+.learn-display-both>.learn-guide,.learn-display-both>.learn-tuner,.learn-display-both>.learn-diagram{grid-column:1;grid-row:auto}
+.learn-guide,.learn-diagram{padding:6px}
+.learn-progress{font-size:11px}
+.learn-target{min-height:54px;gap:2px}
+.learn-target strong{font-size:clamp(25px,7vw,38px)}
+.learn-target span{font-size:10px}
+.learn-note-strip{max-height:40px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}
+.learn-note-strip>span{flex:0 0 auto}
+.learn-settings{padding:7px}
+.learn-tuner{padding:6px;gap:3px}
+.learn-tuner-title strong{font-size:16px}
+.learn-tuner-title .learn-mic-toggle{min-height:42px}
+.learn-tuner-meter{height:15px}
+.learn-tuner-ends{font-size:10px}
+.learn-navigation{gap:4px}
+.learn-navigation button{min-height:39px;padding:5px 8px;font-size:12px}
+.learn-footnote{display:none}
+}
+@media(max-width:380px){.learn-mic-row meter{max-width:24%;width:60px;flex-basis:60px}.learn-tuner-title .learn-mic-toggle{min-width:69px;padding:4px 6px}}
 </style>

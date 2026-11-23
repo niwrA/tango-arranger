@@ -21,6 +21,7 @@ import PerformanceLyricLine from './PerformanceLyricLine.vue';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import InstrumentLearnView from './InstrumentLearnView.vue';
+import MeasureRangeControl from './MeasureRangeControl.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
@@ -306,6 +307,12 @@ function changeFocusLoopFrom(){
 function changeFocusLoopTo(){
   noteLoopTo.value=Math.max(noteLoopFrom.value,Math.min(project.value.bars.length,Math.round(Number(noteLoopTo.value)||noteLoopFrom.value)));
   syncVisibleMeasureSelection();
+}
+function setNoteEditorMeasureRange(start:number,end:number){
+ const max=project.value.bars.length;
+ noteLoopFrom.value=Math.max(1,Math.min(max,Math.round(start)));
+ noteLoopTo.value=Math.max(noteLoopFrom.value,Math.min(max,Math.round(end)));
+ syncVisibleMeasureSelection();
 }
 /** Shift the selected continuous measure window without changing its length. */
 function shiftNoteVisibleRange(delta:number){
@@ -5331,8 +5338,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
-           <template #diagram><PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="part.measurePitches" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/></template>
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
+           <template #diagram="{targetPitch,currentBeat}"><PerformanceChordDiagram :focus="true" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
          <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
@@ -5969,10 +5976,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
     <strong class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}} · {{instrumentSkillShort(noteInst)}}</strong>
     <label class="note-focus-range">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
-    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
-    <label class="note-focus-range">Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
-    <label class="note-focus-range">End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
-    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopTo>=project.bars.length" @click="shiftNoteVisibleRange(1)" aria-label="Next measure range">→</button>
+    <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
     <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop'}}</button>
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
@@ -5981,10 +5985,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" class="secondary" @click="returnToMap">← Map</button>
     <label>Instrument<select v-model="noteInst" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
     <label class="note-edition-selector">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
-    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopFrom<=1" @click="shiftNoteVisibleRange(-1)" aria-label="Previous measure range">←</button>
-    <label>Start measure<select v-model.number="noteLoopFrom" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopFrom"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
-    <label>End measure<select v-model.number="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" @change="changeFocusLoopTo"><option v-for="(bar,i) in project.bars" :key="i" :value="i+1">{{i+1}} · {{bar.section}}</option></select></label>
-    <button type="button" class="secondary" :disabled="noteLoopPlaying||noteLoopTo>=project.bars.length" @click="shiftNoteVisibleRange(1)" aria-label="Next measure range">→</button>
+    <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
     <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
     <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
     <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
