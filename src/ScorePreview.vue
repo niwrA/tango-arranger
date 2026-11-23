@@ -2,15 +2,20 @@
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay} from 'opensheetmusicdisplay';
 import {exportMusicXml} from './io';
-import type {Instrument,Project,Score} from './music';
+import {midiName,type Instrument,type Note,type Project,type Score} from './music';
+import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
 
-const props=defineProps<{
+const props=withDefaults(defineProps<{
   project:Project;
   score:Score;
   instrument:Instrument;
   fromMeasure:number;
   toMeasure:number;
-}>();
+  selectedNote?:Note;
+  completedNotes?:readonly Note[];
+  interactive?:boolean;
+}>(),{interactive:true});
+const emit=defineEmits<{select:[note:Note];edit:[]}>();
 
 const host=ref<HTMLElement|null>(null);
 const loading=ref(true);
@@ -30,6 +35,98 @@ let layoutFrame=0;
 let generation=0;
 let loaded=false;
 let observedWidth=0;
+let notesByColor=new Map<string,Note>();
+let notesByHead=new Map<SVGElement,Note>();
+let headsByNote=new Map<Note,SVGElement[]>();
+let focusedHead:SVGElement|undefined;
+let highlightedHeads:SVGElement[]=[];
+let completedHeads:SVGElement[]=[];
+
+function noteLabel(note:Note){
+  const measure=Math.floor((note.start+1e-7)/props.project.beats);
+  const beat=Number((note.start-measure*props.project.beats+1).toFixed(2));
+  return `${midiName(note.pitch+(props.project.transposeSemitones??0))}, measure ${measure+1}, beat ${beat}`;
+}
+
+function setTabStop(head:SVGElement){
+  focusedHead?.setAttribute('tabindex','-1');
+  head.setAttribute('tabindex','0');
+  focusedHead=head;
+}
+
+function highlightSelection(){
+  for(const head of highlightedHeads){
+    head.classList.remove('score-note-selected');
+    if(props.interactive)head.setAttribute('aria-pressed','false');
+  }
+  highlightedHeads=props.selectedNote?headsByNote.get(props.selectedNote)??[]:[];
+  for(const head of highlightedHeads){
+    head.classList.add('score-note-selected');
+    if(props.interactive)head.setAttribute('aria-pressed','true');
+  }
+  if(props.interactive&&highlightedHeads.length&&(!focusedHead||!highlightedHeads.includes(focusedHead)))setTabStop(highlightedHeads[0]);
+}
+
+function highlightCompleted(){
+  for(const head of completedHeads)head.classList.remove('score-note-completed');
+  completedHeads=(props.completedNotes??[]).flatMap(note=>headsByNote.get(note)??[]);
+  for(const head of completedHeads)head.classList.add('score-note-completed');
+}
+
+function bindNoteheads(){
+  if(!host.value)return;
+  focusedHead=undefined;
+  highlightedHeads=[];
+  completedHeads=[];
+  notesByHead=findScoreNoteheads(host.value,notesByColor);
+  headsByNote=new Map();
+  for(const [head,note] of notesByHead){
+    head.classList.add('score-notehead');
+    if(props.interactive){
+      head.setAttribute('role','button');
+      head.setAttribute('aria-label',noteLabel(note));
+      head.setAttribute('aria-pressed','false');
+      head.setAttribute('tabindex','-1');
+    }
+    const siblings=headsByNote.get(note)??[];
+    siblings.push(head);
+    headsByNote.set(note,siblings);
+  }
+  const first=notesByHead.keys().next().value;
+  if(first&&props.interactive)setTabStop(first);
+  highlightCompleted();
+  highlightSelection();
+}
+
+function eventHead(event:Event){
+  if(!props.interactive)return null;
+  const element=event.target instanceof Element?event.target.closest<SVGElement>('.score-notehead'):null;
+  return element&&notesByHead.has(element)?element:null;
+}
+
+function chooseHead(head:SVGElement){
+  const note=notesByHead.get(head);
+  if(note){setTabStop(head);emit('select',note);}
+}
+
+function onScoreClick(event:MouseEvent){
+  const head=eventHead(event);
+  if(head)chooseHead(head);
+}
+
+function onScoreKey(event:KeyboardEvent){
+  const head=eventHead(event);
+  if(!head)return;
+  if(event.key==='Enter'||event.key===' '){event.preventDefault();chooseHead(head);return;}
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  const heads=[...notesByHead.keys()];
+  const index=heads.indexOf(head);
+  const next=event.key==='Home'?0:event.key==='End'?heads.length-1:
+    Math.max(0,Math.min(heads.length-1,index+(event.key==='ArrowLeft'?-1:1)));
+  event.preventDefault();
+  setTabStop(heads[next]);
+  heads[next].focus();
+}
 
 function renderRange(){
   const renderer=osmd;
@@ -47,6 +144,7 @@ function renderRange(){
         layoutFrame=requestAnimationFrame(draw);
         return;
       }
+      bindNoteheads();
     }catch(cause){error.value=`Could not render this part: ${String(cause)}`;}
     loading.value=false;
   };
@@ -62,9 +160,11 @@ async function reloadScore(){
   loading.value=true;
   error.value='';
   try{
-    const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument});
+    const colors=scoreNoteheadColors(props.score[props.instrument]??[]);
+    const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument,previewNoteheadColors:colors.byNote});
     await renderer.load(xml);
     if(current!==generation)return;
+    notesByColor=colors.byColor;
     loaded=true;
     renderRange();
   }catch(cause){
@@ -86,6 +186,8 @@ function scheduleLayout(){
 
 watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{deep:true});
 watch(displayedRange,scheduleLayout);
+watch(()=>props.selectedNote,highlightSelection);
+watch(()=>props.completedNotes,highlightCompleted);
 
 onMounted(()=>{
   if(!host.value)return;
@@ -98,6 +200,7 @@ onMounted(()=>{
     drawPartNames:false,
     drawMeasureNumbers:true,
     disableCursor:true,
+    coloringEnabled:true,
   });
   observedWidth=host.value.clientWidth;
   resizeObserver=new ResizeObserver(([entry])=>{
@@ -122,18 +225,28 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-  <section class="score-preview editor" aria-label="Read-only staff notation preview">
+  <section class="score-preview editor" aria-label="Staff notation">
+    <div v-if="interactive" class="score-preview-selection">
+      <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
+      <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
+    </div>
     <p v-if="loading" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
-    <div ref="host" class="score-preview-canvas" :aria-busy="loading" />
+    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive}" :aria-busy="loading" @click="onScoreClick" @keydown="onScoreKey" />
   </section>
 </template>
 
 <style scoped>
 .score-preview{margin:6px 0;padding:12px;background:#f8fafc;color:#18222c;border:1px solid #b9c7d3;border-radius:10px;overflow:hidden}
 .score-preview-status{margin:0 0 6px}
+.score-preview-selection{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:.85rem}
 .score-preview-canvas{min-height:92px;overflow-x:auto}
 .score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto}
+.score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
+.score-preview-interactive :deep(.score-notehead){cursor:pointer}
+.score-preview-canvas :deep(.score-note-completed),.score-preview-canvas :deep(.score-note-completed [fill]){fill:#24724f}
+.score-preview-canvas :deep(.score-note-selected),.score-preview-canvas :deep(.score-note-selected [fill]),
+.score-preview-canvas :deep(.score-notehead:focus-visible),.score-preview-canvas :deep(.score-notehead:focus-visible [fill]){fill:#a44702}
 .score-preview-error{color:#a32828}
 @media(max-width:640px){.score-preview{padding:8px}.score-preview-canvas{margin-inline:-4px}}
 </style>

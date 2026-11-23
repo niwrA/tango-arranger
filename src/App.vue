@@ -4517,6 +4517,24 @@ function shiftPianoRegister(staff:'treble'|'bass',semitones:number){
   else pianoBassCenter.value=Math.max(lo+8,Math.min(Math.min(hi,pianoSplit.value-1)-8,pianoBassCenter.value+semitones));
 }
 const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
+function selectScoreNote(note:Note){
+  if(!(score.value[noteInst.value]??[]).includes(note))return;
+  const measure=Math.floor((note.start+1e-7)/project.value.beats);
+  if(measure<0||measure>=project.value.bars.length)return;
+  activateGridMeasure(measure);
+  const index=noteMeasure.value.indexOf(note);
+  if(index>=0)selectNoteEvent(index);
+}
+function editScoreSelection(){
+  if(!selectedEvent.value)return;
+  // A visible continuation can start before the selected window.
+  noteLoopFrom.value=Math.min(noteLoopFrom.value,selectedBar.value+1);
+  setNoteEditorTab('notes');
+  void nextTick(()=>{
+    refreshNoteGridViewport(true);
+    noteEditorRegion.value?.querySelector<HTMLElement>('#note-tab-notes')?.focus({preventScroll:true});
+  });
+}
 watch(selectedEvent,event=>{if(event)writtenDurationDraft.value=String(event.duration);},{immediate:true});
 function applyWrittenDurationDraft(){if(selectedEvent.value)updateSelectedNote('duration',writtenDurationDraft.value);}
 const noteDurationPercent=computed(()=>selectedEvent.value?Math.round(selectedEvent.value.duration/project.value.beats*100):0);
@@ -5370,6 +5388,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" @exit="exitInstrumentLearn">
+           <template #score="{from,to,expected,completed}">
+             <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :selected-note="expected" :completed-notes="completed" :interactive="false" />
+           </template>
            <template #diagram="{targetPitch,currentBeat,showTargetLabel}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
          <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
@@ -6035,7 +6056,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" />
+    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="selectedEvent" @select="selectScoreNote" @edit="editScoreSelection" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">

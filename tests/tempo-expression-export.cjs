@@ -7,6 +7,7 @@ const load=createDomainLoader({imports:{'jszip':{default:TestZip},'@tonejs/midi'
 const {blankProject,generate,projectInstruments}=load('src/music.ts');
 const {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,writtenTempoAtBeat,performanceTempoAtBeat,soundingSeconds,duplicateTempoExpressions,moveTempoExpressions}=load('src/tempoExpressions.ts');
 const {exportMusicXml,exportMuseScoreMscz,validateMusicXmlDurations}=load('src/io.ts');
+const {scoreNoteheadColors}=load('src/scoreNoteheads.ts');
 const {duplicateProjectSection}=load('src/sectionDuplication.ts');
 const {deleteProjectSection}=load('src/sectionDeletion.ts');
 const {insertBlankMeasures,deleteMeasureRange,copyMeasureRange,pasteMeasureRange}=load('src/measureClipboard.ts');
@@ -23,6 +24,28 @@ function project(){
  };
  return p;
 }
+test('score preview identifies individual piano notes and tied heads without changing the download',()=>{
+ const p=blankProject({sections:1,measuresPerSection:2,beats:4});
+ p.transposeSemitones=2;
+ const bass={pitch:48,start:3.5,duration:1.25};
+ const middle={pitch:60,start:3.5,duration:0.5};
+ const high={pitch:65,start:3.5,duration:0.5};
+ const repeat={pitch:65,start:4,duration:0.25};
+ const unison={pitch:68,start:5,duration:1};
+ const duplicate={...unison};
+ const notes=[bass,middle,high,repeat,unison,duplicate];
+ const score={Piano:notes};
+ const {byNote}=scoreNoteheadColors(notes);
+ const plain=exportMusicXml(p,score,{onlyInstrument:'Piano'});
+ const preview=exportMusicXml(p,score,{onlyInstrument:'Piano',previewNoteheadColors:byNote});
+ const doc=new DOMParser().parseFromString(preview,'application/xml');
+ const owners=Array.from(doc.getElementsByTagName('notehead')).map(head=>head.getAttribute('color'));
+ assert.ok(owners.filter(color=>color===byNote.get(bass)).length>=2);
+ for(const note of [middle,high,repeat])assert.ok(owners.includes(byNote.get(note)));
+ for(const note of [unison,duplicate])assert.ok(!owners.includes(byNote.get(note)));
+ assert.equal(preview.replace(/<notehead color="#[0-9a-f]{6}">normal<\/notehead>/g,''),plain);
+ assert.deepEqual(Array.from(validateMusicXmlDurations(preview,4,1)),[]);
+});
 test('ritardando slows progressively, holds speed, and a tempo restores original BPM',()=>{
  const p=project();
  const t=normalizedTempoExpressions(p);
