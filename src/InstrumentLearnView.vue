@@ -37,7 +37,7 @@ const displayOptions=[
  {value:'notes',label:'Note guide',icon:'music'},
  {value:'both',label:'Guide + diagram',icon:'list-check'},
 ] as const;
-const overlayPaper=ref(70);
+const overlayPaper=ref(60);
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
 const referenceHz=computed(()=>props.referenceHz);
@@ -410,7 +410,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </div>
   </div>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
-   <label v-if="overlayScore">Score opacity <input type="range" min="55" max="92" v-model.number="overlayPaper"/></label>
+   <label v-if="overlayScore">Score opacity <input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
    <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
@@ -681,15 +681,38 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-display-overlay>.learn-guide{grid-area:overlay;z-index:1;background:transparent;min-width:0}
 .learn-display-overlay>.learn-diagram{
  grid-area:overlay;z-index:0;pointer-events:none;min-width:0;min-height:0;
- overflow:hidden;align-items:center;background:#283d4e;padding:clamp(16px,4vw,60px) 10px;
+ overflow:hidden;align-items:center;background:#c5d6e0;padding:clamp(12px,3vw,36px) 8px;
 }
 .learn-display-overlay>.learn-tuner{grid-area:tuner;align-self:center}
 .learn-display-overlay :deep(.diagram-measure-chords),
 .learn-display-overlay :deep(.diagram-upcoming-measure){display:none}
 .learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn){max-width:none}
-.learn-display-overlay :deep(.diagram-fingerboard){min-height:clamp(150px,28dvh,300px)}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){
+ grid-template-columns:minmax(0,1fr);grid-auto-rows:auto;justify-items:stretch;align-content:center;
+ gap:clamp(4px,1dvh,10px);width:100%;min-height:0;padding:clamp(8px,2vw,22px);
+ background:transparent;border-color:transparent;
+}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-row){
+ width:100%;align-items:stretch;min-height:clamp(35px,6dvh,63px);gap:clamp(3px,1vw,10px);
+}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop),
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-open-label){
+ height:auto;align-self:stretch;
+}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
+.learn-display-overlay :deep(.diagram-open-label strong){font-size:clamp(12px,2.3vw,28px);color:#132f41}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-violin-position){
+ font-size:clamp(12px,2vw,22px);color:#244258;
+}
+.learn-display-overlay :deep(.diagram-string-stop){border-top-color:#7896a9}
+.learn-display-overlay :deep(.diagram-string-stop.is-measure-note:not(.is-learn-target)){background:#9db8c9}
+.learn-display-overlay :deep(.diagram-string-stop.is-learn-target),
+.learn-display-overlay :deep(.diagram-open-label.is-learn-target){
+ background:#ff9e25!important;border:2px solid #98500d!important;box-shadow:none!important;
+}
 .learn-display-overlay :deep(.diagram-visual-stage){min-height:0}
 .learn-display-overlay .learn-score-panel{--score-follow-height:clamp(225px,42dvh,430px)}
+.learn-display-overlay .learn-progress,.learn-display-overlay .learn-score-legend{color:#1f3444}
 @media(min-width:900px) and (orientation:landscape){
  .learn-display-overlay{grid-template-columns:minmax(0,1fr) clamp(160px,21vw,270px);grid-template-rows:auto;grid-template-areas:"overlay tuner"}
 }

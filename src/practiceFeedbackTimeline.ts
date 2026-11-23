@@ -13,32 +13,27 @@ export function feedbackStatus(row:LearnTakeRow):FeedbackStatus{
  return row.kind==='matched'?row.pitchMatches?'correct':'wrong':row.kind;
 }
 
-type Segment={row:number;pitch:number;start:number;duration:number;status:FeedbackStatus;continuation:boolean};
-type FeedbackMeasure={index:number;expected:Segment[];detected:Segment[]};
+type TimelineNote={row:number;pitch:number;start:number;duration:number;status:FeedbackStatus};
+type TimelineLane='expected'|'detected';
 
-export function practiceFeedbackMeasures(rows:readonly LearnTakeRow[],clock:LearnTakeClock,beats:number,count:number){
- const measures=new Map<number,FeedbackMeasure>();
- const measureAt=(index:number)=>{
-  const measure=measures.get(index)??{index,expected:[],detected:[]};
-  measures.set(index,measure);
-  return measure;
- };
- for(let index=0;index<count;index++)measureAt(index);
- function add(lane:'expected'|'detected',row:number,pitch:number,start:number,duration:number,status:FeedbackStatus){
-  const first=Math.floor(start/beats),end=start+duration;
-  for(let measure=first;measure*beats<end-1e-8;measure++){
-   const offset=measure*beats,partStart=Math.max(start,offset);
-   measureAt(measure)[lane].push({
-    row,pitch,status,start:partStart-offset,duration:Math.min(end,offset+beats)-partStart,
-    continuation:measure!==first,
-   });
-  }
+export function practiceFeedbackTimeline(rows:readonly LearnTakeRow[],clock:LearnTakeClock,beats:number,count:number){
+ const lanes:Record<TimelineLane,TimelineNote[]>={expected:[],detected:[]};
+ let firstMeasure=0,lastMeasure=count-1;
+ function add(lane:TimelineLane,note:TimelineNote){
+  lanes[lane].push(note);
+  firstMeasure=Math.min(firstMeasure,Math.floor(note.start/beats));
+  lastMeasure=Math.max(lastMeasure,Math.ceil((note.start+note.duration-1e-8)/beats)-1);
  }
  rows.forEach((row,index)=>{
   const status=feedbackStatus(row);
-  if(row.kind!=='extra')add('expected',index,row.target.pitch,row.target.startBeat,row.target.durationBeats,status);
-  if(row.kind==='matched'||row.kind==='extra')add('detected',index,row.played.pitch,
-    (row.played.startBeat-clock.offsetBeats)/clock.tempoScale,row.played.durationBeats/clock.tempoScale,status);
+  if(row.kind!=='extra')add('expected',{
+   row:index,pitch:row.target.pitch,start:row.target.startBeat,duration:row.target.durationBeats,status,
+  });
+  if(row.kind==='matched'||row.kind==='extra')add('detected',{
+   row:index,pitch:row.played.pitch,start:(row.played.startBeat-clock.offsetBeats)/clock.tempoScale,
+   duration:row.played.durationBeats/clock.tempoScale,status,
+  });
  });
- return [...measures.values()].sort((a,b)=>a.index-b.index);
+ const measures=Array.from({length:lastMeasure-firstMeasure+1},(_,index)=>firstMeasure+index);
+ return {lanes,measures,start:firstMeasure*beats,span:measures.length*beats};
 }
