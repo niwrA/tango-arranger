@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'|'staff'|'fingerboard'|'split-view'}>();
 const paths:Record<typeof props.name,string>={
   plus:'M12 5v14 M5 12h14',
   save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z M7 3v6h10V4 M7 21v-8h10v8',
@@ -14,6 +14,9 @@ const paths:Record<typeof props.name,string>={
   x:'M18 6 6 18 M6 6l12 12',
   music:'M9 18V5l12-2v13 M9 9l12-2 M9 18a3 2 0 1 1-6 0 3 2 0 0 1 6 0 M21 16a3 2 0 1 1-6 0 3 2 0 0 1 6 0',
   pencil:'M12 20h9 M16 4l4 4-12 12-5 1 1-5z',
+  staff:'M3 5h18 M3 9h18 M3 13h18 M3 17h18 M3 21h18 M8 11v7a2 2 0 1 1-2-2h2 M17 6v7a2 2 0 1 1-2-2h2',
+  fingerboard:'M3 5h18v14H3z M3 10h18 M3 14h18 M8 5v14 M14 5v14 M18 5v14',
+  'split-view':'M3 4h18v16H3z M12 4v16 M6 8h3 M6 12h3 M6 16h3 M15 8h3 M15 12h3 M15 16h3',
   layers:'M12 2 2 7l10 5 10-5z M2 12l10 5 10-5 M2 17l10 5 10-5',
   'list-check':'M9 6h12 M9 12h12 M9 18h12 M3 6l1 1 2-2 M3 12l1 1 2-2 M3 18l1 1 2-2',
   'refresh-cw':'M20 7v5h-5 M4 17v-5h5 M5 9a7 7 0 0 1 12-3l3 6 M4 12l3 6a7 7 0 0 0 12-3',

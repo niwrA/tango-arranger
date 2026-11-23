@@ -290,7 +290,7 @@ onBeforeUnmount(()=>{
 </template>
 
 <style scoped>
-.score-preview{margin:6px 0;padding:12px;background:#f8fafc;color:#18222c;border:1px solid #b9c7d3;border-radius:10px;overflow:hidden}
+.score-preview{margin:6px 0;padding:12px;background:var(--score-paper,#f8fafc);color:#18222c;border:1px solid #b9c7d3;border-radius:10px;overflow:hidden}
 .score-preview-status{margin:0 0 6px}
 .score-preview-selection{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:.85rem}
 .score-preview-canvas{min-height:92px;overflow-x:auto}

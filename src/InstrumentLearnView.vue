@@ -1,5 +1,5 @@
 <script lang="ts">
-export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram';
+export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'overlay';
 </script>
 
 <script setup lang="ts">
@@ -13,6 +13,7 @@ import {download} from './io';
 import {practiceTargets,type ChordTarget,type PracticeStaff} from './practiceTargets';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import MeasureRangeControl from './MeasureRangeControl.vue';
+import AppIcon from './AppIcon.vue';
 import PracticeTakeTimeline from './PracticeTakeTimeline.vue';
 import PracticeRecordingBeat from './PracticeRecordingBeat.vue';
 import type {PracticeRecordingClock} from './practiceRecordingPulse';
@@ -28,6 +29,15 @@ const layout=computed({
  get:()=>props.display,
  set:(value:PracticeDisplay)=>emit('update:display',value),
 });
+const displayOptions=[
+ {value:'score-diagram',label:'Score + diagram',icon:'split-view'},
+ {value:'overlay',label:'Overlay',icon:'layers'},
+ {value:'score',label:'Score',icon:'staff'},
+ {value:'diagram',label:'Diagram',icon:'fingerboard'},
+ {value:'notes',label:'Note guide',icon:'music'},
+ {value:'both',label:'Guide + diagram',icon:'list-check'},
+] as const;
+const overlayPaper=ref(70);
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
 const referenceHz=computed(()=>props.referenceHz);
@@ -68,9 +78,10 @@ const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.ro
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
-const showScore=computed(()=>layout.value==='score'||layout.value==='score-diagram');
+const overlayScore=computed(()=>layout.value==='overlay');
+const showScore=computed(()=>layout.value==='score'||layout.value==='score-diagram'||overlayScore.value);
 const combinedScore=computed(()=>layout.value==='score-diagram');
-const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram');
+const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram'||overlayScore.value);
 const showGuide=computed(()=>layout.value!=='diagram');
 const completedTargets=ref(new Set<Note>());
 const takeBeat=ref<number|null>(null);
@@ -389,19 +400,17 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <div class="learn-topline">
    <strong>Learn · {{instrument}}</strong>
    <div class="learn-view-controls">
-    <label>Display
-     <select v-model="layout">
-      <option value="notes">Note guide</option>
-      <option value="diagram">Instrument diagram</option>
-      <option value="both">Notes and diagram</option>
-      <option value="score">Score</option>
-      <option value="score-diagram">Score and diagram</option>
-     </select>
-    </label>
+    <div class="learn-display-options" role="group" aria-label="Practice display">
+     <button v-for="option in displayOptions" :key="option.value" type="button"
+      :class="layout===option.value?'primary':'secondary'" :aria-pressed="layout===option.value" @click="layout=option.value">
+      <AppIcon :name="option.icon"/><span>{{option.label}}</span>
+     </button>
+    </div>
     <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
    </div>
   </div>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
+   <label v-if="overlayScore">Score opacity <input type="range" min="55" max="92" v-model.number="overlayPaper"/></label>
    <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
@@ -424,7 +433,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <Teleport v-if="recordingClock" to="#practice-recording-beat">
    <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
   </Teleport>
-  <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
+  <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore,'learn-display-overlay':overlayScore}"
+   :style="overlayScore?{'--score-paper':`rgb(248 250 252 / ${overlayPaper/100})`}:undefined">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
     <div v-if="showScore" class="learn-score-panel">
@@ -527,9 +537,17 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-workspace{width:100%;max-width:1100px;margin:0 auto;min-width:0;display:flex;flex-direction:column;gap:10px;color:#ebf2f7}
 .learn-topline,.learn-tuner-title,.learn-navigation,.learn-mic-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .learn-topline{justify-content:space-between}
-.learn-view-controls,.learn-view-controls label{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
-.learn-view-controls label{margin:0;font-size:12px}
-.learn-view-controls select{width:auto;max-width:100%;min-height:40px;margin:0;padding:5px 8px}
+.learn-view-controls,.learn-display-options{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+.learn-display-options button{display:inline-flex;justify-content:center;align-items:center;gap:5px;min-height:40px;padding:5px 8px;font-size:12px}
+.learn-display-options .app-icon{width:18px;height:18px;flex:none}
+@media(max-width:600px){
+ .learn-topline{display:grid;grid-template-columns:minmax(0,1fr) auto}
+ .learn-topline>strong{grid-area:1/1}
+ .learn-view-controls{display:contents}
+ .learn-settings-toggle{grid-area:1/2}
+ .learn-display-options{grid-area:2/1/3/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+ .learn-display-options button{min-height:44px;text-align:left;justify-content:flex-start;line-height:1.15;white-space:normal}
+}
 .learn-topline strong{font-size:18px;color:#f4d49e}
 .learn-settings-toggle{min-height:40px}
 .learn-settings{display:flex;align-items:end;flex-wrap:wrap;gap:9px;padding:10px;border:1px solid #607787;background:#1d303f;border-radius:9px}
@@ -652,5 +670,27 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
  .learn-display-combined .learn-tuner-title strong{margin-right:0}
  .learn-display-combined .learn-mic-row{justify-content:center;text-align:center}
  .learn-display-combined .learn-mic-row meter{max-width:100%}
+}
+/* Keep the score and diagram in the same sightline while the tuner stays readable. */
+.learn-display-overlay{
+ grid-template-columns:minmax(0,1fr);
+ grid-template-rows:auto auto;
+ grid-template-areas:"overlay" "tuner";
+ isolation:isolate;
+}
+.learn-display-overlay>.learn-guide{grid-area:overlay;z-index:1;background:transparent;min-width:0}
+.learn-display-overlay>.learn-diagram{
+ grid-area:overlay;z-index:0;pointer-events:none;min-width:0;min-height:0;
+ overflow:hidden;align-items:center;background:#283d4e;padding:clamp(16px,4vw,60px) 10px;
+}
+.learn-display-overlay>.learn-tuner{grid-area:tuner;align-self:center}
+.learn-display-overlay :deep(.diagram-measure-chords),
+.learn-display-overlay :deep(.diagram-upcoming-measure){display:none}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn){max-width:none}
+.learn-display-overlay :deep(.diagram-fingerboard){min-height:clamp(150px,28dvh,300px)}
+.learn-display-overlay :deep(.diagram-visual-stage){min-height:0}
+.learn-display-overlay .learn-score-panel{--score-follow-height:clamp(225px,42dvh,430px)}
+@media(min-width:900px) and (orientation:landscape){
+ .learn-display-overlay{grid-template-columns:minmax(0,1fr) clamp(160px,21vw,270px);grid-template-rows:auto;grid-template-areas:"overlay tuner"}
 }
 </style>

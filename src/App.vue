@@ -513,9 +513,7 @@ const performanceExpandedInstrument=ref<Instrument|null>(null);
 const performanceScoreView=ref<'off'|'score'|'both'>('off');
 const focusShowsScore=computed(()=>performanceScoreView.value!=='off');
 const instrumentLearnMode=ref(false);
-const practiceDisplay=ref<PracticeDisplay|null>(null);
-const currentPracticeDisplay=computed(()=>practiceDisplay.value??(
- performanceScoreView.value==='score'?'score':performanceScoreView.value==='both'?'score-diagram':'both'));
+const practiceDisplay=ref<PracticeDisplay>('score-diagram');
 function enterInstrumentLearn(){stopPlayback();instrumentLearnMode.value=true;}
 function exitInstrumentLearn(){instrumentLearnMode.value=false;}
 let performanceExpandTrigger:HTMLElement|null=null;
@@ -5602,7 +5600,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="currentPracticeDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
            <template #score="{from,to,measure,expected,completed,playing}">
              <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" expanded follow-measure :interactive="false" />
            </template>
