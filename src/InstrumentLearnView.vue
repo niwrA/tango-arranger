@@ -56,6 +56,20 @@ const combinedScore=computed(()=>layout.value==='score-diagram');
 const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram');
 const showGuide=computed(()=>layout.value!=='diagram');
 const completedTargets=ref(new Set<Note>());
+const scorePanel=ref<HTMLElement|null>(null);
+const scorePanelWidth=ref(0);
+watch(scorePanel,(panel,_,onCleanup)=>{
+ if(!panel)return;
+ scorePanelWidth.value=panel.clientWidth;
+ const observer=new ResizeObserver(([entry])=>{scorePanelWidth.value=entry.contentRect.width;});
+ observer.observe(panel);
+ onCleanup(()=>observer.disconnect());
+},{flush:'post'});
+const measuresPerPage=computed(()=>{
+ const width=scorePanelWidth.value;
+ if(combinedScore.value)return width>=600?6:width>=360?5:3;
+ return width>=1000?12:width>=650?10:width>=420?8:6;
+});
 const takeBeat=ref<number|null>(null);
 const demoBeat=ref<number|null>(null);
 const scoreMeasure=computed(()=>{
@@ -64,8 +78,11 @@ const scoreMeasure=computed(()=>{
  const note=current.value??targets.value.at(-1);
  return note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
 });
-const scoreFrom=computed(()=>from.value+Math.floor(Math.max(0,scoreMeasure.value-from.value)/3)*3);
-const scoreTo=computed(()=>Math.min(to.value,scoreFrom.value+2));
+const scoreFrom=computed(()=>{
+ const size=measuresPerPage.value;
+ return from.value+Math.floor(Math.max(0,scoreMeasure.value-from.value)/size)*size;
+});
+const scoreTo=computed(()=>Math.min(to.value,scoreFrom.value+measuresPerPage.value-1));
 const scoreCompleted=computed(()=>[...completedTargets.value].filter(note=>
  note.start<scoreTo.value*props.beatsPerMeasure&&note.start+note.duration>(scoreFrom.value-1)*props.beatsPerMeasure));
 const scoreDemoNotes=computed(()=>{
@@ -323,7 +340,7 @@ async function startMicrophone(){
 onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
- <section class="learn-workspace" :class="{'learn-workspace-combined':combinedScore}" aria-label="Learn instrument notes">
+ <section class="learn-workspace" :class="{'learn-workspace-score':showScore}" aria-label="Learn instrument notes">
   <div class="learn-topline">
    <strong>Learn · {{instrument}}</strong>
    <div class="learn-view-controls">
@@ -356,12 +373,12 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
-    <template v-if="showScore">
-     <slot name="score" :from="scoreFrom" :to="scoreTo" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" :expanded="combinedScore" />
+    <div v-if="showScore" ref="scorePanel" class="learn-score-panel">
+     <slot name="score" :from="scoreFrom" :to="scoreTo" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
      <small v-if="demoPlaying" class="learn-score-legend">Listening · measure {{scoreMeasure}}</small>
      <small v-else-if="current" class="learn-score-legend">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</small>
      <small v-else-if="!targets.length" class="learn-score-legend">No written notes in this range.</small>
-    </template>
+    </div>
     <div v-else-if="current" class="learn-note-cards">
      <div class="learn-target learn-target-current" aria-live="polite">
       <small>PLAY NOW</small><strong>{{pitchLabel(targetMidi??current.pitch)}}</strong>
@@ -516,40 +533,38 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 }
 @media(max-width:380px){.learn-mic-row meter{max-width:24%;width:60px;flex-basis:60px}.learn-tuner-title .learn-mic-toggle{min-width:69px;padding:4px 6px}}
 
-.learn-workspace-combined{max-width:none;align-self:stretch}
+.learn-workspace-score{max-width:none;align-self:stretch}
+.learn-score-panel{min-width:0}
 .learn-display-combined{
- flex:1 0 auto;
  grid-template-columns:minmax(0,1fr);
  grid-template-rows:auto auto auto;
  grid-template-areas:"score" "tuner" "diagram";
 }
-.learn-display-combined>.learn-guide{grid-area:score;display:flex;flex-direction:column;justify-content:center}
+.learn-display-combined>.learn-guide{grid-area:score}
 .learn-display-combined>.learn-tuner{grid-area:tuner;align-self:center}
-.learn-display-combined>.learn-diagram{grid-area:diagram}
-.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn){max-width:none}
-.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-chord-beat){height:clamp(32px,5dvh,56px)}
-.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-next-chord-beat){height:clamp(26px,4dvh,44px)}
+.learn-display-combined>.learn-diagram{grid-area:diagram;align-items:flex-start}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn){max-width:none;margin:0 auto}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-chord-beat){height:clamp(30px,4dvh,45px)}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-next-chord-beat){height:clamp(24px,3dvh,34px)}
 .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-chord-beat strong),
 .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-next-chord-beat strong){font-size:clamp(14px,2vw,26px)}
 .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){
  grid-template-columns:minmax(0,1fr);
- grid-template-rows:auto repeat(4,minmax(clamp(32px,5dvh,60px),auto));
+ grid-auto-rows:minmax(clamp(30px,4.5dvh,48px),auto);
  padding:clamp(6px,1vw,16px);
 }
 .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-row){align-items:stretch}
 .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop),
 .learn-display-combined :deep(.is-learn .diagram-open-label){height:auto;min-height:0}
 @media(min-width:650px){
- .learn-display-combined{grid-template-rows:1fr auto 1fr}
  .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span){font-size:clamp(13px,1.7vw,24px)}
 }
 @media(min-width:900px) and (orientation:landscape){
  .learn-display-combined{
-  grid-template-columns:minmax(0,1fr) clamp(152px,17vw,250px) minmax(0,1fr);
-  grid-template-rows:1fr;
+  grid-template-columns:minmax(0,1fr) clamp(150px,15vw,220px) minmax(0,1fr);
+  grid-template-rows:auto;
   grid-template-areas:"score tuner diagram";
  }
- .learn-display-combined>.learn-guide,.learn-display-combined>.learn-diagram{min-height:min(44dvh,420px)}
  .learn-display-combined .learn-tuner-title{justify-content:center;text-align:center}
  .learn-display-combined .learn-tuner-title strong{margin-right:0}
  .learn-display-combined .learn-mic-row{justify-content:center;text-align:center}
