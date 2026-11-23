@@ -1,3 +1,7 @@
+<script lang="ts">
+export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram';
+</script>
+
 <script setup lang="ts">
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import type {Note} from './music';
@@ -10,9 +14,13 @@ import MeasureRangeControl from './MeasureRangeControl.vue';
 const props=defineProps<{
  instrument:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
- initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;
+ initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;display:PracticeDisplay;
 }>();
-const emit=defineEmits<{(event:'exit'):void}>();
+const emit=defineEmits<{(event:'exit'):void;(event:'update:display',display:PracticeDisplay):void}>();
+const layout=computed({
+ get:()=>props.display,
+ set:(value:PracticeDisplay)=>emit('update:display',value),
+});
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
 const referenceHz=computed(()=>props.referenceHz);
@@ -24,7 +32,6 @@ const tolerance=ref(20);
 const holdMs=ref(400);
 const autoAdvance=ref(true);
 const autoRepeat=ref(true);
-const layout=ref<'notes'|'diagram'|'both'|'score'|'score-diagram'>('both');
 const cursor=ref(0);
 const micStatus=ref('Microphone off');
 const listening=ref(false);
@@ -48,19 +55,27 @@ const showScore=computed(()=>layout.value==='score'||layout.value==='score-diagr
 const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram');
 const showGuide=computed(()=>layout.value!=='diagram');
 const completedTargets=ref(new Set<Note>());
-const scoreFrom=computed(()=>{
+const takeBeat=ref<number|null>(null);
+const demoBeat=ref<number|null>(null);
+const scoreMeasure=computed(()=>{
+ const timedBeat=demoBeat.value??takeBeat.value;
+ if(timedBeat!==null)return Math.min(to.value,from.value+Math.floor(Math.max(0,timedBeat)/props.beatsPerMeasure));
  const note=current.value??targets.value.at(-1);
- const measure=note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
- return from.value+Math.floor(Math.max(0,measure-from.value)/3)*3;
+ return note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
 });
+const scoreFrom=computed(()=>from.value+Math.floor(Math.max(0,scoreMeasure.value-from.value)/3)*3);
 const scoreTo=computed(()=>Math.min(to.value,scoreFrom.value+2));
 const scoreCompleted=computed(()=>[...completedTargets.value].filter(note=>
  note.start<scoreTo.value*props.beatsPerMeasure&&note.start+note.duration>(scoreFrom.value-1)*props.beatsPerMeasure));
+const scoreDemoNotes=computed(()=>{
+ if(demoBeat.value===null)return [];
+ const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
+ return targets.value.filter(note=>note.start<=beat&&beat<note.start+note.duration);
+});
 const takeLeadInBeats=0.75;
 const takeReleaseBeats=1;
 const upcoming=computed(()=>targets.value.slice(cursor.value+1,cursor.value+4));
 const demoPlaying=ref(false);
-const takeBeat=ref<number|null>(null);
 const takeResult=ref<LearnTakeRow[]|null>(null);
 const takeStatus=computed(()=>{
  const beat=takeBeat.value;
@@ -101,6 +116,7 @@ let lastAnalyzed=0;
 let repeatTimer:ReturnType<typeof setTimeout>|undefined;
 let demoAudio:AudioContext|null=null;
 let demoTimer:ReturnType<typeof setTimeout>|undefined;
+let demoFrame=0;
 let demoTailUntil=0;
 let take:{startMs:number;msPerBeat:number;totalBeats:number;frames:PitchFrame[];targetIndex:number}|null=null;
 
@@ -126,6 +142,8 @@ function restart(){
 }
 function stopDemo(){
  clearTimeout(demoTimer);
+ cancelAnimationFrame(demoFrame);
+ demoBeat.value=null;
  const previous=demoAudio;
  demoAudio=null;
  if(previous){demoTailUntil=performance.now()+180;void previous.close().catch(()=>{});}
@@ -157,6 +175,12 @@ async function listenToNotes(){
    tone.connect(gain);gain.connect(ctx.destination);tone.start(at);tone.stop(end);
    tone.onended=()=>{tone.disconnect();gain.disconnect();};
   }
+  const followDemo=()=>{
+   if(demoAudio!==ctx)return;
+   if(showScore.value)demoBeat.value=(ctx.currentTime-start)/secondsPerBeat;
+   demoFrame=requestAnimationFrame(followDemo);
+  };
+  demoFrame=requestAnimationFrame(followDemo);
   demoTimer=setTimeout(stopDemo,100+(rangeEnd-rangeStart)*secondsPerBeat*1000);
  }catch(error){stopDemo();micStatus.value='Could not play the exercise: '+String(error);}
 }
@@ -300,8 +324,19 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 <template>
  <section class="learn-workspace" aria-label="Learn instrument notes">
   <div class="learn-topline">
-   <div><strong>Learn · {{instrument}}</strong></div>
-   <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
+   <strong>Learn · {{instrument}}</strong>
+   <div class="learn-view-controls">
+    <label>Display
+     <select v-model="layout">
+      <option value="notes">Note guide</option>
+      <option value="diagram">Instrument diagram</option>
+      <option value="both">Notes and diagram</option>
+      <option value="score">Score</option>
+      <option value="score-diagram">Score and diagram</option>
+     </select>
+    </label>
+    <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
+   </div>
   </div>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
    <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
@@ -309,7 +344,6 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
-   <label>View<select v-model="layout"><option value="notes">Note guide</option><option value="diagram">Instrument diagram</option><option value="both">Notes and diagram</option><option value="score">Score</option><option value="score-diagram">Score and diagram</option></select></label>
    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
    <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Restart after the last note</label>
   </div>
@@ -321,9 +355,11 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
-    <template v-if="showScore&&targets.length">
-     <slot name="score" :from="scoreFrom" :to="scoreTo" :expected="current??undefined" :completed="scoreCompleted" />
-     <small v-if="current" class="learn-score-legend">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</small>
+    <template v-if="showScore">
+     <slot name="score" :from="scoreFrom" :to="scoreTo" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
+     <small v-if="demoPlaying" class="learn-score-legend">Listening · measure {{scoreMeasure}}</small>
+     <small v-else-if="current" class="learn-score-legend">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</small>
+     <small v-else-if="!targets.length" class="learn-score-legend">No written notes in this range.</small>
     </template>
     <div v-else-if="current" class="learn-note-cards">
      <div class="learn-target learn-target-current" aria-live="polite">
@@ -397,7 +433,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-workspace{width:100%;max-width:1100px;margin:0 auto;min-width:0;display:flex;flex-direction:column;gap:10px;color:#ebf2f7}
 .learn-topline,.learn-tuner-title,.learn-navigation,.learn-mic-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .learn-topline{justify-content:space-between}
-.learn-topline>div{display:flex;flex-direction:column;gap:2px}
+.learn-view-controls,.learn-view-controls label{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+.learn-view-controls label{margin:0;font-size:12px}
+.learn-view-controls select{width:auto;max-width:100%;min-height:40px;margin:0;padding:5px 8px}
 .learn-topline strong{font-size:18px;color:#f4d49e}
 .learn-settings-toggle{min-height:40px}
 .learn-settings{display:flex;align-items:end;flex-wrap:wrap;gap:9px;padding:10px;border:1px solid #607787;background:#1d303f;border-radius:9px}

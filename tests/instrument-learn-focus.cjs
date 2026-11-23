@@ -20,6 +20,8 @@ assert.match(component,/const holdMs=ref\(400\)/);
 assert.match(component,/nearTarget/);
 assert.match(component,/if\(autoAdvance\.value&&cursor\.value<targets\.value\.length\)cursor\.value\+\+/);
 assert.match(component,/v-if="settingsOpen" id="learn-settings"/);
+assert.match(component,/<div class="learn-view-controls">\s*<label>Display\s*<select v-model="layout">[\s\S]*?<option value="score">Score<\/option>/);
+assert.match(app,/<template #score="\{from,to,measure,expected,completed,playing\}">\s*<ScorePreview[^>]*:active-measure="measure"[^>]*:playing-notes="playing"/);
 assert.match(component,/selectedRange|measures \{\{from\}\}–\{\{to\}\}/);
 assert.match(component,/aria-label="Target-aware pitch tuner"/);
 assert.match(component,/Record for feedback/);

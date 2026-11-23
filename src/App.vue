@@ -21,7 +21,7 @@ import PerformanceRoleCues from './PerformanceRoleCues.vue';
 import PerformanceLyricLine from './PerformanceLyricLine.vue';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
-import InstrumentLearnView from './InstrumentLearnView.vue';
+import InstrumentLearnView,{type PracticeDisplay} from './InstrumentLearnView.vue';
 import {DEFAULT_A4_HZ,MIN_A4_HZ,MAX_A4_HZ,validReferenceHz,tuningReferenceFor} from './instrumentTuning';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
@@ -490,6 +490,9 @@ const performanceExpandedInstrument=ref<Instrument|null>(null);
 const performanceScoreView=ref<'off'|'score'|'both'>('off');
 const focusShowsScore=computed(()=>performanceScoreView.value!=='off');
 const instrumentLearnMode=ref(false);
+const practiceDisplay=ref<PracticeDisplay|null>(null);
+const currentPracticeDisplay=computed(()=>practiceDisplay.value??(
+ performanceScoreView.value==='score'?'score':performanceScoreView.value==='both'?'score-diagram':'both'));
 function enterInstrumentLearn(){stopPlayback();instrumentLearnMode.value=true;}
 function exitInstrumentLearn(){instrumentLearnMode.value=false;}
 let performanceExpandTrigger:HTMLElement|null=null;
@@ -5404,9 +5407,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" @exit="exitInstrumentLearn">
-           <template #score="{from,to,expected,completed}">
-             <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :selected-note="expected" :completed-notes="completed" :interactive="false" />
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="currentPracticeDisplay" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
+           <template #score="{from,to,measure,expected,completed,playing}">
+             <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" :interactive="false" />
            </template>
            <template #diagram="{targetPitch,currentBeat,showTargetLabel}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
