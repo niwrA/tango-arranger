@@ -38,6 +38,19 @@ check('a crossing-bar vocal note is held visible when the new measure page begin
  assert.equal(page.tokens[0].active,true);
  assert.equal(model.performanceLyricPage(score,8.9,4,4,800,120).tokens[1].active,true);
 });
+check('words retain every syllable across page turns with the current syllable highlighted',()=>{
+ const score=[
+  {start:7,duration:.5,lyric:'so',syllabic:'begin'},
+  {start:8,duration:.5,lyric:'le',syllabic:'middle'},
+  {start:9,duration:.5,lyric:'dad',syllabic:'end'},
+ ];
+ for(const beat of [7.25,8.25,9.25]){
+  const page=model.performanceLyricPage(score,beat,4,4);
+  assert.equal(page.tokens.map(n=>n.text).join(''),'soledad');
+  assert.equal(new Set(page.tokens.map(n=>n.word)).size,1);
+  assert.equal(page.tokens.filter(n=>n.active).length,1);
+ }
+});
 check('blank measures and non-lyric notes do not insert moving placeholders',()=>{
  const score=[{start:0,duration:1,lyric:'sing'},{start:2,duration:1},{start:12,duration:1,lyric2:'verse two'}];
  const first=model.performanceLyricPage(score,0,4,4);

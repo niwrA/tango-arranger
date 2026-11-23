@@ -676,9 +676,11 @@ const performanceVocalCue=computed(()=>{
  const visible=notes.some(n=>n.start<(firstBar+3)*beats&&n.start+Math.max(.001,n.duration)>firstBar*beats);
  const source=project.value.leadLyrics?.['1']?.source??project.value.leadLyrics?.['2']?.source;
  const plan=source?parseLeadLyrics(source,beats):null;
- const lineStarts=plan?lyricLineStarts(plan,notes.map(n=>n.start)):[];
+ // Sources read back from the score use one structural row per bar.
+ const lineStarts=plan&&!source?.includes('||')?lyricLineStarts(plan,notes.map(n=>n.start)):[];
  return {instrument,notes,count,visible,lineStarts};
 });
+const stagePlaybackBpm=computed(()=>Math.round(performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value));
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
 const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[])]);
@@ -2790,6 +2792,42 @@ const expressiveFermataStretch=ref(2),expressiveWaitForCue=ref(true);
 const expressiveATempoMeasure=ref(1);
 const expressiveTiming=computed(()=>normalizedTempoExpressions(project.value));
 const expressiveTimingError=ref('');
+type ExpressiveMark='rit'|'fermata'|'tempo';
+const expressiveMark=ref<ExpressiveMark|null>(null);
+const expressiveOriginal=ref<number|null>(null);
+function openExpressiveMark(kind:ExpressiveMark,original:number|null=null){
+ expressiveMark.value=kind;
+ expressiveOriginal.value=original;
+ prepareEndingTiming();
+ expressiveRitPercent.value=65;
+ expressiveFermataStretch.value=2;
+ expressiveWaitForCue.value=true;
+ expressiveATempoMeasure.value=selectedBar.value+1;
+ if(original===null)return;
+ if(kind==='rit'){
+  const mark=expressiveTiming.value.ritardandos.find(r=>r.startMeasure===original);
+  if(mark){
+   expressiveRitFrom.value=mark.startMeasure+1;
+   expressiveRitTo.value=mark.endMeasure+1;
+   expressiveRitPercent.value=mark.toPercent;
+  }
+ }else if(kind==='fermata'){
+  const mark=expressiveTiming.value.fermatas.find(f=>f.measure===original);
+  if(mark){
+   expressiveFermataMeasure.value=mark.measure+1;
+   expressiveFermataInstrument.value=mark.instrument;
+   expressiveFermataStretch.value=mark.stretch;
+   expressiveWaitForCue.value=mark.waitForCue;
+  }
+ }else expressiveATempoMeasure.value=original+1;
+}
+function saveExpressiveMark(){
+ if(expressiveMark.value==='rit')addRitardando();
+ else if(expressiveMark.value==='fermata')setFermataCue();
+ else if(expressiveMark.value==='tempo')setATempo();
+ if(!expressiveTimingError.value)expressiveMark.value=null;
+}
+watch(project,()=>{expressiveMark.value=null;expressiveTimingError.value='';});
 function prepareEndingTiming(){
  const last=project.value.bars.length;
  expressiveRitFrom.value=Math.max(1,last-2);
@@ -2809,21 +2847,22 @@ function editTempoExpressions(fn:(e:TempoExpressions)=>void){
 }
 function addRitardando(){
  editTempoExpressions(e=>{
-  e.ritardandos=e.ritardandos.filter(r=>r.startMeasure!==expressiveRitFrom.value-1);
+  e.ritardandos=e.ritardandos.filter(r=>r.startMeasure!==expressiveOriginal.value);
   e.ritardandos.push({startMeasure:Number(expressiveRitFrom.value)-1,endMeasure:Number(expressiveRitTo.value)-1,toPercent:Number(expressiveRitPercent.value)});
  });
 }
 function removeRitardando(index:number){editTempoExpressions(e=>{e.ritardandos.splice(index,1);});}
 function setFermataCue(){
  editTempoExpressions(e=>{
-  e.fermatas=e.fermatas.filter(f=>f.measure!==Number(expressiveFermataMeasure.value)-1);
+  e.fermatas=e.fermatas.filter(f=>f.measure!==expressiveOriginal.value);
   e.fermatas.push({measure:Number(expressiveFermataMeasure.value)-1,instrument:expressiveFermataInstrument.value,stretch:Number(expressiveFermataStretch.value),waitForCue:expressiveWaitForCue.value});
  });
 }
 function removeFermataCue(index:number){editTempoExpressions(e=>{e.fermatas.splice(index,1);});}
 function setATempo(){
  editTempoExpressions(e=>{
-  e.aTempoMeasures=[...new Set([...e.aTempoMeasures,Number(expressiveATempoMeasure.value)-1])];
+  e.aTempoMeasures=e.aTempoMeasures.filter(m=>m!==expressiveOriginal.value);
+  e.aTempoMeasures.push(Number(expressiveATempoMeasure.value)-1);
  });
 }
 function removeATempo(index:number){editTempoExpressions(e=>{e.aTempoMeasures.splice(index,1);});}
@@ -5129,7 +5168,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${selectedBar+1}`" :aria-label="`Play arrangement from selected measure ${selectedBar+1}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{selectedBar+1}}</span></button>
     <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button>
-    <button v-if="waitingForSingerCue" type="button" class="primary singer-cue-continue" @click="continueAfterSingerCue" aria-label="Continue playback after singer cue"><AppIcon name="play"/> Continue · singer cue</button>
+    <button v-if="waitingForSingerCue" type="button" class="primary icon-action singer-cue-continue" @click="continueAfterSingerCue" title="Continue after singer cue" aria-label="Continue playback after singer cue"><AppIcon name="play"/><span>Cue</span></button>
     <div class="playback-speed-actions">
     <details class="topbar-menu playback-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="playback-speed-summary" :title="'Playback speed '+Math.round(rehearsalSpeed*100)+'% · '+Math.round(effectivePlaybackBpm)+' BPM'" :aria-label="'Playback speed '+rehearsalSpeed+' times song tempo. Tap to adjust'">{{rehearsalSpeed}}×<AppIcon name="chevron-down"/></summary>
@@ -5305,7 +5344,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
      </div>
     </div>
     <div class="performance-top-beat" :aria-label="`Beat ${Math.floor(performanceMeasureBeat)} of ${project.beats}`">
-      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo" :title="'Effective playback tempo: '+Math.round(effectivePlaybackBpm)+' BPM'">{{Math.round(effectivePlaybackBpm)}}</span></div>
+      <div class="performance-beat-display"><strong>{{Math.floor(performanceMeasureBeat)}}</strong><span class="performance-top-beat-count">/{{project.beats}}</span><span class="performance-compact-tempo" :title="'Effective playback tempo: '+stagePlaybackBpm+' BPM'">{{stagePlaybackBpm}}</span></div>
       <div class="performance-beat-strip" aria-hidden="true"><span v-for="beat in project.beats" :key="beat" :class="{'current':beat===Math.floor(performanceMeasureBeat),'elapsed':beat<performanceMeasureBeat}"></span></div>
     </div>
    </div>
@@ -5688,33 +5727,48 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
 <section v-else-if="active==='lead'">
 
-<details class="control-fold expressive-timing-editor">
- <summary>Expressive ending · ritardando, fermata, singer cue</summary>
- <p class="hint">These instructions belong to the song, not rehearsal playback speed. They export to both MusicXML and native MuseScore. A singer-cue fermata pauses Tango Arranger until you press Continue; exported scores indicate the cue but MuseScore playback cannot wait indefinitely for a live singer.</p>
- <div class="expressive-timing-grid">
-  <button type="button" class="secondary" @click="prepareEndingTiming">Use last 3 measures</button>
-  <label>Rit. from measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitFrom"/></label>
-  <label>Through measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitTo"/></label>
-  <label>End tempo (% of written BPM)<input type="number" min="35" max="99" v-model.number="expressiveRitPercent"/></label>
-  <button type="button" class="secondary" @click="addRitardando">Add / update rit.</button>
+<details class="expressive-timing-editor">
+ <summary>Tempo &amp; holds · {{expressiveTiming.ritardandos.length+expressiveTiming.fermatas.length+expressiveTiming.aTempoMeasures.length}} markings</summary>
+ <div class="expressive-timing-marks" aria-label="Saved expressive timing markings">
+  <div v-for="(rit,index) in expressiveTiming.ritardandos" :key="'r'+rit.startMeasure">
+   <span><strong>rit.</strong> · Measures {{rit.startMeasure+1}}–{{rit.endMeasure+1}} · {{project.bpm}} → {{Math.round(project.bpm*rit.toPercent/100)}} BPM ({{rit.toPercent}}%)</span>
+   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('rit',rit.startMeasure)">Edit</button><button type="button" @click="removeRitardando(index)">Remove</button></span>
+  </div>
+  <div v-for="(mark,index) in expressiveTiming.fermatas" :key="'f'+mark.measure">
+   <span><strong>Fermata</strong> · Measure {{mark.measure+1}} · {{rosterDisplayName(mark.instrument)}} · {{mark.stretch}}× hold{{mark.waitForCue?' · wait for cue':''}}</span>
+   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('fermata',mark.measure)">Edit</button><button type="button" @click="removeFermataCue(index)">Remove</button></span>
+  </div>
+  <div v-for="(mark,index) in expressiveTiming.aTempoMeasures" :key="'a'+mark">
+   <span><strong>A tempo</strong> · Measure {{mark+1}}</span>
+   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('tempo',mark)">Edit</button><button type="button" @click="removeATempo(index)">Remove</button></span>
+  </div>
  </div>
- <div class="expressive-timing-grid">
-  <label>Fermata measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveFermataMeasure"/></label>
-  <label>Mark this part<select v-model="expressiveFermataInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-  <label>Practice hold (× last beat)<input type="number" min="1.25" max="5" step="0.25" v-model.number="expressiveFermataStretch"/></label>
-  <label class="expressive-cue-toggle"><input type="checkbox" v-model="expressiveWaitForCue"/> Pause until singer/conductor cue</label>
-  <button type="button" class="secondary" @click="setFermataCue">Set fermata</button>
+ <div class="expressive-actions">
+  <button type="button" @click="openExpressiveMark('rit')">Add ritardando</button>
+  <button type="button" @click="openExpressiveMark('fermata')">Add fermata</button>
+  <button type="button" @click="openExpressiveMark('tempo')">Add a tempo</button>
  </div>
- <div class="expressive-timing-grid">
-  <label>A tempo at measure<input type="number" min="1" :max="project.bars.length" v-model.number="expressiveATempoMeasure"/></label>
-  <button type="button" class="secondary" @click="setATempo">Add a tempo</button>
- </div>
- <p v-if="expressiveTimingError" class="hint" role="alert">{{expressiveTimingError}}</p>
- <div v-if="expressiveTiming.ritardandos.length||expressiveTiming.fermatas.length||expressiveTiming.aTempoMeasures.length" class="expressive-timing-marks" aria-label="Saved expressive timing markings">
-  <div v-for="(rit,index) in expressiveTiming.ritardandos" :key="'r'+index">rit. M{{rit.startMeasure+1}}–{{rit.endMeasure+1}} → {{rit.toPercent}}% <button type="button" class="secondary" @click="removeRitardando(index)">Remove</button></div>
-  <div v-for="(mark,index) in expressiveTiming.fermatas" :key="'f'+index">𝄐 M{{mark.measure+1}} · {{rosterDisplayName(mark.instrument)}} · {{mark.stretch}}× hold · {{mark.waitForCue?'wait for cue':'timed only'}} <button type="button" class="secondary" @click="removeFermataCue(index)">Remove</button></div>
-  <div v-for="(mark,index) in expressiveTiming.aTempoMeasures" :key="'a'+index">a tempo M{{mark+1}} <button type="button" class="secondary" @click="removeATempo(index)">Remove</button></div>
- </div>
+ <form v-if="expressiveMark" class="expressive-timing-form" @submit.prevent="saveExpressiveMark">
+  <strong>{{expressiveOriginal===null?'Add':'Edit'}} {{expressiveMark==='rit'?'ritardando':expressiveMark==='fermata'?'fermata':'a tempo'}}</strong>
+  <div class="expressive-timing-grid" v-if="expressiveMark==='rit'">
+   <label>Start measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitFrom"/></label>
+   <label>End measure<input required type="number" :min="expressiveRitFrom" :max="project.bars.length" v-model.number="expressiveRitTo"/></label>
+   <label>End tempo (% of written BPM)<input required type="number" min="35" max="99" v-model.number="expressiveRitPercent"/></label>
+   <output>{{project.bpm}} → {{Math.round(project.bpm*expressiveRitPercent/100)}} BPM</output>
+   <button type="button" @click="expressiveRitFrom=Math.max(1,project.bars.length-2);expressiveRitTo=project.bars.length">Use last 3 measures</button>
+  </div>
+  <div class="expressive-timing-grid" v-else-if="expressiveMark==='fermata'">
+   <label>Measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveFermataMeasure"/></label>
+   <label>Mark this part<select v-model="expressiveFermataInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+   <label>Hold (× last beat)<input required type="number" min="1.25" max="5" step="any" v-model.number="expressiveFermataStretch"/></label>
+   <label class="expressive-cue-toggle"><input type="checkbox" v-model="expressiveWaitForCue"/> Wait for singer or conductor</label>
+  </div>
+  <div class="expressive-timing-grid" v-else>
+   <label>Return to {{project.bpm}} BPM at measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveATempoMeasure"/></label>
+  </div>
+  <p v-if="expressiveTimingError" role="alert">{{expressiveTimingError}}</p>
+  <div class="expressive-actions"><button type="submit" class="primary">Save marking</button><button type="button" @click="expressiveMark=null">Cancel</button></div>
+ </form>
 </details>
 
 <div class="lead-command-bar" role="group" aria-label="Lead sheet controls">

@@ -33,6 +33,12 @@ check('readable leadsheet collapses instrumental measures but retains lyrics',()
  assert.ok(text.includes('Donde el río se queda'));
  assert.ok(!text.includes('||'));
 });
+check('timed source prints as chord-over-lyric rows without beat markers',()=>{
+ const text=readableLeadSheet('@1 [D] ||\n@1 [Em] ||\n@1 [D] @3.5 Don-de ||\n@1 [A7] @1 el @2 río ||');
+ assert.ok(text.includes('[Instrumental · 2 measures]'));
+ assert.match(text,/Don-de.*\|.*el río/);
+ assert.doesNotMatch(text,/@\d/);
+});
 check('section headings are not parsed as chord changes',()=>{
  const plan=parseLeadLyrics('[Verse 1]\n[D]Donde el río\n[Chorus]\n[A7]mi canción',4);
  assert.deepEqual(plan.chords.map(c=>c.chord),['D','A7']);

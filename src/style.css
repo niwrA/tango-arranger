@@ -1862,3 +1862,13 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
    grid-column:1/-1;width:100%;min-width:0
  }
 }
+
+.expressive-actions{display:flex;flex-wrap:wrap;gap:6px}
+.expressive-timing-marks:not(:empty){margin:8px 0}
+.expressive-timing-marks:empty{display:none}
+.expressive-timing-form{border-top:1px solid #52677a;margin-top:12px;padding-top:12px}
+.expressive-timing-grid output{align-self:center;color:#f4d39d;font-variant-numeric:tabular-nums}
+.singer-cue-continue{display:inline-flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap}
+@media(max-width:1120px){
+ .app-topbar .singer-cue-continue>span{display:none}
+}

@@ -147,19 +147,33 @@ export function readableLeadSheet(source:string):string {
  const lines=source.replace(/\r\n?/g,'\n').split('\n');
  const out:string[]=[];
  let instrumental:string[]=[];
+ let sungMeasures:string[]=[];
+ const flushSung=()=>{
+   if(!sungMeasures.length)return;
+   out.push(exportLeadLyricsTab(sungMeasures.join(' || ')));
+   sungMeasures=[];
+ };
  const flush=()=>{
    if(!instrumental.length)return;
    out.push('[Instrumental · '+instrumental.length+' measure'+(instrumental.length===1?'':'s')+']');
-   out.push(instrumental.map(line=>line.replace(/\[([^\]]+)\]/g,'$1').replace(/\|\|/g,'').trim()).join('  |  '));
+   for(let i=0;i<instrumental.length;i+=8){
+     out.push(instrumental.slice(i,i+8).map(line=>line.replace(/\[([^\]]+)\]/g,'$1').trim()).join('  |  '));
+   }
    out.push('');
    instrumental=[];
  };
  for(const original of lines){
-   const line=original.replace(/\|\|/g,'').trim();
+   const line=original.replace(/\|\|/g,'').replace(/(^|\s)@\d+(?:\.\d+)?(?=\s|\[|$)/g,'$1').replace(/ {2,}/g,' ').trim();
    const withoutChords=line.replace(/\[[^\]]+\]/g,'').trim();
    const chordOnly=line&&/\[[A-Ga-g][^\]]*\]/.test(line)&&!withoutChords;
-   if(chordOnly){instrumental.push(line);continue;}
+   if(chordOnly){flushSung();instrumental.push(line);continue;}
    flush();
+   if(line&&original.includes('||')&&!/^\[(?:verse|chorus|bridge|intro|outro|instrumental|interlude|solo|pre-chorus|coda|ending|section)\b/i.test(line)){
+     sungMeasures.push(line);
+     if(sungMeasures.length===4)flushSung();
+     continue;
+   }
+   flushSung();
    // Standalone [Verse] / [Chorus] headings are document labels.
    if(/^\[(?:verse|chorus|bridge|intro|outro|instrumental|interlude|solo|pre-chorus|coda|ending|section)[^\]]*\]$/i.test(line)){
      if(out.length&&out[out.length-1]!=='')out.push('');
@@ -168,6 +182,7 @@ export function readableLeadSheet(source:string):string {
    const converted=exportLeadLyricsTab(line);
    out.push(converted.replace(/\s+\|\s*$/,'').trimEnd());
  }
+ flushSung();
  flush();
  return out.join('\n').replace(/\n{3,}/g,'\n\n').trim();
 }

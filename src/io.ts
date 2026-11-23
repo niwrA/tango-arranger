@@ -428,7 +428,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
   zip.file('score.mscx',mscx);
   return zip.generateAsync({type:'blob',mimeType:'application/vnd.musescore.mscz'});
 }
-export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice;previewNoteheadColors?:NoteheadColors}){
+export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice;previewNoteheadColors?:NoteheadColors;engravingPreview?:boolean}){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
   const instruments=options?.onlyInstrument?[options.onlyInstrument]:projectInstruments(p);
@@ -451,7 +451,7 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
     :'';
   const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${titleXml}</work-title></work><movement-title>${titleXml}</movement-title>${subtitle}<credit page="1"><credit-type>title</credit-type><credit-words default-x="595" default-y="1627" justify="center" valign="top" font-size="24">${titleXml}</credit-words></credit><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${instruments.map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(partName(inst))}</part-name><part-abbreviation>${esc(partName(inst))}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(partName(inst))}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
   const timing=normalizedTempoExpressions(p);
-  const tempoMarks=tempoAutomationPoints(p,true);
+  const tempoMarks=tempoAutomationPoints(p,true).filter(point=>!options?.engravingPreview||point.label);
   const tempoDirections=(measure:number)=>tempoMarks.filter(point=>Math.floor(point.beat/p.beats)===measure).map(point=>{
     const offset=Math.round((point.beat-measure*p.beats)*DIV);
     const name=point.label??'tempo';

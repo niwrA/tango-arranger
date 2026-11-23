@@ -7,8 +7,10 @@ export type PerformanceLyricNote={
  duration:number;
  lyric?:string;
  lyric2?:string;
+ syllabic?:'single'|'begin'|'middle'|'end';
+ syllabic2?:PerformanceLyricNote['syllabic'];
 };
-export type PerformanceLyricToken={start:number;duration:number;text:string;active:boolean};
+export type PerformanceLyricToken={start:number;duration:number;text:string;active:boolean;word:number};
 export type PerformanceLyricPage={
  startMeasure:number;
  endMeasure:number;
@@ -48,11 +50,18 @@ export function performanceLyricPage(
  const startMeasure=Math.floor(measure/span)*span;
  const endMeasure=Math.min(count,startMeasure+span);
  const from=startMeasure*beatsPerMeasure,to=endMeasure*beatsPerMeasure;
- const tokens=notes
-  .filter(n=>Boolean(n.lyric||n.lyric2)&&n.start<to&&
-   (n.start>=from||(n.start<from&&n.start+Math.max(0,n.duration)>from)))
-  .slice().sort((a,b)=>a.start-b.start)
-  .map(n=>({start:n.start,duration:n.duration,text:n.lyric||n.lyric2||'',
-    active:beat>=n.start-0.0001&&beat<n.start+Math.max(0.001,n.duration)-0.0001}));
+ const words:PerformanceLyricToken[][]=[];
+ let open=false;
+ for(const note of notes.filter(n=>n.lyric||n.lyric2).sort((a,b)=>a.start-b.start)){
+   const syllabic=note.lyric?note.syllabic:note.syllabic2;
+   if(!open||(syllabic!=='middle'&&syllabic!=='end'))words.push([]);
+   words[words.length-1].push({
+     start:note.start,duration:note.duration,text:note.lyric||note.lyric2||'',
+     active:beat>=note.start-.0001&&beat<note.start+Math.max(.001,note.duration)-.0001,
+     word:words.length-1,
+   });
+   open=syllabic==='begin'||syllabic==='middle';
+ }
+ const tokens=words.filter(word=>word.some(n=>n.start<to&&n.start+Math.max(.001,n.duration)>from)).flat();
  return {startMeasure,endMeasure,measureSpan:span,tokens};
 }

@@ -210,7 +210,7 @@ async function reloadScore(){
   error.value='';
   try{
     const colors=scoreNoteheadColors(props.score[props.instrument]??[]);
-    const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument,previewNoteheadColors:colors.byNote});
+    const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument,previewNoteheadColors:colors.byNote,engravingPreview:true});
     await renderer.load(xml);
     if(current!==generation)return;
     notesByColor=colors.byColor;

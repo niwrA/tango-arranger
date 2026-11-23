@@ -117,6 +117,15 @@ test('MusicXML exposes rit./a tempo, discrete tempo, attached fermata and colla 
  assert.ok(parts[voiceIndex][5].toString().includes('<fermata'),'fermata belongs to Voice measure 6');
  for(const [i,part] of parts.entries())if(i!==voiceIndex)assert.ok(!part[5].toString().includes('<fermata'),'fermata must not bleed into another part');
 });
+test('score engraving keeps written tempo markings and omits automation text',()=>{
+ const p=project(),score=generate(p);
+ const xml=exportMusicXml(p,score,{onlyInstrument:'Voice',engravingPreview:true});
+ assert.equal((xml.match(/<words>rit\.<\/words>/g)||[]).length,1);
+ assert.match(xml,/<words>a tempo<\/words>/);
+ assert.match(xml,/<fermata type="upright"\/>/);
+ assert.doesNotMatch(xml,/<words>tempo<\/words>/);
+ assert.match(exportMusicXml(p,score),/<words>tempo<\/words>/);
+});
 function notesInNativeScore(mscx,beats){
  const doc=new DOMParser().parseFromString(mscx,'application/xml');
  const score=doc.getElementsByTagName('Score').item(0);
