@@ -51,6 +51,10 @@ function measureLabel(index:number){
 function pitch(p:number){return props.pitchLabel(p+props.transpose);}
 function alignedStart(row:Extract<LearnTakeRow,{kind:'matched'}>){return (row.played.startBeat-props.clock.offsetBeats)/props.clock.tempoScale;}
 function alignedDuration(row:Extract<LearnTakeRow,{kind:'matched'}>){return row.played.durationBeats/props.clock.tempoScale;}
+function detectedPitchGrade(row:LearnTakeRow,lane:'expected'|'detected'){
+ if(lane!=='detected'||row.kind!=='matched'||!row.pitchMatches)return '';
+ return 'grade-'+pitchGrade(row.played.intonationCents);
+}
 function pitchGrade(cents:number){const value=Math.abs(cents);return value<=10?'excellent':value<=20?'good':value<=35?'noticeable':'needs-work';}
 function pitchGradeLabel(cents:number){return ({excellent:'Excellent',good:'Good',noticeable:'Noticeable','needs-work':'Needs work'})[pitchGrade(cents)];}
 function beatMs(beats:number){return Math.round(beats*60000/150);}
@@ -105,7 +109,7 @@ function signed(value:number,places=2){
      </div>
      <div v-for="lane in (['expected','detected'] as const)" :key="lane" class="practice-track" :aria-label="lane==='expected'?'Expected notes':'Detected notes'">
       <button v-for="note in timeline.lanes[lane]" v-show="!reviewOnly||note.status!=='correct'"
-        :key="note.row" type="button" :class="['practice-bar','result-'+note.status, lane==='detected'&&rows[note.row].kind==='matched'&&rows[note.row].pitchMatches?'grade-'+pitchGrade(rows[note.row].played.intonationCents):'']"
+        :key="note.row" type="button" :class="['practice-bar','result-'+note.status, detectedPitchGrade(rows[note.row],lane)]"
        :style="{left:`calc(${note.start-timeline.start} * var(--beat-width))`,width:`calc(${note.duration} * var(--beat-width))`}"
        :aria-pressed="selected===note.row"
        :aria-label="`${measureLabel(Math.floor(note.start/beats))}, ${lane} ${pitch(note.pitch)}, ${feedbackStatuses[note.status]}`"
