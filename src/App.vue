@@ -20,6 +20,7 @@ import PerformanceRoleCues from './PerformanceRoleCues.vue';
 import PerformanceLyricLine from './PerformanceLyricLine.vue';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
+import InstrumentLearnView from './InstrumentLearnView.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
@@ -476,16 +477,21 @@ function flipPerformanceCard(inst:Instrument){performanceCardModes.value={...per
 function cardShowsDiagram(inst:Instrument){return performanceCardModes.value[inst]!=='cues';}
 /* Instrument focus is a separate CSS viewport, not browser fullscreen. */
 const performanceExpandedInstrument=ref<Instrument|null>(null);
+const instrumentLearnMode=ref(false);
+function enterInstrumentLearn(){stopPlayback();instrumentLearnMode.value=true;}
+function exitInstrumentLearn(){instrumentLearnMode.value=false;}
 let performanceExpandTrigger:HTMLElement|null=null;
 function setPerformanceCardMode(inst:Instrument,mode:'diagram'|'cues'){
  performanceCardModes.value={...performanceCardModes.value,[inst]:mode};
 }
 function openPerformanceInstrument(inst:Instrument,event:MouseEvent){
  performanceExpandTrigger=event.currentTarget as HTMLElement;
+ instrumentLearnMode.value=false;
  performanceExpandedInstrument.value=inst;
  void nextTick(()=>document.querySelector<HTMLElement>('.instrument-focus-close')?.focus());
 }
 function closePerformanceInstrument(){
+ instrumentLearnMode.value=false;
  performanceExpandedInstrument.value=null;
  const target=performanceExpandTrigger;performanceExpandTrigger=null;
  void nextTick(()=>{if(target?.isConnected)target.focus();});
@@ -493,6 +499,7 @@ function closePerformanceInstrument(){
 function playFocusedFromMeasure(){selectedBar.value=performanceBar.value;void play('selected');}
 watch([performanceMode,performanceView],([enabled,view])=>{
  if(!enabled||view!=='ensemble'){
+  instrumentLearnMode.value=false;
   performanceExpandedInstrument.value=null;
   performanceExpandTrigger=null;
  }
@@ -5283,13 +5290,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        <header class="instrument-focus-header">
          <div class="instrument-focus-title"><small>Instrument focus · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
          <div class="instrument-focus-toolbar">
-           <div class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
+           <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
              <button type="button" :class="{selected:cardShowsDiagram(part.inst)}" :aria-pressed="cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
              <button type="button" :class="{selected:!cardShowsDiagram(part.inst)}" :aria-pressed="!cardShowsDiagram(part.inst)" @click="setPerformanceCardMode(part.inst,'cues')">Role &amp; cues</button>
            </div>
-           <button type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
-           <button type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
-           <details class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
+           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
+           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
+           <details v-if="!instrumentLearnMode" class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
               <summary class="playback-speed-summary" :aria-label="'Playback speed '+rehearsalSpeed+' times; choose rehearsal tempo'">{{rehearsalSpeed}}× <AppIcon name="chevron-down"/></summary>
               <div class="topbar-menu-panel playback-speed-options" @click="closeTopbarMenuOnAction($event)">
                 <strong class="files-group-title">Rehearsal speed</strong>
@@ -5303,10 +5310,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
                 <span class="playback-speed-note">Rehearsal only · the written BPM is unchanged.</span>
               </div>
             </details>
+           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-learn" aria-label="Learn this instrument's notes" title="Enter Learn mode for this instrument" @click="enterInstrumentLearn"><AppIcon name="graduation-cap"/></button>
+           <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="arrow-left"/> Performance</button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
          </div>
        </header>
-       <div class="instrument-focus-status" aria-live="off">
+       <div v-if="!instrumentLearnMode" class="instrument-focus-status" aria-live="off">
          <span>Measure <strong>{{performanceBar+1}}</strong> / {{project.bars.length}}</span>
          <span>Beat <strong>{{Math.floor(performanceMeasureBeat)}}</strong> / {{project.beats}}</span>
          <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
@@ -5316,13 +5325,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            <button type="button" :class="{selected:focusMonitorMode==='mute'}" :aria-pressed="focusMonitorMode==='mute'" :aria-label="'Mute '+part.display+' and hear other instruments'" :title="'Mute '+part.display" @click="setFocusMonitorMode('mute')"><AppIcon name="volume-x"/><span>Mute</span></button>
          </div>
        </div>
-       <div v-if="cardShowsDiagram(part.inst)" class="instrument-focus-dynamic-band" role="group"
+       <div v-if="!instrumentLearnMode&&cardShowsDiagram(part.inst)" class="instrument-focus-dynamic-band" role="group"
          :aria-label="'Dynamics now '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}"><small>NOW · M{{performanceBar+1}}</small><strong>{{part.dynamics}}</strong></span>
          <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
-       <div class="instrument-focus-content">
-         <PianoFocusView v-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
+       <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
+           <template #diagram><PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="[]" :measure-pitches="part.measurePitches" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/></template>
+         </InstrumentLearnView>
+         <PianoFocusView v-else-if= v-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="flipPerformanceCard(part.inst)"/>
          <button v-else-if="cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
@@ -5339,7 +5351,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
              :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
          </button>
        </div>
-       <p class="instrument-focus-hint">Tap the large view to switch diagram and cues. Violin and bass positions and fingering numbers are schematic suggestions.</p>
+       <p v-if="!instrumentLearnMode" class="instrument-focus-hint">Tap the large view to switch diagram and cues. Violin and bass positions and fingering numbers are schematic suggestions.</p>
      </section>
     </template>
   </div>
@@ -7908,4 +7920,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .app-topbar .topbar-measure-tools .measure-taskbar-trigger{min-width:38px!important;padding:4px!important}
 }
 
+/* Learn uses the same instrument-focus viewport without changing its regular stage UI. */
+.instrument-focus-learn-content{overflow-y:auto;min-height:0;align-items:flex-start;justify-content:center;padding:8px;max-height:calc(100dvh - 170px)}
+.instrument-focus-toolbar .instrument-focus-learn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:42px;min-height:42px;padding:7px 10px}
+.instrument-focus-toolbar .instrument-focus-learn .app-icon{width:19px;height:19px}
 </style>

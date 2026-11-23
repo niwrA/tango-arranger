@@ -54,6 +54,9 @@ jobs:
       - name: Test collapsed section icon actions
         run: node tests/section-icon-layout.cjs
 
+      - name: Test instrument Learn focus and settings
+        run: node tests/instrument-learn-focus.cjs
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 

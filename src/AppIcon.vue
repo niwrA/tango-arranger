@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'}>();
 const paths:Record<typeof props.name,string>={
   plus:'M12 5v14 M5 12h14',
   save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z M7 3v6h10V4 M7 21v-8h10v8',
@@ -43,7 +43,8 @@ const paths:Record<typeof props.name,string>={
   move:'M12 2v20 M2 12h20 M8 6l4-4 4 4 M8 18l4 4 4-4 M6 8l-4 4 4 4 M18 8l4 4-4 4',
   'alert-circle':'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 7v6 M12 17h.01',
   'check-circle':'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M8 12l3 3 5-6',
-  check:'M4 12l5 5L20 6'
+  check:'M4 12l5 5L20 6',
+  'graduation-cap':'M2 10l10-5 10 5-10 5-10-5Z M6 12v5c3 3 9 3 12 0v-5 M22 10v7'
 };
 </script>
 <template><svg class="app-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="paths[props.name]"/></svg></template>
