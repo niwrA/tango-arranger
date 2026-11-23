@@ -1879,3 +1879,40 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 
 .app-update-banner{flex-wrap:wrap;justify-content:space-between}
 .app-update-banner>button{min-height:36px}
+
+/* Tablet toolbar: fixed action slots prevent an orphaned More menu.
+   Keep the song picker on a full-width second row, as on narrow screens. */
+@media (min-width:761px) and (max-width:1120px){
+ .shell:not(.performance-live)>.app-topbar{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto auto auto!important;
+  grid-template-areas:"playback files measures more" "song song song song"!important;
+  align-items:center!important;
+  gap:6px 8px!important;
+  padding:7px 10px!important;
+  width:100%;max-width:100%;box-sizing:border-box
+ }
+ .shell:not(.performance-live)>.app-topbar>.topbar-playback{
+  grid-area:playback!important;order:initial!important;
+  min-width:0!important;margin:0!important;justify-self:start
+ }
+ .shell:not(.performance-live)>.app-topbar>.topbar-song{
+  grid-area:song!important;order:initial!important;
+  flex:initial!important;width:100%!important;min-width:0!important;
+  padding:0!important;margin:0!important
+ }
+ .shell:not(.performance-live)>.app-topbar>.topbar-files{
+  grid-area:files!important;order:initial!important;margin:0!important;padding:0!important
+ }
+ .shell:not(.performance-live)>.app-topbar>.topbar-measure-tools{
+  grid-area:measures!important;order:initial!important;margin:0!important;padding:0!important
+ }
+ .shell:not(.performance-live)>.app-topbar>.topbar-compact-actions{
+  grid-area:more!important;order:initial!important;margin:0!important;padding:0!important
+ }
+ .shell:not(.performance-live)>.app-topbar>.topbar-arrange,
+ .shell:not(.performance-live)>.app-topbar>.topbar-options{display:none!important}
+ .shell:not(.performance-live)>.app-topbar>.topbar-song>.header-song-picker{
+  flex:1 1 0!important;width:0!important;min-width:0!important;max-width:100%!important
+ }
+}
