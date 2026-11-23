@@ -51,6 +51,9 @@ jobs:
       - name: Test phone header and section action layout
         run: node tests/phone-section-layout.cjs
 
+      - name: Test collapsed section icon actions
+        run: node tests/section-icon-layout.cjs
+
       - name: Test tango gesture expression and export
         run: npm run test:gestures
 

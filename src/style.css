@@ -1772,3 +1772,93 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
     gap:2px!important
   }
 }
+
+
+/* Compact section actions: an icon toolbar instead of wide text buttons. The
+   measure boundary and key controls are expanded-only editing fields. */
+.lead-sections .lead-section-heading{
+ display:grid;grid-template-columns:minmax(0,1fr) auto;
+ align-items:center;gap:6px 9px;padding:9px 11px;min-width:0
+}
+.lead-sections .lead-section-heading.lead-section-collapsed{padding:5px 8px}
+.lead-sections .lead-section-heading .lead-section-title{
+ min-width:0;max-width:100%;gap:5px
+}
+.lead-sections .lead-section-heading .lead-section-select{
+ min-width:0;max-width:100%;padding:2px 4px;overflow:hidden
+}
+.lead-sections .lead-section-heading .lead-section-select>span{
+ min-width:0;overflow:hidden
+}
+.lead-sections .lead-section-heading .lead-section-select>span>strong,
+.lead-sections .lead-section-heading .lead-section-select>span>small{
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.lead-sections .lead-section-heading.lead-section-collapsed .lead-section-letter{
+ min-width:31px;width:31px;height:31px;font-size:18px!important
+}
+.lead-sections .lead-section-heading .lead-section-actions{
+ display:flex!important;flex-wrap:nowrap;align-items:center;justify-content:flex-end;
+ grid-column:2;grid-row:1;gap:3px;
+ width:auto;min-width:0;max-width:100%;margin:0!important;padding:0
+}
+.lead-sections .lead-section-heading .lead-section-actions>.lead-section-icon{
+ flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+ width:36px!important;min-width:36px!important;max-width:36px!important;
+ height:36px!important;min-height:36px!important;
+ padding:6px!important;border-radius:7px;box-sizing:border-box;white-space:nowrap
+}
+.lead-sections .lead-section-heading .lead-section-icon .app-icon{
+ width:17px;height:17px;flex:0 0 auto
+}
+.lead-sections .lead-section-heading>.lead-key-label{
+ grid-column:1/-1;grid-row:auto;min-width:0;max-width:100%;width:100%;
+ margin:3px 0 0
+}
+.lead-sections .lead-section-heading>.lead-key-label select{
+ max-width:100%;width:100%;box-sizing:border-box
+}
+.lead-sections .lead-section-heading .lead-section-start-control{
+ grid-column:auto;display:flex;align-items:center;gap:6px;min-width:0;
+ white-space:nowrap;font-size:11px;margin:0
+}
+.lead-sections .lead-section-heading .lead-section-start-control input{
+ width:65px;min-width:65px;max-width:65px;box-sizing:border-box
+}
+/* Expanded measure boundary gets its own space without widening the action
+   strip. Collapsed sections retain a single row even on narrow screens. */
+.lead-sections .lead-section-heading:not(.lead-section-collapsed) .lead-section-actions:has(.lead-section-start-control){
+ grid-column:1/-1;grid-row:2;justify-content:flex-start;flex-wrap:wrap
+}
+.lead-sections .lead-section-heading:not(.lead-section-collapsed) .lead-section-actions:has(.lead-section-start-control)>.lead-section-icon{
+ margin-left:0
+}
+@media(max-width:760px){
+ .lead-sections .lead-section-heading{
+   grid-template-columns:minmax(0,1fr) auto!important;
+   gap:5px!important;padding:8px!important;align-items:center
+ }
+ .lead-sections .lead-section-heading.lead-section-collapsed{padding:4px 6px!important}
+ .lead-sections .lead-section-heading .lead-section-actions{
+   grid-template-columns:none!important;grid-column:2;grid-row:1;
+   gap:2px!important;display:flex!important;flex-wrap:nowrap!important;
+   width:auto!important;max-width:100%;justify-content:flex-end
+ }
+ .lead-sections .lead-section-heading .lead-section-actions>.lead-section-icon{
+   min-width:35px!important;max-width:35px!important;width:35px!important;
+   min-height:38px!important;height:38px!important
+ }
+ .lead-sections .lead-section-heading:not(.lead-section-collapsed) .lead-section-actions:has(.lead-section-start-control){
+   grid-column:1/-1;grid-row:2;flex-wrap:wrap!important;
+   justify-content:flex-start
+ }
+ .lead-sections .lead-section-heading .lead-section-title{gap:3px}
+ .lead-sections .lead-section-heading .lead-section-select{gap:4px;padding:1px 2px}
+ .lead-sections .lead-section-heading .lead-section-select>span>small{font-size:10px}
+ .lead-sections .lead-section-heading .lead-section-collapse{
+   min-width:26px;padding:4px
+ }
+ .lead-sections .lead-section-heading>.lead-key-label{
+   grid-column:1/-1;width:100%;min-width:0
+ }
+}
