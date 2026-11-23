@@ -1,15 +1,16 @@
 import type {ProcessedPitchNote} from './pitchPostprocess';
+import {matchesPracticePitch} from './learnPitch';
 
 export type LearnTakeTarget={startBeat:number;durationBeats:number;pitch:number};
 
 export type LearnTakeRow=
- | {kind:'matched';target:LearnTakeTarget;played:ProcessedPitchNote}
+ | {kind:'matched';target:LearnTakeTarget;played:ProcessedPitchNote;pitchMatches:boolean}
  | {kind:'missed';target:LearnTakeTarget}
  | {kind:'extra';played:ProcessedPitchNote};
 
 /** Align in musical order. A wrong pitch near the expected attack is a
  * substitution, while an unrelated attack can remain extra. */
-export function compareLearnTake(targets:readonly LearnTakeTarget[],played:readonly ProcessedPitchNote[]):LearnTakeRow[]{
+export function compareLearnTake(targets:readonly LearnTakeTarget[],played:readonly ProcessedPitchNote[],allowAnyOctave=false):LearnTakeRow[]{
  const width=played.length+1;
  const path=new Uint8Array((targets.length+1)*width);
  let previous=new Float64Array(width);
@@ -22,7 +23,7 @@ export function compareLearnTake(targets:readonly LearnTakeTarget[],played:reado
   for(let j=1;j<width;j++){
    const note=played[j-1];
    const offset=Math.abs(note.startBeat-target.startBeat);
-   const substitution=previous[j-1]+offset*1.4+(note.pitch===target.pitch?0:0.95);
+   const substitution=previous[j-1]+offset*1.4+(matchesPracticePitch(note.pitch,target.pitch,allowAnyOctave)?0:0.95);
    const miss=previous[j]+1;
    const extra=current[j-1]+1;
    const index=i*width+j;
@@ -36,7 +37,10 @@ export function compareLearnTake(targets:readonly LearnTakeTarget[],played:reado
  let i=targets.length,j=played.length;
  while(i||j){
   const step=path[i*width+j];
-  if(step===3)rows.push({kind:'matched',target:targets[--i],played:played[--j]});
+  if(step===3){
+   const target=targets[--i],note=played[--j];
+   rows.push({kind:'matched',target,played:note,pitchMatches:matchesPracticePitch(note.pitch,target.pitch,allowAnyOctave)});
+  }
   else if(step===1)rows.push({kind:'missed',target:targets[--i]});
   else rows.push({kind:'extra',played:played[--j]});
  }

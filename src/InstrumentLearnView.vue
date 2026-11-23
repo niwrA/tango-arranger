@@ -44,6 +44,8 @@ const detectedMidi=ref<number|null>(null);
 const detectedClarity=ref<number|null>(null);
 const accepted=ref(false);
 const family=computed(()=>instrumentFamily(props.instrument));
+const voiceAnyOctave=ref(true);
+const allowAnyOctave=computed(()=>family.value==='Voice'&&voiceAnyOctave.value);
 const microphoneSupported=computed(()=>['Violin','Voice','Contrabass','Bandoneon','Piano'].includes(family.value));
 const staff=ref<PracticeStaff>('all');
 const chordTarget=ref<ChordTarget>('highest');
@@ -58,7 +60,7 @@ function otherPitches(note:Note){
 }
 const current=computed(()=>targets.value[cursor.value]??null);
 const targetMidi=computed(()=>current.value===null?null:targetPitch(current.value)+props.concertTranspose);
-const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value)??0):null);
+const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value,allowAnyOctave.value)??0):null);
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
@@ -105,7 +107,7 @@ const takeStatus=computed(()=>{
 const takeSummary=computed(()=>{
  const counts={correct:0,wrong:0,missed:0,extra:0};
  for(const row of takeResult.value??[]){
-  if(row.kind==='matched')counts[row.target.pitch===row.played.pitch?'correct':'wrong']++;
+  if(row.kind==='matched')counts[row.pitchMatches?'correct':'wrong']++;
   else counts[row.kind]++;
  }
  return counts;
@@ -140,6 +142,9 @@ let take:{startMs:number;msPerBeat:number;totalBeats:number;frames:PitchFrame[];
 
 watch([targets,()=>props.referenceHz,()=>props.concertTranspose,()=>props.bpm],()=>{
  stopDemo();cancelTake();takeResult.value=null;restart();
+});
+watch(allowAnyOctave,()=>{
+ cancelTake();takeResult.value=null;stableSince=0;armed=true;accepted.value=false;
 });
 watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
  clearTimeout(repeatTimer);
@@ -226,7 +231,7 @@ function finishTake(){
   const startBeat=Math.max(0,note.start-rangeStart);
   return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),pitch:targetPitch(note)};
  });
- takeResult.value=compareLearnTake(expected,performed);
+ takeResult.value=compareLearnTake(expected,performed,allowAnyOctave.value);
  cancelTake();restart();armed=false;
 }
 function scoreLocation(beat:number){
@@ -271,7 +276,7 @@ async function startMicrophone(){
   if(ctx.state==='suspended')await ctx.resume();
   if(id!==generation){acquired.getTracks().forEach(t=>t.stop());void ctx.close();return;}
   const input=ctx.createMediaStreamSource(acquired);
-  const lowRegister=family.value==='Contrabass'||family.value==='Piano'||family.value==='Bandoneon';
+  const lowRegister=family.value==='Contrabass'||family.value==='Piano'||family.value==='Bandoneon'||family.value==='Voice';
   const sampleRate=ctx.sampleRate;
   const stride=lowRegister?Math.max(2,Math.round(sampleRate/24000)):1;
   const meter=ctx.createAnalyser();meter.fftSize=lowRegister&&sampleRate>50000?8192:4096;meter.smoothingTimeConstant=0;
@@ -323,7 +328,7 @@ async function startMicrophone(){
     else if(!current.value){
      stableSince=0;
      const last=targets.value.at(-1);
-     const lastCents=last&&reading?deviationCents(reading.frequency,targetPitch(last)+props.concertTranspose,referenceHz.value):null;
+     const lastCents=last&&reading?deviationCents(reading.frequency,targetPitch(last)+props.concertTranspose,referenceHz.value,allowAnyOctave.value):null;
      if(detectedMidi.value===null||lastCents===null||Math.abs(lastCents)>tolerance.value)armed=true;
     }
     else if(detectedMidi.value===null||!nearTarget.value){
@@ -375,6 +380,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>
    </label>
    <label>Chord target <select v-model="chordTarget"><option value="highest">Highest note</option><option value="lowest">Lowest note</option></select></label>
+   <label v-if="family==='Voice'" class="learn-check"><input v-model="voiceAnyOctave" type="checkbox" :disabled="takeBeat!==null"/> Allow any octave</label>
    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
    <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Restart after the last note</label>
   </div>
@@ -382,7 +388,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||busy" :aria-pressed="demoPlaying" @click="listenToNotes">{{demoPlaying?'Stop preview':'▶ Listen to notes'}}</button>
    <button v-if="microphoneSupported" type="button" class="primary" :disabled="!targets.length||demoPlaying||busy" @click="startTake">{{takeBeat===null?'Record for feedback':'Cancel recording'}}</button>
   </div>
-  <p v-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
+  <p v-if="family==='Voice'" class="learn-mic-instructions">{{allowAnyOctave?'Sing the written note in any octave.':'Sing each note in its written octave.'}}</p>
+  <p v-else-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
   <p v-if="takeStatus" class="learn-take-status" role="status">{{takeStatus}} · {{Math.round(bpm)}} BPM</p>
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
@@ -429,7 +436,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
    <div class="learn-mic-row">
     <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
-    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="targetHz!==null"> · target {{targetHz.toFixed(1)}} Hz</span></small>
+    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
    </div>
   </div>
    <div v-if="showDiagram" class="learn-diagram">
@@ -453,13 +460,13 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
       <tr v-for="(row,index) in takeResult" :key="index">
        <td>{{scoreLocation(row.kind==='extra'?row.played.startBeat:row.target.startBeat)}}</td>
        <td>{{row.kind==='extra'?'—':pitchLabel(row.target.pitch+concertTranspose)}}</td>
-       <td :class="{'learn-feedback-wrong':row.kind!=='matched'||row.played.pitch!==row.target.pitch}">
+       <td :class="{'learn-feedback-wrong':row.kind!=='matched'||!row.pitchMatches}">
         <template v-if="row.kind==='missed'">Missed</template>
-        <template v-else>{{pitchLabel(row.played.pitch+concertTranspose)}}{{row.kind==='extra'?' · extra':row.played.pitch!==row.target.pitch?' · wrong':''}}</template>
+        <template v-else>{{pitchLabel(row.played.pitch+concertTranspose)}}{{row.kind==='extra'?' · extra':!row.pitchMatches?' · wrong':row.played.pitch!==row.target.pitch?' · octave match':''}}</template>
        </td>
        <td>{{row.kind==='matched'?signed(row.played.startBeat-row.target.startBeat,''):'—'}}</td>
        <td>{{row.kind==='matched'?signed(row.played.durationBeats-row.target.durationBeats,''):row.kind==='extra'?row.played.durationBeats.toFixed(2):'—'}}</td>
-       <td>{{row.kind==='matched'&&row.played.pitch===row.target.pitch?signed(row.played.intonationCents,'¢',0):'—'}}</td>
+       <td>{{row.kind==='matched'&&row.pitchMatches?signed(row.played.intonationCents,'¢',0):'—'}}</td>
       </tr>
      </tbody>
     </table>
