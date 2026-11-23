@@ -9,7 +9,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -31,6 +31,7 @@ function isPlayingPitch(midi:number){return activeMidi.value.has(midi);}
 function isTarget(midi:number){return props.targetPitch!==null&&props.targetPitch!==undefined&&props.targetPitch===midi;}
 function isTargetStop(openMidi:number,offset:number){
  if(!isTarget(openMidi+offset)||offset===0)return false;
+ if(props.positionGuide)return isPlannedStringPitch(openMidi,openMidi+offset);
  return family.value!=='Violin'||props.violinPosition?.openMidi===openMidi;
 }
 const targetName=computed(()=>props.targetPitch===null||props.targetPitch===undefined?'':midiLabel(props.targetPitch));
@@ -182,11 +183,15 @@ const diagramDescription=computed(()=>{
      </div>
    </div>
    <div v-else-if="props.learn&&family==='Bandoneon'" class="diagram-bandoneon-practice" role="group" aria-label="Bandoneon notes in the current measure">
-     <small>Notes in this measure</small>
-     <div class="diagram-tone-pills">
-       <span v-for="pitch in props.measurePitches" :key="pitch" class="diagram-tone-pill" :class="{'is-learn-target':isTarget(pitch)}">{{midiLabel(pitch)}}</span>
-       <span v-if="!props.measurePitches?.length">Rest</span>
+     <div v-for="hand in (['left','right'] as const)" :key="hand" class="diagram-bandoneon-hand">
+      <strong>{{hand==='left'?'Left hand':'Right hand'}}</strong>
+      <div class="diagram-tone-pills">
+       <span v-for="pitch in bandoneonHands?.[hand]" :key="pitch" class="diagram-tone-pill"
+        :class="{'is-learn-target':hand===bandoneonTargetHand&&isTarget(pitch)}">{{midiLabel(pitch)}}</span>
+       <span v-if="!bandoneonHands?.[hand].length" class="diagram-hand-rest">Rest</span>
+      </div>
      </div>
+     <small v-if="bandoneonHands?.inferred">Register split used for notes without staff assignments</small>
    </div>
    <div v-else class="diagram-targets" :class="'diagram-family-'+family.toLowerCase()" aria-label="Concert-pitch chord tone targets">
      <div class="diagram-targets-graphic" aria-hidden="true">
@@ -450,6 +455,9 @@ const diagramDescription=computed(()=>{
 .diagram-fingerboard .diagram-open-label.is-learn-target strong{color:#2d2116}
 .performance-instrument-diagram.is-focus.is-learn{gap:7px}
 .diagram-bandoneon-practice{display:grid;gap:8px;padding:10px;border:1px solid #495f72;border-radius:9px;text-align:center}
+.diagram-bandoneon-hand{display:grid;grid-template-columns:5.5rem minmax(0,1fr);align-items:center;gap:7px;text-align:left;min-height:38px}
+.diagram-bandoneon-hand .diagram-tone-pills{justify-content:flex-start}
+.diagram-hand-rest{color:#bacbd6}
 .performance-instrument-diagram.is-focus .diagram-bandoneon-practice .diagram-tone-pill{min-width:0;min-height:36px;font-size:clamp(14px,2vw,22px)}
 .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard{
  display:grid;grid-auto-rows:minmax(26px,auto);height:auto;min-height:0;max-height:none;

@@ -27,3 +27,20 @@ export function practiceTargets(notes:readonly Note[],instrument:Instrument,spli
  }
  return {targets,chords,pitches};
 }
+
+export function bandoneonPracticeHands(notes:readonly Note[],instrument:Instrument,split:number,transpose:number){
+ const left=new Set<number>(),right=new Set<number>();
+ let inferred=false;
+ for(const note of notes){
+  if(note.xmlStaff!==1&&note.xmlStaff!==2)inferred=true;
+  const hand=partStaffForNote(note,instrument,split)===1?right:left;
+  hand.add(note.pitch+transpose);
+  const partner=note.gesture?.partner?.[0]?.pitch;
+  if(partner!==undefined)hand.add(partner+transpose);
+ }
+ return {left:[...left].sort((a,b)=>a-b),right:[...right].sort((a,b)=>a-b),inferred};
+}
+
+export function practiceNotesSoundingAt(notes:readonly Note[],beat:number):Note[]{
+ return notes.filter(note=>note.start<=beat&&beat<note.start+note.duration);
+}

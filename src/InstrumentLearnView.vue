@@ -4,14 +4,15 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'ov
 
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
-import {instrumentFamily,type Instrument,type Note} from './music';
+import {instrumentFamily,partStaffForNote,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,sensitivityThresholdDb} from './learnPitch';
 import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
 import {alignLearnTake} from './learnTake';
 import {download} from './io';
-import {practiceTargets,type ChordTarget,type PracticeStaff} from './practiceTargets';
+import {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt,type ChordTarget,type PracticeStaff} from './practiceTargets';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
+import {suggestViolinPosition} from './violinPositions';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import AppIcon from './AppIcon.vue';
 import PracticeTakeTimeline from './PracticeTakeTimeline.vue';
@@ -93,19 +94,38 @@ const scoreMeasure=computed(()=>{
  return note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
 });
 const scoreCompleted=computed(()=>[...completedTargets.value]);
-const diagramPitches=computed(()=>{
+const diagramNotes=computed(()=>{
  const start=(scoreMeasure.value-1)*props.beatsPerMeasure;
  const end=start+props.beatsPerMeasure;
- return [...new Set(props.notes.filter(note=>note.start<end&&note.start+note.duration>start)
-  .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(point=>point.pitch)??[])]))];
+ return props.notes.filter(note=>note.start<end&&note.start+note.duration>start);
 });
-const bassGuide=computed(()=>family.value==='Contrabass'&&current.value
- ?suggestStringMeasurePosition('Contrabass',[{...current.value,pitch:targetPitch(current.value)}])
- :null);
 const scoreDemoNotes=computed(()=>{
  if(demoBeat.value===null)return [];
- const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
- return targets.value.filter(note=>note.start<=beat&&beat<note.start+note.duration);
+ return practiceNotesSoundingAt(targets.value,(from.value-1)*props.beatsPerMeasure+demoBeat.value);
+});
+const guideNote=computed(()=>demoPlaying.value?scoreDemoNotes.value.at(-1)??null:current.value);
+const guideMidi=computed(()=>guideNote.value?targetPitch(guideNote.value)+props.concertTranspose:null);
+const diagramTranspose=computed(()=>['Violin','Contrabass','Bandoneon'].includes(family.value)?props.concertTranspose:0);
+const diagramTarget=computed(()=>guideNote.value?targetPitch(guideNote.value)+diagramTranspose.value:null);
+const diagramPitches=computed(()=>[...new Set(diagramNotes.value
+ .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(point=>point.pitch)??[])])
+ .map(pitch=>pitch+diagramTranspose.value))]);
+const bandoneonHands=computed(()=>family.value==='Bandoneon'
+ ?bandoneonPracticeHands(diagramNotes.value,props.instrument,props.staffSplit,props.concertTranspose):undefined);
+const bandoneonTargetHand=computed<'right'|'left'|undefined>(()=>family.value==='Bandoneon'&&guideNote.value
+ ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit)===1?'right':'left':undefined);
+const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value):null);
+const bassGuide=computed(()=>family.value==='Contrabass'&&guideMidi.value!==null
+ ?suggestStringMeasurePosition('Contrabass',[{pitch:guideMidi.value}]):null);
+const fingeringCue=computed(()=>{
+ const violin=violinGuide.value;
+ if(violin)return violin.finger===0?'Open '+violin.stringName+' string':
+  `Position ${violin.position} · ${violin.stringName} string · finger ${violin.finger}`;
+ const bass=bassGuide.value, fingering=bass?.fingerings[0];
+ if(bass&&fingering)return fingering.finger==='0'?`Open ${pitchLabel(fingering.openMidi)} string`:
+  `Position ${bass.position} · ${pitchLabel(fingering.openMidi)} string · ${fingering.finger==='T'?'thumb':'finger '+fingering.finger}`;
+ const hand=bandoneonTargetHand.value;
+ return hand?(hand==='right'?'Right hand':'Left hand')+(guideNote.value?.xmlStaff!==1&&guideNote.value?.xmlStaff!==2?' · register guide':''):'';
 });
 const takePitchOptions={...DEFAULT_PITCH_POSTPROCESS,pitchBiasCents:0,onsetGridBeats:0,durationGridBeats:0};
 const takeLeadInBeats=0.75;
@@ -229,7 +249,7 @@ async function listenToNotes(){
   }
   const followDemo=()=>{
    if(demoAudio!==ctx)return;
-   if(showScore.value)demoBeat.value=(ctx.currentTime-start)/secondsPerBeat;
+   demoBeat.value=(ctx.currentTime-start)/secondsPerBeat;
    demoFrame=requestAnimationFrame(followDemo);
   };
   demoFrame=requestAnimationFrame(followDemo);
@@ -437,6 +457,10 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    :style="overlayScore?{'--score-paper':`rgb(248 250 252 / ${overlayPaper/100})`}:undefined">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
+    <div v-if="overlayScore" class="learn-overlay-cue">
+     <strong>{{guideMidi!==null?pitchLabel(guideMidi):demoPlaying?'Rest':'—'}}</strong>
+     <span v-if="fingeringCue">{{fingeringCue}}</span>
+    </div>
     <div v-if="showScore" class="learn-score-panel">
      <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
      <small class="learn-score-legend">
@@ -483,8 +507,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </div>
   </div>
    <div v-if="showDiagram" class="learn-diagram">
-    <slot name="diagram" :target-pitch="current?targetPitch(current):null" :current-beat="current?Math.floor(current.start%beatsPerMeasure)+1:1"
-     :show-target-label="!showGuide" :measure-pitches="diagramPitches" :bass-guide="bassGuide"/>
+    <slot name="diagram" :target-pitch="diagramTarget" :current-beat="guideNote?Math.floor(guideNote.start%beatsPerMeasure)+1:1"
+     :show-target-label="!showGuide" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide"
+     :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
    </div>
   </div>
   <div class="learn-navigation">
@@ -701,9 +726,10 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 }
 .learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
 .learn-display-overlay :deep(.diagram-open-label strong){font-size:clamp(12px,2.3vw,28px);color:#132f41}
-.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-violin-position){
- font-size:clamp(12px,2vw,22px);color:#244258;
-}
+.learn-display-overlay :deep(.diagram-violin-position){display:none}
+.learn-overlay-cue{min-height:36px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#132f41}
+.learn-overlay-cue strong{background:#ffe0a2;border:1px solid #9b5a21;border-radius:6px;padding:2px 7px;font-size:clamp(18px,3vw,29px);line-height:1.1}
+.learn-overlay-cue span{font-size:clamp(12px,1.8vw,18px);font-weight:700}
 .learn-display-overlay :deep(.diagram-string-stop){border-top-color:#7896a9}
 .learn-display-overlay :deep(.diagram-string-stop.is-measure-note:not(.is-learn-target)){background:#9db8c9}
 .learn-display-overlay :deep(.diagram-string-stop.is-learn-target),

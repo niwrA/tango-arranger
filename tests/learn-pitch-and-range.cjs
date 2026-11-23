@@ -32,7 +32,7 @@ assert.match(learn,/getUserMedia/);
 assert.match(learn,/<MeasureRangeControl[^>]*:measures="measures"/);
 assert.match(learn,/class="learn-mic-toggle"/);
 assert.match(learn,/class="learn-tuner"/);
-assert.match(learn,/name="diagram" :target-pitch="current\?targetPitch\(current\):null"/);
+assert.match(learn,/name="diagram" :target-pitch="diagramTarget"/);
 assert.match(app,/:target-pitch="targetPitch"/);
 assert.match(diagram,/'is-learn-target':isTargetStop\(string.midi,offset\)/);
 assert.match(diagram,/props\.violinPosition\?\.openMidi===openMidi/);
@@ -104,7 +104,7 @@ function detection(pitch,startBeat,durationBeats=.5){
  assert.deepEqual(pulse(3.5,3,6,33),{phase:'recording',measure:34,beat:1,progress:.5});
  assert.equal(pulse(6,3,6,33).phase,'finish');
 }
-const {practiceTargets}=load('src/practiceTargets.ts');
+const {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt}=load('src/practiceTargets.ts');
 const bass={pitch:48,start:0,duration:1};
 const middle={pitch:55,start:0,duration:1};
 const treble={pitch:72,start:0,duration:1};
@@ -118,6 +118,14 @@ assert.equal(practiceTargets(chord,'Piano',60,'lower','highest').targets[0],midd
 assert.equal(practiceTargets(chord,'Piano',60,'lower','lowest').targets[0],bass);
 const imported={...treble,xmlStaff:2};
 assert.equal(practiceTargets([imported,bass],'Bandoneon I',60,'lower','highest').targets[0],imported);
+assert.deepEqual(bandoneonPracticeHands([imported,{...bass,xmlStaff:1},middle],'Bandoneon I',60,2),
+ {left:[57,74],right:[50],inferred:true});
+assert.deepEqual(bandoneonPracticeHands([imported,{...bass,xmlStaff:1}],'Bandoneon I',60,0),
+ {left:[72],right:[48],inferred:false});
+const previewNotes=[{pitch:60,start:2,duration:.5},{pitch:62,start:3,duration:1}];
+assert.deepEqual(practiceNotesSoundingAt(previewNotes,2),[previewNotes[0]]);
+assert.deepEqual(practiceNotesSoundingAt(previewNotes,2.5),[]);
+assert.deepEqual(practiceNotesSoundingAt(previewNotes,3),[previewNotes[1]]);
 const doubleStop={...middle,gesture:{partner:[{pitch:74}]}};
 assert.equal(practiceTargets([doubleStop],'Violin I',60,'all','highest').pitches.get(doubleStop),74);
 const {blankProject}=load('src/music.ts');
