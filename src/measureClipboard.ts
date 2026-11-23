@@ -1,5 +1,5 @@
 import {moveTempoExpressions,validateTempoExpressions,type TempoExpressions} from './tempoExpressions';
-import {generate,mergeScores,instrumentRange,projectInstruments,type Project,type Score,type Note,type Instrument,type Bar,type Role,type MeasureDynamics,type Articulation,type ViolinTechnique,type BassTechnique} from './music';
+import {generate,mergeScores,instrumentRange,projectInstruments,openingPickupBeats,type Project,type Score,type Note,type Instrument,type Bar,type Role,type MeasureDynamics,type Articulation,type ViolinTechnique,type BassTechnique} from './music';
 
 /** Zero-based, inclusive ranges internally. User-facing controls use 1-based measures. */
 export type MeasureRange={start:number;end:number};
@@ -201,6 +201,7 @@ function structuralEdit(p:Project,mode:ShiftMode,from:number,to:number):Project{
 export function insertBlankMeasures(original:Project,at:number,count:number):Project{
  if(!Number.isInteger(at)||at<0||at>original.bars.length||!Number.isInteger(count)||count<1||original.bars.length+count>512)
    throw Error('Insert 1 or more measures, up to 512 total');
+ if(at===0&&openingPickupBeats(original))throw Error('Insert measures after the opening pickup');
  const label=original.bars[Math.min(at,original.bars.length-1)].section;
  const sectionLength=original.bars.filter(b=>b.section===label).length;
  if(sectionLength+count>128)throw Error('The destination section cannot exceed 128 measures');
@@ -213,9 +214,11 @@ export function deleteMeasureRange(original:Project,range:MeasureRange):Project{
  validateRange(original,range);
  const from=range.start,to=range.end+1,count=to-from;
  if(count>=original.bars.length)throw Error('The song must retain at least one measure');
- const sections=[...new Set(original.bars.map(b=>b.section))];
+ const hasPickup=Boolean(openingPickupBeats(original));
+ const sectionBars=hasPickup?original.bars.slice(1):original.bars;
+ const sections=[...new Set(sectionBars.map(b=>b.section))];
  for(const section of sections){
-  const positions=original.bars.flatMap((bar,i)=>bar.section===section?[i]:[]);
+  const positions=original.bars.flatMap((bar,i)=>bar.section===section&&!(i===0&&hasPickup)?[i]:[]);
   if(positions.every(i=>i>=from&&i<to))throw Error('Delete a complete section using Delete section instead');
  }
  const next=structuralEdit(deep(original),'delete',from,to);

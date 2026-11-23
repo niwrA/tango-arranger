@@ -4,7 +4,7 @@ import {tempoAutomationPoints,normalizedTempoExpressions} from './tempoExpressio
 import {EDITION_LEVELS,assembleEditionScore,currentEditionLevel,getEditionInfo,snapshotActiveEditions,type EditionChoice} from './editions';
 import {gestureLabel} from './tangoGestures';
 import { Midi } from '@tonejs/midi';
-import {INSTRUMENTS,projectInstruments,pianoStaffForPitch,partStaffForNote,partUsesGrandStaff,parsePitch,midiName,transposeScore,transposeChord,parseChordSequence,chordSequenceFromBeats,parseKeySignature,sectionKey,transposeKeySignature,inferSectionKeys,KEY_SIGNATURES,sectionLetter,type ChordChange,type Project,type Score,type Note,type Instrument,instrumentFamily,INSTRUMENT_CAPABILITIES} from './music';
+import {INSTRUMENTS,projectInstruments,pianoStaffForPitch,partStaffForNote,partUsesGrandStaff,parsePitch,midiName,transposeScore,transposeChord,parseChordSequence,chordSequenceFromBeats,parseKeySignature,sectionKey,transposeKeySignature,inferSectionKeys,KEY_SIGNATURES,sectionLetter,openingPickupBeats,type ChordChange,type Project,type Score,type Note,type Instrument,instrumentFamily,INSTRUMENT_CAPABILITIES} from './music';
 export function download(content: Blob | string, filename: string, mimeType = 'application/octet-stream'): void {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -77,12 +77,18 @@ function lyricExtensionPhase(notes:Note[], source:Pick<Note,'start'>, verse:1|2)
   const next=idx+1<unique.length?unique[idx+1]:undefined;
   return !next||!!next[lyricKey]?.trim()?'stop':'continue';
 }
+function notationChords(chord:string,beats:number,skip:number):ChordChange[]{
+  const changes=parseChordSequence(chord,beats);
+  if(!skip)return changes;
+  const active=changes.filter(change=>change.beat<=skip).at(-1);
+  return [...(active?[{...active,beat:0}]:[]),...changes.filter(change=>change.beat>skip).map(change=>({...change,beat:change.beat-skip}))];
+}
 type NoteheadColors=ReadonlyMap<Note,string>;
-function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number,fermata=false,noteheadColors?:NoteheadColors){
-  const barTicks=Math.round(beats*DIV),offset=bar*beats;
+function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number,fermata=false,noteheadColors?:NoteheadColors,skip=0){
+  const barTicks=Math.round((beats-skip)*DIV),offset=bar*beats+skip;
   // Keep note-level dynamics in the export event projection; omitting subito
   // makes the MusicXML direction below fail TypeScript compilation.
-  const notationNotes:(Note&{noteheadColor?:string})[]=notes.flatMap(n=>{
+  const notationNotes:(Note&{noteheadColor?:string})[]=notes.filter(n=>!skip||n.start>=offset-1e-7).flatMap(n=>{
     const noteheadColor=noteheadColors?.get(n);
     const original=noteheadColor?{...n,noteheadColor}:n;
     return n.gesture?.partner
@@ -178,7 +184,9 @@ function writeGrandStaffMeasure(p:Project,inst:Instrument,notes:Note[],bar:numbe
   }
   // Both voices fill the measure, including rests, so the backup is exact.
   const hold=p.tempoExpressions?.fermatas?.some(f=>f.measure===bar&&f.instrument===inst);
-  return writeVoice(upper,bar,p.beats,key,1,1,Boolean(hold),noteheadColors)+`<backup><duration>${p.beats*DIV}</duration></backup>`+writeVoice(lower,bar,p.beats,key,2,2,false,noteheadColors);
+  const pickup=bar===0?openingPickupBeats(p):0;
+  const skip=pickup?p.beats-pickup:0;
+  return writeVoice(upper,bar,p.beats,key,1,1,Boolean(hold),noteheadColors,skip)+`<backup><duration>${(p.beats-skip)*DIV}</duration></backup>`+writeVoice(lower,bar,p.beats,key,2,2,false,noteheadColors,skip);
 }
 /** Compressed MusicXML (MXL), not MuseScore's proprietary MSCZ format. */
 export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Blob>{
@@ -190,7 +198,9 @@ export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Bl
 }
 /** Experimental native MuseScore 3-style MSCX/MSCZ writer. Not a MusicXML archive. */
 export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:Instrument):Promise<Blob>{
-  const tpq=480,beats=p.beats;
+  const tpq=480,beats=p.beats,pickup=openingPickupBeats(p);
+  const pickupStart=pickup?beats-pickup:0;
+  const scoreTick=(beat:number)=>Math.round(Math.max(0,beat-pickupStart)*tpq);
   const titleXml=esc(exportSongTitle(p));
   const instruments=onlyInstrument?[onlyInstrument]:projectInstruments(p);
   if(onlyInstrument&&!projectInstruments(p).includes(onlyInstrument))throw Error('Instrument is not in the current ensemble');
@@ -229,7 +239,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
   const staffs=instruments.map((inst,index)=>{
     const allNotes=(scoreNotes[inst]??[]).flatMap(n=>n.gesture?.partner?
       [n,{...n,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]:[n])
-      .filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.duration)&&n.duration>0)
+      .filter(n=>Number.isFinite(n.start)&&n.start>=pickupStart-1e-7&&Number.isFinite(n.duration)&&n.duration>0)
       .slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
@@ -272,7 +282,9 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       lane.groups.push(group);lane.end=group.start+group.duration;
     }
     const measures=p.bars.map((bar,barIndex)=>{
-      const begin=barIndex*beats,end=begin+beats;
+      const skip=barIndex===0?pickupStart:0;
+      const begin=barIndex*beats+skip,end=(barIndex+1)*beats;
+      const measureBeats=end-begin;
       const key=transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0);
       const fifths=parseKeySignature(key).fifths;
       const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
@@ -284,8 +296,8 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         ?`<Tempo><tempo>${Number((p.bpm/60).toFixed(9))}</tempo><followText>1</followText><text><sym>metNoteQuarterUp</sym> = ${p.bpm}</text></Tempo>`
         :'';
       const tempoXml=index===0&&staffIndex===0?writtenTempo.filter(point=>Math.floor(point.beat/beats)===barIndex).map(point=>{
-        const tick=Math.round(point.beat*tpq),visible=Boolean(point.label);
-        return `<tick>${tick}</tick>${visible?`<StaffText><text>${point.label}</text></StaffText>`:''}<Tempo><tempo>${Number((point.bpm/60).toFixed(9))}</tempo><followText>0</followText><visible>0</visible></Tempo><tick>${begin*tpq}</tick>`;
+        const tick=scoreTick(point.beat),visible=Boolean(point.label);
+        return `<tick>${tick}</tick>${visible?`<StaffText><text>${point.label}</text></StaffText>`:''}<Tempo><tempo>${Number((point.bpm/60).toFixed(9))}</tempo><followText>0</followText><visible>0</visible></Tempo><tick>${scoreTick(begin)}</tick>`;
       }).join(''):'';
       const dynamicsXml=staffIndex===0?(()=>{
         const elements:string[]=[];
@@ -314,7 +326,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
           if(!(end>start))continue;
           const startBar=Math.floor(start/beats);
           const endBar=Math.min(p.bars.length-1,Math.floor(end/beats));
-          const emit=(position:number,markup:string)=>`<tick>${Math.round(position*tpq)}</tick>${markup}<tick>${begin*tpq}</tick>`;
+          const emit=(position:number,markup:string)=>`<tick>${scoreTick(position)}</tick>${markup}<tick>${scoreTick(begin)}</tick>`;
           if(startBar===barIndex){
             const distance=end-start;
             const location=`<location><fractions>${fraction(distance)}</fractions></location>`;
@@ -331,15 +343,15 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       // has been confirmed to display correctly in MuseScore on iPad.
       // Only the top staff carries labels, so grand staves do not duplicate them.
       const chordChanges=staffIndex===0&&index===0
-        ?parseChordSequence(bar.chord,p.beats).filter((change,i,all)=>i===0||change.chord!==all[i-1].chord)
+        ?notationChords(bar.chord,p.beats,skip).filter((change,i,all)=>i===0||change.chord!==all[i-1].chord)
         :[];
       const chordXml=chordChanges.map(change=>{
         const symbol=transposeChord(change.chord,p.transposeSemitones??0);
-        const tick=Math.round((barIndex*beats+change.beat)*tpq);
+        const tick=scoreTick(begin+change.beat);
         return `<tick>${tick}</tick><StaffText><text>${esc(symbol)}</text></StaffText>`;
       }).join('');
       // Return to the measure start before writing the unchanged musical voices.
-      const chordPrefix=chordXml?`${chordXml}<tick>${barIndex*beats*tpq}</tick>`:'';
+      const chordPrefix=chordXml?`${chordXml}<tick>${scoreTick(begin)}</tick>`:'';
       const voices=lanes.slice(0,4).map((lane,laneIndex)=>{
         const active=lane.groups.filter(g=>g.start<end-1e-7&&g.start+g.duration>begin+1e-7);
         let cursor=0;
@@ -348,13 +360,13 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         for(const group of active){
           const n=group.notes.find(note=>note.gesture||note.lyric||note.lyric2)??group.notes[0];
           const startTick=Math.max(0,Math.round((Math.max(begin,n.start)-begin)*8)*60);
-          const endTick=Math.min(beats*tpq,Math.round((Math.min(end,n.start+n.duration)-begin)*8)*60);
+          const endTick=Math.min(measureBeats*tpq,Math.round((Math.min(end,n.start+n.duration)-begin)*8)*60);
           if(endTick<=startTick)continue;
           if(startTick>cursor)rest(startTick-cursor);
           if(startTick<cursor)continue;
           const pieces=chunks((endTick-startTick)/tpq);
           const previous=n.start<begin-1e-7;
-          let pieceStart=barIndex*beats*tpq+startTick;
+          let pieceStart=begin*tpq+startTick;
           for(let pi=0;pi<pieces.length;pi++){
             const piece=pieces[pi],heads=groupHeads.get(group)??[];
             const position=heads.indexOf(pieceStart);
@@ -391,7 +403,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
           }
           cursor=endTick;
         }
-        if(cursor<beats*tpq)rest(beats*tpq-cursor);
+        if(cursor<measureBeats*tpq)rest(measureBeats*tpq-cursor);
         const fermata=staffIndex===0&&laneIndex===0?timing.fermatas.find(mark=>mark.measure===barIndex&&mark.instrument===inst):undefined;
         if(fermata){
           let last=-1;
@@ -404,14 +416,14 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         return `<voice>${laneIndex===0?signature+initialTempo+tempoXml+dynamicsXml+chordPrefix:''}${events.join('')}</voice>`;
       });
       if(!voices.length){
-        const rests=chunks(beats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`);
+        const rests=chunks(measureBeats).map(c=>`<Rest><durationType>${c.type}</durationType></Rest>`);
         const fermata=staffIndex===0?timing.fermatas.find(mark=>mark.measure===barIndex&&mark.instrument===inst):undefined;
         if(fermata)rests[rests.length-1]=rests[rests.length-1].replace('</Rest>','<Articulation><subtype>fermata</subtype></Articulation></Rest>');
         const cue=fermata?.waitForCue?'<StaffText><text>colla voce · wait for cue</text></StaffText>':'';
         if(cue)rests.splice(rests.length-1,0,cue);
         voices.push(`<voice>${signature+initialTempo+tempoXml+dynamicsXml+chordPrefix}${rests.join('')}</voice>`);
       }
-      return `<Measure>${voices.join('')}</Measure>`;
+      return `<Measure${skip?` len="${measureBeats}/4"`:''}>${voices.join('')}</Measure>`;
     }).join('');
     // Metadata alone does not place a title on the printed page in MuseScore.
     // The top staff owns exactly one vertical title frame (also for part exports).
@@ -431,6 +443,14 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
 export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice;previewNoteheadColors?:NoteheadColors;engravingPreview?:boolean}){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
+  const pickup=openingPickupBeats(p);
+  const pickupStart=pickup?p.beats-pickup:0;
+  if(pickup)for(const inst of Object.keys(transposed)){
+    transposed[inst]=transposed[inst].filter(note=>note.start>=pickupStart-1e-7);
+  }
+  const barShift=(bar:number)=>bar===0?pickupStart:0;
+  const sectionStarts=(bar:number)=>bar===(pickup?1:0)||(bar>0&&p.bars[bar].section!==p.bars[bar-1].section);
+
   const instruments=options?.onlyInstrument?[options.onlyInstrument]:projectInstruments(p);
   const grandStaves=new Set(instruments.filter(inst=>partUsesGrandStaff(p,inst,transposed[inst]??[])));
   const previewColors=new Map<Instrument,NoteheadColors>();
@@ -453,12 +473,12 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
   const timing=normalizedTempoExpressions(p);
   const tempoMarks=tempoAutomationPoints(p,true).filter(point=>!options?.engravingPreview||point.label);
   const tempoDirections=(measure:number)=>tempoMarks.filter(point=>Math.floor(point.beat/p.beats)===measure).map(point=>{
-    const offset=Math.round((point.beat-measure*p.beats)*DIV);
+    const offset=Math.round((Math.max(0,point.beat-measure*p.beats-barShift(measure)))*DIV);
     const name=point.label??'tempo';
     return `<direction placement="above"${point.label?'':' print-object="no"'}><direction-type><words>${name}</words></direction-type>${offset?`<offset>${offset}</offset>`:''}<sound tempo="${point.bpm}"/></direction>`;
   }).join('');
   const fermataDirection=(inst:Instrument,measure:number)=>timing.fermatas.filter(f=>f.measure===measure&&f.instrument===inst&&f.waitForCue)
-    .map(()=>`<direction placement="above"><direction-type><words>colla voce · wait for cue</words></direction-type><offset>${(p.beats-1)*DIV}</offset></direction>`).join('');
+    .map(()=>`<direction placement="above"><direction-type><words>colla voce · wait for cue</words></direction-type><offset>${(p.beats-1-barShift(measure))*DIV}</offset></direction>`).join('');
   const dynamics=p.expression?.enabled!==false?(p.expression?.sections??{A1:'mp',B1:'mf',A2:'mp',B2:'f',C:'f'}):null;
   const dynamicDirection=(inst:Instrument,b:number)=>{
     if(!dynamics)return '';
@@ -485,7 +505,7 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
       if(!start&&!stop)return '';
       const number=index%5+2;
       const kind=range.to>=range.from?'crescendo':'diminuendo';
-      const offset=start?(range.startBeat??0)*DIV:((range.endBeat??p.beats)-p.beats)*DIV;
+      const offset=start?Math.max(0,(range.startBeat??0)-barShift(b))*DIV:((range.endBeat??p.beats)-p.beats)*DIV;
       return `<direction placement="below"><direction-type><wedge number="${number}" type="${start?kind:'stop'}"${start?' spread="0"':''}/></direction-type>${offset?`<offset>${offset}</offset>`:''}</direction>`;
     }).join('');
   };
@@ -495,13 +515,13 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
     const direction=(mark:string,offset=0)=>`<direction placement="below"><direction-type><dynamics><${mark}/></dynamics></direction-type>${offset?`<offset>${offset}</offset>`:''}</direction>`;
     if(start&&end&&start!==end){
       const kind=({ppp:38,pp:52,p:63,mp:74,mf:88,f:101,ff:112,fff:122} as Record<string,number>)[end]>({ppp:38,pp:52,p:63,mp:74,mf:88,f:101,ff:112,fff:122} as Record<string,number>)[start]?'crescendo':'diminuendo';
-      return direction(start)+`<direction placement="below"><direction-type><wedge number="6" type="${kind}"/></direction-type></direction>`+`<direction placement="below"><direction-type><wedge number="6" type="stop"/></direction-type><offset>${p.beats*DIV}</offset></direction>`+direction(end,p.beats*DIV);
+      return direction(start)+`<direction placement="below"><direction-type><wedge number="6" type="${kind}"/></direction-type></direction>`+`<direction placement="below"><direction-type><wedge number="6" type="stop"/></direction-type><offset>${(p.beats-barShift(b))*DIV}</offset></direction>`+direction(end,(p.beats-barShift(b))*DIV);
     }
     return start?direction(start):end?direction(end):'';
   };
   let sectionOrdinal=-1;
-  const sectionMarks=p.bars.map((bar,b)=>{if(b===0||bar.section!==p.bars[b-1].section)sectionOrdinal++;return sectionLetter(sectionOrdinal);});
-  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="no" number="${b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${grandStaves.has(inst)?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&(b===0||bar.section!==p.bars[b-1].section)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${i===0?tempoDirections(b):''}${fermataDirection(inst,b)}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?parseChordSequence(bar.chord,p.beats).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${grandStaves.has(inst)?writeGrandStaffMeasure(p,inst,transposed[inst]??[],b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),previewColors.get(inst)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),undefined,undefined,timing.fermatas.some(f=>f.measure===b&&f.instrument===inst),previewColors.get(inst))}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
+  const sectionMarks=p.bars.map((bar,b)=>{if(sectionStarts(b))sectionOrdinal++;return sectionOrdinal<0?'':sectionLetter(sectionOrdinal);});
+  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="${pickup&&b===0?'yes':'no'}" number="${pickup?b:b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${grandStaves.has(inst)?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&sectionStarts(b)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${i===0?tempoDirections(b):''}${fermataDirection(inst,b)}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?notationChords(bar.chord,p.beats,barShift(b)).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${grandStaves.has(inst)?writeGrandStaffMeasure(p,inst,transposed[inst]??[],b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),previewColors.get(inst)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),undefined,undefined,timing.fermatas.some(f=>f.measure===b&&f.instrument===inst),previewColors.get(inst),barShift(b))}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
   return head+body+'</score-partwise>';
 }
 
@@ -522,11 +542,12 @@ function abcPitch(midi:number):string {
   if(octave>=5)return letter.toLowerCase()+"'".repeat(octave-5);
   return letter+','.repeat(Math.max(0,4-octave));
 }
-function abcMeasure(notes:Note[],bar:number,beats:number,chords:ChordChange[]=[]):string {
-  const units=beats*4,starts=new Map<number,{pitch:number;duration:number;articulation?:Note['articulation']}[]>();
+function abcMeasure(notes:Note[],bar:number,beats:number,chords:ChordChange[]=[],skip=0):string {
+  const units=(beats-skip)*4,starts=new Map<number,{pitch:number;duration:number;articulation?:Note['articulation']}[]>();
   for(const n of notes){
-    const begin=Math.max(0,Math.round((n.start-bar*beats)*4));
-    const end=Math.min(units,Math.round((n.start+n.duration-bar*beats)*4));
+    if(skip&&n.start<skip-1e-7)continue;
+    const begin=Math.max(0,Math.round((n.start-bar*beats-skip)*4));
+    const end=Math.min(units,Math.round((n.start+n.duration-bar*beats-skip)*4));
     if(begin>=units||end<=begin)continue;
     const group=starts.get(begin)??[];
     group.push({pitch:n.pitch,duration:end-begin,articulation:n.articulation});
@@ -556,17 +577,20 @@ export function exportAbc(p:Project,score:Score,part:'lead'|Instrument='lead'):s
   const title=abcSafe(exportSongTitle(p));
   const partName=part==='lead'?'Lead Sheet':abcSafe(part);
   const lines=['% Generated by Tango Arranger','X:1','T:'+title,'T:'+partName,'M:'+p.beats+'/4','L:1/16','Q:1/4='+Math.round(p.bpm)];
+  const pickup=openingPickupBeats(p);
   let previousKey='',previousSection='';
   for(let bar=0;bar<p.bars.length;bar++){
     const current=p.bars[bar],key=transposeKeySignature(sectionKey(p,current.section),transpose);
     if(bar===0){lines.push('K:'+abcKey(key));}
     else if(key!==previousKey)lines.push('[K:'+abcKey(key)+']');
-    if(current.section!==previousSection)lines.push('% Section '+abcSafe(current.section));
+    const skip=bar===0&&pickup?p.beats-pickup:0;
+    if(skip)lines.push('% Opening pickup');
+    else if(current.section!==previousSection)lines.push('% Section '+abcSafe(current.section));
     const notes=part==='lead'?current.melody.map(n=>({...n,start:n.start+bar*p.beats,pitch:n.pitch+transpose})):
       (score[part]??[]).filter(n=>n.start<(bar+1)*p.beats&&n.start+n.duration>bar*p.beats).map(n=>({...n,pitch:n.pitch+transpose}));
-    const chords=part==='lead'?parseChordSequence(current.chord,p.beats).map(change=>({...change,chord:transposeChord(change.chord,transpose)})):[];
-    lines.push(abcMeasure(notes,bar,p.beats,chords)+' |');
-    previousKey=key;previousSection=current.section;
+    const chords=part==='lead'?notationChords(current.chord,p.beats,skip).map(change=>({...change,chord:transposeChord(change.chord,transpose)})):[];
+    lines.push(abcMeasure(notes,bar,p.beats,chords,skip)+' |');
+    previousKey=key;if(!skip)previousSection=current.section;
   }
   return lines.join('\n')+'\n';
 }
@@ -579,7 +603,7 @@ export async function exportMobileSheetsBundle(p:Project,score:Score):Promise<Bl
   return zip.generateAsync({type:'blob'});
 }
 
-export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUMENTS.length):string[]{
+export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUMENTS.length,pickup=0):string[]{
   const problems:string[]=[];
   const partBlocks=[...xml.matchAll(/<part id="P(\d+)">([\s\S]*?)<\/part>/g)];
   if(partBlocks.length!==parts)problems.push(`Expected ${parts} parts, found ${partBlocks.length}`);
@@ -599,10 +623,11 @@ export function validateMusicXmlDurations(xml:string,beats:number,parts=INSTRUME
         }
         maximum=Math.max(maximum,cursor);minimum=Math.min(minimum,cursor);
       }
-      if(cursor!==beats*DIV||maximum!==beats*DIV||minimum<0)
-        problems.push(`Part ${part[1]}, measure ${measure[1]}: cursor ${cursor}, max ${maximum} (expected ${beats*DIV})`);
-      for(const [voice,ticks] of streams)if(ticks!==beats*DIV)
-        problems.push(`Part ${part[1]}, measure ${measure[1]}, voice ${voice}: ${ticks} ticks (expected ${beats*DIV})`);
+      const expected=(pickup&&measure[1]==='0'?pickup:beats)*DIV;
+      if(cursor!==expected||maximum!==expected||minimum<0)
+        problems.push(`Part ${part[1]}, measure ${measure[1]}: cursor ${cursor}, max ${maximum} (expected ${expected})`);
+      for(const [voice,ticks] of streams)if(ticks!==expected)
+        problems.push(`Part ${part[1]}, measure ${measure[1]}, voice ${voice}: ${ticks} ticks (expected ${expected})`);
     }
   }
   return problems;
@@ -616,7 +641,7 @@ export async function exportEditionPrintPack(p:Project):Promise<Blob>{
  const choices=Object.fromEntries(instruments.map(inst=>[inst,currentEditionLevel(saved,inst)])) as EditionChoice;
  const mixed=assembleEditionScore(saved,choices);
  const scoreXml=exportMusicXml(saved,mixed,{editionLevels:choices});
- const problems=validateMusicXmlDurations(scoreXml,saved.beats,instruments.length);
+ const problems=validateMusicXmlDurations(scoreXml,saved.beats,instruments.length,openingPickupBeats(saved));
  if(problems.length)throw Error('Selected ensemble score invalid: '+problems.slice(0,2).join('; '));
  const zip=new JSZip();
  zip.file('selected-ensemble.musicxml',scoreXml);
@@ -628,7 +653,7 @@ export async function exportEditionPrintPack(p:Project):Promise<Blob>{
  for(const inst of instruments)for(const level of EDITION_LEVELS){
   const noteScore=levelScores[level];
   const partXml=exportMusicXml(saved,noteScore,{onlyInstrument:inst,editionLevels:{[inst]:level}});
-  const issues=validateMusicXmlDurations(partXml,saved.beats,1);
+  const issues=validateMusicXmlDurations(partXml,saved.beats,1,openingPickupBeats(saved));
   if(issues.length)throw Error(inst+' '+level+': '+issues[0]);
   zip.file('parts/'+safe(inst)+'/'+level+'.musicxml',partXml);
  }

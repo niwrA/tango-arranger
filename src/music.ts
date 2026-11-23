@@ -169,9 +169,14 @@ export function sectionLetter(index:number):string {
   while(n>0){n--;result=String.fromCharCode(65+n%26)+result;n=Math.floor(n/26);}
   return result;
 }
-export function sectionSpans(p:Pick<Project,'bars'>):SectionSpan[]{
+export function openingPickupBeats(p:Pick<Project,'bars'|'beats'>):number {
+  const length=p.bars[0]?.pickupBeats??0;
+  return p.bars.length>1&&Number.isInteger(length)&&length>0&&length<p.beats?length:0;
+}
+export function sectionSpans(p:Pick<Project,'bars'> & Partial<Pick<Project,'beats'>>):SectionSpan[]{
   const spans:SectionSpan[]=[];
-  p.bars.forEach((bar,i)=>{const last=spans.at(-1);if(last&&last.label===bar.section)last.measures++;else spans.push({label:bar.section,start:i,measures:1});});
+  const first=p.beats!==undefined&&openingPickupBeats({bars:p.bars,beats:p.beats})?1:0;
+  p.bars.forEach((bar,i)=>{if(i<first)return;const last=spans.at(-1);if(last&&last.label===bar.section)last.measures++;else spans.push({label:bar.section,start:i,measures:1});});
   return spans;
 }
 /** Copy the chord progression from one section to another by measure offset.
@@ -212,9 +217,10 @@ export function copySectionChords(p:Project,sourceIndex:number,destinationIndex:
  * absolute beat offsets cannot safely survive a structural edit.
  */
 export function resizeSections(p:Project,lengths:number[]):Project {
-  if(!lengths.length||lengths.length>26||lengths.some(n=>!Number.isInteger(n)||n<1||n>128)||lengths.reduce((a,b)=>a+b,0)>512)
+  if(!lengths.length||lengths.length>26||lengths.some(n=>!Number.isInteger(n)||n<1||n>128)||lengths.reduce((a,b)=>a+b,0)+(openingPickupBeats(p)?1:0)>512)
     throw Error('Use 1–26 sections, 1–128 measures each, maximum 512 measures total');
   const old=sectionSpans(p),bars:Bar[]=[],indexMap=new Map<number,number>();
+  if(openingPickupBeats(p)){bars.push({...p.bars[0],section:sectionLetter(0)});indexMap.set(0,0);}
   const sectionKeys:Record<string,string>={},roles:Project['roles']={},contrabass:Record<string,BassTechnique>={},violin:OrchestrationSettings['violin']={},bandoneon:OrchestrationSettings['bandoneon']={},dynamics:Record<string,DynamicMark>={},violinMarcatoBeats:NonNullable<Project['violinMarcatoBeats']>={},violinArpeggioDirections:NonNullable<Project['violinArpeggioDirections']>={};
   const oldOrch=p.orchestration??defaultOrchestration();
   const defaults=defaultRoles(),defaultDyn=defaultExpression();
@@ -270,7 +276,7 @@ export function resizeSections(p:Project,lengths:number[]):Project {
     articulation:{...(p.articulation??defaultArticulation()),overrides:remap(p.articulation?.overrides)},
     generatedScore:undefined,importedScore:undefined,baseScore:undefined,protectedBars:{},partEditions:undefined,phrasePlan:undefined};
 }
-export type Bar = { chord:string; melody:Note[]; section:string };
+export type Bar = { chord:string; melody:Note[]; section:string; pickupBeats?:number };
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
@@ -654,6 +660,7 @@ export function assessPianoPlayability(notes:readonly Note[],p:Pick<Project,'bea
 export function instrumentRange(inst:Instrument):[number,number]{return INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].range;}
 export function convertTwoFourToFour(p:Project):Project {
   if(p.beats!==2)throw Error('Only 2/4 projects can be converted to 4/4');
+  if(openingPickupBeats(p))throw Error('Disable the written pickup before converting the meter');
   if(p.bars.length%2)throw Error('An odd number of measures requires an explicit pickup/ending decision');
   if(p.importedScore||p.generatedScore||p.baseScore||Object.keys(p.protectedBars).length)throw Error('Remove or archive edited/generated score and protections before meter conversion');
   const bars:Bar[]=[];

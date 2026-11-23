@@ -1,5 +1,5 @@
 import {moveTempoExpressions} from './tempoExpressions';
-import {sectionSpans,sectionLetter,type Project,type Score,type Note} from './music';
+import {sectionSpans,sectionLetter,openingPickupBeats,type Project,type Score,type Note} from './music';
 
 /** Delete precisely one section without erasing independent later score edits.
  * Relabel following sections so names remain unique and section indices stable.
@@ -13,7 +13,8 @@ export function deleteProjectSection(original:Project,index:number):Project {
  const before=begin*current.beats,after=finish*current.beats,delta=after-before;
  const names=new Map(spans.map((span,i)=>[span.label,i<index?sectionLetter(i):i>index?sectionLetter(i-1):'']));
  const mapName=(name:string)=>names.get(name)??name;
- const bars=current.bars.filter((_,i)=>i<begin||i>=finish).map(bar=>({...bar,section:mapName(bar.section)}));
+ const pickup=openingPickupBeats(current);
+ const bars=current.bars.filter((_,i)=>i<begin||i>=finish).map((bar,i)=>({...bar,section:pickup&&i===0?sectionLetter(0):mapName(bar.section)}));
  const cloneScore=(score:Score|undefined):Score|undefined=>{
    if(!score)return undefined;
    return Object.fromEntries(Object.entries(score).map(([inst,notes])=>[inst,notes.flatMap(note=>{

@@ -4,7 +4,7 @@ const {DOMParser}=require('@xmldom/xmldom');
 const {createDomainLoader}=require('./load-domain.cjs');
 class TestZip{constructor(){this.files={};}file(path,content){this.files[path]=content;return this;}async generateAsync(){return {files:this.files};}}
 const load=createDomainLoader({imports:{'jszip':{default:TestZip},'@tonejs/midi':{Midi:class Midi{}}}});
-const {blankProject,generate,projectInstruments}=load('src/music.ts');
+const {blankProject,generate,projectInstruments,sectionSpans,resizeSections}=load('src/music.ts');
 const {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,writtenTempoAtBeat,performanceTempoAtBeat,soundingSeconds,duplicateTempoExpressions,moveTempoExpressions}=load('src/tempoExpressions.ts');
 const {exportMusicXml,exportMuseScoreMscz,validateMusicXmlDurations}=load('src/io.ts');
 const {scoreNoteheadColors}=load('src/scoreNoteheads.ts');
@@ -45,6 +45,34 @@ test('score preview identifies individual piano notes and tied heads without cha
  for(const note of [unison,duplicate])assert.ok(!owners.includes(byNote.get(note)));
  assert.equal(preview.replace(/<notehead color="#[0-9a-f]{6}">normal<\/notehead>/g,''),plain);
  assert.deepEqual(Array.from(validateMusicXmlDurations(preview,4,1)),[]);
+});
+test('the first short measure is separate from section A and remains so after resizing',()=>{
+ const p=blankProject({sections:2,measuresPerSection:[3,3],beats:3});
+ p.bars[0].pickupBeats=1;
+ assert.equal(sectionSpans(p)[0].start,1);
+ assert.equal(sectionSpans(p)[0].measures,2);
+ const resized=resizeSections(p,[2,3]);
+ assert.equal(resized.bars.length,6);
+ assert.equal(resized.bars[0].pickupBeats,1);
+ assert.equal(sectionSpans(deleteProjectSection(p,0))[0].start,1);
+ assert.throws(()=>deleteMeasureRange(p,{start:1,end:2}),/complete section/);
+});
+test('MusicXML writes short pickup voices, keeps surviving pickups tied, and marks section A at measure 1',()=>{
+ const p=blankProject({sections:1,measuresPerSection:3,beats:3});
+ p.bars[0].pickupBeats=1;
+ p.bars[0].chord='D,D,A7';
+ const score={Piano:[{pitch:70,start:0,duration:4},{pitch:60,start:2,duration:2},{pitch:46,start:2,duration:1}]};
+ const xml=exportMusicXml(p,score,{onlyInstrument:'Piano'});
+ assert.equal(validateMusicXmlDurations(xml,3,1,1).length,0);
+ const measures=xml.split('<measure ');
+ assert.match(measures[1],/^implicit="yes" number="0"/);
+ assert.match(measures[1],/<duration>480<\/duration><\/backup>/);
+ assert.match(measures[1],/<kind text="A7">/);
+ assert.doesNotMatch(measures[1],/<rehearsal/);
+ assert.match(measures[2],/^implicit="no" number="1"/);
+ assert.match(measures[2],/<rehearsal[^>]*>A<\/rehearsal>/);
+ assert.match(measures[1],/<tie type="start"/);
+ assert.match(measures[2],/<tie type="stop"/);
 });
 test('ritardando slows progressively, holds speed, and a tempo restores original BPM',()=>{
  const p=project();
@@ -163,6 +191,17 @@ function notesInNativeScore(mscx,beats){
  return result;
 }
 (async()=>{
+ await check('native MuseScore writes a short opening measure with rebased chord ticks',async()=>{
+  const p=blankProject({sections:1,measuresPerSection:3,beats:3});
+  p.bars[0].pickupBeats=1;
+  p.bars[0].chord='D,D,A7';
+  p.bars[1].chord='G';
+  const result=await exportMuseScoreMscz(p,{Piano:[{pitch:60,start:2,duration:2}]},'Piano');
+  const xml=result.files['score.mscx'];
+  assert.match(xml,/<Measure len="1\/4">/);
+  assert.match(xml,/<tick>0<\/tick><StaffText><text>A7<\/text>/);
+  assert.match(xml,/<tick>480<\/tick><StaffText><text>G<\/text>/);
+ });
  await check('native MSCX uses readable rit and a tempo labels, tempo values and real fermata',async()=>{
   const p=project(),score=generate(p);
   const mscx=(await exportMuseScoreMscz(p,score)).files['score.mscx'];
