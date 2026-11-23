@@ -15,6 +15,7 @@ const props=withDefaults(defineProps<{
   completedNotes?:readonly Note[];
   playingNotes?:readonly Note[];
   activeMeasure?:number;
+  expanded?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
 const emit=defineEmits<{select:[note:Note];edit:[]}>();
@@ -159,7 +160,8 @@ function renderRange(){
   if(!renderer||!loaded)return;
   cancelAnimationFrame(layoutFrame);
   const {first,last}=displayedRange.value;
-  renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last});
+  renderer.zoom=props.expanded&&observedWidth>=320?1.18:1;
+  renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last,stretchLastSystemLine:props.expanded});
   renderer.resetIncrementalRendering();
   loading.value=true;
   error.value='';
@@ -212,6 +214,7 @@ function scheduleLayout(){
 
 watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{deep:true});
 watch(displayedRange,scheduleLayout);
+watch(()=>props.expanded,scheduleLayout);
 watch(()=>props.selectedNote,highlightSelection);
 watch(()=>props.completedNotes,highlightCompleted);
 watch(()=>props.activeMeasure,highlightActiveMeasure);
@@ -253,7 +256,7 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-  <section class="score-preview editor" aria-label="Staff notation">
+  <section class="score-preview editor" :class="{'score-preview-expanded':expanded}" aria-label="Staff notation">
     <div v-if="interactive" class="score-preview-selection">
       <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
       <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
@@ -270,6 +273,7 @@ onBeforeUnmount(()=>{
 .score-preview-selection{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:.85rem}
 .score-preview-canvas{min-height:92px;overflow-x:auto}
 .score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto}
+.score-preview-expanded .score-preview-canvas :deep(svg){margin-inline:auto}
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
 .score-preview-interactive :deep(.score-notehead){cursor:pointer}
 .score-preview-canvas :deep(.score-note-completed),.score-preview-canvas :deep(.score-note-completed [fill]){fill:#24724f}

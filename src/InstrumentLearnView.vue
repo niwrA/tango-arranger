@@ -52,6 +52,7 @@ const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targe
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
 const showScore=computed(()=>layout.value==='score'||layout.value==='score-diagram');
+const combinedScore=computed(()=>layout.value==='score-diagram');
 const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram');
 const showGuide=computed(()=>layout.value!=='diagram');
 const completedTargets=ref(new Set<Note>());
@@ -322,7 +323,7 @@ async function startMicrophone(){
 onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
- <section class="learn-workspace" aria-label="Learn instrument notes">
+ <section class="learn-workspace" :class="{'learn-workspace-combined':combinedScore}" aria-label="Learn instrument notes">
   <div class="learn-topline">
    <strong>Learn · {{instrument}}</strong>
    <div class="learn-view-controls">
@@ -352,11 +353,11 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <button v-if="microphoneSupported" type="button" class="primary" :disabled="!targets.length||demoPlaying||busy" @click="startTake">{{takeBeat===null?'Record for feedback':'Cancel recording'}}</button>
   </div>
   <p v-if="takeStatus" class="learn-take-status" role="status">{{takeStatus}} · {{Math.round(bpm)}} BPM</p>
-  <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram}">
+  <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
     <template v-if="showScore">
-     <slot name="score" :from="scoreFrom" :to="scoreTo" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
+     <slot name="score" :from="scoreFrom" :to="scoreTo" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" :expanded="combinedScore" />
      <small v-if="demoPlaying" class="learn-score-legend">Listening · measure {{scoreMeasure}}</small>
      <small v-else-if="current" class="learn-score-legend">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</small>
      <small v-else-if="!targets.length" class="learn-score-legend">No written notes in this range.</small>
@@ -514,4 +515,44 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-navigation button{min-height:39px;padding:5px 8px;font-size:12px}
 }
 @media(max-width:380px){.learn-mic-row meter{max-width:24%;width:60px;flex-basis:60px}.learn-tuner-title .learn-mic-toggle{min-width:69px;padding:4px 6px}}
+
+.learn-workspace-combined{max-width:none;align-self:stretch}
+.learn-display-combined{
+ flex:1 0 auto;
+ grid-template-columns:minmax(0,1fr);
+ grid-template-rows:auto auto auto;
+ grid-template-areas:"score" "tuner" "diagram";
+}
+.learn-display-combined>.learn-guide{grid-area:score;display:flex;flex-direction:column;justify-content:center}
+.learn-display-combined>.learn-tuner{grid-area:tuner;align-self:center}
+.learn-display-combined>.learn-diagram{grid-area:diagram}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn){max-width:none}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-chord-beat){height:clamp(32px,5dvh,56px)}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-next-chord-beat){height:clamp(26px,4dvh,44px)}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-chord-beat strong),
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-next-chord-beat strong){font-size:clamp(14px,2vw,26px)}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){
+ grid-template-columns:minmax(0,1fr);
+ grid-template-rows:auto repeat(4,minmax(clamp(32px,5dvh,60px),auto));
+ padding:clamp(6px,1vw,16px);
+}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-row){align-items:stretch}
+.learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop),
+.learn-display-combined :deep(.is-learn .diagram-open-label){height:auto;min-height:0}
+@media(min-width:650px){
+ .learn-display-combined{grid-template-rows:1fr auto 1fr}
+ .learn-display-combined :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span){font-size:clamp(13px,1.7vw,24px)}
+}
+@media(min-width:900px) and (orientation:landscape){
+ .learn-display-combined{
+  grid-template-columns:minmax(0,1fr) clamp(152px,17vw,250px) minmax(0,1fr);
+  grid-template-rows:1fr;
+  grid-template-areas:"score tuner diagram";
+ }
+ .learn-display-combined>.learn-guide,.learn-display-combined>.learn-diagram{min-height:min(44dvh,420px)}
+ .learn-display-combined .learn-tuner-title{justify-content:center;text-align:center}
+ .learn-display-combined .learn-tuner-title strong{margin-right:0}
+ .learn-display-combined .learn-mic-row{justify-content:center;text-align:center}
+ .learn-display-combined .learn-mic-row meter{max-width:100%}
+}
 </style>

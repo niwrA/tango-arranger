@@ -5408,8 +5408,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="currentPracticeDisplay" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
-           <template #score="{from,to,measure,expected,completed,playing}">
-             <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" :interactive="false" />
+           <template #score="{from,to,measure,expected,completed,playing,expanded}">
+             <ScorePreview :project="project" :score="score" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" :expanded="expanded" :interactive="false" />
            </template>
            <template #diagram="{targetPitch,currentBeat,showTargetLabel}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="targetPitch===null?[]:[targetPitch]" :violin-position="targetPitch!==null&&part.inst.startsWith('Violin')?suggestViolinPosition(targetPitch):part.violinPosition" :position-guide="part.inst.startsWith('Violin')?null:part.positionGuide"/></template>
          </InstrumentLearnView>
@@ -7958,6 +7958,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 
 /* Learn uses the same instrument-focus viewport without changing its regular stage UI. */
 .instrument-focus-learn-content{overflow-y:auto;min-height:0;align-items:flex-start;justify-content:center;padding:8px;max-height:calc(100dvh - 170px)}
+.instrument-focus-learn-content:has(>.learn-workspace-combined){max-height:none;overflow:visible;padding:4px}
 .instrument-focus-toolbar .instrument-focus-learn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:42px;min-height:42px;padding:7px 10px}
 .instrument-focus-toolbar .instrument-focus-learn .app-icon{width:19px;height:19px}
 /* A4 is part of the song roster, with optional per-instrument overrides. */
