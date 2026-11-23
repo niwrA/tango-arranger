@@ -41,7 +41,8 @@ check('recording fits available width while keeping both extreme notes selectabl
 });
 check('piano view and recording share transport data and do not require new playback',()=>{
  const app=read('src/App.vue');
- assert.ok(app.includes('<PianoFocusView v-if="part.inst===\'Piano\''));
+ assert.ok(app.includes('<PianoFocusView v-else-if="part.inst===\'Piano\''));
+ assert.ok(app.includes('<InstrumentLearnView v-if="instrumentLearnMode"'));
  assert.ok(app.includes(':range-pitches="part.registerPitches"'));
  assert.ok(app.includes(':active-pitches="part.activePitches"'));
  assert.ok(app.includes('@switch-mode="flipPerformanceCard(part.inst)"'));
