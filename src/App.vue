@@ -5334,7 +5334,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
            <template #diagram><PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="[]" :measure-pitches="part.measurePitches" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/></template>
          </InstrumentLearnView>
-         <PianoFocusView v-else-if= v-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
+         <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="flipPerformanceCard(part.inst)"/>
          <button v-else-if="cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
