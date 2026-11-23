@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
+import {computed,ref,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
+const ScorePreview=defineAsyncComponent(()=>import('./ScorePreview.vue'));
 import {duplicateProjectSection} from './sectionDuplication';
 import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,soundingSeconds,type TempoExpressions} from './tempoExpressions';
 import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,previewMeasureMove,moveMeasureRange,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
@@ -4109,6 +4110,7 @@ function setDuckingReduction(e:Event){project.value.melodyDucking??={enabled:tru
 const currentExpressionRanges=computed(()=>project.value.expressionRanges?.map((r,index)=>({...r,index})).filter(r=>r.instrument===noteInst.value)??[]);
 const slideSupported=computed(()=>noteInst.value!=='Piano'&&selectedEvent.value?.technique!=='pizzicato');
 const noteInst=ref<Instrument>('Violin I');
+const scorePreviewOpen=ref(false);
 watch(noteInst,inst=>{try{localStorage.setItem('tango-last-note-instrument',inst);}catch{/* Storage disabled. */}});
 const noteEditorRegion=ref<HTMLElement|null>(null);
 const noteStep=ref(0.5);
@@ -6009,6 +6011,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="note-focus-range">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
     <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop loop':'▶ Loop'}}</button>
+    <button type="button" class="secondary score-preview-toggle" :aria-expanded="scorePreviewOpen" @click="scorePreviewOpen=!scorePreviewOpen">{{scorePreviewOpen?'Hide score':'♫ Score'}}</button>
     <span v-if="noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
   <div v-if="!noteFocusMode" class="compact-note-toolbar note-unified-toolbar" role="toolbar" aria-label="Note editing workspace">
@@ -6018,11 +6021,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="note-edition-selector">Edition<select :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
     <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
+    <button type="button" class="secondary score-preview-toggle" :aria-expanded="scorePreviewOpen" @click="scorePreviewOpen=!scorePreviewOpen">{{scorePreviewOpen?'Hide score':'♫ Score'}}</button>
     <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
     <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
     <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
     <button type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
   </div>
+  <ScorePreview v-if="scorePreviewOpen" :project="project" :score="score" :instrument="noteInst" :from-measure="selectedBar" />
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
     <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">♫ Notes &amp; properties</button>
     <button id="note-tab-capture" type="button" role="tab" :aria-selected="noteEditorTab==='capture'" :tabindex="noteEditorTab==='capture'?0:-1" aria-controls="note-panel-capture" :class="{selected:noteEditorTab==='capture'}" @click="setNoteEditorTab('capture')">● Live input</button>

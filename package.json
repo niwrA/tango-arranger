@@ -19,14 +19,15 @@
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
     "jszip": "^3.10.1",
+    "opensheetmusicdisplay": "2.3.0",
     "tone": "^15.1.22",
     "vue": "^3.5.13"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "@xmldom/xmldom": "^0.8.11",
     "typescript": "^5.7.3",
     "vite": "^6.0.5",
-    "vue-tsc": "^2.2.0",
-    "@xmldom/xmldom": "^0.8.11"
+    "vue-tsc": "^2.2.0"
   }
 }
