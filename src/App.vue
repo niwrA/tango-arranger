@@ -5332,7 +5332,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode}">
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="score[part.inst]??[]" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :concert-transpose="project.transposeSemitones??0" @exit="exitInstrumentLearn">
-           <template #diagram><PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="[]" :measure-pitches="part.measurePitches" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/></template>
+           <template #diagram><PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="part.measurePitches" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/></template>
          </InstrumentLearnView>
          <PianoFocusView v-else-if="part.inst==='Piano' && cardShowsDiagram(part.inst)"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
