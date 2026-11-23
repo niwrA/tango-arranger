@@ -43,12 +43,40 @@ assert.match(range,/Entire song/);
 assert.match(app,/<MeasureRangeControl[^>]*:measures="project.bars"/);
 const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
-const {compareLearnTake}=load('src/learnTake.ts');
+const {alignLearnTake}=load('src/learnTake.ts');
 const expected=[{pitch:69,startBeat:0,durationBeats:1}];
 const sung={pitch:57,startBeat:0.06,durationBeats:0.91,intonationCents:14,vibrato:false,supportFrames:12};
-assert.equal(compareLearnTake(expected,[sung])[0].pitchMatches,false);
-assert.deepEqual(compareLearnTake(expected,[sung],true)[0],{kind:'matched',target:expected[0],played:sung,pitchMatches:true});
-assert.equal(compareLearnTake(expected,[{...sung,pitch:58}],true)[0].pitchMatches,false);
+assert.equal(alignLearnTake(expected,[sung]).rows[0].pitchMatches,false);
+assert.deepEqual(alignLearnTake(expected,[sung],true).rows[0],{kind:'matched',target:expected[0],played:sung,pitchMatches:true});
+assert.equal(alignLearnTake(expected,[{...sung,pitch:58}],true).rows[0].pitchMatches,false);
+function detection(pitch,startBeat,durationBeats=.5){
+ return {pitch,startBeat,durationBeats,intonationCents:0,vibrato:false,supportFrames:4};
+}
+{
+ const targets=[67,69,71,73,74,76,78,79,78,74,73,71].map((pitch,i)=>({pitch,startBeat:i,durationBeats:.75}));
+ const detected=targets.filter((_,i)=>i!==4).map(t=>detection(t.pitch,1.35+t.startBeat*1.22,.915));
+ detected.splice(7,0,detection(83,1.35+7.6*1.22,.2));
+ const result=alignLearnTake(targets,detected);
+ assert.ok(Math.abs(result.clock.offsetBeats-1.35)<.01);
+ assert.ok(Math.abs(result.clock.tempoScale-1.22)<.01);
+ assert.equal(result.rows.filter(r=>r.kind==='matched'&&r.pitchMatches).length,11);
+ assert.equal(result.rows.find(r=>r.kind==='missed').target.pitch,74);
+ assert.equal(result.rows.find(r=>r.kind==='extra').played.pitch,83);
+ assert.equal(detected[0].startBeat,1.35);
+}
+{
+ const targets=[72,72,72,74,75].map((pitch,i)=>({pitch,startBeat:i,durationBeats:1}));
+ const result=alignLearnTake(targets,[detection(72,0,2.7),detection(74,3,1),detection(76,4,1)]);
+ assert.deepEqual(result.rows.map(r=>r.kind),['matched','unresolved-repeat','unresolved-repeat','matched','matched']);
+ assert.equal(result.rows[4].pitchMatches,false);
+ assert.equal(result.rows[1].played,result.rows[0].played);
+}
+{
+ const targets=[69,71,72,74].map((pitch,i)=>({pitch,startBeat:i,durationBeats:1}));
+ const result=alignLearnTake(targets,[]);
+ assert.equal(result.rows.every(r=>r.kind==='missed'),true);
+ assert.deepEqual(result.clock,{offsetBeats:0,tempoScale:1});
+}
 const {practiceTargets}=load('src/practiceTargets.ts');
 const bass={pitch:48,start:0,duration:1};
 const middle={pitch:55,start:0,duration:1};

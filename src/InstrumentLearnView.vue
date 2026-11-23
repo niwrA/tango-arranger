@@ -3,18 +3,19 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram';
 </script>
 
 <script setup lang="ts">
-import {computed,ref,watch,onBeforeUnmount} from 'vue';
+import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
 import {instrumentFamily,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,sensitivityThresholdDb} from './learnPitch';
 import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
-import {compareLearnTake,type LearnTakeRow} from './learnTake';
+import {alignLearnTake} from './learnTake';
+import {download} from './io';
 import {practiceTargets,type ChordTarget,type PracticeStaff} from './practiceTargets';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 
 const props=defineProps<{
- instrument:Instrument;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
+ instrument:Instrument;songTitle:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
  initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;display:PracticeDisplay;
  grandStaff:boolean;staffSplit:number;
@@ -92,11 +93,30 @@ const scoreDemoNotes=computed(()=>{
  const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
  return targets.value.filter(note=>note.start<=beat&&beat<note.start+note.duration);
 });
+const takePitchOptions={...DEFAULT_PITCH_POSTPROCESS,pitchBiasCents:0,onsetGridBeats:0,durationGridBeats:0};
 const takeLeadInBeats=0.75;
 const takeReleaseBeats=1;
 const upcoming=computed(()=>targets.value.slice(cursor.value+1,cursor.value+4));
 const demoPlaying=ref(false);
-const takeResult=ref<LearnTakeRow[]|null>(null);
+const takeResult=ref<ReturnType<typeof alignLearnTake>|null>(null);
+const feedbackFilter=ref<'all'|'review'>('all');
+type PracticeTakeExport={
+ version:1;song:string;instrument:Instrument;recordedAt:string;build:string;
+ measureRange:{from:number;to:number;beatsPerMeasure:number};
+ settings:{bpm:number;referenceHz:number;concertTranspose:number;allowAnyOctave:boolean;staff:PracticeStaff;chordTarget:ChordTarget;sensitivity:number};
+ timing:{beatZero:string;frameMidi:string;noteMidi:string;leadInBeats:number;releaseBeats:number;analysisHalfWindowMs:number};
+ postprocessOptions:typeof takePitchOptions;
+ expected:Parameters<typeof alignLearnTake>[0];detected:Parameters<typeof alignLearnTake>[1];
+ alignment:ReturnType<typeof alignLearnTake>;pitchFrames:PitchFrame[];
+};
+const takeExport=shallowRef<PracticeTakeExport|null>(null);
+const feedbackRows=computed(()=>(takeResult.value?.rows??[]).filter(row=>
+ feedbackFilter.value==='all'||row.kind!=='matched'||!row.pitchMatches));
+const takeClockAdjusted=computed(()=>Boolean(takeResult.value&&(
+ Math.abs(takeResult.value.clock.offsetBeats)>.005||Math.abs(takeResult.value.clock.tempoScale-1)>.001)));
+function exportTake(){
+ if(takeExport.value)download(JSON.stringify(takeExport.value,null,2),'tango-arranger-practice-take.json','application/json');
+}
 const takeStatus=computed(()=>{
  const beat=takeBeat.value;
  if(beat===null)return '';
@@ -105,8 +125,8 @@ const takeStatus=computed(()=>{
  return `Recording · measure ${from.value+Math.floor(beat/props.beatsPerMeasure)} · beat ${Math.floor(beat%props.beatsPerMeasure)+1}`;
 });
 const takeSummary=computed(()=>{
- const counts={correct:0,wrong:0,missed:0,extra:0};
- for(const row of takeResult.value??[]){
+ const counts={correct:0,wrong:0,missed:0,extra:0,'unresolved-repeat':0};
+ for(const row of takeResult.value?.rows??[]){
   if(row.kind==='matched')counts[row.pitchMatches?'correct':'wrong']++;
   else counts[row.kind]++;
  }
@@ -141,10 +161,10 @@ let demoTailUntil=0;
 let take:{startMs:number;msPerBeat:number;totalBeats:number;frames:PitchFrame[];targetIndex:number}|null=null;
 
 watch([targets,()=>props.referenceHz,()=>props.concertTranspose,()=>props.bpm],()=>{
- stopDemo();cancelTake();takeResult.value=null;restart();
+ stopDemo();cancelTake();takeResult.value=null;takeExport.value=null;restart();
 });
 watch(allowAnyOctave,()=>{
- cancelTake();takeResult.value=null;stableSince=0;armed=true;accepted.value=false;
+ cancelTake();takeResult.value=null;takeExport.value=null;stableSince=0;armed=true;accepted.value=false;
 });
 watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
  clearTimeout(repeatTimer);
@@ -219,19 +239,31 @@ async function startTake(){
   totalBeats:(to.value-from.value+1)*props.beatsPerMeasure,frames:[],targetIndex:0};
  takeBeat.value=-props.beatsPerMeasure;
 }
-function finishTake(){
+function finishTake(analysisHalfWindowMs:number){
  if(!take)return;
  const {frames,totalBeats}=take;
  const rangeStart=(from.value-1)*props.beatsPerMeasure;
- const performed=reprocessPitchFrames(frames,{
-  ...DEFAULT_PITCH_POSTPROCESS,pitchBiasCents:0,onsetGridBeats:0,durationGridBeats:0,
- },props.concertTranspose,totalBeats+takeLeadInBeats+takeReleaseBeats)
+ const performed=reprocessPitchFrames(frames,takePitchOptions,props.concertTranspose,totalBeats+takeLeadInBeats+takeReleaseBeats)
   .map(note=>({...note,startBeat:note.startBeat-takeLeadInBeats}));
  const expected=targets.value.map(note=>{
   const startBeat=Math.max(0,note.start-rangeStart);
   return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),pitch:targetPitch(note)};
  });
- takeResult.value=compareLearnTake(expected,performed,allowAnyOctave.value);
+ const alignment=alignLearnTake(expected,performed,allowAnyOctave.value);
+ takeResult.value=alignment;
+ feedbackFilter.value='all';
+ takeExport.value={
+  version:1,song:props.songTitle,instrument:props.instrument,recordedAt:new Date().toISOString(),
+  build:import.meta.env.VITE_APP_BUILD_SHA||'',
+  measureRange:{from:from.value,to:to.value,beatsPerMeasure:props.beatsPerMeasure},
+  settings:{bpm:props.bpm,referenceHz:referenceHz.value,concertTranspose:props.concertTranspose,
+   allowAnyOctave:allowAnyOctave.value,staff:props.grandStaff?staff.value:'all',
+   chordTarget:chordTarget.value,sensitivity:sensitivity.value},
+  timing:{beatZero:'Start of selected range after count-in',frameMidi:'Fractional sounding MIDI',
+   noteMidi:'Written MIDI',leadInBeats:takeLeadInBeats,releaseBeats:takeReleaseBeats,analysisHalfWindowMs},
+  postprocessOptions:takePitchOptions,expected,detected:performed,alignment,
+  pitchFrames:frames.map(frame=>({...frame,beat:frame.beat===null?null:frame.beat-takeLeadInBeats})),
+ };
  cancelTake();restart();armed=false;
 }
 function scoreLocation(beat:number){
@@ -312,7 +344,7 @@ async function startMicrophone(){
     if(take){
      const beat=(time-take.startMs)/take.msPerBeat;
      const sampleBeat=beat-analysisHalfWindowMs/take.msPerBeat;
-     if(sampleBeat>=take.totalBeats+takeReleaseBeats)finishTake();
+     if(sampleBeat>=take.totalBeats+takeReleaseBeats)finishTake(analysisHalfWindowMs);
      else{
       takeBeat.value=Math.max(-props.beatsPerMeasure,beat);
       if(sampleBeat>=-takeLeadInBeats)take.frames.push({
@@ -450,22 +482,29 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart">Restart</button>
   </div>
   <section v-if="takeResult" class="learn-feedback" aria-label="Feedback from your last recording">
-   <h3>Last recording</h3>
-   <p>{{takeSummary.correct}} correct pitches · {{takeSummary.wrong}} wrong · {{takeSummary.missed}} missed · {{takeSummary.extra}} extra</p>
-   <p class="hint">Timing and duration are estimates in beats. Negative values mean early or short. Intonation is relative to the expected pitch.</p>
+   <div class="learn-feedback-actions">
+    <h3>Last recording</h3>
+    <label>Show <select v-model="feedbackFilter"><option value="all">All notes</option><option value="review">Notes to review</option></select></label>
+    <button type="button" class="secondary" @click="exportTake">Export take JSON</button>
+   </div>
+   <p>{{takeSummary.correct}} correct pitches · {{takeSummary.wrong}} wrong · {{takeSummary.missed}} undetected · {{takeSummary.extra}} extra<span v-if="takeSummary['unresolved-repeat']"> · {{takeSummary['unresolved-repeat']}} unresolved repeats</span></p>
+   <p v-if="takeClockAdjusted" class="hint">Alignment estimated a start offset of {{signed(takeResult.clock.offsetBeats,' beats')}} and a take tempo of {{(bpm/takeResult.clock.tempoScale).toFixed(1)}} BPM. The onset columns show timing before and after that adjustment.</p>
+   <p class="hint">Timing and duration are in beats. Negative values mean early or short. A sustained detection can cover a repeated pitch without confirming a separate attack.</p>
    <div class="learn-feedback-scroll">
     <table>
-     <thead><tr><th scope="col">Measure · beat</th><th scope="col">Expected</th><th scope="col">Detected</th><th scope="col">Onset</th><th scope="col">Duration</th><th scope="col">Intonation</th></tr></thead>
+     <thead><tr><th scope="col">Measure · beat</th><th scope="col">Expected</th><th scope="col">Detected</th><th scope="col">Raw onset Δ</th><th v-if="takeClockAdjusted" scope="col">Aligned onset Δ</th><th scope="col">Duration Δ</th><th scope="col">Intonation</th></tr></thead>
      <tbody>
-      <tr v-for="(row,index) in takeResult" :key="index">
+      <tr v-for="(row,index) in feedbackRows" :key="index">
        <td>{{scoreLocation(row.kind==='extra'?row.played.startBeat:row.target.startBeat)}}</td>
        <td>{{row.kind==='extra'?'—':pitchLabel(row.target.pitch+concertTranspose)}}</td>
        <td :class="{'learn-feedback-wrong':row.kind!=='matched'||!row.pitchMatches}">
-        <template v-if="row.kind==='missed'">Missed</template>
+        <template v-if="row.kind==='missed'">No detection</template>
+        <template v-else-if="row.kind==='unresolved-repeat'">Repeat unresolved</template>
         <template v-else>{{pitchLabel(row.played.pitch+concertTranspose)}}{{row.kind==='extra'?' · extra':!row.pitchMatches?' · wrong':row.played.pitch!==row.target.pitch?' · octave match':''}}</template>
        </td>
        <td>{{row.kind==='matched'?signed(row.played.startBeat-row.target.startBeat,''):'—'}}</td>
-       <td>{{row.kind==='matched'?signed(row.played.durationBeats-row.target.durationBeats,''):row.kind==='extra'?row.played.durationBeats.toFixed(2):'—'}}</td>
+       <td v-if="takeClockAdjusted">{{row.kind==='matched'?signed((row.played.startBeat-takeResult.clock.offsetBeats)/takeResult.clock.tempoScale-row.target.startBeat,''):'—'}}</td>
+       <td>{{row.kind==='matched'?signed(row.played.durationBeats/takeResult.clock.tempoScale-row.target.durationBeats,''):row.kind==='extra'?row.played.durationBeats.toFixed(2)+' beats':'—'}}</td>
        <td>{{row.kind==='matched'&&row.pitchMatches?signed(row.played.intonationCents,'¢',0):'—'}}</td>
       </tr>
      </tbody>
@@ -532,6 +571,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-target .learn-companion-notes{max-width:100%;overflow-wrap:anywhere;color:#aebfcd}
 .learn-take-status{margin:0;text-align:center;font-weight:650;color:#f4d49e}
 .learn-feedback{min-width:0;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
+.learn-feedback-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px}
+.learn-feedback-actions h3{margin-right:auto}
+.learn-feedback-actions label{display:flex;align-items:center;gap:6px}
 .learn-feedback h3,.learn-feedback p{margin:0 0 5px}
 .learn-feedback-scroll{overflow-x:auto;max-height:320px}
 .learn-feedback table{width:100%;border-collapse:collapse;white-space:nowrap;font-variant-numeric:tabular-nums}

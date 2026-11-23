@@ -26,7 +26,7 @@ assert.match(component,/selectedRange|measures \{\{from\}\}–\{\{to\}\}/);
 assert.match(component,/aria-label="Target-aware pitch tuner"/);
 assert.match(component,/Record for feedback/);
 assert.match(component,/reprocessPitchFrames\(frames/);
-assert.match(component,/compareLearnTake\(expected,performed,allowAnyOctave\.value\)/);
+assert.match(component,/alignLearnTake\(expected,performed,allowAnyOctave\.value\)/);
 assert.match(component,/const voiceAnyOctave=ref\(true\)/);
 assert.match(component,/family\.value==='Voice'&&voiceAnyOctave\.value/);
 assert.match(icons,/'graduation-cap'/);
