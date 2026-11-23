@@ -56,20 +56,6 @@ const combinedScore=computed(()=>layout.value==='score-diagram');
 const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram');
 const showGuide=computed(()=>layout.value!=='diagram');
 const completedTargets=ref(new Set<Note>());
-const scorePanel=ref<HTMLElement|null>(null);
-const scorePanelWidth=ref(0);
-watch(scorePanel,(panel,_,onCleanup)=>{
- if(!panel)return;
- scorePanelWidth.value=panel.clientWidth;
- const observer=new ResizeObserver(([entry])=>{scorePanelWidth.value=entry.contentRect.width;});
- observer.observe(panel);
- onCleanup(()=>observer.disconnect());
-},{flush:'post'});
-const measuresPerPage=computed(()=>{
- const width=scorePanelWidth.value;
- if(combinedScore.value)return width>=600?6:width>=360?5:3;
- return width>=1000?12:width>=650?10:width>=420?8:6;
-});
 const takeBeat=ref<number|null>(null);
 const demoBeat=ref<number|null>(null);
 const scoreMeasure=computed(()=>{
@@ -78,13 +64,7 @@ const scoreMeasure=computed(()=>{
  const note=current.value??targets.value.at(-1);
  return note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
 });
-const scoreFrom=computed(()=>{
- const size=measuresPerPage.value;
- return from.value+Math.floor(Math.max(0,scoreMeasure.value-from.value)/size)*size;
-});
-const scoreTo=computed(()=>Math.min(to.value,scoreFrom.value+measuresPerPage.value-1));
-const scoreCompleted=computed(()=>[...completedTargets.value].filter(note=>
- note.start<scoreTo.value*props.beatsPerMeasure&&note.start+note.duration>(scoreFrom.value-1)*props.beatsPerMeasure));
+const scoreCompleted=computed(()=>[...completedTargets.value]);
 const scoreDemoNotes=computed(()=>{
  if(demoBeat.value===null)return [];
  const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
@@ -373,11 +353,14 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore}">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
-    <div v-if="showScore" ref="scorePanel" class="learn-score-panel">
-     <slot name="score" :from="scoreFrom" :to="scoreTo" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
-     <small v-if="demoPlaying" class="learn-score-legend">Listening · measure {{scoreMeasure}}</small>
-     <small v-else-if="current" class="learn-score-legend">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</small>
-     <small v-else-if="!targets.length" class="learn-score-legend">No written notes in this range.</small>
+    <div v-if="showScore" class="learn-score-panel">
+     <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
+     <small class="learn-score-legend">
+      <template v-if="demoPlaying">Listening · measure {{scoreMeasure}}</template>
+      <template v-else-if="current">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</template>
+      <template v-else-if="done">{{autoRepeat?'Starting again…':'Pass complete'}}</template>
+      <template v-else>No written notes in this range.</template>
+     </small>
     </div>
     <div v-else-if="current" class="learn-note-cards">
      <div class="learn-target learn-target-current" aria-live="polite">
@@ -534,7 +517,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 @media(max-width:380px){.learn-mic-row meter{max-width:24%;width:60px;flex-basis:60px}.learn-tuner-title .learn-mic-toggle{min-width:69px;padding:4px 6px}}
 
 .learn-workspace-score{max-width:none;align-self:stretch}
-.learn-score-panel{min-width:0}
+.learn-score-panel{min-width:0;--score-follow-height:clamp(285px,54dvh,560px)}
+.learn-display-combined .learn-score-panel{--score-follow-height:clamp(225px,36dvh,380px)}
+.learn-score-panel .learn-score-legend{display:block;min-height:1.35em}
 .learn-display-combined{
  grid-template-columns:minmax(0,1fr);
  grid-template-rows:auto auto auto;

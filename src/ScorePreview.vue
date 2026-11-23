@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
-import {OpenSheetMusicDisplay} from 'opensheetmusicdisplay';
+import {OpenSheetMusicDisplay,type MusicSystem} from 'opensheetmusicdisplay';
 import {exportMusicXml} from './io';
 import {midiName,type Instrument,type Note,type Project,type Score} from './music';
 import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
@@ -16,6 +16,7 @@ const props=withDefaults(defineProps<{
   playingNotes?:readonly Note[];
   activeMeasure?:number;
   expanded?:boolean;
+  followMeasure?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
 const emit=defineEmits<{select:[note:Note];edit:[]}>();
@@ -46,6 +47,7 @@ let highlightedHeads:SVGElement[]=[];
 let completedHeads:SVGElement[]=[];
 let playingHeads=new Set<SVGElement>();
 let measureGroups:SVGGElement[]=[];
+let followedSystem:MusicSystem|undefined;
 
 function noteLabel(note:Note){
   const measure=Math.floor((note.start+1e-7)/props.project.beats);
@@ -87,7 +89,24 @@ function highlightActiveMeasure(){
       const group=staff?.getSVGGElement();
       return group&&container.contains(group)?[group]:[];
     });
+  // Progressive layout can rebuild graphical measures while their original SVG
+  // stays on screen. Resolve that case within this score's own container.
+  if(props.followMeasure&&container&&measure!==undefined&&!measureGroups.length)
+    measureGroups=[...container.querySelectorAll<SVGGElement>(`g[id^="osmd-m${measure-1}-"]`)];
   for(const group of measureGroups)group.classList.add('score-measure-active');
+  if(props.followMeasure&&container&&measure!==undefined&&measureGroups.length){
+    const system=osmd?.GraphicSheet.MeasureList[measure-1]?.[0]?.ParentMusicSystem;
+    if(system&&system!==followedSystem){
+      const tops=(system.StaffLines[0]?.Measures??[]).flatMap(staff=>{
+        const group=staff.getSVGGElement();
+        return group&&container.contains(group)?[group.getBoundingClientRect().top]:[];
+      });
+      const systemTop=tops.length?Math.min(...tops):measureGroups[0].getBoundingClientRect().top;
+      followedSystem=system;
+      const top=systemTop-container.getBoundingClientRect().top;
+      container.scrollTop=Math.max(0,container.scrollTop+top-24);
+    }
+  }
   highlightPlayback();
 }
 
@@ -163,12 +182,14 @@ function renderRange(){
   renderer.zoom=props.expanded&&observedWidth>=320?1.18:1;
   renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last,stretchLastSystemLine:props.expanded});
   renderer.resetIncrementalRendering();
+  followedSystem=undefined;
   loading.value=true;
   error.value='';
   const draw=()=>{
     try{
       if(last-first<12)renderer.render();
       else if(!renderer.renderNext({measures:12}).done){
+        if(props.followMeasure)bindNoteheads();
         layoutFrame=requestAnimationFrame(draw);
         return;
       }
@@ -261,9 +282,10 @@ onBeforeUnmount(()=>{
       <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
       <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
     </div>
-    <p v-if="loading" class="score-preview-status" role="status">Engraving score…</p>
+    <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
-    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive}" :aria-busy="loading" @click="onScoreClick" @keydown="onScoreKey" />
+    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure}" :aria-busy="loading"
+      :tabindex="followMeasure?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':undefined" @click="onScoreClick" @keydown="onScoreKey" />
   </section>
 </template>
 
@@ -272,6 +294,7 @@ onBeforeUnmount(()=>{
 .score-preview-status{margin:0 0 6px}
 .score-preview-selection{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:.85rem}
 .score-preview-canvas{min-height:92px;overflow-x:auto}
+.score-preview-follow{height:var(--score-follow-height,300px);overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}
 .score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto}
 .score-preview-expanded .score-preview-canvas :deep(svg){margin-inline:auto}
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
