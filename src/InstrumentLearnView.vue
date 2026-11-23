@@ -6,7 +6,7 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'ov
 import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
 import {instrumentFamily,partStaffForNote,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
-import {deviationCents,expectedFrequency,sensitivityThresholdDb} from './learnPitch';
+import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensitivityThresholdDb} from './learnPitch';
 import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
 import {alignLearnTake} from './learnTake';
 import {download} from './io';
@@ -42,7 +42,7 @@ const overlayPaper=ref(60);
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
 const referenceHz=computed(()=>props.referenceHz);
-const sensitivity=ref(55);
+const sensitivity=ref(100);
 const inputDb=ref<number|null>(null);
 const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
@@ -56,7 +56,6 @@ const listening=ref(false);
 const busy=ref(false);
 const frequency=ref<number|null>(null);
 const detectedMidi=ref<number|null>(null);
-const detectedClarity=ref<number|null>(null);
 const accepted=ref(false);
 const family=computed(()=>instrumentFamily(props.instrument));
 const voiceAnyOctave=ref(true);
@@ -75,6 +74,8 @@ function otherPitches(note:Note){
 }
 const current=computed(()=>targets.value[cursor.value]??null);
 const targetMidi=computed(()=>current.value===null?null:targetPitch(current.value)+props.concertTranspose);
+const detectedPitchMatches=computed(()=>detectedMidi.value!==null&&targetMidi.value!==null&&
+ matchesPracticePitch(detectedMidi.value,targetMidi.value,allowAnyOctave.value));
 const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value,allowAnyOctave.value)??0):null);
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
@@ -317,7 +318,7 @@ function stopMicrophone(){
  const previous=audio;audio=null;
  if(previous)void previous.close().catch(()=>{});
  listening.value=false;busy.value=false;inputDb.value=null;
- frequency.value=null;detectedMidi.value=null;detectedClarity.value=null;
+ frequency.value=null;detectedMidi.value=null;
  stableSince=0;armed=true;accepted.value=false;
  micStatus.value='Microphone off';
 }
@@ -369,8 +370,8 @@ async function startMicrophone(){
     }
     const reading=gain&&!demoPlaying.value&&time>=demoTailUntil?detectMonophonicPitch(normalized,sampleRate/stride,minHz,maxHz):null;
     frequency.value=reading?.frequency??null;
-    detectedMidi.value=reading&&reading.clarity>=0.7?reading.midi:null;
-    detectedClarity.value=reading?.clarity??null;
+    const midi=reading?practiceMidi(reading.frequency,referenceHz.value):null;
+    detectedMidi.value=midi!==null&&reading&&reading.clarity>=0.7?Math.round(midi):null;
     if(take){
      const beat=(time-take.startMs)/take.msPerBeat;
      const sampleBeat=beat-analysisHalfWindowMs/take.msPerBeat;
@@ -379,7 +380,7 @@ async function startMicrophone(){
       takeBeat.value=Math.max(-props.beatsPerMeasure,beat);
       if(sampleBeat>=-takeLeadInBeats)take.frames.push({
        timeSeconds:(time-take.startMs-analysisHalfWindowMs)/1000,beat:sampleBeat+takeLeadInBeats,
-       midi:reading?69+12*Math.log2(reading.frequency/referenceHz.value):null,
+       midi,
        clarity:reading?.clarity??null,levelDbfs:levelDb,
       });
       const absoluteBeat=(from.value-1)*props.beatsPerMeasure+Math.max(0,beat);
@@ -460,6 +461,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     <div v-if="overlayScore" class="learn-overlay-cue">
      <strong>{{guideMidi!==null?pitchLabel(guideMidi):demoPlaying?'Rest':'—'}}</strong>
      <span v-if="fingeringCue">{{fingeringCue}}</span>
+     <span v-if="listening&&!demoPlaying" class="learn-overlay-detected" :class="{'pitch-matched':detectedPitchMatches}">
+      Heard <b>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</b>
+     </span>
     </div>
     <div v-if="showScore" class="learn-score-panel">
      <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
@@ -494,6 +498,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy" @click="startMicrophone"><span aria-hidden="true">🎙</span> {{busy?'Starting…':listening?'Mic on':'Mic off'}}</button>
     <strong>Intonation · {{current?pitchLabel(targetMidi??current.pitch):'—'}}</strong>
     <span :class="{'learn-in-tune':nearTarget}">{{cents===null?'—':(cents>0?'+':'')+cents+'¢'}}</span>
+   </div>
+   <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
+    <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
    </div>
    <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
     <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
@@ -729,6 +736,11 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-display-overlay :deep(.diagram-violin-position){display:none}
 .learn-overlay-cue{min-height:36px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#132f41}
 .learn-overlay-cue strong{background:#ffe0a2;border:1px solid #9b5a21;border-radius:6px;padding:2px 7px;font-size:clamp(18px,3vw,29px);line-height:1.1}
+.learn-overlay-detected,.learn-detected-pitch{display:inline-flex;align-items:center;gap:6px;padding:3px 7px;border:1px solid #a6b8c5;border-radius:6px;background:#223948;color:#eaf3fa}
+.learn-overlay-detected{margin-left:auto}
+.learn-detected-pitch{align-self:flex-start;font-size:12px}
+.learn-detected-pitch strong,.learn-overlay-detected b{font-size:clamp(16px,2.2vw,23px);line-height:1.1}
+.learn-overlay-detected.pitch-matched,.learn-detected-pitch.pitch-matched{color:#d2ffe4;background:#235447;border-color:#8ad9af}
 .learn-overlay-cue span{font-size:clamp(12px,1.8vw,18px);font-weight:700}
 .learn-display-overlay :deep(.diagram-string-stop){border-top-color:#7896a9}
 .learn-display-overlay :deep(.diagram-string-stop.is-measure-note:not(.is-learn-target)){background:#9db8c9}

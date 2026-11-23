@@ -3,6 +3,9 @@ export function expectedFrequency(midi:number,referenceHz:number):number{
  if(!Number.isFinite(midi)||!Number.isFinite(referenceHz)||referenceHz<=0)throw Error('Invalid tuning');
  return referenceHz*Math.pow(2,(midi-69)/12);
 }
+export function practiceMidi(frequency:number,referenceHz:number):number{
+ return 69+12*Math.log2(frequency/referenceHz);
+}
 export function deviationCents(frequency:number,midi:number,referenceHz:number,allowAnyOctave=false):number|null{
  if(!Number.isFinite(frequency)||frequency<=0)return null;
  const cents=1200*Math.log2(frequency/expectedFrequency(midi,referenceHz));
