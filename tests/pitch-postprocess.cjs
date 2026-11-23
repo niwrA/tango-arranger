@@ -30,6 +30,18 @@ test('a short consonant-like break can separate two identical notes',()=>{
  const notes=reprocessPitchFrames(frames([...Array(9).fill(48),null,null,...Array(9).fill(48)]),settings(),0,4);
  assert.equal(notes.length,2);assert.deepEqual(Array.from(notes,n=>n.pitch),[48,48]);
 });
+test('three repeated same-pitch attacks with audible valleys are separated',()=>{
+ const input=frames(Array(36).fill(69));
+ for(const i of [12,24])input[i].levelDbfs=-61;
+ const notes=reprocessPitchFrames(input,settings({onsetGridBeats:0,durationGridBeats:0}),0,5);
+ assert.equal(notes.length,3);
+ assert.deepEqual(Array.from(notes,n=>n.pitch),[69,69,69]);
+});
+test('smooth dynamics on a sustained note do not create false repeats',()=>{
+ const input=frames(Array(36).fill(69));
+ input.forEach((f,i)=>{f.levelDbfs=-40-10*i/35;});
+ assert.equal(reprocessPitchFrames(input,settings({onsetGridBeats:0,durationGridBeats:0}),0,5).length,1);
+});
 test('brief tracking dropouts without a clear dip can remain one note',()=>{
  const input=frames([...Array(9).fill(48),null,...Array(9).fill(48)]);
  input[9].levelDbfs=-45;
