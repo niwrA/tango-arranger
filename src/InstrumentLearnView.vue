@@ -13,6 +13,7 @@ import {download} from './io';
 import {practiceTargets,type ChordTarget,type PracticeStaff} from './practiceTargets';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import MeasureRangeControl from './MeasureRangeControl.vue';
+import PracticeTakeTimeline from './PracticeTakeTimeline.vue';
 
 const props=defineProps<{
  instrument:Instrument;songTitle:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
@@ -100,6 +101,7 @@ const upcoming=computed(()=>targets.value.slice(cursor.value+1,cursor.value+4));
 const demoPlaying=ref(false);
 const takeResult=ref<ReturnType<typeof alignLearnTake>|null>(null);
 const feedbackFilter=ref<'all'|'review'>('all');
+const feedbackView=ref<'timeline'|'table'>('timeline');
 type PracticeTakeExport={
  version:1;song:string;instrument:Instrument;recordedAt:string;build:string;
  measureRange:{from:number;to:number;beatsPerMeasure:number};
@@ -484,11 +486,19 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <section v-if="takeResult" class="learn-feedback" aria-label="Feedback from your last recording">
    <div class="learn-feedback-actions">
     <h3>Last recording</h3>
+    <div class="learn-feedback-switch" role="group" aria-label="Recording feedback view">
+     <button type="button" :class="feedbackView==='timeline'?'primary':'secondary'" :aria-pressed="feedbackView==='timeline'" @click="feedbackView='timeline'">Timeline</button>
+     <button type="button" :class="feedbackView==='table'?'primary':'secondary'" :aria-pressed="feedbackView==='table'" @click="feedbackView='table'">Note details</button>
+    </div>
     <label>Show <select v-model="feedbackFilter"><option value="all">All notes</option><option value="review">Notes to review</option></select></label>
     <button type="button" class="secondary" @click="exportTake">Export take JSON</button>
    </div>
-   <p>{{takeSummary.correct}} correct pitches · {{takeSummary.wrong}} wrong · {{takeSummary.missed}} undetected · {{takeSummary.extra}} extra<span v-if="takeSummary['unresolved-repeat']"> · {{takeSummary['unresolved-repeat']}} unresolved repeats</span></p>
-   <p v-if="takeClockAdjusted" class="hint">Alignment estimated a start offset of {{signed(takeResult.clock.offsetBeats,' beats')}} and a take tempo of {{(bpm/takeResult.clock.tempoScale).toFixed(1)}} BPM. The onset columns show timing before and after that adjustment.</p>
+   <p v-if="feedbackView==='table'">{{takeSummary.correct}} correct pitches · {{takeSummary.wrong}} wrong · {{takeSummary.missed}} undetected · {{takeSummary.extra}} extra<span v-if="takeSummary['unresolved-repeat']"> · {{takeSummary['unresolved-repeat']}} unresolved repeats</span></p>
+   <p v-if="takeClockAdjusted" class="hint">Alignment estimated a start offset of {{signed(takeResult.clock.offsetBeats,' beats')}} and a take tempo of {{(bpm/takeResult.clock.tempoScale).toFixed(1)}} BPM. The timeline uses the adjusted timing.</p>
+   <PracticeTakeTimeline v-if="feedbackView==='timeline'" :rows="takeResult.rows" :clock="takeResult.clock"
+    :from="from" :to="to" :beats="beatsPerMeasure" :review-only="feedbackFilter==='review'"
+    :transpose="concertTranspose" :pitch-label="pitchLabel"/>
+   <template v-else>
    <p class="hint">Timing and duration are in beats. Negative values mean early or short. A sustained detection can cover a repeated pitch without confirming a separate attack.</p>
    <div class="learn-feedback-scroll">
     <table>
@@ -510,6 +520,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      </tbody>
     </table>
    </div>
+   </template>
   </section>
  </section>
 </template>
@@ -573,6 +584,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-feedback{min-width:0;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
 .learn-feedback-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px}
 .learn-feedback-actions h3{margin-right:auto}
+.learn-feedback-switch{display:flex;gap:4px}
 .learn-feedback-actions label{display:flex;align-items:center;gap:6px}
 .learn-feedback h3,.learn-feedback p{margin:0 0 5px}
 .learn-feedback-scroll{overflow-x:auto;max-height:320px}

@@ -77,6 +77,25 @@ function detection(pitch,startBeat,durationBeats=.5){
  assert.equal(result.rows.every(r=>r.kind==='missed'),true);
  assert.deepEqual(result.clock,{offsetBeats:0,tempoScale:1});
 }
+{
+ const {practiceFeedbackMeasures,feedbackStatus}=load('src/practiceFeedbackTimeline.ts');
+ const rows=[
+  {kind:'matched',target:{pitch:70,startBeat:2.5,durationBeats:1},played:detection(71,5.5,2),pitchMatches:false},
+  {kind:'unresolved-repeat',target:{pitch:70,startBeat:3.5,durationBeats:.5},played:detection(70,5,4)},
+  {kind:'extra',played:detection(74,.5,1)},
+  {kind:'missed',target:{pitch:72,startBeat:4,durationBeats:1}},
+ ];
+ const measures=practiceFeedbackMeasures(rows,{offsetBeats:1,tempoScale:2},3,2);
+ assert.deepEqual(measures.map(m=>m.index),[-1,0,1]);
+ assert.equal(measures[0].detected[0].status,'extra');
+ assert.equal(measures[1].expected[0].start,2.5);
+ assert.equal(measures[1].expected[0].duration,.5);
+ assert.equal(measures[1].detected.find(s=>s.row===0).start,2.25);
+ assert.equal(measures[2].detected[0].continuation,true);
+ assert.deepEqual(measures[2].expected.map(s=>s.status),['wrong','unresolved-repeat','missed']);
+ assert.equal(measures[2].detected.some(s=>s.row===1),false);
+ assert.equal(feedbackStatus(rows[3]),'missed');
+}
 const {practiceTargets}=load('src/practiceTargets.ts');
 const bass={pitch:48,start:0,duration:1};
 const middle={pitch:55,start:0,duration:1};
