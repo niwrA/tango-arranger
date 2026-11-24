@@ -75,6 +75,10 @@ check('no notes produces no position and impossible notes are not assigned',()=>
 check('diagram position labels and finger cells preserve fixed-height cards',()=>{
  assert.ok(diagram.includes('props.positionGuide?positionWindow(props.positionGuide)'));
  assert.ok(diagram.includes('diagram-guided-string-row'));
+ assert.ok(diagram.includes('.filter(offset=>offset>0)'), 'open string must not be duplicated as stop zero');
+ assert.ok(diagram.includes('diagram-stop-header'), 'the open and stopped positions should be labeled');
+ assert.ok(diagram.includes('fingerboardColumns'), 'open and stopped cells should use the same grid geometry');
+
  assert.ok(diagram.includes('isPlannedStringPitch('));
  assert.ok(diagram.includes('stringAnchorLabel('));
  assert.ok(diagram.includes('diagram-bass-fingerboard'));
