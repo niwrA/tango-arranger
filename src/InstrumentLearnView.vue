@@ -859,7 +859,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
  .learn-display-overlay :deep(.diagram-measure-chords),.learn-display-overlay :deep(.diagram-upcoming-measure){display:grid}
  .learn-display-overlay :deep(.diagram-string-stop span),.learn-display-overlay :deep(.diagram-open-label strong){color:inherit}
  .learn-display-overlay .learn-progress,.learn-display-overlay .learn-score-legend{color:#b7cbd8}
- .learn-display-overlay .learn-score-panel{--score-paper:#f8fafc}
+ /* Overlay paper opacity is inherited from the active slider at every width. */
  .learn-tuner{display:grid;grid-template-columns:minmax(0,auto) minmax(100px,1fr);align-items:center;column-gap:12px}
  .learn-tuner-title{grid-column:1;grid-row:1/3;justify-content:flex-start}
  .learn-tuner-meter{grid-column:2;grid-row:1;height:12px}
@@ -909,7 +909,14 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-score-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .learn-score-panel :deep(.score-preview){flex:1 1 auto;min-height:0;display:flex;flex-direction:column;margin:4px 0}
 .learn-score-panel :deep(.score-preview-follow){height:0;flex:1 1 auto;min-height:92px}
-.learn-display-overlay .learn-score-panel :deep(.score-preview){background:var(--score-paper)}
+.learn-display-overlay .learn-score-panel :deep(.score-preview){background:var(--score-paper)!important}
+.learn-display-overlay .learn-score-panel :deep(.score-preview-canvas),
+.learn-display-overlay .learn-score-panel :deep(.score-preview-canvas svg){background:transparent!important}
+.learn-display-overlay>.learn-diagram{grid-area:overlay;align-self:stretch;justify-content:center}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram){height:100%;width:100%;min-height:0}
+.learn-display-overlay>.learn-diagram :deep(.diagram-visual-stage){flex:1 1 auto;min-height:0;width:100%;display:flex;align-items:center}
+.learn-display-overlay>.learn-diagram :deep(.diagram-fingerboard){width:100%;max-width:none}
+
 .learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn){align-self:stretch;justify-content:center}
 .learn-overlay-cue{color:inherit}
 @media(min-width:900px) and (orientation:landscape){
