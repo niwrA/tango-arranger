@@ -580,7 +580,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <p v-if="takeClockAdjusted" class="hint">Alignment estimated a start offset of {{signed(takeResult.clock.offsetBeats,' beats')}} and a take tempo of {{(bpm/takeResult.clock.tempoScale).toFixed(1)}} BPM. The timeline uses the adjusted timing.</p>
    <PracticeTakeTimeline v-if="feedbackView==='timeline'" :rows="takeResult.rows" :clock="takeResult.clock"
     :from="from" :to="to" :beats="beatsPerMeasure" :review-only="feedbackFilter==='review'"
-    :transpose="concertTranspose" :pitch-label="pitchLabel"/>
+    :transpose="concertTranspose" :pitch-label="pitchLabel" :pitch-frames="takeExport?.pitchFrames"/>
    <template v-else>
    <p class="hint">Timing and duration are in beats. Negative values mean early or short. A sustained detection can cover a repeated pitch without confirming a separate attack.</p>
    <div class="learn-feedback-scroll">
