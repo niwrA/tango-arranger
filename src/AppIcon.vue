@@ -1,6 +1,7 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'|'staff'|'fingerboard'|'split-view'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'|'staff'|'fingerboard'|'split-view'|'tuning-fork'}>();
 const paths:Record<typeof props.name,string>={
+  'tuning-fork':'M12 3v9 M8 3v7a4 4 0 0 0 8 0V3 M12 14v7 M8 21h8',
   plus:'M12 5v14 M5 12h14',
   save:'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z M7 3v6h10V4 M7 21v-8h10v8',
   upload:'M12 16V3 M7 8l5-5 5 5 M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3',

@@ -69,6 +69,7 @@ const sensitivity=ref(100);
 const inputDb=ref<number|null>(null);
 const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
+const autoTuner=ref(false);
 const tolerance=ref(20);
 const holdMs=ref(400); // 0 = written note duration; -1 = tango sounding duration
 const previewDuration=ref<'tango'|'written'>('tango');
@@ -103,7 +104,11 @@ const detectedPitchMatches=computed(()=>detectedMidi.value!==null&&targetMidi.va
  matchesPracticePitch(detectedMidi.value,targetMidi.value,allowAnyOctave.value));
 const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value,allowAnyOctave.value)??0):null);
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
+const autoTunerMidi=computed(()=>frequency.value!==null&&Number.isFinite(frequency.value)&&frequency.value>0?Math.round(practiceMidi(frequency.value,referenceHz.value)):null);
+const autoTunerCents=computed(()=>autoTunerMidi.value!==null&&frequency.value!==null?Math.round(deviationCents(frequency.value,autoTunerMidi.value,referenceHz.value)??0):null);
+const displayedCents=computed(()=>autoTuner.value?autoTunerCents.value:cents.value);
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
+const tunerInTune=computed(()=>displayedCents.value!==null&&Math.abs(displayedCents.value)<=tolerance.value);
 const requiredHoldMs=computed(()=>{
  if(!current.value)return holdMs.value>0?holdMs.value:400;
  if(holdMs.value===-1)return Math.max(55,noteSoundingDuration(current.value)*60000/props.bpm);
@@ -429,7 +434,8 @@ async function startMicrophone(){
       while(take.targetIndex+1<targets.value.length&&targets.value[take.targetIndex+1].start<=absoluteBeat+1e-6)take.targetIndex++;
       cursor.value=take.targetIndex;
      }
-    }else if(demoPlaying.value||time<demoTailUntil){stableSince=0;heldProgress.value=0;}
+    }else if(autoTuner.value){stableSince=0;heldProgress.value=0;accepted.value=false;armed=true;}
+    else if(demoPlaying.value||time<demoTailUntil){stableSince=0;heldProgress.value=0;}
     else if(!current.value){
      stableSince=0;
      const last=targets.value.at(-1);
@@ -502,7 +508,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
   </Teleport>
   <Teleport to="#practice-learn-tuner">
-  <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
+  <div class="learn-tuner" role="region" :aria-label="autoTuner?'Automatic chromatic tuner':'Target-aware pitch tuner'">
    <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
      <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
      <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
@@ -510,26 +516,27 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart" aria-label="Restart" title="Restart"><AppIcon name="refresh-cw"/></button>
     </div>
     
-    <strong>Intonation · {{current?pitchLabel(targetMidi??current.pitch):'—'}}</strong>
-    <span :class="{'learn-in-tune':nearTarget}">{{cents===null?'—':(cents>0?'+':'')+cents+'¢'}}</span>
+    <button v-if="microphoneSupported" type="button" class="secondary" :aria-pressed="autoTuner" :title="autoTuner?'Return to score-note intonation':'Automatic chromatic tuner'" :aria-label="autoTuner?'Switch to score-note tuner':'Switch to automatic chromatic tuner'" :disabled="takeBeat!==null" @click="autoTuner=!autoTuner;stableSince=0;heldProgress=0;accepted=false;armed=true"><AppIcon name="tuning-fork"/></button>
+    <strong>{{autoTuner?'Auto tuner':'Intonation'}} · {{autoTuner?(autoTunerMidi===null?'—':pitchLabel(autoTunerMidi)):(current?pitchLabel(targetMidi??current.pitch):'—')}}</strong>
+    <span :class="{'learn-in-tune':tunerInTune}">{{displayedCents===null?'—':(displayedCents>0?'+':'')+displayedCents+'¢'}}</span>
    </div>
    <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
     <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
    </div>
-   <div v-if="listening&&!demoPlaying" class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
+   <div v-if="listening&&!demoPlaying&&!autoTuner" class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
       <strong>{{intonationFeedback}}</strong><span v-if="cents!==null&&detectedPitchMatches">{{cents>0?'+':''}}{{cents}}¢</span>
       <span v-if="current">{{Math.round(requiredHoldMs)}} ms target</span>
      </div>
-    <div v-if="listening&&!demoPlaying" class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{width:(heldProgress*100)+'%'}"></span></div>
-    <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
+    <div v-if="listening&&!demoPlaying&&!autoTuner" class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{width:(heldProgress*100)+'%'}"></span></div>
+    <div class="learn-tuner-meter" role="meter" :aria-label="autoTuner?'Pitch deviation from nearest chromatic note':'Pitch deviation from expected note'" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="displayedCents===null?undefined:Math.max(-50,Math.min(50,displayedCents))">
     <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
     <div class="learn-meter-center"></div>
-    <div v-if="cents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+cents/2))+'%'}"></div>
+    <div v-if="displayedCents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+displayedCents/2))+'%'}"></div>
    </div>
    <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
    <div class="learn-mic-row">
     <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
-    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
+    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{!autoTuner&&accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="!autoTuner&&targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
    </div>
   </div>
   </Teleport>
