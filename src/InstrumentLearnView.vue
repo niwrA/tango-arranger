@@ -47,7 +47,7 @@ const inputDb=ref<number|null>(null);
 const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
 const tolerance=ref(20);
-const holdMs=ref(400);
+const holdMs=ref(400); // 0 = written note duration
 const autoAdvance=ref(true);
 const autoRepeat=ref(true);
 const cursor=ref(0);
@@ -79,6 +79,15 @@ const detectedPitchMatches=computed(()=>detectedMidi.value!==null&&targetMidi.va
 const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value,allowAnyOctave.value)??0):null);
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
+const requiredHoldMs=computed(()=>holdMs.value===0&&current.value?Math.max(100,current.value.duration*60000/props.bpm):holdMs.value);
+const heldProgress=ref(0);
+const intonationFeedback=computed(()=>{
+ if(!listening.value||cents.value===null||detectedMidi.value===null)return 'Waiting for note';
+ if(!detectedPitchMatches.value)return 'Different note';
+ if(cents.value < -tolerance.value)return 'Too low';
+ if(cents.value > tolerance.value)return 'Too high';
+ return 'In tune';
+});
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
 const overlayScore=computed(()=>layout.value==='overlay');
 const showScore=computed(()=>layout.value==='score'||layout.value==='score-diagram'||overlayScore.value);
@@ -194,7 +203,7 @@ watch([targets,()=>props.referenceHz,()=>props.concertTranspose,()=>props.bpm],(
  stopDemo();cancelTake();takeResult.value=null;takeExport.value=null;restart();
 });
 watch(allowAnyOctave,()=>{
- cancelTake();takeResult.value=null;takeExport.value=null;stableSince=0;armed=true;accepted.value=false;
+ cancelTake();takeResult.value=null;takeExport.value=null;stableSince=0;heldProgress.value=0;armed=true;accepted.value=false;
 });
 watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
  clearTimeout(repeatTimer);
@@ -206,12 +215,12 @@ watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
 });
 function moveCursor(direction:number){
  cursor.value=Math.max(0,Math.min(targets.value.length,cursor.value+direction));
- stableSince=0;armed=false;accepted.value=false;
+ stableSince=0;heldProgress.value=0;armed=false;accepted.value=false;
 }
 function restart(){
  clearTimeout(repeatTimer);
  completedTargets.value.clear();
- cursor.value=0;stableSince=0;armed=true;accepted.value=false;
+ cursor.value=0;stableSince=0;heldProgress.value=0;armed=true;accepted.value=false;
 }
 function stopDemo(){
  clearTimeout(demoTimer);
@@ -387,7 +396,7 @@ async function startMicrophone(){
       while(take.targetIndex+1<targets.value.length&&targets.value[take.targetIndex+1].start<=absoluteBeat+1e-6)take.targetIndex++;
       cursor.value=take.targetIndex;
      }
-    }else if(demoPlaying.value||time<demoTailUntil){stableSince=0;}
+    }else if(demoPlaying.value||time<demoTailUntil){stableSince=0;heldProgress.value=0;}
     else if(!current.value){
      stableSince=0;
      const last=targets.value.at(-1);
@@ -398,8 +407,9 @@ async function startMicrophone(){
      stableSince=0;armed=true;accepted.value=false;
     }else if(armed){
      if(!stableSince)stableSince=time;
-     if(time-stableSince>=holdMs.value){
-      accepted.value=true;stableSince=0;armed=false;
+     heldProgress.value=Math.min(1,(time-stableSince)/requiredHoldMs.value);
+      if(time-stableSince>=requiredHoldMs.value){
+      accepted.value=true;heldProgress.value=1;stableSince=0;armed=false;
       completedTargets.value.add(current.value);
       if(autoAdvance.value&&cursor.value<targets.value.length)cursor.value++;
      }
@@ -436,7 +446,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
-   <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
+   <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option><option :value="0">Note length (score duration)</option></select></label>
    <label v-if="grandStaff">Practice staff
     <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>
    </label>
@@ -502,7 +512,12 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
     <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
    </div>
-   <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
+   <div v-if="listening&&!demoPlaying" class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
+      <strong>{{intonationFeedback}}</strong><span v-if="cents!==null&&detectedPitchMatches">{{cents>0?'+':''}}{{cents}}¢</span>
+      <span v-if="current">{{Math.round(requiredHoldMs)}} ms target</span>
+     </div>
+    <div v-if="listening&&!demoPlaying" class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{width:(heldProgress*100)+'%'}"></span></div>
+    <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
     <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
     <div class="learn-meter-center"></div>
     <div v-if="cents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+cents/2))+'%'}"></div>
@@ -753,5 +768,18 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-display-overlay .learn-progress,.learn-display-overlay .learn-score-legend{color:#1f3444}
 @media(min-width:900px) and (orientation:landscape){
  .learn-display-overlay{grid-template-columns:minmax(0,1fr) clamp(160px,21vw,270px);grid-template-rows:auto;grid-template-areas:"overlay tuner"}
+}
+
+.learn-display:not(.learn-display-overlay):not(.learn-display-combined)>.learn-tuner{padding:7px 10px;gap:5px}
+.learn-live-feedback{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#c5d5df}
+.learn-live-feedback strong{color:#e6eff6}
+.learn-live-feedback.is-flat strong{color:#9fc9ff}
+.learn-live-feedback.is-sharp strong{color:#ffb79b}
+.learn-live-feedback.is-correct strong{color:#90e3b2}
+.learn-hold-track{height:9px;border-radius:7px;background:#33495b;overflow:hidden}
+.learn-hold-track>span{display:block;height:100%;background:#83d7b0;transition:width 65ms linear}
+.learn-display:not(.learn-display-overlay):not(.learn-display-combined) .learn-tuner-ends{font-size:10px}
+@media(min-width:760px){
+ .learn-display:not(.learn-display-overlay):not(.learn-display-combined)>.learn-tuner .learn-tuner-meter{height:12px}
 }
 </style>
