@@ -476,7 +476,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      </span>
     </div>
     <div v-if="showScore" class="learn-score-panel">
-     <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" />
+     <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" />
      <small class="learn-score-legend">
       <template v-if="demoPlaying">Listening · measure {{scoreMeasure}}</template>
       <template v-else-if="current">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</template>
@@ -530,7 +530,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   </div>
    <div v-if="showDiagram" class="learn-diagram">
     <slot name="diagram" :target-pitch="diagramTarget" :current-beat="guideNote?Math.floor(guideNote.start%beatsPerMeasure)+1:1"
-     :show-target-label="!showGuide" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide"
+     :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide"
      :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
    </div>
   </div>
