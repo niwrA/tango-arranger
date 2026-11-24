@@ -4,7 +4,7 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'ov
 
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
-import {instrumentFamily,partStaffForNote,type Instrument,type Note} from './music';
+import {instrumentFamily,partStaffForNote,noteSoundingDuration,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensitivityThresholdDb} from './learnPitch';
 import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
@@ -71,6 +71,7 @@ const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
 const tolerance=ref(20);
 const holdMs=ref(400); // 0 = written note duration
+const previewDuration=ref<'tango'|'written'>('tango');
 const autoAdvance=ref(true);
 const autoRepeat=ref(true);
 const cursor=ref(0);
@@ -269,7 +270,8 @@ async function listenToNotes(){
   const start=ctx.currentTime+0.04;
   for(const note of targets.value){
    const at=start+(note.start-rangeStart)*secondsPerBeat;
-   const end=at+Math.max(0.01,(Math.min(rangeEnd,note.start+note.duration)-note.start)*secondsPerBeat);
+   const soundingBeats=previewDuration.value==='tango'?noteSoundingDuration(note):note.duration;
+   const end=at+Math.max(0.01,Math.min(rangeEnd-note.start,soundingBeats)*secondsPerBeat);
    const fade=Math.min(0.035,(end-at)/3);
    const tone=ctx.createOscillator(),gain=ctx.createGain();
    tone.type='triangle';tone.frequency.value=expectedFrequency(targetPitch(note)+props.concertTranspose,referenceHz.value);
@@ -475,6 +477,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
+   <label>Listen: note lengths<select v-model="previewDuration" aria-label="Preview note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option><option :value="0">Note length (score duration)</option></select></label>
    <label v-if="grandStaff">Practice staff
     <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>
