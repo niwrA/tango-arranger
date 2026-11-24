@@ -14,6 +14,8 @@ const props=withDefaults(defineProps<{
   selectedNote?:Note;
   completedNotes?:readonly Note[];
   playingNotes?:readonly Note[];
+  feedbackProgress?:number;
+  feedbackState?:string;
   activeMeasure?:number;
   expanded?:boolean;
   followMeasure?:boolean;
@@ -61,6 +63,20 @@ function setTabStop(head:SVGElement){
   focusedHead=head;
 }
 
+function updateLiveFeedback(){
+ const active=props.selectedNote?headsByNote.get(props.selectedNote)??[]:[];
+ const state=props.feedbackState;
+ const color=state==='Too low'?'#69a9f5':state==='Too high'?'#ee8f70':state==='In tune'?'#46b988':'#c98b3b';
+ const progress=Math.max(0,Math.min(100,(props.feedbackProgress??0)*100));
+ for(const head of highlightedHeads)if(!active.includes(head)){
+  head.style.removeProperty('--note-feedback-progress');
+  head.style.removeProperty('--note-feedback-color');
+ }
+ for(const head of active){
+  head.style.setProperty('--note-feedback-progress',progress+'%');
+  head.style.setProperty('--note-feedback-color',color);
+ }
+}
 function highlightSelection(){
   for(const head of highlightedHeads){
     head.classList.remove('score-note-selected');
@@ -71,6 +87,7 @@ function highlightSelection(){
     head.classList.add('score-note-selected');
     if(props.interactive)head.setAttribute('aria-pressed','true');
   }
+  updateLiveFeedback();
   if(props.interactive&&highlightedHeads.length&&(!focusedHead||!highlightedHeads.includes(focusedHead)))setTabStop(highlightedHeads[0]);
 }
 
@@ -237,6 +254,7 @@ watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{de
 watch(displayedRange,scheduleLayout);
 watch(()=>props.expanded,scheduleLayout);
 watch(()=>props.selectedNote,highlightSelection);
+watch([()=>props.feedbackProgress,()=>props.feedbackState],updateLiveFeedback);
 watch(()=>props.completedNotes,highlightCompleted);
 watch(()=>props.activeMeasure,highlightActiveMeasure);
 watch(()=>props.playingNotes,highlightPlayback);
@@ -306,4 +324,11 @@ onBeforeUnmount(()=>{
 .score-preview-canvas :deep(.score-notehead:focus-visible),.score-preview-canvas :deep(.score-notehead:focus-visible [fill]){fill:#a44702}
 .score-preview-error{color:#a32828}
 @media(max-width:640px){.score-preview{padding:8px}.score-preview-canvas{margin-inline:-4px}}
+.score-preview-canvas :deep(.score-note-selected){
+ filter:drop-shadow(0 0 2px var(--note-feedback-color,#c98b3b));
+}
+.score-preview-canvas :deep(.score-note-selected [fill]){
+ stroke:var(--note-feedback-color,#c98b3b);
+ stroke-width:1.3px;
+}
 </style>
