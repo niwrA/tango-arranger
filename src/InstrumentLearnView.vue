@@ -1,5 +1,5 @@
 <script lang="ts">
-export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'overlay';
+export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'overlay'|'score-guide'|'overlay-guide';
 </script>
 
 <script setup lang="ts">
@@ -31,13 +31,26 @@ const layout=computed({
  set:(value:PracticeDisplay)=>emit('update:display',value),
 });
 const displayOptions=[
- {value:'score-diagram',label:'Score + diagram',icon:'split-view'},
- {value:'overlay',label:'Overlay',icon:'layers'},
  {value:'score',label:'Score',icon:'staff'},
  {value:'diagram',label:'Diagram',icon:'fingerboard'},
- {value:'notes',label:'Note guide',icon:'music'},
- {value:'both',label:'Guide + diagram',icon:'list-check'},
+ {value:'guide',label:'Note guide',icon:'music'},
 ] as const;
+const scoreEnabled=computed(()=>['score','score-diagram','overlay','score-guide','overlay-guide'].includes(layout.value));
+const diagramEnabled=computed(()=>['diagram','both','score-diagram','overlay','overlay-guide'].includes(layout.value));
+const guideEnabled=computed(()=>['notes','both','score-guide','overlay-guide'].includes(layout.value));
+function toggleDisplay(which:'score'|'diagram'|'guide'){
+ let score=scoreEnabled.value,diagram=diagramEnabled.value,guide=guideEnabled.value;
+ if(which==='score')score=!score;
+ if(which==='diagram')diagram=!diagram;
+ if(which==='guide')guide=!guide;
+ if(!score&&!diagram&&!guide)return; // Always retain one visible practice surface.
+ let next:PracticeDisplay;
+ if(score&&diagram)next=guide?'overlay-guide':'overlay';
+ else if(score)next=guide?'score-guide':'score';
+ else if(diagram)next=guide?'both':'diagram';
+ else next='notes';
+ layout.value=next;
+}
 const overlayPaper=ref(60);
 const from=ref(props.initialMeasure);
 const to=ref(props.initialMeasure);
@@ -89,11 +102,11 @@ const intonationFeedback=computed(()=>{
  return 'In tune';
 });
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
-const overlayScore=computed(()=>layout.value==='overlay');
-const showScore=computed(()=>layout.value==='score'||layout.value==='score-diagram'||overlayScore.value);
+const overlayScore=computed(()=>layout.value==='overlay'||layout.value==='overlay-guide');
+const showScore=scoreEnabled;
 const combinedScore=computed(()=>layout.value==='score-diagram');
-const showDiagram=computed(()=>layout.value==='diagram'||layout.value==='both'||layout.value==='score-diagram'||overlayScore.value);
-const showGuide=computed(()=>layout.value!=='diagram');
+const showDiagram=diagramEnabled;
+const showGuide=computed(()=>guideEnabled.value||scoreEnabled.value);
 const completedTargets=ref(new Set<Note>());
 const takeBeat=ref<number|null>(null);
 const demoBeat=ref<number|null>(null);
@@ -468,7 +481,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    :style="overlayScore?{'--score-paper':`rgb(248 250 252 / ${overlayPaper/100})`}:undefined">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
-    <div v-if="overlayScore" class="learn-overlay-cue">
+    <div v-if="overlayScore&&guideEnabled" class="learn-overlay-cue">
      <strong>{{guideMidi!==null?pitchLabel(guideMidi):demoPlaying?'Rest':'—'}}</strong>
      <span v-if="fingeringCue">{{fingeringCue}}</span>
      <span v-if="listening&&!demoPlaying" class="learn-overlay-detected" :class="{'pitch-matched':detectedPitchMatches}">
@@ -781,5 +794,12 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-display:not(.learn-display-overlay):not(.learn-display-combined) .learn-tuner-ends{font-size:10px}
 @media(min-width:760px){
  .learn-display:not(.learn-display-overlay):not(.learn-display-combined)>.learn-tuner .learn-tuner-meter{height:12px}
+}
+
+.learn-display-options button{width:46px;min-width:46px;min-height:42px;padding:7px!important;justify-content:center!important}
+.learn-display-options .app-icon{width:22px;height:22px}
+@media(max-width:600px){
+ .learn-display-options{display:flex;grid-template-columns:none;grid-area:2/1/3/-1;justify-content:center;gap:8px}
+ .learn-display-options button{min-height:44px;text-align:center;justify-content:center}
 }
 </style>
