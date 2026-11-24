@@ -475,4 +475,40 @@ const diagramDescription=computed(()=>{
 .is-learn .diagram-string-stop.is-learn-target,.is-learn .diagram-open-label.is-learn-target{box-shadow:inset 0 0 0 1px #9a641b!important}
 .performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span{font-size:clamp(10px,1.8vw,16px);line-height:1}
 @media(max-width:760px){.is-learn .diagram-chord-beat{height:28px!important}.is-learn .diagram-next-chord-beat{height:24px!important}.is-learn .diagram-learn-target{padding:3px 5px}.is-learn .diagram-learn-target strong{font-size:18px}.is-learn .diagram-learn-target span{display:none}}
+
+/* Learn Diagram: the physical playing surface is the primary reference.
+   Harmony stays available as a compact beat strip below the fingerboard. */
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard){
+ justify-content:flex-start;gap:8px;max-width:1280px;
+}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-learn-target{
+ order:0;justify-content:flex-start;padding:7px 12px;gap:10px;
+}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-visual-stage{order:1}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-measure-chords{order:2}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-upcoming-measure{order:3}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard{
+ padding:12px;gap:7px;grid-auto-rows:minmax(43px,auto);background:#152936;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-violin-position{
+ line-height:24px;font-size:15px;text-align:left;padding-left:5px;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-string-row{min-height:43px;gap:6px}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-string-stop{
+ height:37px;border-top-width:3px;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-open-label{height:37px}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-chord-beat{height:43px}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-chord-beat strong{font-size:clamp(17px,2vw,26px)}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-next-chord-beat{height:29px}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-fingerboard) .diagram-next-chord-beat strong{font-size:clamp(13px,1.4vw,18px)}
+@media(max-width:760px){
+ .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard{
+  padding:6px;gap:3px;grid-auto-rows:minmax(29px,auto)
+ }
+ .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-string-row{min-height:29px;gap:3px}
+ .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-string-stop,
+ .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-open-label{height:26px}
+}
+
 </style>
