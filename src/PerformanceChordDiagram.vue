@@ -74,7 +74,10 @@ function pianoPitchVisible(midi:number):boolean {
 const pianoPitchesOutOfView=computed(()=>(props.measurePitches??[]).filter(midi=>!pianoPitchVisible(midi)).length);
 const openStrings=computed(()=>fingerboardStrings(family.value));
 const stops=[0,1,2,3,4,5,6,7];
-const displayedStops=computed(()=>props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops);
+// The open-string cell already represents offset zero. Never render it again
+// as a stopped note; the first two stopped cells are +1 and +2 semitones.
+const displayedStops=computed(()=>(props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops).filter(offset=>offset>0));
+const fingerboardColumns=computed(()=>({'--stop-count':displayedStops.value.length}));
 const positionText=computed(()=>props.positionGuide
  ?'Position '+props.positionGuide.position+' · '+(props.positionGuide.thumb?'thumb':'1st finger')+' '+midiLabel(props.positionGuide.anchorMidi)+' on '+midiLabel(props.positionGuide.anchorStringMidi)+' string'
  :props.violinPosition
@@ -104,7 +107,7 @@ const unmappedSoundingPitches=computed(()=>props.activePitches.filter(midi=>{
  if(isStringInstrument.value&&props.positionGuide)return !props.positionGuide.fingerings.some(f=>
    f.pitch===midi&&(f.offset===0||displayedStops.value.includes(f.offset)));
  if(isStringInstrument.value)return !openStrings.value.some(string=>
-   displayedStops.value.includes(midi-string.midi)
+   (midi===string.midi||displayedStops.value.includes(midi-string.midi))
    &&(family.value!=='Violin'||suggestViolinPosition(midi)?.openMidi===string.midi));
  return true;
 }));
@@ -164,14 +167,18 @@ const diagramDescription=computed(()=>{
         <span v-if="pianoPitchesOutOfView"> · {{pianoPitchesOutOfView}} notes outside keyboard</span>
       </span>
     </div>
-   <div v-else-if="isStringInstrument" class="diagram-fingerboard"
+   <div v-else-if="isStringInstrument" class="diagram-fingerboard" :style="fingerboardColumns"
      :class="{'diagram-violin-fingerboard':family==='Violin','diagram-bass-fingerboard':family==='Contrabass'&&Boolean(props.positionGuide),'diagram-has-guide':Boolean(props.positionGuide)}"
      :aria-label="family+' open strings and schematic semitone positions'+(props.positionGuide||family==='Violin'?', '+positionText:'')">
      <span v-if="family==='Violin'||(family==='Contrabass'&&props.positionGuide)" class="diagram-violin-position"
        :title="'Schematic suggestion: '+positionText">{{positionText}}</span>
+     <div v-if="props.learn" class="diagram-string-row diagram-stop-header" aria-label="Semitones above open string">
+      <span class="diagram-open-heading">Open · 0</span>
+      <span v-for="offset in displayedStops" :key="offset" :title="offset+' semitones above open string'">{{offset}}</span>
+     </div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
        :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
-       <span class="diagram-open-label" :class="{'is-sounding':isPlayingPitch(string.midi)&&isPlannedStringPitch(string.midi,string.midi),'is-learn-target':isTarget(string.midi)}"
+       <span class="diagram-open-label" :class="{'is-sounding':isPlayingPitch(string.midi)&&(!props.positionGuide||isPlannedStringPitch(string.midi,string.midi)),'is-learn-target':isTarget(string.midi)}"
          :title="'Open '+string.name+(props.positionGuide?' · '+stringAnchorLabel(string.midi):'')">
          <strong>{{string.name}}</strong><small v-if="props.positionGuide">{{stringAnchorLabel(string.midi)}}</small>
        </span>
@@ -241,7 +248,7 @@ const diagramDescription=computed(()=>{
 .diagram-string-row{display:grid;grid-template-columns:34px repeat(8,minmax(0,1fr));align-items:center;gap:3px;min-height:23px}
 .diagram-open-label{font-size:11px;color:#dce8ef;font-weight:700}
 .diagram-string-stop{height:18px;position:relative;display:flex;align-items:center;justify-content:center;min-width:0;border-radius:4px;border-top:2px solid #8092a1}
-.diagram-string-stop:first-of-type{border-left:2px solid #e4dfc9}
+.diagram-string-stop:nth-child(2){border-left:2px solid #e4dfc9}
 .diagram-string-stop.is-chord-tone{background:#c69c62;color:#17232f;border-top-color:#ffda9e}
 .diagram-string-stop.is-root{background:#f1cd8f}
 .diagram-string-stop span{font-weight:800;font-size:10px;white-space:nowrap}
@@ -525,4 +532,36 @@ const diagramDescription=computed(()=>{
  background-blend-mode:normal;
 }
 .performance-instrument-diagram.is-learn .is-learn-target{transition:background-image 80ms linear}
+
+/* All columns share one geometry; the open string is a real cell, not a label
+   taking up an extra hidden semitone. Number the stopped cells in Learn. */
+.performance-instrument-diagram .diagram-fingerboard .diagram-string-row{
+ grid-template-columns:repeat(calc(var(--stop-count,7) + 1),minmax(0,1fr));
+}
+.diagram-fingerboard .diagram-open-label{
+ display:flex;align-items:center;justify-content:center;gap:2px;min-width:0;
+ border:1px solid #70899a;border-radius:5px;background:#263d4d;
+ box-sizing:border-box;height:18px;text-align:center;
+}
+.diagram-fingerboard .diagram-open-label.is-sounding{background:#79e6d4;color:#132e32}
+.diagram-fingerboard .diagram-open-label.is-sounding strong{color:#132e32}
+.diagram-fingerboard .diagram-guided-string-row .diagram-open-label{flex-wrap:wrap;line-height:1}
+.diagram-fingerboard .diagram-stop-header{
+ color:#b8ccd9;text-align:center;font-size:11px;font-weight:700;min-height:18px;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard .diagram-stop-header{
+ min-height:18px;line-height:18px;align-self:center;
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard{
+ grid-auto-rows:auto;
+}
+.performance-instrument-diagram.is-focus .diagram-fingerboard .diagram-open-label{
+ height:clamp(24px,5dvh,48px);
+}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard .diagram-open-label{height:26px}
+.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-open-label{height:37px}
+@media(max-width:760px){
+ .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-open-label{height:26px}
+ .diagram-fingerboard .diagram-stop-header{font-size:10px}
+}
 </style>
