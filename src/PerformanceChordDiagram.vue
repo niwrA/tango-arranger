@@ -9,7 +9,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -28,6 +28,10 @@ const root=computed(()=>{
 const activeMidi=computed(()=>new Set(props.activePitches));
 const activeClasses=computed(()=>new Set(props.activePitches.map(n=>((n%12)+12)%12)));
 function isPlayingPitch(midi:number){return activeMidi.value.has(midi);}
+const feedbackStyle=computed(()=>({
+ '--feedback-fill':Math.round(Math.max(0,Math.min(1,props.feedbackProgress??0))*100)+'%',
+ '--feedback-color':props.feedbackState==='Too low'?'#83bfff':props.feedbackState==='Too high'?'#ff9e85':props.feedbackState==='In tune'?'#69d5a1':'#ffd166',
+}));
 function isTarget(midi:number){return props.targetPitch!==null&&props.targetPitch!==undefined&&props.targetPitch===midi;}
 function isTargetStop(openMidi:number,offset:number){
  if(!isTarget(openMidi+offset)||offset===0)return false;
@@ -119,7 +123,7 @@ const diagramDescription=computed(()=>{
 </script>
 
 <template>
- <div class="performance-instrument-diagram" :class="{'is-focus':props.focus,'is-learn':props.learn}" :aria-label="instrument+' chord note reference. '+diagramDescription">
+ <div class="performance-instrument-diagram" :style="feedbackStyle" :class="{'is-focus':props.focus,'is-learn':props.learn}" :aria-label="instrument+' chord note reference. '+diagramDescription">
    <div v-if="props.showTargetLabel&&targetName" class="diagram-learn-target" role="status">PLAY NOW <strong>{{targetName}}</strong><span>Highlighted in amber where represented on the instrument</span></div>
    <div class="diagram-measure-chords" role="group" :aria-label="'Current measure chords, beat '+activeBeat+' of '+currentBeats.length">
     <span v-for="(symbol,index) in currentBeats" :key="index" class="diagram-chord-beat" :class="{'is-current-beat':activeBeat===index+1,'is-continuation':symbol==='–'}" :aria-label="'Beat '+(index+1)+': '+(symbol==='–'?'same chord as previous beat':symbol)">
@@ -511,4 +515,14 @@ const diagramDescription=computed(()=>{
  .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-open-label{height:26px}
 }
 
+
+.performance-instrument-diagram.is-learn .is-learn-target{position:relative}
+.performance-instrument-diagram.is-learn .diagram-string-stop.is-learn-target,
+.performance-instrument-diagram.is-learn .diagram-open-label.is-learn-target,
+.performance-instrument-diagram.is-learn .diagram-white-key.is-learn-target,
+.performance-instrument-diagram.is-learn .diagram-black-key.is-learn-target{
+ background-image:linear-gradient(90deg,var(--feedback-color) 0 var(--feedback-fill),transparent var(--feedback-fill) 100%)!important;
+ background-blend-mode:normal;
+}
+.performance-instrument-diagram.is-learn .is-learn-target{transition:background-image 80ms linear}
 </style>
