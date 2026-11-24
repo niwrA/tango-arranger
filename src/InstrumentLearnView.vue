@@ -450,7 +450,11 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
       <AppIcon :name="option.icon"/>
      </button>
     </div>
-    <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
+    <div class="learn-transport-controls" role="group" aria-label="Exercise playback and recording">
+      <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||busy" :aria-pressed="demoPlaying" :aria-label="demoPlaying?'Stop preview':'Listen to notes'" :title="demoPlaying?'Stop preview':'Listen to notes'" @click="listenToNotes"><AppIcon :name="demoPlaying?'square':'play'"/></button>
+      <button v-if="microphoneSupported" type="button" class="secondary learn-record-toggle" :class="{'is-recording':takeBeat!==null}" :disabled="!targets.length||demoPlaying||busy" :aria-pressed="takeBeat!==null" :aria-label="takeBeat===null?'Record for feedback':'Cancel recording'" :title="takeBeat===null?'Record for feedback':'Cancel recording'" @click="startTake"><AppIcon :name="takeBeat===null?'record':'square'"/></button>
+     </div>
+     <button type="button" class="secondary learn-settings-toggle" :class="{'primary':settingsOpen}" :aria-expanded="settingsOpen" aria-controls="learn-settings" aria-label="Settings" title="Settings" @click="settingsOpen=!settingsOpen"><AppIcon name="settings"/></button>
    </div>
   </div>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
@@ -467,10 +471,6 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <label v-if="family==='Voice'" class="learn-check"><input v-model="voiceAnyOctave" type="checkbox" :disabled="takeBeat!==null"/> Allow any octave</label>
    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
    <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Restart after the last note</label>
-  </div>
-  <div class="learn-navigation" role="group" aria-label="Exercise playback and recording">
-   <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||busy" :aria-pressed="demoPlaying" @click="listenToNotes">{{demoPlaying?'Stop preview':'▶ Listen to notes'}}</button>
-   <button v-if="microphoneSupported" type="button" class="primary" :disabled="!targets.length||demoPlaying||busy" @click="startTake">{{takeBeat===null?'Record for feedback':'Cancel recording'}}</button>
   </div>
   <p v-if="family==='Voice'" class="learn-mic-instructions">{{allowAnyOctave?'Sing the written note in any octave.':'Sing each note in its written octave.'}}</p>
   <p v-else-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
@@ -517,8 +517,13 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     </div>
    </div>
   <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
-   <div class="learn-tuner-title">
-    <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy" @click="startMicrophone"><span aria-hidden="true">🎙</span> {{busy?'Starting…':listening?'Mic on':'Mic off'}}</button>
+   <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
+     <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
+     <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
+     <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying" @click="moveCursor(1)" aria-label="Next note" title="Next note"><span class="learn-arrow-next"><AppIcon name="arrow-left"/></span></button>
+     <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart" aria-label="Restart" title="Restart"><AppIcon name="refresh-cw"/></button>
+    </div>
+    
     <strong>Intonation · {{current?pitchLabel(targetMidi??current.pitch):'—'}}</strong>
     <span :class="{'learn-in-tune':nearTarget}">{{cents===null?'—':(cents>0?'+':'')+cents+'¢'}}</span>
    </div>
@@ -546,11 +551,6 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide"
      :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
    </div>
-  </div>
-  <div class="learn-navigation">
-   <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)">← Previous note</button>
-   <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying" @click="moveCursor(1)">Next note →</button>
-   <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart">Restart</button>
   </div>
   <section v-if="takeResult" class="learn-feedback" aria-label="Feedback from your last recording">
    <div class="learn-feedback-actions">
@@ -801,5 +801,61 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 @media(max-width:600px){
  .learn-display-options{display:flex;grid-template-columns:none;grid-area:2/1/3/-1;justify-content:center;gap:8px}
  .learn-display-options button{min-height:44px;text-align:center;justify-content:center}
+}
+
+/* Compact controls shared by all Learn layouts. */
+.learn-topline{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.learn-view-controls{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.learn-display-options,.learn-transport-controls,.learn-practice-controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.learn-view-controls button,.learn-practice-controls button{
+ display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;min-height:44px;padding:6px!important;box-sizing:border-box
+}
+.learn-view-controls .app-icon,.learn-practice-controls .app-icon,.learn-practice-controls svg{width:21px;height:21px;flex:none}
+.learn-practice-controls .learn-mic-toggle{border:1px solid #6a8293;background:#344759;color:#e8eff4;border-radius:8px}
+.learn-practice-controls .learn-mic-toggle.is-listening{background:#235447;border-color:#86d7aa;color:#e7fff2}
+.learn-arrow-next{display:flex;transform:rotate(180deg)}
+.learn-record-toggle .app-icon{color:#f65d62;fill:#f65d62}
+.learn-record-toggle.is-recording{border-color:#f65d62;background:#4d2931}
+.learn-practice-controls{justify-content:center;margin:0;flex:0 0 auto}
+.learn-mic-instructions{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.learn-display{grid-template-areas:"tuner" "guide" "diagram";grid-template-rows:auto}
+.learn-display>.learn-tuner{grid-area:tuner;min-width:0;padding:6px 9px;gap:4px}
+.learn-display:not(.learn-display-both):has(>.learn-guide):not(:has(>.learn-diagram)){grid-template-areas:"tuner" "guide"}
+.learn-display:not(.learn-display-both):has(>.learn-diagram):not(:has(>.learn-guide)){grid-template-areas:"tuner" "diagram"}
+.learn-display>.learn-guide{grid-area:guide}
+.learn-display>.learn-diagram{grid-area:diagram;min-width:0;width:100%;box-sizing:border-box}
+.learn-display-both{grid-template-columns:minmax(0,1fr);grid-template-areas:"tuner" "guide" "diagram"}
+.learn-display-both>.learn-guide,.learn-display-both>.learn-diagram,.learn-display-both>.learn-tuner{grid-column:auto;grid-row:auto}
+.learn-display-both>.learn-guide{grid-area:guide}
+.learn-display-both>.learn-diagram{grid-area:diagram}
+.learn-display-both>.learn-tuner{grid-area:tuner}
+.learn-display-overlay{grid-template-areas:"tuner" "overlay"}
+.learn-display-overlay>.learn-guide,.learn-display-overlay>.learn-diagram{grid-area:overlay}
+.learn-display :deep(.performance-instrument-diagram.is-focus.is-learn){width:100%;max-width:none;min-width:0}
+.learn-display :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){width:100%;min-width:0;box-sizing:border-box;grid-template-columns:minmax(0,1fr)}
+.learn-display :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard .diagram-string-row){width:100%;min-width:0;box-sizing:border-box;grid-template-columns:repeat(calc(var(--stop-count,7) + 1),minmax(0,1fr))}
+.learn-display :deep(.diagram-open-label){width:100%;min-width:0}
+@media(min-width:900px) and (orientation:landscape){
+ .learn-display-both{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"tuner tuner" "guide diagram";grid-template-rows:auto auto}
+ .learn-display-overlay{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"tuner tuner" "guide diagram";grid-template-rows:auto auto}
+ .learn-display-overlay>.learn-guide{grid-area:guide;background:#1a2a36}
+ .learn-display-overlay>.learn-diagram{grid-area:diagram;background:#1a2a36;pointer-events:auto}
+ .learn-display-overlay :deep(.diagram-violin-position){display:block}
+ .learn-display-overlay :deep(.diagram-fingerboard){background:#152936}
+ .learn-display-overlay :deep(.diagram-measure-chords),.learn-display-overlay :deep(.diagram-upcoming-measure){display:grid}
+ .learn-display-overlay :deep(.diagram-string-stop span),.learn-display-overlay :deep(.diagram-open-label strong){color:inherit}
+ .learn-display-overlay .learn-progress,.learn-display-overlay .learn-score-legend{color:#b7cbd8}
+ .learn-display-overlay .learn-score-panel{--score-paper:#f8fafc}
+ .learn-tuner{display:grid;grid-template-columns:minmax(0,auto) minmax(100px,1fr);align-items:center;column-gap:12px}
+ .learn-tuner-title{grid-column:1;grid-row:1/3;justify-content:flex-start}
+ .learn-tuner-meter{grid-column:2;grid-row:1;height:12px}
+ .learn-tuner-ends{grid-column:2;grid-row:2}
+ .learn-mic-row,.learn-live-feedback,.learn-hold-track,.learn-detected-pitch{grid-column:1/-1}
+}
+@media(max-width:600px){
+ .learn-topline{justify-content:center}
+ .learn-topline>strong{flex:1 1 100%;text-align:left}
+ .learn-view-controls{justify-content:center;width:100%}
+ .learn-view-controls button,.learn-practice-controls button{width:40px;min-width:40px;min-height:44px}
 }
 </style>
