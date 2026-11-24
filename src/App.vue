@@ -8201,4 +8201,32 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .roster-tuning-settings{padding:7px;gap:5px}
  .roster-parts .roster-tuning-override{flex:1 1 100%;justify-content:flex-start}
 }
+
+/* Roster controls need a real minimum width. The old 235px auto-fit
+   cards overflowed as soon as per-part A4 tuning was added. */
+.structure-tab .roster-parts{
+ grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr));
+ gap:10px;overflow:visible;
+}
+.structure-tab .roster-parts .role-row{
+ display:flex;flex-wrap:wrap;align-items:center;gap:7px;
+ min-width:0;max-width:100%;box-sizing:border-box;padding:9px;
+}
+.structure-tab .roster-parts .role-row>input[type=text]{
+ flex:1 1 180px;width:auto;min-width:120px;max-width:100%;box-sizing:border-box;
+}
+.structure-tab .roster-parts .roster-tuning-override{
+ flex:0 1 auto;min-width:0;flex-wrap:wrap;white-space:normal;
+}
+.structure-tab .roster-parts .roster-tuning-override input{
+ width:90px;max-width:100%;
+}
+.structure-tab .roster-parts .role-row>button{
+ flex:0 0 auto;min-width:34px;
+}
+@media(max-width:760px){
+ .structure-tab .roster-parts{grid-template-columns:minmax(0,1fr)}
+ .structure-tab .roster-parts .roster-tuning-override{flex:1 1 160px}
+}
+
 </style>
