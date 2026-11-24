@@ -1,7 +1,7 @@
 import type {ProcessedPitchNote} from './pitchPostprocess';
 import {matchesPracticePitch} from './learnPitch';
 
-export type LearnTakeTarget={startBeat:number;durationBeats:number;pitch:number};
+export type LearnTakeTarget={startBeat:number;durationBeats:number;soundingDurationBeats?:number;pitch:number};
 export type LearnTakeClock={offsetBeats:number;tempoScale:number};
 
 export type LearnTakeRow=

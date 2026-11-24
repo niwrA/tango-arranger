@@ -72,6 +72,7 @@ const settingsOpen=ref(false);
 const tolerance=ref(20);
 const holdMs=ref(400); // 0 = written note duration
 const previewDuration=ref<'tango'|'written'>('tango');
+const analysisDuration=ref<'tango'|'written'>('tango');
 const autoAdvance=ref(true);
 const autoRepeat=ref(true);
 const cursor=ref(0);
@@ -312,7 +313,9 @@ function finishTake(analysisHalfWindowMs:number){
   .map(note=>({...note,startBeat:note.startBeat-takeLeadInBeats}));
  const expected=targets.value.map(note=>{
   const startBeat=Math.max(0,note.start-rangeStart);
-  return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),pitch:targetPitch(note)};
+  return {startBeat,durationBeats:Math.min(note.duration,totalBeats-startBeat),
+   soundingDurationBeats:Math.min(analysisDuration.value==='tango'?noteSoundingDuration(note):note.duration,totalBeats-startBeat),
+   pitch:targetPitch(note)};
  });
  const alignment=alignLearnTake(expected,performed,allowAnyOctave.value);
  takeResult.value=alignment;
@@ -478,6 +481,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
    <label>Listen: note lengths<select v-model="previewDuration" aria-label="Preview note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
+   <label>Recording analysis: expected lengths<select v-model="analysisDuration" aria-label="Recording expected note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
    <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option><option :value="0">Note length (score duration)</option></select></label>
    <label v-if="grandStaff">Practice staff
     <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>

@@ -119,7 +119,7 @@ function pitchGradeLabel(cents:number){return ({excellent:'Excellent',good:'Good
 function beatMs(beats:number){return Math.round(beats*60000/150);}
 function timing(row:Extract<LearnTakeRow,{kind:'matched'}>){
  const onset=alignedStart(row)-row.target.startBeat;
- const duration=alignedDuration(row)-row.target.durationBeats;
+ const duration=alignedDuration(row)-(row.target.soundingDurationBeats??row.target.durationBeats);
  return {onset,duration,release:onset+duration};
 }
 const matchedStats=computed(()=>{
@@ -146,7 +146,7 @@ function signed(value:number,places=2){
   <div class="practice-performance-summary" aria-label="Performance precision">
    <span v-if="matchedStats.pitch!==null">Median pitch deviation <strong>{{Math.round(matchedStats.pitch)}}¢</strong></span>
    <span v-if="matchedStats.onset!==null">Median onset deviation <strong>{{signed(matchedStats.onset)}} beats</strong></span>
-   <span v-if="matchedStats.release!==null">Median release deviation <strong>{{signed(matchedStats.release)}} beats</strong></span>
+   <span v-if="matchedStats.release!==null">Median sounding release deviation <strong>{{signed(matchedStats.release)}} beats</strong></span>
    <span v-if="summary['unresolved-repeat']">Articulation uncertain <strong>{{summary['unresolved-repeat']}}</strong></span>
   </div>
   <div class="practice-precision-legend" aria-label="Pitch precision colors"><span>Pitch precision</span><i class="grade-excellent"></i> Excellent (≤10¢) <i class="grade-good"></i> Good (≤20¢) <i class="grade-noticeable"></i> Noticeable (≤35¢) <i class="grade-needs-work"></i> Needs work (&gt;35¢)</div>
@@ -201,7 +201,8 @@ function signed(value:number,places=2){
    <template v-if="detail.kind==='matched'">
     <span>Start <strong>{{signed(timing(detail).onset)}} beats</strong> ({{timing(detail).onset>0?'late':'early'}})</span>
     <span>End <strong>{{signed(timing(detail).release)}} beats</strong> ({{timing(detail).release>0?'late':'early'}})</span>
-    <span>Duration <strong>{{signed(timing(detail).duration)}} beats</strong> ({{timing(detail).duration>0?'longer':'shorter'}})</span>
+    <span>Written <strong>{{signed(detail.target.durationBeats)}} beats</strong> · expected sounding <strong>{{signed(detail.target.soundingDurationBeats??detail.target.durationBeats)}} beats</strong> · detected <strong>{{signed(alignedDuration(detail))}} beats</strong></span>
+    <span>Sounding duration difference <strong>{{signed(timing(detail).duration)}} beats</strong> ({{timing(detail).duration>0?'longer':'shorter'}})</span>
     <span v-if="detail.pitchMatches" :class="'grade-text-'+pitchGrade(detail.played.intonationCents)">Pitch {{signed(detail.played.intonationCents,0)}}¢ · {{pitchGradeLabel(detail.played.intonationCents)}}</span>
    </template>
    <span v-if="detail.kind==='unresolved-repeat'">Articulation uncertain: continuous pitch detected across the expected onset. This is not evidence of a missed or incorrect re-articulation.</span>
