@@ -446,8 +446,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div class="learn-view-controls">
     <div class="learn-display-options" role="group" aria-label="Practice display">
      <button v-for="option in displayOptions" :key="option.value" type="button"
-      :class="layout===option.value?'primary':'secondary'" :aria-pressed="layout===option.value" @click="layout=option.value">
-      <AppIcon :name="option.icon"/><span>{{option.label}}</span>
+      :class="(option.value==='score'?scoreEnabled:option.value==='diagram'?diagramEnabled:guideEnabled)?'primary':'secondary'" :aria-pressed="option.value==='score'?scoreEnabled:option.value==='diagram'?diagramEnabled:guideEnabled" :aria-label="option.label" :title="option.label" @click="toggleDisplay(option.value)">
+      <AppIcon :name="option.icon"/>
      </button>
     </div>
     <button type="button" class="secondary learn-settings-toggle" :aria-expanded="settingsOpen" aria-controls="learn-settings" @click="settingsOpen=!settingsOpen"><span aria-hidden="true">⚙</span> Settings</button>
