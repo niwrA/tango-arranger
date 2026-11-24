@@ -108,3 +108,18 @@ check('audio plays double sirenas as two voices with independent pitch ramps',()
  console.log('PASS score export and editor/performance visual wiring');
  console.log((count+1)+' gesture/expression checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+check('pizzicato persists across measures and rests, with arco only on return to bowing',()=>{
+ const p=music.blankProject({sections:1,measuresPerSection:5});
+ const notes=[
+  {...violin,start:0,duration:1,technique:'pizzicato'},
+  {...violin,start:p.beats,duration:1,technique:'pizzicato'},
+  {...violin,start:3*p.beats,duration:1,technique:'pizzicato'},
+  {...violin,start:3*p.beats+1,duration:1},
+  {...violin,start:4*p.beats,duration:1,technique:'arco'}
+ ];
+ const xml=io.exportMusicXml(p,{'Violin I':notes},{onlyInstrument:'Violin I'});
+ assert.deepEqual([...xml.matchAll(/<words>(pizz\.|arco)<\/words>/g)].map(m=>m[1]),['pizz.','arco']);
+ assert.equal((xml.match(/<sound pizzicato="yes"\/>/g)||[]).length,1);
+ assert.equal((xml.match(/<sound pizzicato="no"\/>/g)||[]).length,1);
+});
