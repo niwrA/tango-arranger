@@ -52,8 +52,18 @@ function toggleDisplay(which:'score'|'diagram'|'guide'){
  layout.value=next;
 }
 const overlayPaper=ref(60);
-const from=ref(props.initialMeasure);
-const to=ref(props.initialMeasure);
+function activeSectionRange(measure:number):[number,number]{
+ const index=Math.max(0,Math.min(props.measures.length-1,Math.round(measure)-1));
+ const section=props.measures[index]?.section;
+ let first=index,last=index;
+ while(first>0&&props.measures[first-1]?.section===section)first--;
+ while(last+1<props.measures.length&&props.measures[last+1]?.section===section)last++;
+ return [first+1,last+1];
+}
+const initialRange=activeSectionRange(props.initialMeasure);
+const from=ref(initialRange[0]);
+const to=ref(initialRange[1]);
+const disableOverlay=ref(false);
 const referenceHz=computed(()=>props.referenceHz);
 const sensitivity=ref(100);
 const inputDb=ref<number|null>(null);
@@ -102,9 +112,9 @@ const intonationFeedback=computed(()=>{
  return 'In tune';
 });
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
-const overlayScore=computed(()=>layout.value==='overlay'||layout.value==='overlay-guide');
+const overlayScore=computed(()=>scoreEnabled.value&&diagramEnabled.value&&!disableOverlay.value);
 const showScore=scoreEnabled;
-const combinedScore=computed(()=>layout.value==='score-diagram');
+const combinedScore=computed(()=>scoreEnabled.value&&diagramEnabled.value&&disableOverlay.value);
 const showDiagram=diagramEnabled;
 const showGuide=computed(()=>guideEnabled.value||scoreEnabled.value);
 const completedTargets=ref(new Set<Note>());
@@ -194,7 +204,7 @@ function setRange(start:number,end:number){
  const last=Math.max(first,Math.min(props.totalMeasures,Math.round(end)||first));
  from.value=first;to.value=last;
 }
-watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;setRange(from.value,to.value);});
+watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;setRange(...activeSectionRange(props.initialMeasure));});
 let stream:MediaStream|null=null;
 let audio:AudioContext|null=null;
 let source:MediaStreamAudioSourceNode|null=null;
@@ -441,8 +451,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
  <section class="learn-workspace" :class="{'learn-workspace-score':showScore}" aria-label="Learn instrument notes">
+  <Teleport to="#practice-learn-controls">
   <div class="learn-topline">
-   <strong>Learn · {{instrument}}</strong>
    <div class="learn-view-controls">
     <div class="learn-display-options" role="group" aria-label="Practice display">
      <button v-for="option in displayOptions" :key="option.value" type="button"
@@ -457,7 +467,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      <button type="button" class="secondary learn-settings-toggle" :class="{'primary':settingsOpen}" :aria-expanded="settingsOpen" aria-controls="learn-settings" aria-label="Settings" title="Settings" @click="settingsOpen=!settingsOpen"><AppIcon name="settings"/></button>
    </div>
   </div>
+  </Teleport>
   <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
+   <label class="learn-check"><input v-model="disableOverlay" type="checkbox"/> Disable overlay (separate score and diagram)</label>
    <label v-if="overlayScore">Score opacity <input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
    <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
@@ -477,11 +489,43 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
   <Teleport v-if="recordingClock" to="#practice-recording-beat">
    <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
   </Teleport>
+  <Teleport to="#practice-learn-tuner">
+  <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
+   <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
+     <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
+     <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
+     <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying" @click="moveCursor(1)" aria-label="Next note" title="Next note"><span class="learn-arrow-next"><AppIcon name="arrow-left"/></span></button>
+     <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart" aria-label="Restart" title="Restart"><AppIcon name="refresh-cw"/></button>
+    </div>
+    
+    <strong>Intonation · {{current?pitchLabel(targetMidi??current.pitch):'—'}}</strong>
+    <span :class="{'learn-in-tune':nearTarget}">{{cents===null?'—':(cents>0?'+':'')+cents+'¢'}}</span>
+   </div>
+   <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
+    <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
+   </div>
+   <div v-if="listening&&!demoPlaying" class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
+      <strong>{{intonationFeedback}}</strong><span v-if="cents!==null&&detectedPitchMatches">{{cents>0?'+':''}}{{cents}}¢</span>
+      <span v-if="current">{{Math.round(requiredHoldMs)}} ms target</span>
+     </div>
+    <div v-if="listening&&!demoPlaying" class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{width:(heldProgress*100)+'%'}"></span></div>
+    <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
+    <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
+    <div class="learn-meter-center"></div>
+    <div v-if="cents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+cents/2))+'%'}"></div>
+   </div>
+   <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
+   <div class="learn-mic-row">
+    <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
+    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
+   </div>
+  </div>
+  </Teleport>
   <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore,'learn-display-overlay':overlayScore}"
    :style="overlayScore?{'--score-paper':`rgb(248 250 252 / ${overlayPaper/100})`}:undefined">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
-    <div v-if="overlayScore&&guideEnabled" class="learn-overlay-cue">
+    <div v-if="showScore&&guideEnabled" class="learn-overlay-cue">
      <strong>{{guideMidi!==null?pitchLabel(guideMidi):demoPlaying?'Rest':'—'}}</strong>
      <span v-if="fingeringCue">{{fingeringCue}}</span>
      <span v-if="listening&&!demoPlaying" class="learn-overlay-detected" :class="{'pitch-matched':detectedPitchMatches}">
@@ -516,36 +560,6 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      <template v-else><strong>No practice targets</strong><span>Choose another range or staff in Settings.</span></template>
     </div>
    </div>
-  <div class="learn-tuner" role="region" aria-label="Target-aware pitch tuner">
-   <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
-     <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
-     <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
-     <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying" @click="moveCursor(1)" aria-label="Next note" title="Next note"><span class="learn-arrow-next"><AppIcon name="arrow-left"/></span></button>
-     <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart" aria-label="Restart" title="Restart"><AppIcon name="refresh-cw"/></button>
-    </div>
-    
-    <strong>Intonation · {{current?pitchLabel(targetMidi??current.pitch):'—'}}</strong>
-    <span :class="{'learn-in-tune':nearTarget}">{{cents===null?'—':(cents>0?'+':'')+cents+'¢'}}</span>
-   </div>
-   <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
-    <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
-   </div>
-   <div v-if="listening&&!demoPlaying" class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
-      <strong>{{intonationFeedback}}</strong><span v-if="cents!==null&&detectedPitchMatches">{{cents>0?'+':''}}{{cents}}¢</span>
-      <span v-if="current">{{Math.round(requiredHoldMs)}} ms target</span>
-     </div>
-    <div v-if="listening&&!demoPlaying" class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{width:(heldProgress*100)+'%'}"></span></div>
-    <div class="learn-tuner-meter" role="meter" aria-label="Pitch deviation from expected note" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="cents===null?undefined:Math.max(-50,Math.min(50,cents))">
-    <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
-    <div class="learn-meter-center"></div>
-    <div v-if="cents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+cents/2))+'%'}"></div>
-   </div>
-   <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
-   <div class="learn-mic-row">
-    <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
-    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
-   </div>
-  </div>
    <div v-if="showDiagram" class="learn-diagram">
     <slot name="diagram" :target-pitch="diagramTarget" :current-beat="guideNote?Math.floor(guideNote.start%beatsPerMeasure)+1:1"
      :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide"
@@ -857,5 +871,53 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
  .learn-topline>strong{flex:1 1 100%;text-align:left}
  .learn-view-controls{justify-content:center;width:100%}
  .learn-view-controls button,.learn-practice-controls button{width:40px;min-width:40px;min-height:44px}
+}
+
+/* Learn controls live in the parent focus header. Content is a separate
+   flexible grid, with no empty tuner row or orientation-dependent overlay. */
+.learn-topline{justify-content:flex-end;min-width:0}
+.learn-view-controls{width:auto;justify-content:flex-end}
+.learn-view-controls button,.learn-practice-controls button{width:40px;min-width:40px;min-height:40px}
+.learn-view-controls .learn-transport-controls{border-left:1px solid #526c7d;padding-left:6px}
+.learn-tuner{width:100%;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,auto) minmax(100px,1fr);align-items:center;gap:3px 10px;padding:4px 6px;border:0;background:transparent}
+.learn-tuner-title{grid-column:1;grid-row:1/3;justify-content:flex-start;gap:6px}
+.learn-tuner-title .learn-mic-toggle{min-width:40px;width:40px;min-height:40px;padding:6px}
+.learn-tuner-meter{grid-column:2;grid-row:1;height:10px}
+.learn-tuner-ends{grid-column:2;grid-row:2;font-size:10px}
+.learn-mic-row,.learn-live-feedback,.learn-hold-track,.learn-detected-pitch{grid-column:1/-1}
+.learn-mic-row small{font-size:11px}
+.learn-workspace{max-width:none;width:100%;min-height:0;flex:1 1 auto;align-self:stretch;gap:6px}
+.learn-display,.learn-display-both,.learn-display-combined,.learn-display-overlay{
+ flex:1 1 auto;min-height:0;grid-template-columns:minmax(0,1fr);
+ grid-template-rows:minmax(0,1fr);grid-template-areas:"guide";align-items:stretch;
+}
+.learn-display:not(.learn-display-both):has(>.learn-diagram):not(:has(>.learn-guide)){grid-template-areas:"diagram"}
+.learn-display:not(.learn-display-both):has(>.learn-guide):not(:has(>.learn-diagram)){grid-template-areas:"guide"}
+.learn-display-both,.learn-display-combined{grid-template-areas:"guide" "diagram";grid-template-rows:minmax(180px,1fr) minmax(160px,1fr)}
+.learn-display-overlay{grid-template-areas:"overlay";grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1fr)}
+.learn-display>.learn-guide,.learn-display>.learn-diagram{min-height:0;align-self:stretch;box-sizing:border-box}
+.learn-display>.learn-guide{display:flex;flex-direction:column;grid-area:guide}
+.learn-display>.learn-diagram{grid-area:diagram}
+.learn-display-overlay>.learn-guide,.learn-display-overlay>.learn-diagram{grid-area:overlay}
+.learn-display-overlay>.learn-guide{background:transparent;z-index:1}
+.learn-display-overlay>.learn-diagram{background:#c5d6e0;pointer-events:none;z-index:0}
+.learn-display-overlay :deep(.diagram-fingerboard){background:transparent!important}
+.learn-display-overlay :deep(.diagram-measure-chords),.learn-display-overlay :deep(.diagram-upcoming-measure){display:none}
+.learn-display-overlay :deep(.diagram-violin-position){display:none}
+.learn-display-overlay :deep(.diagram-string-stop span),.learn-display-overlay :deep(.diagram-open-label strong){color:#132f41}
+.learn-display-overlay .learn-progress,.learn-display-overlay .learn-score-legend{color:#1f3444}
+.learn-score-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.learn-score-panel :deep(.score-preview){flex:1 1 auto;min-height:0;display:flex;flex-direction:column;margin:4px 0}
+.learn-score-panel :deep(.score-preview-follow){height:0;flex:1 1 auto;min-height:92px}
+.learn-display-overlay .learn-score-panel :deep(.score-preview){background:var(--score-paper)}
+.learn-display-overlay :deep(.performance-instrument-diagram.is-focus.is-learn){align-self:stretch;justify-content:center}
+.learn-overlay-cue{color:inherit}
+@media(min-width:900px) and (orientation:landscape){
+ .learn-display-both:not(.learn-display-overlay),.learn-display-combined{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"guide diagram";grid-template-rows:minmax(0,1fr)}
+}
+@media(max-width:650px){
+ .learn-topline,.learn-view-controls{justify-content:flex-start}
+ .learn-tuner{grid-template-columns:minmax(0,1fr)}
+ .learn-tuner-title,.learn-tuner-meter,.learn-tuner-ends{grid-column:1;grid-row:auto}
 }
 </style>

@@ -5549,9 +5549,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="performanceExpandedInstrument && performanceView==='ensemble'" class="instrument-focus-overlay"
     @keydown.esc.stop.prevent="closePerformanceInstrument" @keydown.tab="trapModalTab">
     <template v-for="part in performanceCueParts" :key="part.inst">
-     <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
+     <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" :class="{'is-learning':instrumentLearnMode}" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
        <header class="instrument-focus-header">
-         <div class="instrument-focus-title"><small>Instrument focus · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
+         <div class="instrument-focus-title"><small>{{instrumentLearnMode?'Learn':'Instrument focus'}} · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
          <div class="instrument-focus-toolbar">
            <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
              <button type="button" :class="{selected:!focusShowsScore&&cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
@@ -5579,9 +5579,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
             <button type="button" class="secondary performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="performanceMode=false"><AppIcon name="arrow-left"/></button>
            </div>
            <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-learn" aria-label="Learn this instrument's notes" title="Enter Learn mode for this instrument" @click="enterInstrumentLearn"><AppIcon name="graduation-cap"/></button>
-           <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="arrow-left"/> Performance</button>
+           <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="presentation"/><span class="focus-button-label">Performance</span></button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
          </div>
+         <div v-if="instrumentLearnMode" id="practice-learn-controls" class="instrument-focus-learn-controls"></div>
+         <div v-if="instrumentLearnMode" id="practice-learn-tuner" class="instrument-focus-learn-tuner"></div>
          <div v-if="instrumentLearnMode" id="practice-recording-beat" class="instrument-focus-recording-beat"></div>
        </header>
        <div v-if="!instrumentLearnMode" class="instrument-focus-status" aria-live="off">
@@ -8229,4 +8231,22 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .structure-tab .roster-parts .roster-tuning-override{flex:1 1 160px}
 }
 
+
+/* One compact focus header for Learn; the practice surfaces own the rest. */
+.instrument-focus-panel.is-learning{height:100%;min-height:100%;padding:clamp(6px,1vw,14px);gap:6px}
+.instrument-focus-panel.is-learning .instrument-focus-header{position:relative;top:auto;gap:5px 8px;padding:6px 8px;border:1px solid #4d6678;border-radius:9px;background:#1a2c39;flex:0 0 auto}
+.instrument-focus-panel.is-learning .instrument-focus-title{flex:1 1 130px}
+.instrument-focus-panel.is-learning .instrument-focus-title h2{font-size:clamp(17px,2vw,24px);margin:1px 0}
+.instrument-focus-panel.is-learning .instrument-focus-title h2 span{font-size:12px}
+.instrument-focus-panel.is-learning .instrument-focus-title small{font-size:11px}
+.instrument-focus-panel.is-learning .instrument-focus-toolbar{width:auto;justify-content:flex-end;gap:4px}
+.instrument-focus-panel.is-learning .instrument-focus-toolbar button{min-width:40px;min-height:40px;padding:6px}
+.instrument-focus-panel.is-learning .instrument-focus-toolbar .focus-button-label,.instrument-focus-panel.is-learning .instrument-focus-close span{display:none}
+.instrument-focus-learn-controls{flex:0 1 auto;min-width:0}
+.instrument-focus-learn-tuner{flex:1 0 100%;min-width:0;border-top:1px solid #405665;padding-top:3px}
+.instrument-focus-panel.is-learning .instrument-focus-learn-content{flex:1 1 0;min-height:0;max-height:none;overflow:auto;align-items:stretch;padding:0}
+@media(max-width:650px){
+ .instrument-focus-panel.is-learning .instrument-focus-title{flex:1 1 100%}
+ .instrument-focus-panel.is-learning .instrument-focus-toolbar,.instrument-focus-learn-controls{flex:1 1 auto;justify-content:flex-start}
+}
 </style>
