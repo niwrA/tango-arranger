@@ -64,8 +64,22 @@ export function reprocessPitchFrames(
   f.beat!>=0&&f.beat!<totalBeats).sort((a,b)=>a.timeSeconds-b.timeSeconds);
  const valid=(f:PitchFrame)=>f.midi!==null&&Number.isFinite(f.midi)&&f.clarity!==null&&f.clarity>=0.65&&
   f.midi!-scoreShiftSemitones>=0&&f.midi!-scoreShiftSemitones<=127;
+ // Reject isolated attack-time subharmonics (often one or more octaves low).
+ // Only classify an outlier when stable pitch on BOTH sides agrees; real
+ // melodic leaps must remain untouched.
+ const transientIndices=new Set<number>();
+ for(let i=0;i<all.length;i++){
+  const frame=all[i];if(!valid(frame))continue;
+  const before=all.slice(Math.max(0,i-3),i).filter(valid);
+  const after=all.slice(i+1,i+4).filter(valid);
+  if(!before.length||!after.length)continue;
+  const a=before.at(-1)!,b=after[0];
+  if(Math.abs(a.midi!-b.midi!)<=0.55&&
+   Math.abs(frame.midi!-a.midi!)>=8&&
+   Math.abs(frame.midi!-b.midi!)>=8)transientIndices.add(i);
+ }
  const samples:Sample[]=[];
- all.forEach((f,i)=>{if(valid(f))samples.push({time:f.timeSeconds,beat:f.beat!,pitch:f.midi!-scoreShiftSemitones,
+ all.forEach((f,i)=>{if(valid(f)&&!transientIndices.has(i))samples.push({time:f.timeSeconds,beat:f.beat!,pitch:f.midi!-scoreShiftSemitones,
   level:Number.isFinite(f.levelDbfs)?f.levelDbfs:-90,sourceIndex:i});});
  if(!samples.length)return [];
  const dt=median(samples.slice(1).map((s,i)=>s.time-samples[i].time).filter(t=>t>0.015&&t<0.12))||0.05;
@@ -90,6 +104,19 @@ export function reprocessPitchFrames(
    const articulation=gap.length>0&&elapsed>dt*1.5&&
     Math.min(before,after)-gapBottom>=dipThreshold&&
     (options.separation==='sensitive'||gap.length>=2);
+   // Guitar pick attacks can briefly lose tracking or produce an octave-low
+   // subharmonic. If the stable pitch resumes, treat a supported interruption
+   // as a possible re-attack rather than extending the old note through it.
+   const samePitchReturn=group.length>=2&&Math.abs(
+    median(group.slice(-3).map(x=>x.pitch))-median(samples.slice(i,i+3).map(x=>x.pitch)))<0.5;
+   const hasTransient=gap.some((_,j)=>transientIndices.has(prev.sourceIndex+1+j));
+   const recentLevels=group.slice(-3).map(x=>x.level);
+   const preLevel=median(recentLevels);
+   const valley=Math.min(...recentLevels,...gap.map(f=>f.levelDbfs));
+   const recovered=s.level-valley>=6;
+   const gapAttack=gap.length>0&&samePitchReturn&&s.time-group[0].time>=0.24&&
+    ((hasTransient&&gap.length>=2)||
+     (valley<=preLevel-6&&recovered));
    const previousCenter=median(group.slice(-Math.min(group.length,7)).map(x=>x.pitch));
    const future=samples.slice(i,i+3).filter(x=>x.time-s.time<=0.16);
    const futureCenter=median(future.map(x=>x.pitch));
@@ -114,7 +141,7 @@ export function reprocessPitchFrames(
     Math.max(...right.map(x=>x.level))-s.level>=4&&
     Math.abs(median(left.map(x=>x.pitch))-median(right.map(x=>x.pitch)))<0.5&&
     Math.abs(median(left.map(x=>x.pitch))-s.pitch)<0.5;
-   if(elapsed>gapLimit||articulation||jump||levelNotch||localDip)close();
+   if(elapsed>gapLimit||articulation||jump||levelNotch||localDip||gapAttack)close();
   }
   group.push(s);
  }
