@@ -37,6 +37,22 @@ test('three repeated same-pitch attacks with audible valleys are separated',()=>
  assert.equal(notes.length,3);
  assert.deepEqual(Array.from(notes,n=>n.pitch),[69,69,69]);
 });
+test('three guitar-like repeated attacks survive transient octave-low pitch estimates',()=>{
+ const input=frames(Array(36).fill(69));
+ for(const i of [12,24]){
+  input[i].midi=null;input[i].clarity=null;input[i].levelDbfs=-66;
+  input[i+1].midi=57;input[i+1].levelDbfs=-48;
+ }
+ const notes=reprocessPitchFrames(input,settings({onsetGridBeats:0,durationGridBeats:0}),0,5);
+ assert.deepEqual(Array.from(notes,n=>n.pitch),[69,69,69]);
+});
+test('isolated octave transient without an amplitude valley does not split a sustain',()=>{
+ const input=frames(Array(36).fill(69));
+ input[17].midi=57;
+ const notes=reprocessPitchFrames(input,settings({onsetGridBeats:0,durationGridBeats:0}),0,5);
+ assert.equal(notes.length,1);
+ assert.equal(notes[0].pitch,69);
+});
 test('smooth dynamics on a sustained note do not create false repeats',()=>{
  const input=frames(Array(36).fill(69));
  input.forEach((f,i)=>{f.levelDbfs=-40-10*i/35;});
