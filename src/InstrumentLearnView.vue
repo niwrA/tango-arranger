@@ -70,7 +70,7 @@ const inputDb=ref<number|null>(null);
 const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
 const tolerance=ref(20);
-const holdMs=ref(400); // 0 = written note duration
+const holdMs=ref(400); // 0 = written note duration; -1 = tango sounding duration
 const previewDuration=ref<'tango'|'written'>('tango');
 const analysisDuration=ref<'tango'|'written'>('tango');
 const autoAdvance=ref(true);
@@ -104,7 +104,12 @@ const detectedPitchMatches=computed(()=>detectedMidi.value!==null&&targetMidi.va
 const cents=computed(()=>frequency.value!==null&&targetMidi.value!==null?Math.round(deviationCents(frequency.value,targetMidi.value,referenceHz.value,allowAnyOctave.value)??0):null);
 const targetHz=computed(()=>targetMidi.value===null?null:expectedFrequency(targetMidi.value,referenceHz.value));
 const nearTarget=computed(()=>cents.value!==null&&Math.abs(cents.value)<=tolerance.value);
-const requiredHoldMs=computed(()=>holdMs.value===0&&current.value?Math.max(100,current.value.duration*60000/props.bpm):holdMs.value);
+const requiredHoldMs=computed(()=>{
+ if(!current.value)return holdMs.value>0?holdMs.value:400;
+ if(holdMs.value===-1)return Math.max(55,noteSoundingDuration(current.value)*60000/props.bpm);
+ if(holdMs.value===0)return Math.max(100,current.value.duration*60000/props.bpm);
+ return holdMs.value;
+});
 const heldProgress=ref(0);
 const intonationFeedback=computed(()=>{
  if(!listening.value||cents.value===null||detectedMidi.value===null)return 'Waiting for note';
@@ -482,7 +487,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
    <label>Listen: note lengths<select v-model="previewDuration" aria-label="Preview note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
    <label>Recording analysis: expected lengths<select v-model="analysisDuration" aria-label="Recording expected note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
-   <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option><option :value="0">Note length (score duration)</option></select></label>
+   <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option><option :value="0">Follow note · written length</option><option :value="-1">Follow note · tango sounding length (less reliable for very short notes)</option></select></label>
    <label v-if="grandStaff">Practice staff
     <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>
    </label>
