@@ -282,37 +282,60 @@ export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
 export type Project = { version:1; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export type AdaptiveTranspose = { enabled:boolean; chordToneRhythm:boolean; semitones:number };
-/** Apply register corrections before the project's non-destructive semitone transpose. */
+export type TransposeCorrection = { instrument:Instrument; measure:number; start:number; originalPitch:number; intendedPitch:number; suggestedPitch:number; strategy:'octave'|'chord-tone'|'unresolved' };
+function nearestPlayablePitch(pitch:number,low:number,high:number,tones?:number[]):{pitch:number;strategy:'octave'|'chord-tone'|'unresolved'}{
+ const octave:number[]=[];
+ for(let n=low;n<=high;n++)if((n-pitch)%12===0)octave.push(n);
+ if(octave.length)return {pitch:octave.reduce((a,b)=>Math.abs(a-pitch)<=Math.abs(b-pitch)?a:b),strategy:'octave'};
+ if(tones?.length){
+  const candidates=Array.from({length:high-low+1},(_,i)=>low+i).filter(n=>tones.includes(((n%12)+12)%12));
+  if(candidates.length)return {pitch:candidates.reduce((a,b)=>Math.abs(a-pitch)<=Math.abs(b-pitch)?a:b),strategy:'chord-tone'};
+ }
+ return {pitch,strategy:'unresolved'};
+}
+function chordAtNote(p:Project,n:Note):string{
+ const measure=Math.max(0,Math.min(p.bars.length-1,Math.floor(n.start/p.beats)));
+ const chords=p.bars[measure]?.chord??'';
+ const parts=chords.split(',').map(c=>c.trim()).filter(Boolean);
+ const local=n.start-measure*p.beats;
+ return parts[Math.min(parts.length-1,Math.floor(local/Math.max(1e-6,p.beats/Math.max(1,parts.length))))]??'';
+}
+export function planAdaptiveTransposition(score:Score,p:Project,semitones:number,chordToneRhythm=false):TransposeCorrection[]{
+ const issues:TransposeCorrection[]=[];
+ for(const [name,notes] of Object.entries(score)){
+  const inst=name as Instrument,[low,high]=instrumentRange(inst);
+  for(const n of notes){
+   const intended=n.pitch+semitones;
+   if(intended>=low&&intended<=high)continue;
+   const measure=Math.max(0,Math.min(p.bars.length-1,Math.floor(n.start/p.beats)));
+   const role=p.measureRoles?.[`${inst}:${measure}`]??p.roles?.[p.bars[measure]?.section]?.[inst];
+   const chord=chordAtNote(p,n);
+   const tones=chordToneRhythm&&['chords','harmony','fill'].includes(role??'')&&chord
+    ?chordTones(chord).map(pc=>(pc+semitones+120)%12):undefined;
+   const result=nearestPlayablePitch(intended,low,high,tones);
+   issues.push({instrument:inst,measure,start:n.start,originalPitch:n.pitch,intendedPitch:intended,suggestedPitch:result.pitch,strategy:result.strategy});
+  }
+ }
+ return issues;
+}
+/** Keep source pitches untouched; adjust only the derived score before playback/export transposition. */
 export function adaptTransposedScore(score:Score,project:Project):Score {
  const settings=project.adaptiveTranspose;
  if(!settings?.enabled||settings.semitones!==(project.transposeSemitones??0))return score;
- const shift=settings.semitones;
- return Object.fromEntries(Object.entries(score).map(([inst,notes])=>{
-  const [low,high]=instrumentRange(inst as Instrument);
-  return [inst,notes.map(note=>{
-   const sounding=note.pitch+shift;
-   if(sounding>=low&&sounding<=high)return note;
-   const octaveCandidates:number[]=[];
-   for(let pitch=low;pitch<=high;pitch++){
-    if((pitch-sounding)%12===0)octaveCandidates.push(pitch);
-   }
-   let candidates=octaveCandidates;
-   const measure=Math.max(0,Math.min(project.bars.length-1,Math.floor(note.start/project.beats)));
-   const role=project.measureRoles?.[`${inst}:${measure}`]??project.roles?.[project.bars[measure]?.section]?.[inst as Instrument];
-   if(settings.chordToneRhythm&&['chords','bass','harmony','fill'].includes(role??'')){
-    const chord=project.bars[measure]?.chord?.split(',')[0]??'';
-    const tones=chordTones(chord).map(pc=>(pc+shift+120)%12);
-    const chordCandidates=Array.from({length:high-low+1},(_,i)=>low+i).filter(p=>tones.includes(p%12));
-    if(chordCandidates.length)candidates=chordCandidates;
-   }
-   if(!candidates.length)return note;
-   const corrected=candidates.reduce((best,p)=>Math.abs(p-sounding)<Math.abs(best-sounding)?p:best,candidates[0]);
-   const delta=corrected-sounding;
-   return {...note,pitch:note.pitch+delta,
-     slideTo:note.slideTo===undefined?undefined:note.slideTo+delta,
-     approachSlideFrom:note.approachSlideFrom===undefined?undefined:note.approachSlideFrom+delta};
-  })];
- })) as Score;
+ const corrections=planAdaptiveTransposition(score,project,settings.semitones,settings.chordToneRhythm);
+ const lookup=new Map(corrections.map(c=>[`${c.instrument}:${c.start}:${c.originalPitch}`,c]));
+ return Object.fromEntries(Object.entries(score).map(([inst,notes])=>[inst,notes.map(n=>{
+  const correction=lookup.get(`${inst}:${n.start}:${n.pitch}`);
+  if(!correction||correction.strategy==='unresolved')return n;
+  const delta=correction.suggestedPitch-correction.intendedPitch;
+  const [lo,hi]=instrumentRange(inst as Instrument);
+  const slide=n.slideTo===undefined?undefined:n.slideTo+delta+settings.semitones;
+  const approach=n.approachSlideFrom===undefined?undefined:n.approachSlideFrom+delta+settings.semitones;
+  // Do not silently break gestures whose endpoints cannot move with the note.
+  if((slide!==undefined&&(slide<lo||slide>hi))||(approach!==undefined&&(approach<lo||approach>hi)))return n;
+  return {...n,pitch:n.pitch+delta,slideTo:n.slideTo===undefined?undefined:n.slideTo+delta,
+   approachSlideFrom:n.approachSlideFrom===undefined?undefined:n.approachSlideFrom+delta};
+ })])) as Score;
 }
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
@@ -351,7 +374,7 @@ export function transposeChordForKey(chord:string,semitones:number,toKey:string)
   const slash=match[2].match(/^(.*)\/([A-Ga-g][#b]?)$/);
   return pitch(match[1])+(slash?slash[1]+'/'+pitch(slash[2]):match[2]);
 }
-export function changeSectionKey(p:Project,section:string,toKey:string,mode:SectionKeyChangeMode):Project {
+export function changeSectionKey(p:Project,section:string,toKey:string,mode:SectionKeyChangeMode,adaptProtected=false):Project {
   if(!p.bars.some(bar=>bar.section===section))throw Error('Unknown section: '+section);
   if(!['signature','chords','chords-and-melody'].includes(mode))throw Error('Invalid section key change mode');
   parseKeySignature(toKey);
@@ -372,10 +395,15 @@ export function changeSectionKey(p:Project,section:string,toKey:string,mode:Sect
     const transposeProtected=(inst:Instrument,n:Note):Note=>{
       const measure=Math.floor((n.start+1e-7)/p.beats);
       if(p.bars[measure]?.section!==section||!p.protectedBars[`${inst}:${measure}`])return {...n};
-      const [lo,hi]=instrumentRange(inst),pitch=n.pitch+delta;
-      const slideTo=n.slideTo===undefined?undefined:n.slideTo+delta;
-      if(pitch<lo||pitch>hi||(slideTo!==undefined&&(slideTo<lo||slideTo>hi)))throw Error(`Protected ${inst} note exceeds playable register; section key unchanged`);
-      return {...n,pitch,slideTo};
+      const [lo,hi]=instrumentRange(inst),intended=n.pitch+delta;
+      const proposed=adaptProtected?nearestPlayablePitch(intended,lo,hi):{pitch:intended,strategy:'unresolved' as const};
+      const correction=proposed.pitch-intended;
+      const pitch=intended+correction;
+      const slideTo=n.slideTo===undefined?undefined:n.slideTo+delta+correction;
+      const approachSlideFrom=n.approachSlideFrom===undefined?undefined:n.approachSlideFrom+delta+correction;
+      if(pitch<lo||pitch>hi||(slideTo!==undefined&&(slideTo<lo||slideTo>hi))||(approachSlideFrom!==undefined&&(approachSlideFrom<lo||approachSlideFrom>hi)))
+        throw Error(`Protected ${inst} note exceeds playable register; section key unchanged`);
+      return {...n,pitch,slideTo,approachSlideFrom};
     };
     next.importedScore=Object.fromEntries(projectInstruments(p).map(inst=>[inst,(p.importedScore?.[inst]??[]).map(n=>transposeProtected(inst,n))])) as Score;
   }

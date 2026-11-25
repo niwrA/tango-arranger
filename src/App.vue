@@ -42,7 +42,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,adaptTransposedScore,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,adaptTransposedScore,planAdaptiveTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -166,13 +166,15 @@ async function adoptLocalSong(p:Project){
 async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
-  if(id==='__example_pequena_2__'||id==='__example_la_melodia__'){
+  if(id==='__example_pequena_2__'||id==='__example_la_melodia__'||id==='__example_hasta_siempre__'){
     select.value=localSongId.value;
     try{
       await flushAutosave();
       const {default:source}=id==='__example_pequena_2__'
         ?await import('./presets/pequena-2.json?raw')
-        :await import('./presets/la-melodia-de-nuestros-adios.json?raw');
+        :id==='__example_hasta_siempre__'
+          ?await import('./presets/hasta-siempre-amor.json?raw')
+          :await import('./presets/la-melodia-de-nuestros-adios.json?raw');
       const study=JSON.parse(source) as Project;
       await adoptLocalSong(study);
       active.value='arrange';
@@ -442,6 +444,7 @@ const transposePreviewSemitones=ref(0);
 const transposeAdapt=ref(true);
 const transposeChordSubstitution=ref(false);
 const transposePreviewOpen=ref(false);
+const keyChangeAdaptProtected=ref(true);
 
 watch(active,tab=>{
   if(!workspaceTabs.includes(tab as WorkspaceTab))return;
@@ -451,7 +454,9 @@ watch(selectedBar,measure=>{try{localStorage.setItem('tango-last-measure',String
 const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'|'merge'>('melody');
 const pendingParsed=ref<ParsedMusicXml|null>(null);
 const pendingSourceName=ref('');
-const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);const merged=project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;return adaptTransposedScore(merged,project.value);});const performanceBeat=ref(0);
+const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const sourceScore=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});
+const score=computed(()=>adaptTransposedScore(sourceScore.value,project.value));
+const transposeCorrections=computed(()=>planAdaptiveTransposition(sourceScore.value,project.value,transposePreviewSemitones.value,transposeAdapt.value&&transposeChordSubstitution.value));const performanceBeat=ref(0);
 const rehearsalSpeed=ref<RehearsalSpeed>((()=>{
  try{return normalizeRehearsalSpeed(localStorage.getItem('tango-rehearsal-speed'));}catch{return 1;}
 })());
@@ -935,6 +940,7 @@ function setSectionKey(section:string,event:Event){
   if(to===from)return;
   keyChangeMode.value='chords-and-melody';
   keyChangeMatchingSections.value=false;
+  keyChangeAdaptProtected.value=true;
   keyChangeError.value='';
   pendingKeyChange.value={section,from,to};
 }
@@ -947,7 +953,7 @@ function applySectionKeyChange(){
       ?sections.value.filter(sec=>keyForSection(sec)===pending.from)
       :[pending.section];
     let changed=project.value;
-    for(const section of targets)changed=changeSectionKey(changed,section,pending.to,mode);
+    for(const section of targets)changed=changeSectionKey(changed,section,pending.to,mode,keyChangeAdaptProtected.value&&mode==='chords-and-melody');
     project.value=changed;
     // Only use the global transpose engine when every section shares the original key.
     // Otherwise it would transpose unrelated sections.
@@ -2522,7 +2528,7 @@ const articulationModes:Articulation[]=['auto','marcato_staccato','staccato','le
 function barArticulation(inst:Instrument):Articulation{return project.value.articulation?.overrides?.[`${inst}:${selectedBar.value}`]??'auto';}
 function setBarArticulation(inst:Instrument,e:Event){project.value.articulation??=defaultArticulation();const key=`${inst}:${selectedBar.value}`;const value=(e.target as HTMLSelectElement).value as Articulation;if(value==='auto')delete project.value.articulation.overrides[key];else project.value.articulation.overrides[key]=value;}
 function inferredArticulation(inst:Instrument):string{return measureArticulation(project.value,inst,selectedBar.value,plannedPhrasesByMeasure.value[selectedBar.value]??null)??'not applicable';}
-function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24)project.value.transposeSemitones=n;}
+function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24){project.value.transposeSemitones=n;project.value.adaptiveTranspose=undefined;}}
 function applyAdaptiveTranspose(){
  if(!Number.isInteger(transposePreviewSemitones.value)||Math.abs(transposePreviewSemitones.value)>24)return;
  project.value.transposeSemitones=transposePreviewSemitones.value;
@@ -5425,7 +5431,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
     <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
@@ -5829,6 +5835,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
             <span><strong>Key signature only</strong><small>Keep chords and all note pitches unchanged</small></span>
           </label>
         </fieldset>
+        <label class="key-change-choice" v-if="keyChangeMode==='chords-and-melody'"><input type="checkbox" v-model="keyChangeAdaptProtected"/> Adapt protected instrument notes by playable octaves when necessary</label>
         <label class="key-change-choice"><input type="checkbox" v-model="keyChangeMatchingSections"/> Apply to all sections currently in {{pendingKeyChange.from}} ({{sections.filter(sec=>keyForSection(sec)===pendingKeyChange?.from).length}} sections)</label>
         <p class="hint">For a whole-arrangement playable-range analysis, use the Transpose &amp; Adapt subtab. Section-only changes retain the existing section transposition behavior.</p>
         <p v-if="keyChangeError" class="key-change-error" role="alert">Unable to apply: {{keyChangeError}}. You can choose another option or cancel.</p>
@@ -5986,11 +5993,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  <label><input type="checkbox" v-model="transposeChordSubstitution" :disabled="!transposeAdapt"/> Consider chord tones for rhythm/accompaniment (manual review)</label>
  <button type="button" class="primary" :disabled="!Number.isInteger(transposePreviewSemitones)||Math.abs(transposePreviewSemitones)>24" @click="transposePreviewOpen=true">Analyze &amp; preview</button>
  <div v-if="transposePreviewOpen" role="region" aria-label="Transposition analysis">
-  <p class="hint">Preview only — no changes to the arrangement have been applied. Octave suggestions preserve pitch class; chord substitutions require review.</p>
+  <p class="hint">Preview only — no changes have been applied. Corrections preserve the transposed pitch class when a playable octave exists.</p>
+  <p><strong>{{transposeCorrections.length}}</strong> out-of-range notes · <strong>{{transposeCorrections.filter(c=>c.strategy==='unresolved').length}}</strong> unresolved</p>
   <div v-for="inst in activeRoster" :key="inst" class="transpose-preview-part">
    <strong>{{rosterDisplayName(inst)}}</strong>
-   <span>{{(score[inst]??[]).filter(n=>{const [lo,hi]=instrumentRange(inst);return n.pitch+transposePreviewSemitones<lo||n.pitch+transposePreviewSemitones>hi}).length}} notes outside configured range</span>
+   <span>{{transposeCorrections.filter(c=>c.instrument===inst).length}} out of range · {{transposeCorrections.filter(c=>c.instrument===inst&&c.strategy==='octave').length}} octave suggestions</span>
   </div>
+  <p v-if="transposeCorrections.some(c=>c.strategy==='unresolved')" role="alert">Some notes cannot be corrected within their configured range. Review those instrument parts after applying.</p>
   <button type="button" class="primary" @click="applyAdaptiveTranspose">Apply transposition</button><p class="hint">Original notes remain unchanged; adaptations are recalculated from the original pitches.</p>
  </div>
 </div>
