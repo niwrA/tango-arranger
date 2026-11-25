@@ -48,9 +48,12 @@ check('current dynamics remain visible and upcoming changes are shown compactly 
 check('chordal role cues prioritize chord symbols without changing chord case',()=>{
  assert.ok(role.includes("['chords','harmony'].includes(role.toLowerCase())"));
  assert.ok(role.includes("currentChordPrimary?(chord||'—'):role"));
- assert.ok(role.includes("nextChordPrimary?(nextChord||'—'):nextRole"));
+ assert.ok(role.includes("nextChordPrimary?(nextChord||'—'):upcomingRole"));
  assert.ok(role.includes('text-transform:none'));
- assert.equal((app.match(/:chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find/g)||[]).length,2);
+ assert.equal((app.match(/:same-measure-chord="roleCueHarmony.sameBar"/g)||[]).length,2);
+ assert.ok(role.includes("BEAT "));
+ assert.ok(app.includes("harmony.nextChordMeasure===bar+1"));
+ assert.ok(app.includes("vocalEntranceMeasure-(performanceBar+1)"));
 });
 check('expanded role view gives the present measure more space and preserves tap to switch',()=>{
  assert.ok(role.includes('.stage-role-timeline.is-focus{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)'));

@@ -676,6 +676,12 @@ function performanceDynamic(inst:Instrument,bar:number):string{
  return mark+(explicit?.end&&explicit.end!==mark?' → '+explicit.end:'');
 }
 /** Long-distance stage activity changes only at measure boundaries, not on each note gate. */
+// Prefer the next actual change within this bar; otherwise preview the next bar.
+const roleCueHarmony=computed(()=>{
+ const harmony=performanceHarmony.value,bar=performanceBar.value;
+ const sameBar=harmony.nextChordMeasure===bar+1;
+ return {sameBar,chord:sameBar?harmony.nextChord:performanceChordBeats.value.next.find(symbol=>symbol!=='–')??'—',beat:sameBar?harmony.nextChordBeat:null};
+});
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
  const notes=score.value[part.inst]??[];
@@ -700,8 +706,11 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
   ?suggestStringMeasurePosition(family,measureNotes.map(n=>({pitch:n.pitch,start:n.start,duration:noteSoundingDuration(n),stringMidi:n.stringMidi})))
   :null;
  const dimUnplayedChordTones=playing.value&&part.role==='chords'&&activePitches.length>0;
+ const vocalRest=family==='Voice'&&!playingInMeasure;
+ const nextVocalStart=vocalRest?notes.reduce((first,n)=>n.start>=(bar+1)*p.beats?Math.min(first,n.start):first,Infinity):Infinity;
+ const vocalEntranceMeasure=Number.isFinite(nextVocalStart)?Math.floor(nextVocalStart/p.beats)+1:null;
  const cueStatus=playingInMeasure?'ACTIVE':nextMeasureHasNotes?'NEXT BAR':'REST';
- return {...part,display:stageInstrumentName(rosterDisplayName(part.inst)),playingInMeasure,hasNextMeasure:nextBar>bar,activePitches,activeStringNotes,measurePitches,registerPitches,violinPosition,positionGuide,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
+ return {...part,display:stageInstrumentName(rosterDisplayName(part.inst)),playingInMeasure,vocalRest,vocalEntranceMeasure,hasNextMeasure:nextBar>bar,activePitches,activeStringNotes,measurePitches,registerPitches,violinPosition,positionGuide,dimUnplayedChordTones,cueStatus,nextRole:effectiveRole(part.inst,nextBar),
   articulation:cellArticulation(part.inst,bar),nextArticulation:cellArticulation(part.inst,nextBar),
   dynamics:performanceDynamic(part.inst,bar),nextDynamics:performanceDynamic(part.inst,nextBar)};
 }));
@@ -5617,12 +5626,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span class="performance-card-role" :title="`Current role: ${part.role}`">{{part.role}}</span>
         <span v-if="!part.playingInMeasure" class="performance-card-rest-cue">{{part.cueStatus==='NEXT BAR'?'↪':'–'}}</span>
       </span>
-      <span v-if="cardShowsDiagram(part.inst)" class="performance-card-dynamic-rail" :aria-label="'Current dynamics '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
+      <span v-if="!part.vocalRest&&cardShowsDiagram(part.inst)" class="performance-card-dynamic-rail" :aria-label="'Current dynamics '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
         <span class="performance-card-dynamic-now" :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}">Now <strong>{{part.dynamics}}</strong></span>
         <span class="performance-card-dynamic-next" :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}">Next <strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
       </span>
-      <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
-      <PerformanceRoleCues v-else :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find(symbol=>symbol!=='–')??'—'"
+      <span v-if="part.vocalRest" class="stage-vocal-rest"><strong>{{part.vocalEntranceMeasure===null?'Finished':part.vocalEntranceMeasure-(performanceBar+1)}}</strong><span>{{part.vocalEntranceMeasure===null?'No further entrance':'Measures until entrance · M'+part.vocalEntranceMeasure}}</span></span>
+      <PerformanceChordDiagram v-else-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
+      <PerformanceRoleCues v-else :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="['chords','harmony'].includes(part.role)?roleCueHarmony.chord:(performanceChordBeats.next.find(symbol=>symbol!=='–')??'—')" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
         :articulation="part.articulation" :next-articulation="part.nextArticulation"
         :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
         :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
@@ -5681,7 +5691,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span>Beat <strong>{{Math.floor(performanceMeasureBeat)}}</strong> / {{project.beats}}</span>
          <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
-         <span v-if="focusShowsScore||cardShowsDiagram(part.inst)" class="instrument-focus-dynamics-inline" :aria-label="'Dynamics now '+part.dynamics+(part.hasNextMeasure&&part.nextDynamics!==part.dynamics?', next '+part.nextDynamics:'')">
+         <span v-if="!part.vocalRest&&(focusShowsScore||cardShowsDiagram(part.inst))" class="instrument-focus-dynamics-inline" :aria-label="'Dynamics now '+part.dynamics+(part.hasNextMeasure&&part.nextDynamics!==part.dynamics?', next '+part.nextDynamics:'')">
            <span class="instrument-focus-dynamic-chip" :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}">Dynamic <strong>{{part.dynamics}}</strong></span>
            <span v-if="part.hasNextMeasure&&part.nextDynamics!==part.dynamics" class="instrument-focus-dynamic-chip" :style="{'--dyn-alpha':stageDynamicAlpha(part.nextDynamics)}">→ <strong>{{part.nextDynamics}}</strong></span>
          </span>
@@ -5698,26 +5708,27 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            <template #diagram="{targetPitch,currentBeat,showTargetLabel,feedbackProgress,feedbackState,measurePitches,bassGuide,violinGuide,bandoneonHands,bandoneonTargetHand}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :feedback-progress="feedbackProgress" :feedback-state="feedbackState" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="measurePitches" :split-pitch="pianoSplit" :violin-position="violinGuide" :position-guide="bassGuide" :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/></template>
          </InstrumentLearnView>
          <template v-else>
-         <ScorePreview v-if="focusShowsScore" :project="project" :score="score" :instrument="part.inst"
+         <div v-if="part.vocalRest" class="stage-vocal-rest is-focused"><strong>{{part.vocalEntranceMeasure===null?'Finished':part.vocalEntranceMeasure-(performanceBar+1)}}</strong><span>{{part.vocalEntranceMeasure===null?'No further entrance':'Measures until entrance · M'+part.vocalEntranceMeasure}}</span></div>
+         <ScorePreview v-else-if="focusShowsScore" :project="project" :score="score" :instrument="part.inst"
            :from-measure="performanceScoreFrom" :to-measure="performanceScoreTo"
            :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" expanded follow-measure :interactive="false" />
-         <PianoFocusView v-if="performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
+         <PianoFocusView v-if="!part.vocalRest && performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
            :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="performanceScoreView==='both'?performanceScoreView='score':flipPerformanceCard(part.inst)"/>
-         <button v-else-if="performanceScoreView==='off'&&cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
+         <button v-else-if="!part.vocalRest&&performanceScoreView==='off'&&cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show role and dynamics for '+part.display" title="Tap to show role and dynamics">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
              :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </button>
-         <div v-else-if="performanceScoreView==='both'" class="instrument-focus-score-diagram">
+         <div v-else-if="!part.vocalRest&&performanceScoreView==='both'" class="instrument-focus-score-diagram">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
              :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </div>
-         <button v-else-if="!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
+         <button v-else-if="!part.vocalRest&&!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
-           <PerformanceRoleCues :focus="true" :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find(symbol=>symbol!=='–')??'—'"
+           <PerformanceRoleCues :focus="true" :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="['chords','harmony'].includes(part.role)?roleCueHarmony.chord:(performanceChordBeats.next.find(symbol=>symbol!=='–')??'—')" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
              :articulation="part.articulation" :next-articulation="part.nextArticulation"
              :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
              :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
@@ -8526,4 +8537,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 
 <style scoped>
 .instrument-focus-role-switch{max-width:none;width:100%;padding:clamp(5px,1vw,14px)}
+</style>
+
+<style scoped>
+.performance-live .performance-cue-panel.performance-diagram-card.performance-cue-playing{box-shadow:inset 0 0 0 3px rgb(247 193 111 / var(--cue-beat-glow,.13)),inset 0 0 35px rgb(244 191 113 / calc(var(--cue-beat-glow,.13)*.55));border-color:rgb(247 193 111 / calc(.3 + var(--cue-beat-glow,.13)))}
+.stage-vocal-rest{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:0;color:#b9cbd7;text-align:center}
+.stage-vocal-rest strong{font-size:clamp(30px,5vw,70px);line-height:1;color:#e1e8ed}
+.stage-vocal-rest.is-focused strong{font-size:clamp(60px,20vmin,220px)}
+.stage-vocal-rest.is-focused span{font-size:clamp(18px,3vw,36px)}
+@media(prefers-reduced-motion:reduce){.performance-live .performance-cue-panel.performance-diagram-card.performance-cue-playing{--cue-beat-glow:.13!important}}
 </style>

@@ -8,11 +8,13 @@ import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 const props=defineProps<{
  role:string;nextRole:string;articulation:string;nextArticulation:string;
  dynamics:string;nextDynamics:string;cueStatus:string;
- currentMeasure:number;nextMeasure:number|null;focus?:boolean;chord?:string;nextChord?:string;beatGlow?:string
+ currentMeasure:number;nextMeasure:number|null;focus?:boolean;chord?:string;nextChord?:string;beatGlow?:string;nextChordBeat?:number|null;sameMeasureChord?:boolean
 }>();
 const chordRole=(role:string)=>['chords','harmony'].includes(role.toLowerCase());
 const currentChordPrimary=computed(()=>chordRole(props.role));
-const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.nextRole));
+const upcomingRole=computed(()=>props.sameMeasureChord&&currentChordPrimary.value?props.role:props.nextRole);
+const nextChordPrimary=computed(()=>((props.sameMeasureChord&&currentChordPrimary.value)||props.nextMeasure!==null)&&chordRole(upcomingRole.value));
+const upcomingMeasure=computed(()=>props.sameMeasureChord&&currentChordPrimary.value?props.currentMeasure:props.nextMeasure);
 </script>
 
 <template>
@@ -27,14 +29,14 @@ const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.ne
     <span class="stage-dynamic-track" aria-hidden="true"><span :style="{width:stageDynamicMeter(dynamics)}"/></span>
    </span>
   </span>
-  <span class="stage-role-upcoming" :style="{'--dyn-alpha':stageDynamicAlpha(nextDynamics)}">
-   <span class="stage-role-eyebrow"><span>{{nextMeasure===null?'END OF SCORE':'NEXT · M'+nextMeasure}}</span></span>
-   <strong class="stage-role-next-name" :style="nextChordPrimary?{'--chord-length':Math.max(2,(nextChord||'—').length)}:undefined" :class="{'is-chord':nextChordPrimary}">{{nextMeasure===null?'—':nextChordPrimary?(nextChord||'—'):nextRole}}</strong>
-   <span v-if="nextChordPrimary" class="stage-role-secondary">{{nextRole}}</span>
-   <span class="stage-role-next-articulation">{{nextMeasure===null?'':nextArticulation}}</span>
+  <span class="stage-role-upcoming" :style="{'--dyn-alpha':stageDynamicAlpha(sameMeasureChord&&currentChordPrimary?dynamics:nextDynamics)}">
+   <span class="stage-role-eyebrow"><span>{{upcomingMeasure===null?'END OF SCORE':sameMeasureChord&&currentChordPrimary?'NEXT · M'+currentMeasure+' · BEAT '+nextChordBeat:'NEXT · M'+nextMeasure}}</span></span>
+   <strong class="stage-role-next-name" :style="nextChordPrimary?{'--chord-length':Math.max(2,(nextChord||'—').length)}:undefined" :class="{'is-chord':nextChordPrimary}">{{upcomingMeasure===null?'—':nextChordPrimary?(nextChord||'—'):upcomingRole}}</strong>
+   <span v-if="nextChordPrimary" class="stage-role-secondary">{{upcomingRole}}</span>
+   <span class="stage-role-next-articulation">{{upcomingMeasure===null?'':sameMeasureChord&&currentChordPrimary?articulation:nextArticulation}}</span>
    <span class="stage-role-dynamic">
-    <span class="stage-dynamic-label">Dynamic <strong>{{nextMeasure===null?'—':nextDynamics}}</strong></span>
-    <span class="stage-dynamic-track" aria-hidden="true"><span :style="{width:nextMeasure===null?'0%':stageDynamicMeter(nextDynamics)}"/></span>
+    <span class="stage-dynamic-label">Dynamic <strong>{{upcomingMeasure===null?'—':sameMeasureChord&&currentChordPrimary?dynamics:nextDynamics}}</strong></span>
+    <span class="stage-dynamic-track" aria-hidden="true"><span :style="{width:upcomingMeasure===null?'0%':stageDynamicMeter(sameMeasureChord&&currentChordPrimary?dynamics:nextDynamics)}"/></span>
    </span>
   </span>
  </span>
@@ -94,4 +96,7 @@ const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.ne
 .stage-role-timeline.is-focus .stage-role-articulation,.stage-role-timeline.is-focus .stage-role-next-articulation{min-height:0}
 .stage-role-timeline.is-focus .stage-role-current{box-shadow:inset 0 0 0 2px rgb(247 193 111 / var(--role-beat-glow)),inset 0 0 65px rgb(244 191 113 / calc(var(--role-beat-glow) * .28));border-color:rgb(247 193 111 / calc(.25 + var(--role-beat-glow)))}
 @media(prefers-reduced-motion:reduce){.stage-role-timeline.is-focus .stage-role-current{--role-beat-glow:.13!important}}
+.stage-role-timeline.is-focus .stage-role-secondary{font-size:clamp(24px,7cqh,52px);font-weight:800;color:#e4edf4;line-height:1.1}
+.stage-role-timeline:not(.is-focus) .stage-role-current{box-shadow:inset 0 0 0 2px rgb(247 193 111 / var(--role-beat-glow)),inset 0 0 25px rgb(244 191 113 / calc(var(--role-beat-glow)*.4))}
+@media(prefers-reduced-motion:reduce){.stage-role-current{--role-beat-glow:.13!important}}
 </style>
