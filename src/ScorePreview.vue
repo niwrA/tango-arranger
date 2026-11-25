@@ -24,6 +24,15 @@ const props=withDefaults(defineProps<{
 const emit=defineEmits<{select:[note:Note];edit:[]}>();
 
 const host=ref<HTMLElement|null>(null);
+const scoreAppearanceKey='tango-score-appearance';
+function readScoreAppearance(){try{return localStorage.getItem(scoreAppearanceKey)==='theme';}catch{return false;}}
+const themedScore=ref(readScoreAppearance());
+function setScoreAppearance(value:boolean){
+ themedScore.value=value;
+ try{localStorage.setItem(scoreAppearanceKey,value?'theme':'paper');}catch{/* Preference remains available for this session. */}
+ if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('tango-score-appearance',{detail:value}));
+}
+function syncScoreAppearance(event:Event){themedScore.value=Boolean((event as CustomEvent<boolean>).detail);}
 const loading=ref(true);
 const error=ref('');
 const displayedRange=computed(()=>{
@@ -260,6 +269,7 @@ watch(()=>props.activeMeasure,highlightActiveMeasure);
 watch(()=>props.playingNotes,highlightPlayback);
 
 onMounted(()=>{
+  window.addEventListener('tango-score-appearance',syncScoreAppearance);
   if(!host.value)return;
   osmd=new OpenSheetMusicDisplay(host.value,{
     autoResize:false,
@@ -284,6 +294,7 @@ onMounted(()=>{
 });
 
 onBeforeUnmount(()=>{
+  window.removeEventListener('tango-score-appearance',syncScoreAppearance);
   generation++;
   if(contentTimer)clearTimeout(contentTimer);
   if(layoutTimer)clearTimeout(layoutTimer);
@@ -295,11 +306,12 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-  <section class="score-preview editor" :class="{'score-preview-expanded':expanded}" aria-label="Staff notation">
+  <section class="score-preview editor" :class="{'score-preview-expanded':expanded,'score-preview-themed':themedScore}" aria-label="Staff notation">
     <div v-if="interactive" class="score-preview-selection">
       <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
       <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
     </div>
+    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
     <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure}" :aria-busy="loading"
@@ -331,4 +343,16 @@ onBeforeUnmount(()=>{
  stroke:var(--note-feedback-color,#c98b3b);
  stroke-width:1.3px;
 }
+.score-appearance-control{display:flex;justify-content:flex-end;margin-bottom:4px}
+.score-appearance-control button{font-size:.72rem;padding:3px 8px}
+.score-preview-themed{background:var(--panel,#1a232c);color:var(--text,#e8e9ec);border-color:var(--border,#35414c)}
+.score-preview-themed .score-preview-canvas :deep(svg){color:var(--text,#e8e9ec);fill:currentColor;stroke:currentColor}
+.score-preview-themed .score-preview-canvas :deep([fill="black"]),.score-preview-themed .score-preview-canvas :deep([fill="#000"]),.score-preview-themed .score-preview-canvas :deep([fill="#000000"]){fill:var(--text,#e8e9ec)}
+.score-preview-themed .score-preview-canvas :deep([stroke="black"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000000"]){stroke:var(--text,#e8e9ec)}
+.score-preview-themed .score-preview-canvas :deep(.score-notehead),.score-preview-themed .score-preview-canvas :deep(.score-notehead [fill]){fill:var(--text,#e8e9ec)}
+.score-preview-themed .score-preview-canvas :deep(.score-note-completed),.score-preview-themed .score-preview-canvas :deep(.score-note-completed [fill]){fill:#6ec5b2}
+.score-preview-themed .score-preview-canvas :deep(.score-note-playing),.score-preview-themed .score-preview-canvas :deep(.score-note-playing [fill]){fill:#8fbbff}
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected),.score-preview-themed .score-preview-canvas :deep(.score-note-selected [fill]),.score-preview-themed .score-preview-canvas :deep(.score-notehead:focus-visible),.score-preview-themed .score-preview-canvas :deep(.score-notehead:focus-visible [fill]){fill:var(--accent,#e7c38e)}
+.score-preview-themed .score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#6ec5b2}
+.score-preview-themed .score-preview-error{color:#ee8f70}
 </style>

@@ -145,6 +145,8 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
     const f=fingerings[0];
     if(f&&f.position===0){n.stringMidi=[55,62,69,76][f.string];n.handPosition='I';const stop=n.pitch+shift-n.stringMidi;n.finger=String(stop===0?0:stop<=2?1:stop<=4?2:stop<=6?3:4) as Note['finger'];}
    }
+   // A derived edition is independent of the manual rhythm preset attachment in its source.
+   delete n.rhythmSource;
    n.source='generated';result.push(n);
   }
   previous=primary;previousOriginal=original;
