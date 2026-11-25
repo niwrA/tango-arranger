@@ -4611,56 +4611,6 @@ function applyNoteGridViewport(left:number,width:number,followScroll:boolean){
 function noteGridScrollers(){
  return Array.from(noteEditorRegion.value?.querySelectorAll<HTMLElement>('.note-grid-scroll')??[]);
 }
-// Touch screens do not reliably pan virtualized grids via native overflow.
-// Pan from empty cells or headers, but never steal a note move/resize.
-interface NoteGridPan{pointerId:number;startX:number;startY:number;startLeft:number;moved:boolean;scroller:HTMLElement}
-let noteGridPan:NoteGridPan|null=null;
-let suppressNoteGridPanClick=false;
-function beginNoteGridPan(event:PointerEvent){
- if(!event.isPrimary||event.button!==0||noteDrag)return;
- const target=event.target instanceof Element?event.target:null;
- if(target?.closest('.note-bar,.note-resize-handle'))return;
- const scroller=event.currentTarget as HTMLElement;
- noteGridPan={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,startLeft:scroller.scrollLeft,moved:false,scroller};
-}
-function moveNoteGridPan(event:PointerEvent){
- const pan=noteGridPan;
- if(!pan||event.pointerId!==pan.pointerId)return;
- const dx=event.clientX-pan.startX,dy=event.clientY-pan.startY;
- if(!pan.moved){
-  if(Math.abs(dx)<9)return;
-  if(Math.abs(dx)<=Math.abs(dy)*1.2){noteGridPan=null;return;}
-  pan.moved=true;
-  suppressNoteGridPanClick=true;
-  try{pan.scroller.setPointerCapture(event.pointerId);}catch{/* Pointer already canceled by Safari. */}
- }
- const maxLeft=Math.max(0,pan.scroller.scrollWidth-pan.scroller.clientWidth);
- if(maxLeft>1)pan.scroller.scrollLeft=Math.max(0,Math.min(maxLeft,pan.startLeft-dx));
- event.preventDefault();
-}
-function endNoteGridPan(event:PointerEvent){
- const pan=noteGridPan;
- if(!pan||event.pointerId!==pan.pointerId)return;
- noteGridPan=null;
- if(pan.moved&&pan.scroller.scrollWidth<=pan.scroller.clientWidth+1&&!noteLoopPlaying.value){
-  // A one-measure selection fits on an iPad: swipe to browse adjacent measures.
-  const delta=event.clientX-pan.startX;
-  if(Math.abs(delta)>=24)shiftNoteVisibleRange(-Math.sign(delta)*Math.max(1,Math.round(Math.abs(delta)/110)));
- }
- if(pan.scroller.hasPointerCapture(event.pointerId))pan.scroller.releasePointerCapture(event.pointerId);
- if(pan.moved){
-  suppressNoteGridPanClick=true;
-  setTimeout(()=>{suppressNoteGridPanClick=false;},160);
- }
-}
-function cancelNoteGridPan(event:PointerEvent){
- if(noteGridPan?.pointerId===event.pointerId)noteGridPan=null;
-}
-function blockNoteGridPanClick(event:MouseEvent){
- if(!suppressNoteGridPanClick)return;
- event.preventDefault();event.stopImmediatePropagation();
- suppressNoteGridPanClick=false;
-}
 function handleNoteGridScroll(event:Event){
  if(active.value!=='notes'||noteEditorTab.value!=='notes'||noteDrag)return;
  const element=event.currentTarget as HTMLElement;
@@ -4673,7 +4623,7 @@ function handleNoteGridScroll(event:Event){
   noteGridScrollFrame=0;
   const left=pendingNoteScrollLeft;
   noteGridScrollLeft=left;
-  applyNoteGridViewport(left,pendingNoteScrollWidth,true);
+  applyNoteGridViewport(left,pendingNoteScrollWidth,false);
   // Piano upper and lower staves share the same horizontal measure position.
   for(const scroller of noteGridScrollers())
    if(Math.abs(scroller.scrollLeft-left)>=0.5)scroller.scrollLeft=left;
@@ -6815,7 +6765,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
-<div class="note-grid-scroll" @scroll.passive="handleNoteGridScroll" @click.capture="blockNoteGridPanClick($event)" @pointerdown="beginNoteGridPan($event)" @pointermove="moveNoteGridPan($event);moveNoteDrag($event)" @pointerup="endNoteGridPan($event);endNoteDrag($event)" @pointercancel="cancelNoteGridPan($event);endNoteDrag($event)">
+<div class="note-grid-scroll" @scroll.passive="handleNoteGridScroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)">
   <div class="note-continuous-grid" :style="{minWidth:(NOTE_GRID_LABEL_PX+focusVisibleMeasures.length*noteBeats.length*NOTE_GRID_CELL_PX)+'px','--grid-steps':noteBeats.length*focusVisibleMeasures.length,'--visible-measures':focusVisibleMeasures.length,'--note-window-measures':noteGridMeasures.length,'--note-window-steps':noteBeats.length*noteGridMeasures.length}">
     <div class="note-continuous-row note-continuous-measures">
       <div class="note-continuous-pitch-title">Pitch</div>
@@ -6825,7 +6775,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <div class="note-continuous-row note-continuous-beats">
       <div class="note-continuous-pitch-title">Pitch ↔</div>
-      <div class="note-continuous-beat-heads note-beat-swipe-header" title="Drag horizontally to browse measures"><div class="note-grid-window note-grid-window-beats" :style="noteGridWindowStyle">
+      <div class="note-continuous-beat-heads note-beat-swipe-header" title="Scroll horizontally to browse measures"><div class="note-grid-window note-grid-window-beats" :style="noteGridWindowStyle">
         <template v-for="barIndex in noteGridMeasures" :key="barIndex">
           <div v-for="beat in noteBeats" :key="barIndex+'-'+beat" class="note-continuous-beat" :class="{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></div>
         </template>
@@ -6844,7 +6794,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 </div>
 </div>
-    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">On touch screens, drag horizontally on empty note cells or measure headings to browse; drag vertically to scroll the grid. If the selected range fits on screen, a horizontal drag shifts it to adjacent measures. Drag a note itself to move or resize it. The measure-range arrows above the grid can shift the selected range.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
+    <p class="hint">The grid defaults to sixteenth notes (¼ beat) for every instrument, regardless of difficulty. Labels 1e, 1&amp;, 1a mark the subdivisions between beat 1 and beat 2. To move by half a beat, drag the middle of a note two grid cells, or use the ±½ beat buttons below.</p><p class="hint">Tap an empty cell to add a note. Tap a note to select it; its full-width bar shows the written duration. Drag the middle left/right to move in time, or up/down to change pitch (diagonal drags do both). Drag the left edge to change the start while keeping the end fixed; drag the right edge to change the end while keeping the start fixed. Press and hold to open note properties.</p><p class="hint">On touch screens, swipe on empty note cells or measure headings to scroll in either direction. Use the range arrows to browse adjacent measures when the range fits on screen. Drag a note itself to move or resize it. The measure-range arrows above the grid can shift the selected range.</p><p class="hint">Color guide: <span class="note-key-legend chord">chord tone</span> <span class="note-key-legend key">key tone</span> <span class="note-key-legend chromatic">chromatic</span>. All three colors are clickable, for every instrument and role. Pitch labels can show sharps or flats without changing the sounding pitch; MusicXML spells notes according to the section key. Notes outside the visible register can be reached with Lowest/Highest note selectors or the octave buttons.</p>
     <section v-if="noteInst.startsWith('Voice')" class="lyric-workspace" aria-label="Lyric alignment editor">
       <div class="section-heading"><h3>Lyrics · note-aligned timeline</h3><button type="button" class="secondary" :disabled="selectedBar<=0" @click="openNoteEditor(noteInst,selectedBar-1)" aria-label="Previous lyrics measure">‹</button><span class="measure-drag-header" title="Drag horizontally to navigate measures" style="cursor:ew-resize;touch-action:pan-y;user-select:none" @pointerdown="beginMeasureHeaderDrag" @pointerup="finishMeasureHeaderDrag" @pointercancel="cancelMeasureHeaderDrag">Measure {{selectedBar+1}} · {{project.beats}} beats</span><button type="button" class="secondary" :disabled="selectedBar>=project.bars.length-1" @click="openNoteEditor(noteInst,selectedBar+1)" aria-label="Next lyrics measure">›</button></div>
       <p class="hint">Each segment follows the written note onset and duration. The strip joins adjacent segments visually; rests remain visible as empty space. Editing lyrics never changes note timing, pitch or playback articulation.</p>
@@ -7018,7 +6968,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 /* Explicit CSS-grid rows avoid Safari's unstable colspan table sizing. */
 .note-continuous-grid{width:100%;box-sizing:border-box;min-width:0}
 .note-continuous-row{display:grid;grid-template-columns:64px minmax(0,1fr);width:100%;box-sizing:border-box}
-.note-continuous-measures{min-height:40px}
+.note-continuous-measures{min-height:40px;position:sticky;top:0;z-index:5;background:#263642}
+.note-continuous-beats{position:sticky;top:40px;z-index:4;background:#263642}
+.note-continuous-pitch-title,.note-continuous-pitch-label{position:sticky;left:0;z-index:3}
+.note-grid-scroll{overflow-anchor:none;touch-action:pan-x pan-y}
+.note-continuous-grid .note-bar,.note-continuous-grid .note-resize-handle{touch-action:none}
 .note-continuous-beats{min-height:45px}
 .note-continuous-pitch-title,.note-continuous-pitch-label{background:#253440!important;color:#e2c38d;border:0;border-right:1px solid #455361;border-bottom:1px solid #3b4a59;box-sizing:border-box;padding:5px 3px;text-align:center;white-space:nowrap;overflow:hidden}
 .note-continuous-pitch-title{font-size:11px;color:#d8e1e9;display:flex;align-items:center;justify-content:center}
@@ -8088,7 +8042,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 @media(pointer:coarse){
  .note-continuous-grid .note-lane-grid,
  .note-continuous-grid .note-grid-cell{
-  touch-action:pan-y!important;
+  touch-action:pan-x pan-y!important;
   -webkit-user-select:none;user-select:none
  }
  .note-continuous-grid .note-bar,
@@ -8103,7 +8057,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   -webkit-overflow-scrolling:touch
  }
  .note-continuous-measure-heads,.note-continuous-measure-heads .note-multibar-title,
- .note-continuous-pitch-label{touch-action:pan-y!important}
+ .note-continuous-pitch-label,.note-continuous-beat-heads{touch-action:pan-x pan-y!important}
 }
 /* One visible rhythm range, shared by Apply, comparison and tap recording. */
 .rhythm-range-toolbar{

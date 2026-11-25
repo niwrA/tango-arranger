@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Keep pitch labels and time headers visible while scrolling the note grid; use native two-axis touch scrolling instead of custom horizontal panning.
+
 - Align the five measure-range controls in a compact row, including the section selector, with responsive toolbar grouping.
 
 - Select a whole section from measure-range controls using buttons or a compact dropdown. Manual start-measure changes update the displayed section without automatically selecting its full range.

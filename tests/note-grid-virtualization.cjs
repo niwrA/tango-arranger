@@ -37,22 +37,16 @@ assert.match(vue,/noteGridScrollers\(\)/);
 assert.match(vue,/if\(Math.abs\(element.scrollLeft-noteGridScrollLeft\)<0.5\)return/);
 assert.match(vue,/const nextMeasure=range\[next.active\]/);
 assert.match(vue,/\.note-grid-window-cells\{grid-template-columns:repeat\(var\(--note-window-steps\)/);
-assert.match(vue,/touch-action:pan-y!important/);
-// A touch drag must move the scroller even when Safari does not start native
-// horizontal scrolling. Tap and note resize must remain separate gestures.
-assert.match(vue,/function beginNoteGridPan\(event:PointerEvent\)/);
-assert.match(vue,/function moveNoteGridPan\(event:PointerEvent\)/);
-assert.match(vue,/function endNoteGridPan\(event:PointerEvent\)/);
-assert.match(vue,/function blockNoteGridPanClick\(event:MouseEvent\)/);
+assert.match(vue,/touch-action:pan-x pan-y!important/);
+// Native scrolling and note editing must remain separate gestures.
+assert.doesNotMatch(vue,/function beginNoteGridPan/);
+assert.match(vue,/@pointermove="moveNoteDrag\(\$event\)"/);
+assert.match(vue,/\.note-continuous-pitch-title,\.note-continuous-pitch-label\{position:sticky;left:0/);
+assert.match(vue,/\.note-continuous-beats\{position:sticky;top:40px/);
 assert.match(vue,/target\?\.closest\('\.note-bar,\.note-resize-handle'\)/);
-assert.match(vue,/pan\.scroller\.scrollLeft=Math\.max\(0,Math\.min\(maxLeft,pan\.startLeft-dx\)\)/);
-assert.match(vue,/@pointerdown="beginNoteGridPan\(\$event\)"/);
-assert.match(vue,/@pointermove="moveNoteGridPan\(\$event\);moveNoteDrag\(\$event\)"/);
-assert.match(vue,/@click\.capture="blockNoteGridPanClick\(\$event\)"/);
 assert.doesNotMatch(vue,/class="note-grid-selection-status"/);
 assert.doesNotMatch(vue,/function stepNoteGrid\(/);
 assert.match(vue,/class="note-active-measure"/);
-assert.match(vue,/pan\.scroller\.scrollWidth<=pan\.scroller\.clientWidth\+1/);
 
 
 const styles=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
