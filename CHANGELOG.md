@@ -1,5 +1,9 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Organize About into collapsed major feature deliveries and daily development summaries, with expandable detail and a historical archive.
+- Align karaoke notes, chords and lyrics to musical time; default string capture to two octaves and respect recorded string identity in fingering guides.
+- Add a persistent optional theme-colored score preview.
+
 - Expand large-screen ensemble performance layout and default to two-octave recording fingerboards on wide screens; preserve explicit string choice for keyboard-accessible fingerboard input.
 
 - Add compact triplet snap and duration choices to the Notes editor and preserve fractional-third timing in MusicXML export.
@@ -26,20 +30,20 @@
 - Updated About to display dated development notes as well as numbered releases. The existing package version remains unchanged; deployed builds retain their commit identifier.
 - Build and browser acceptance of these latest changes remain to be verified.
 
-## Structure, keys and adaptive transposition (2026-11-24)
+## [Feature] Structure, keys and adaptive transposition (2026-11-24)
 
 - Organized Structure into Form, Keys, Transpose & Adapt and Ensemble subtabs. Added matching-key section scope and explicit whole-song transposition analysis.
 - Added range-aware transposition preview and playback integration, octave corrections and optional accompaniment chord-tone suggestions.
 - Added the Hasta Siempre Amor example arrangement.
 
-## Complete score import and instrument practice improvements (2026-11-23)
+## [Feature] Complete score import and instrument practice improvements (2026-11-23)
 
 - Added complete MusicXML song import with independent roster, part previews and section review.
 - Added automatic chromatic tuning, live intonation feedback, target-note highlighting and fingerboard feedback.
 - Added compact karaoke harmony and optional vocal pitch contour, microphone volume envelope and raw recorded pitch contour.
 - Added tango sounding-duration options for practice and recording analysis, improved Learn layout and persistent pizzicato/arco notation.
 
-## Instrument-specific Note Editor capture · phase 1 (2026-11-20)
+## [Feature] Instrument-specific Note Editor capture · phase 1 (2026-11-20)
 
 - Added direct violin finger-trace input on the existing string surface. Holding a note preserves written duration, moving to another fret on the same string can record a portamento **into the final written pitch**, repeated small movements can mark vibrato, and a broad returning sweep can create a tango sirena contour. An explicit Notes/Slide/Vibrato mode and a visible draft marking allow correction when automatic classification is unsuitable.
 - Each pointer has its own hold lifecycle, so simultaneous keyboard and string notes can be recorded without one finger releasing the other finger's note; shared sounding pitches share an audio preview voice. Pointer cancellation does not write a note.
@@ -64,7 +68,7 @@
 - Explicit planned bandoneon leads take priority over section-follow settings, and linked violin generation follows lead-before-harmony order for reordered rosters. Shared interface role readers reuse the validated phrase map.
 - Expanded the phrase CI gate with protected-note/edition preservation, native JSON and ZIP backup round trips, real MusicXML ZIP validation, and actual Vue server-rendering checks for invalid data. Browser/device interaction remains separately unverified.
 
-## Intelligent MusicXML Import & Merge (2026-11-19)
+## [Feature] Intelligent MusicXML Import & Merge (2026-11-19)
 
 - Replaced division-per-measure fallbacks with a persistent MusicXML timing parser supporting multi-voice and multi-staff OMR exports.
 - Added a wide comparison preview with source-measure remapping, local pitch shift, per-measure and section-level Ours/Theirs/Combine choices, and editable protected pitches.

@@ -408,34 +408,41 @@ function initialWorkspaceTab():WorkspaceTab{
   }catch{/* Storage may be disabled; default to the first tab. */}
   return 'structure';
 }
-type ChangelogEntry={id:string;version:string;title:string;summary:string};
+type ChangelogEntry={id:string;version:string;title:string;date:string;details:string[];major:boolean};
 const releaseHistory:ChangelogEntry[]=(()=>{
  const lines=changelogMarkdown.split(/\r?\n/);
  const entries:ChangelogEntry[]=[];
- const seen=new Set<string>();
- const heading=/^#{1,3}\s+(.+)$/;
+ const heading=/^##\s+(.+)$/;
  const version=/\bv(\d+)\.(\d+)(?:\.(\d+))?\b/i;
  for(let i=0;i<lines.length;i++){
   const match=lines[i].match(heading);
   if(!match)continue;
   const number=match[1].match(version);
-  const dated=/\(\d{4}-\d{2}-\d{2}\)/.test(match[1]);
-  if(!number&&!dated)continue;
+  const date=match[1].match(/\((\d{4}-\d{2}-\d{2})\)/)?.[1]??'';
   const release=number?[number[1],number[2],number[3]??'0'].join('.'):'';
-  const title=number?match[1].replace(/^.*?\bv\d+\.\d+(?:\.\d+)?\s*[-–—·:]?\s*/i,'').trim():match[1];
-  const id=release||title;
-  if(seen.has(id))continue;
-  seen.add(id);
+  const title=match[1].replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/,'').replace(/^\[Feature\]\s*/i,'').trim();
+  const major=/^\[Feature\]|^Milestone\b/i.test(match[1])||Boolean(number&&Number(number[2])===0&&Number(number[3]??0)===0);
   const details:string[]=[];
-  for(let j=i+1;j<lines.length;j++){
+  for(let j=i+1;j<lines.length&&!/^#{1,2}\s/.test(lines[j]);j++){
    const line=lines[j].trim();
-   if(heading.test(line))break;
+   if(!line)continue;
    if(line.startsWith('- '))details.push(line.slice(2));
-   else if(line.length>55&&!/^(\||>|\x60\x60\x60|\*\*Verification:|\*\*Status:)/.test(line))details.push(line);
+   else if(details.length&&/^\s+/.test(lines[j]))details[details.length-1]+=' '+line;
+   else details.push(line);
   }
-  entries.push({id,version:release,title:title||'Release improvements',summary:details.join(' ').replace(/\*\*/g,'').replace(/\x60/g,'')});
+  entries.push({id:'release-'+i,version:release,title,date,major,details:details.map(d=>d.replace(/\*\*/g,'').replace(/\x60/g,''))});
  }
  return entries;
+})();
+const majorReleases=releaseHistory.filter(r=>r.major);
+const dailyReleases=(()=>{
+ const groups=new Map<string,ChangelogEntry[]>();
+ for(const entry of releaseHistory.filter(r=>!r.major)){
+  const key=entry.date||'archive';
+  const group=groups.get(key)??[];
+  group.push(entry);groups.set(key,group);
+ }
+ return [...groups].sort(([a],[b])=>a==='archive'?1:b==='archive'?-1:b.localeCompare(a)).map(([date,entries])=>({date,entries}));
 })();
 const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>(initialWorkspaceTab());
 const structureSubtab=ref<'form'|'keys'|'transpose'|'ensemble'>('form');
@@ -5926,7 +5933,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Listen, save and export</h2><p>Play and rehearse arrangements with instrument diagrams, karaoke, microphone pitch feedback and tuning tools. Save songs locally, download .tango.json backups and export MuseScore scores.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appDisplayVersion}} · Dated development updates and versioned history are loaded from CHANGELOG.md.</p>
-    <div v-for="release in releaseHistory" :key="release.id" class="release-entry"><h3>{{release.version?`v${release.version} · `:''}}{{release.title}}</h3><p>{{release.summary}}</p></div>
+    <div class="release-outline">
+      <h3 class="release-group-heading">Major features</h3>
+      <details v-for="release in majorReleases" :key="release.id" class="release-entry release-point">
+        <summary><span class="release-label">{{release.date||('v'+release.version)}}</span><strong>{{release.title}}</strong><span v-if="release.details[0]" class="release-cue">{{release.details[0]}}</span></summary>
+        <ul class="release-passage"><li v-for="(detail,i) in release.details" :key="i">{{detail}}</li></ul>
+      </details>
+      <h3 class="release-group-heading">Daily updates</h3>
+      <details v-for="day in dailyReleases" :key="day.date" class="release-entry release-point">
+        <summary><span class="release-label">{{day.date==='archive'?'Earlier history':day.date}}</span><strong>{{day.date==='archive'?'Undated release archive':day.entries.map(r=>r.title).join(' · ')}}</strong><span class="release-cue">{{day.entries.length}} {{day.entries.length===1?'update':'updates'}}</span></summary>
+        <div class="release-passage"><article v-for="release in day.entries" :key="release.id"><h4>{{release.title}}</h4><ul><li v-for="(detail,i) in release.details" :key="i">{{detail}}</li></ul></article></div>
+      </details>
+    </div>
     <p class="hint">For the full technical history and verification notes, see CHANGELOG.md in the repository.</p>
   </div>
   </div>
@@ -6962,6 +6980,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .about-content-columns>.about-grid{grid-template-columns:1fr}
  .about-page .about-hero{padding:20px}
 }
+
+/* Compact expandable release outline, inspired by the article reader. */
+.about-content-columns{grid-template-columns:minmax(260px,.75fr) minmax(0,1.25fr)}
+.about-content-columns>.about-grid{grid-template-columns:1fr}
+.about-page .release-group-heading{margin:20px 0 8px;color:#e4c18d;font-size:15px}
+.about-page .release-point{padding:4px 0;border-top:0}
+.release-point>summary{position:relative;cursor:pointer;list-style:none;min-height:44px;padding:10px 30px 10px 12px;border-left:2px solid #455764;overflow-wrap:anywhere}
+.release-point>summary::-webkit-details-marker{display:none}
+.release-point>summary::after{content:'+';position:absolute;right:8px;top:10px;color:#d4ad77;font-size:18px}
+.release-point[open]>summary{border-color:#d4ad77}
+.release-point[open]>summary::after{content:'−'}
+.release-point>summary:focus-visible{outline:2px solid #d4ad77;outline-offset:2px}
+.release-label,.release-cue,.release-point>summary>strong{display:block}
+.release-label{color:#a7b8c5;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.release-point>summary>strong{font-size:14px;line-height:1.45;color:#e8edf1}
+.release-cue{color:#bac7d0;font-size:12px;line-height:1.5;margin-top:4px}
+.release-point[open]>summary>.release-cue{display:none}
+.release-passage{padding:4px 12px 10px 25px;color:#bac7d0;font-size:13px;line-height:1.65;overflow-wrap:anywhere}
+.release-passage h4{margin:8px 0 4px;color:#e4c18d;font-size:13px}
+.release-passage ul{padding-left:18px;margin:4px 0 12px}
+.release-passage li{margin:5px 0}
+@media(max-width:850px){.about-content-columns{grid-template-columns:minmax(0,1fr)}.about-content-columns>.about-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.about-content-columns>.about-grid{grid-template-columns:1fr}.about-page .about-releases{padding:14px}.release-point>summary{padding-left:10px}}
 
 /* Consecutive piano-roll measures share a horizontal row; two fit on tablet screens. */
 .note-multibar-grid{display:grid;grid-template-columns:repeat(var(--visible-measures,1),minmax(360px,1fr));gap:8px;align-items:start;width:100%;min-width:max-content}
