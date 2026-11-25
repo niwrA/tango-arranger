@@ -1433,9 +1433,14 @@ const captureInputLayout=ref<'keyboard'|'fingerboard'>('fingerboard');
 watch(captureInputLayout,layout=>{if(layout==='keyboard')void nextTick(fitCaptureKeyboardToWidth);});
 const captureFingerboardRows=computed(()=>fingerboardStrings(noteInst.value));
 const captureFretStart=ref(0);
-const captureFretCount=ref<8|12|16|25>(12);
+const captureFretCount=ref<8|12|16|25>(typeof window!=='undefined'&&window.innerWidth>=1450?25:12);
+const captureSelectedString=ref<number|undefined>(undefined);
+let captureFretManual=false;
+function fitCaptureStrings(){if(!captureFretManual&&!capturePlaying.value){captureFretCount.value=window.innerWidth>=1450?25:12;captureFretStart.value=Math.min(captureFretStart.value,MAX_VISUAL_FRET+1-captureFretCount.value);}}
+watch(captureInputLayout,()=>fitCaptureStrings());
 const captureFrets=computed(()=>visibleFingerboardFrets(captureFretStart.value,captureFretCount.value));
 function updateCaptureFretCount(event:Event){
+ captureFretManual=true;
  const count=Number((event.target as HTMLSelectElement).value);
  captureFretCount.value=([8,12,16,25].includes(count)?count:12) as 8|12|16|25;
  captureFretStart.value=Math.min(captureFretStart.value,MAX_VISUAL_FRET+1-captureFretCount.value);
@@ -1783,7 +1788,7 @@ function toggleCaptureRecord(){
   if(active.value==='notes'&&captureInputSource.value==='microphone'){void recordFromMicrophone();return;}
   void startCaptureTransport(true);
 }
-function captureTap(pitch?:number){
+function captureTap(pitch?:number,stringMidi?:number){
   if(active.value==='notes'&&captureRecording.value&&captureInputSource.value==='microphone')return;
   if(!captureRecording.value){captureFeedback.value='Press Record to capture a take.';return;}
   try{
@@ -1795,7 +1800,7 @@ function captureTap(pitch?:number){
       if(startBeat<0)return;
       const chosenPitch=pitch??capturePitch.value;
       prepareInstrumentCapture(startBeat);
-      recordInstrumentCapture({startBeat,pitch:chosenPitch});
+      recordInstrumentCapture({startBeat,pitch:chosenPitch,...(stringMidi!==undefined?{stringMidi}:{})});
       captureFeedback.value=`Captured ${midiName(chosenPitch)} with a provisional duration. ${captureTaps.value.length} draft notes.`;
       void auditionPitch(chosenPitch,90,0.12);
       return;
@@ -1818,6 +1823,7 @@ function ensureCaptureKeySynth(){
  return captureKeySynth;
 }
 function capturePianoKey(event:PointerEvent,pitch:number){
+ captureSelectedString.value=undefined;
   if(captureRecording.value&&captureInputSource.value==='microphone')return;
  if(event.button!==0||heldCaptureKeys.has(event.pointerId))return;
  capturePitch.value=pitch;
@@ -1847,6 +1853,7 @@ function captureViolinFingerDown(event:PointerEvent,pitch:number,stringMidi:numb
  const held=heldCaptureKeys.get(event.pointerId);
  if(!held)return;
  held.stringMidi=stringMidi;
+ captureSelectedString.value=stringMidi;
  if(!noteInst.value.startsWith('Violin'))return;
  captureViolinTraces.set(event.pointerId,{
   stringMidi,samples:[{pitch,x:event.clientX,t:event.timeStamp}]
@@ -1907,11 +1914,12 @@ function releaseCapturePianoKey(event:PointerEvent){
   ...(approachSlideFrom!==undefined?{approachSlideFrom}:{}),...(vibrato?{vibrato:true}:{}),...(gesture?{gesture}:{})});
  captureFeedback.value=`Recorded ${midiName(writtenPitch)}${captureLastExpression.value?' · '+captureLastExpression.value:''}. Review timing before applying.`;
 }
-function capturePianoKeyClick(event:MouseEvent,pitch:number){
+function capturePianoKeyClick(event:MouseEvent,pitch:number,stringMidi?:number){
   if(captureRecording.value&&captureInputSource.value==='microphone')return;
   if(event.detail!==0)return;
   capturePitch.value=pitch;
-  if(captureRecording.value)captureTap(pitch);else void auditionPitch(pitch);
+  captureSelectedString.value=stringMidi;
+  if(captureRecording.value)captureTap(pitch,stringMidi);else void auditionPitch(pitch);
 }
 function loadCaptureBarToRhythm(){
   const bar=Math.max(captureFirst.value,Math.min(captureLast.value,Math.floor(captureEditBar.value)-1));
@@ -4646,6 +4654,7 @@ function refreshNoteGridViewport(alignSelected=false){
  applyNoteGridViewport(left,firstScroller.clientWidth,false);
 }
 function refreshNoteGridViewportOnResize(){
+ fitCaptureStrings();
  void nextTick(()=>refreshNoteGridViewport(false));
 }
 watch([noteLoopFrom,noteLoopTo,noteStep,()=>project.value.bars.length],()=>{
@@ -4821,6 +4830,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
   const previousLoopLength=Math.max(1,noteLoopTo.value-noteLoopFrom.value+1);
   noteInst.value=inst;selectedBar.value=Math.max(0,Math.min(project.value.bars.length-1,b));
    captureInputLayout.value=fingerboardStrings(inst).length?'fingerboard':'keyboard';
+   captureSelectedString.value=undefined;fitCaptureStrings();
   overviewFocus.value=selectedBar.value;
   if(arrivingFromAnotherView||previousBar!==selectedBar.value){
     const count=arrivingFromAnotherView?Math.min(2,project.value.bars.length):Math.min(previousLoopLength,project.value.bars.length);
@@ -6522,7 +6532,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        <div v-for="string in captureFingerboardRows" :key="string.name" class="capture-fingerboard-row">
         <strong>{{string.name}}</strong>
         <button v-for="fret in captureFrets" :key="fret" type="button" class="capture-fingerboard-key"
-           :class="{selected:capturePitch===string.midi+fret,'is-open':fret===0,'is-held':captureHeldDisplay.includes(string.midi+fret)}"
+           :class="{selected:capturePitch===string.midi+fret&&(captureSelectedString===undefined||captureSelectedString===string.midi),'is-open':fret===0,'is-held':captureHeldDisplay.includes(string.midi+fret)}"
            :data-string-midi="string.midi" :data-pitch="string.midi+fret"
            :disabled="captureStringPitch(string.midi,fret)===null"
            :aria-label="`${string.name} string at ${fret===0?'open':'semitone '+fret}, ${midiName(string.midi+fret)}`"
@@ -6531,7 +6541,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            @pointerup="releaseCapturePianoKey($event)"
            @pointercancel="releaseCapturePianoKey($event)"
            @lostpointercapture="releaseCapturePianoKey($event)"
-           @click="capturePianoKeyClick($event,string.midi+fret)">
+           @click="capturePianoKeyClick($event,string.midi+fret,string.midi)">
            <span>{{captureNoteLabels[(string.midi+fret)%12]}}</span>
            <small>{{Math.floor((string.midi+fret)/12)-1}}</small>
         </button>
@@ -8352,4 +8362,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 
 <style scoped>
 .structure-subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 14px}.structure-subtabs button{flex:1 1 130px;min-height:42px}.structure-subtabs button.selected{border-color:var(--accent,#c49b60);font-weight:700}.transpose-preview-part{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #7774}
+</style>
+
+<style scoped>
+@media(min-width:1450px){
+ .shell.performance-live{width:100%;max-width:none;margin:0}
+ .performance-live .performance-workspace.performance-expanded{width:100%;max-width:none;box-sizing:border-box;padding:12px 20px}
+ .performance-live .performance-stage-only .performance-diagram-grid{grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:clamp(280px,calc((100dvh - 155px)/2),680px)!important;gap:14px}
+ .performance-live .performance-diagram-grid>.performance-cue-card-wrap{grid-column:span 3}
+ .performance-live .performance-diagram-grid>.performance-cue-card-wrap:nth-child(5):nth-last-child(3),.performance-live .performance-diagram-grid>.performance-cue-card-wrap:nth-child(5):nth-last-child(3)~.performance-cue-card-wrap{grid-column:span 4}
+ .performance-live .performance-stage-only .performance-diagram-card{height:100%!important;min-height:0!important;max-height:none!important;padding:clamp(12px,1vw,24px);gap:clamp(8px,1vh,18px)}
+ .performance-live .performance-diagram-card .performance-cue-identity{height:auto;min-height:36px;flex-basis:auto}
+ .performance-live .performance-diagram-card .performance-cue-identity>strong{font-size:clamp(23px,1.7vw,42px)}
+ .performance-live .performance-section-grid{display:flex;flex-wrap:nowrap}
+ .performance-live .performance-section-grid .performance-section-jump{min-width:42px}
+ .performance-live .performance-stage-top{padding:10px 16px}
+}
 </style>

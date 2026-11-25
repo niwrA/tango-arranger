@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Expand large-screen ensemble performance layout and default to two-octave recording fingerboards on wide screens; preserve explicit string choice for keyboard-accessible fingerboard input.
+
 - Add compact triplet snap and duration choices to the Notes editor and preserve fractional-third timing in MusicXML export.
 
 - Recover empty practice editions from stored Advanced notes even when imported source tags are missing.

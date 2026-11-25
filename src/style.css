@@ -1916,3 +1916,5 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
   flex:1 1 0!important;width:0!important;min-width:0!important;max-width:100%!important
  }
 }
+
+@media(min-width:1450px){.shell.performance-live{max-width:none!important;width:100%;margin:0}.capture-fingerboard-grid{box-sizing:border-box}.capture-fingerboard-row,.capture-fingerboard-header{grid-template-columns:58px repeat(var(--capture-fret-columns),minmax(36px,1fr))}.capture-fingerboard-key{min-width:36px}}
