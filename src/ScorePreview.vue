@@ -59,6 +59,7 @@ let completedHeads:SVGElement[]=[];
 let playingHeads=new Set<SVGElement>();
 let measureGroups:SVGGElement[]=[];
 let followedSystem:MusicSystem|undefined;
+let followedGroup:SVGGElement|undefined;
 
 function noteLabel(note:Note){
   const measure=Math.floor((note.start+1e-7)/props.project.beats);
@@ -122,15 +123,16 @@ function highlightActiveMeasure(){
   for(const group of measureGroups)group.classList.add('score-measure-active');
   if(props.followMeasure&&container&&measure!==undefined&&measureGroups.length){
     const system=osmd?.GraphicSheet.MeasureList[measure-1]?.[0]?.ParentMusicSystem;
-    if(system&&system!==followedSystem){
+    if(system&&(system!==followedSystem||!followedGroup?.isConnected)){
       const tops=(system.StaffLines[0]?.Measures??[]).flatMap(staff=>{
         const group=staff.getSVGGElement();
         return group&&container.contains(group)?[group.getBoundingClientRect().top]:[];
       });
       const systemTop=tops.length?Math.min(...tops):measureGroups[0].getBoundingClientRect().top;
       followedSystem=system;
+      followedGroup=measureGroups[0];
       const top=systemTop-container.getBoundingClientRect().top;
-      container.scrollTop=Math.max(0,container.scrollTop+top-80);
+      container.scrollTop=Math.max(0,container.scrollTop+top-32);
     }
   }
   highlightPlayback();
@@ -151,6 +153,13 @@ function normalizeScoreSvg(){
  if(!container)return;
  const black=(value:string)=>/^(?:black|#000(?:000)?|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))$/i.test(value.trim());
  for(const svg of container.querySelectorAll<SVGSVGElement>('svg')){
+  for(const element of svg.querySelectorAll<SVGElement>('path,text,tspan,use')){
+   if(element.classList.contains('score-notehead')||element.closest('.score-notehead'))continue;
+   const fill=getComputedStyle(element).fill;
+   if(black(fill))element.style.setProperty('fill','currentColor');
+   const stroke=getComputedStyle(element).stroke;
+   if(black(stroke))element.style.setProperty('stroke','currentColor');
+  }
   for(const element of svg.querySelectorAll<SVGElement>('g,path,text,tspan,rect,line,polyline,polygon,circle,ellipse,use')){
    for(const property of ['fill','stroke'] as const){
     const inline=element.style.getPropertyValue(property);
@@ -161,27 +170,9 @@ function normalizeScoreSvg(){
     }
    }
   }
-  // The renderer's nominal viewport can omit ledger lines, text, or lyrics.
-  // Expand it to the actual engraving bounds without changing musical scale.
-  try{
-   const bounds=svg.getBBox();
-   const original=svg.viewBox.baseVal;
-   const width=original.width||svg.width.baseVal.value;
-   const height=original.height||svg.height.baseVal.value;
-   if(width>0&&height>0&&bounds.width>0&&bounds.height>0){
-    const left=Math.min(original.x,bounds.x-8),top=Math.min(original.y,bounds.y-12);
-    const right=Math.max(original.x+width,bounds.x+bounds.width+8);
-    const bottom=Math.max(original.y+height,bounds.y+bounds.height+12);
-    svg.setAttribute('viewBox',`${left} ${top} ${right-left} ${bottom-top}`);
-    svg.setAttribute('width',String(right-left));
-    svg.setAttribute('height',String(bottom-top));
-    if(svg.parentElement&&svg.parentElement!==container){
-     svg.parentElement.style.height='auto';
-     svg.parentElement.style.minHeight='0';
-     svg.parentElement.style.overflow='visible';
-    }
-   }
-  }catch{/* Hidden or not-yet-laid-out SVG; next render will retry. */}
+  // Keep OSMD's coordinate system and incremental layout intact. The
+  // scroll viewport, not a rewritten SVG viewBox, controls visibility.
+  svg.style.overflow='visible';
  }
 }
 
@@ -251,11 +242,12 @@ function renderRange(){
   renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last,stretchLastSystemLine:props.expanded});
   renderer.resetIncrementalRendering();
   followedSystem=undefined;
+  followedGroup=undefined;
   loading.value=true;
   error.value='';
   const draw=()=>{
     try{
-      if(last-first<12)renderer.render();
+      if(props.followMeasure||last-first<12)renderer.render();
       else if(!renderer.renderNext({measures:12}).done){
         if(props.followMeasure)bindNoteheads();
         layoutFrame=requestAnimationFrame(draw);
@@ -368,7 +360,10 @@ onBeforeUnmount(()=>{
 .score-preview-canvas{min-height:92px;overflow-x:auto}
 .score-preview-follow{height:var(--score-follow-height,300px);overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}
 .score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto;overflow:visible;color:#18222c;fill:currentColor}
-.score-preview-canvas{padding-block:12px 24px;box-sizing:border-box}
+.score-preview-canvas{padding-block:4px 12px;box-sizing:border-box}
+.score-preview-follow{flex:1 1 auto;min-height:0;max-height:none;align-self:stretch}
+.score-preview-follow :deep(svg){max-width:none;width:100%;height:auto;margin:0;overflow:visible}
+.score-preview-follow :deep(div[id^="osmdCanvasPage"]){width:100%!important;max-width:none!important;height:auto!important;overflow:visible!important}
 .score-preview-canvas :deep(svg text),.score-preview-canvas :deep(svg tspan){fill:currentColor}
 .score-preview-expanded .score-preview-canvas :deep(svg){margin-inline:auto}
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
