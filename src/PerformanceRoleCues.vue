@@ -1,21 +1,26 @@
 <script setup lang="ts">
+import {computed} from 'vue';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 
 /** Read-only presentation inside the existing tap-to-toggle card/button.
  * No nested buttons: the entire cue surface remains one accessible action.
  */
-defineProps<{
+const props=defineProps<{
  role:string;nextRole:string;articulation:string;nextArticulation:string;
  dynamics:string;nextDynamics:string;cueStatus:string;
- currentMeasure:number;nextMeasure:number|null;focus?:boolean
+ currentMeasure:number;nextMeasure:number|null;focus?:boolean;chord?:string;nextChord?:string
 }>();
+const chordRole=(role:string)=>['chords','harmony'].includes(role.toLowerCase());
+const currentChordPrimary=computed(()=>chordRole(props.role));
+const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.nextRole));
 </script>
 
 <template>
  <span class="stage-role-timeline" :class="{'is-focus':focus}">
   <span class="stage-role-current" :style="{'--dyn-alpha':stageDynamicAlpha(dynamics)}">
    <span class="stage-role-eyebrow"><span>NOW · M{{currentMeasure}}</span><span class="stage-role-status">{{cueStatus}}</span></span>
-   <strong class="stage-role-name">{{role}}</strong>
+   <strong class="stage-role-name" :class="{'is-chord':currentChordPrimary}">{{currentChordPrimary?(chord||'—'):role}}</strong>
+   <span v-if="currentChordPrimary" class="stage-role-secondary">{{role}}</span>
    <span class="stage-role-articulation">{{articulation||'—'}}</span>
    <span class="stage-role-dynamic">
     <span class="stage-dynamic-label">Dynamic <strong>{{dynamics}}</strong></span>
@@ -24,7 +29,8 @@ defineProps<{
   </span>
   <span class="stage-role-upcoming" :style="{'--dyn-alpha':stageDynamicAlpha(nextDynamics)}">
    <span class="stage-role-eyebrow"><span>{{nextMeasure===null?'END OF SCORE':'NEXT · M'+nextMeasure}}</span></span>
-   <strong class="stage-role-next-name">{{nextMeasure===null?'—':nextRole}}</strong>
+   <strong class="stage-role-next-name" :class="{'is-chord':nextChordPrimary}">{{nextMeasure===null?'—':nextChordPrimary?(nextChord||'—'):nextRole}}</strong>
+   <span v-if="nextChordPrimary" class="stage-role-secondary">{{nextRole}}</span>
    <span class="stage-role-next-articulation">{{nextMeasure===null?'':nextArticulation}}</span>
    <span class="stage-role-dynamic">
     <span class="stage-dynamic-label">Dynamic <strong>{{nextMeasure===null?'—':nextDynamics}}</strong></span>
@@ -75,4 +81,10 @@ defineProps<{
  .stage-role-timeline.is-focus .stage-role-next-name{font-size:clamp(24px,7vw,40px)}
  .stage-role-timeline.is-focus .stage-role-articulation,.stage-role-timeline.is-focus .stage-role-next-articulation{font-size:16px}
 }
+.stage-role-name.is-chord,.stage-role-next-name.is-chord{text-transform:none;overflow-wrap:normal}
+.stage-role-secondary{font-size:clamp(11px,1.2vw,16px);text-transform:capitalize;color:#cbdbe5;font-weight:650}
+.stage-role-timeline.is-focus .stage-role-name.is-chord{font-size:clamp(48px,10vw,150px)}
+.stage-role-timeline.is-focus .stage-role-next-name.is-chord{font-size:clamp(38px,7vw,108px)}
+.stage-role-timeline.is-focus .stage-role-secondary{font-size:clamp(18px,2.1vw,30px)}
+@media(max-width:550px){.stage-role-timeline.is-focus .stage-role-name.is-chord{font-size:clamp(42px,12vw,72px)}.stage-role-timeline.is-focus .stage-role-next-name.is-chord{font-size:clamp(32px,9vw,54px)}}
 </style>

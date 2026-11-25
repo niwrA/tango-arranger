@@ -5622,7 +5622,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <span class="performance-card-dynamic-next" :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}">Next <strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
       </span>
       <PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
-      <PerformanceRoleCues v-else :role="part.role" :next-role="part.nextRole"
+      <PerformanceRoleCues v-else :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find(symbol=>symbol!=='–')??'—'"
         :articulation="part.articulation" :next-articulation="part.nextArticulation"
         :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
         :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
@@ -5717,7 +5717,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          </div>
          <button v-else-if="!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
-           <PerformanceRoleCues :focus="true" :role="part.role" :next-role="part.nextRole"
+           <PerformanceRoleCues :focus="true" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find(symbol=>symbol!=='–')??'—'"
              :articulation="part.articulation" :next-articulation="part.nextArticulation"
              :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
              :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
