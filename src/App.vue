@@ -26,6 +26,7 @@ import InstrumentLearnView,{type PracticeDisplay} from './InstrumentLearnView.vu
 import {DEFAULT_A4_HZ,MIN_A4_HZ,MAX_A4_HZ,validReferenceHz,tuningReferenceFor} from './instrumentTuning';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
+import CompleteScoreImportReview from './CompleteScoreImportReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
 import {applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
@@ -2553,7 +2554,9 @@ const overviewTechnique=ref<'inherit'|ViolinTechnique>('inherit');
 const overviewBassTechnique=ref<'inherit'|BassTechnique>('inherit');
 const overviewNotice=ref('');
 const newSongOpen=ref(false);
-const newSongStart=ref<'blank'|'lead'|'score'>('blank');
+const newSongStart=ref<'blank'|'lead'|'score'|'complete'>('blank');
+const completeScorePreview=ref<import('./musicXmlImport').ParsedMusicXml|null>(null);
+const completeScoreSource=ref('');
 const newLeadSheetText=ref('');
 const newLeadSheetError=ref('');
 const newLeadMeasuresPerLine=ref(0);
@@ -2600,6 +2603,41 @@ async function createSongFromLeadSheet(){
    active.value='lead';leadLyricsSource.value=preview.source;leadLyricsUseMelody.value=false;leadDisplayMode.value='sheet';
    message.value=`Created ${preview.bars.length} provisional measures and an editable Voice guide with lyric-bearing notes. Vocal pitches and rhythm are estimates, not the original melody. Review and correct them in Note Editor.`;
  }catch(error){newLeadSheetError.value=String(error);message.value='Lead sheet import failed: '+String(error);}
+}
+async function previewCompleteScore(event:Event){
+ const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file)return;
+ try{
+  const result=await readScoreImport(file),parsed=result.parsed;
+  if(parsed.parts.length>32||!parsed.parts.length)throw Error('A complete score must have 1–32 parts');
+  if(parsed.measureCount<1||parsed.measureCount>512)throw Error('Score must have 1–512 measures');
+  if(new Set(parsed.measures.map(m=>m.beats.toFixed(6))).size>1)throw Error('Changing measure lengths are not yet supported for complete-score projects');
+  if(![2,3,4].includes(parsed.measures[0]?.beats))throw Error('Complete-score projects currently require 2, 3 or 4 quarter beats per measure');
+  completeScorePreview.value=parsed;completeScoreSource.value=file.name;
+ }catch(error){message.value='Cannot preview complete score: '+String(error);}
+ finally{input.value='';}
+}
+function romanPart(index:number):string{
+ let n=index+1,result='';
+ while(n>0){const digit=n%10;n=Math.floor(n/10);result=(digit===9?'IX':digit===4?'IV':digit===0?'':digit>=5?'V'+'I'.repeat(digit-5):'I'.repeat(digit))+result;}
+ return result;
+}
+async function createCompleteScore(config:{families:import('./music').InstrumentFamily[];names:string[];roles:Role[];starts:number[];title:string}){
+ const parsed=completeScorePreview.value;if(!parsed)return;
+ try{
+  const roster=config.families.map((family,i)=>family+' '+romanPart(config.families.slice(0,i+1).filter(f=>f===family).length-1));
+  const lengths=config.starts.map((start,i)=>(config.starts[i+1]??parsed.measureCount)-start);
+  if(lengths.some(n=>n>128))throw Error('A section may contain at most 128 measures; add section boundaries');
+  const fresh=setProjectRoster(blankProject({title:config.title,beats:parsed.measures[0].beats,bpm:newSongBpm.value,sections:lengths.length,measuresPerSection:lengths}),roster);
+  fresh.instrumentNames=Object.fromEntries(roster.map((inst,i)=>[inst,config.names[i]]));
+  fresh.importedScore=Object.fromEntries(roster.map((inst,i)=>[inst,parsed.parts[i].notes.map(n=>({...n,source:'imported' as const}))]));
+  fresh.generatedScore=Object.fromEntries(roster.map((inst,i)=>[inst,parsed.parts[i].notes.map(n=>({...n,source:'imported' as const}))]));
+  fresh.protectedBars=Object.fromEntries(roster.flatMap(inst=>fresh.bars.map((_,i)=>[inst+':'+i,true])));
+  for(let i=0;i<lengths.length;i++){const section=fresh.bars[config.starts[i]]?.section;if(section)fresh.roles[section]=Object.fromEntries(roster.map((inst,j)=>[inst,config.roles[j]]));}
+  for(let i=0;i<fresh.bars.length;i++){fresh.bars[i].chord=parsed.chords[i]??'';}
+  await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
+  completeScorePreview.value=null;active.value='arrange';
+  message.value='Imported complete score: '+parsed.parts.length+' preserved parts, '+parsed.measureCount+' measures, '+lengths.length+' sections. Source notes are protected against regeneration.';
+ }catch(error){message.value='Complete-score import failed: '+String(error);}
 }
 async function createSongFromScore(event:Event){
  const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file)return;
@@ -5646,9 +5684,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="newSongStart==='blank'?'primary':'secondary'" :aria-pressed="newSongStart==='blank'" @click="newSongStart='blank'">Start from scratch</button>
     <button type="button" :class="newSongStart==='lead'?'primary':'secondary'" :aria-pressed="newSongStart==='lead'" @click="newSongStart='lead'">Paste a leadsheet</button>
     <button type="button" :class="newSongStart==='score'?'primary':'secondary'" :aria-pressed="newSongStart==='score'" @click="newSongStart='score'">Import MusicXML / MIDI</button>
+    <button type="button" :class="newSongStart==='complete'?'primary':'secondary'" :aria-pressed="newSongStart==='complete'" @click="newSongStart='complete'">Import complete score</button>
   </div>
   <p class="muted" v-if="newSongStart==='blank'">Start with an empty lead sheet: no demo melody, chord symbols or generated accompaniment. Set the sections and measure counts before creating the song.</p>
   <p class="muted" v-else-if="newSongStart==='lead'">Paste chord-over-lyrics or inline [D]chords. Section headings such as [Verse] or [Chorus] create editable section starts. One lyric line initially occupies one provisional measure; adjust boundaries before or after creation.</p>
+  <p class="muted" v-else-if="newSongStart==='complete'">Import all MusicXML parts into a new independent roster, listen to individual parts and review section boundaries before creating the song.</p>
   <p class="muted" v-else>Choose a MusicXML or MIDI score. Both use the same measure-aware review for notes, transposition, protected edits and optional chord suggestions. MIDI does not reliably encode lyrics or explicit chords.</p>
   <div v-if="newSongStart==='blank'">
   <div class="two"><label>Song title<input v-model="newSongTitle" placeholder="Untitled Tango"/></label><label>Number of sections (A, B, C…)<input v-model.number="newSongSections" type="number" min="1" max="26"/></label></div>
@@ -5659,6 +5699,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4 — Tango</option><option :value="3">3/4 — Vals</option><option :value="2">2/4 — Milonga / historical notation</option></select></label><label>Tempo (quarter notes/min)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label></div>
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
+  </div>
+  <div v-else-if="newSongStart==='complete'">
+   <label>Tempo (BPM) <input v-model.number="newSongBpm" type="number" min="40" max="240"/></label>
+   <label class="file-picker">Choose complete MusicXML (.xml or .musicxml)<input type="file" accept=".xml,.musicxml" @change="previewCompleteScore"/></label>
+   <CompleteScoreImportReview v-if="completeScorePreview" :parsed="completeScorePreview" :source-name="completeScoreSource" @create="createCompleteScore" @cancel="completeScorePreview=null"/>
+   <p v-if="message.startsWith('Cannot preview complete score')||message.startsWith('Complete-score import failed')" role="alert">{{message}}</p>
   </div>
   <div v-else-if="newSongStart==='lead'" class="new-song-lead-import">
     <div class="two"><label>Song title<input v-model="newSongTitle"/></label><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4</option><option :value="3">3/4</option><option :value="2">2/4</option></select></label></div>
