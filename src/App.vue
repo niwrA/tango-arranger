@@ -437,6 +437,12 @@ const releaseHistory:ChangelogEntry[]=(()=>{
   });
 })();
 const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>(initialWorkspaceTab());
+const structureSubtab=ref<'form'|'keys'|'transpose'|'ensemble'>('form');
+const transposePreviewSemitones=ref(0);
+const transposeAdapt=ref(true);
+const transposeChordSubstitution=ref(false);
+const transposePreviewOpen=ref(false);
+
 watch(active,tab=>{
   if(!workspaceTabs.includes(tab as WorkspaceTab))return;
   try{localStorage.setItem('tango-active-tab',tab);}catch{/* Keep navigation usable without storage. */}
@@ -5908,13 +5914,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango.json backup to transfer them between devices.</p>
 </section>
-<section v-if="active==='structure'" class="structure-tab"><p class="muted">Define the form of your tango here: the number of sections, their measure lengths, and the concert-pitch key of each section. Select the instrument roster here before preparing the Lead Sheet. Orchestration remains the workspace for instrument roles, articulation and note editing.</p>
+<section v-if="active==='structure'" class="structure-tab">
+<nav class="structure-subtabs" role="tablist" aria-label="Structure workspace sections">
+ <button v-for="tab in ([['form','Form'],['keys','Keys'],['transpose','Transpose & Adapt'],['ensemble','Ensemble']] as const)" :key="tab[0]" type="button" role="tab" :aria-selected="structureSubtab===tab[0]" :class="{selected:structureSubtab===tab[0]}" @click="structureSubtab=tab[0]">{{tab[1]}}</button>
+</nav>
+<div v-show="structureSubtab==='form'" role="tabpanel" aria-label="Song form">
 <div class="editor"><details class="control-fold" open><summary>Song structure</summary><div class="section-heading"><h3>Song structure</h3><button class="secondary" type="button" @click="structureOpen?structureOpen=false:editStructure()">{{structureOpen?'Cancel structure edit':'Edit sections & measures'}}</button></div>
 <p class="muted">Default: five 16-measure sections labeled A–E. Change the number of sections and the length of each one; MuseScore receives alphabetical rehearsal marks at every section boundary.</p>
 <div class="section-summary"><span v-for="(span,i) in sectionSpans(project)" :key="i"><strong>{{sectionLetter(i)}}</strong> · {{span.measures}} bars ({{span.start+1}}–{{span.start+span.measures}})</span></div>
-<div v-if="structureOpen" class="structure-editor"><div class="structure-fields"><label v-for="(length,i) in sectionLengths" :key="i">Section {{sectionLetter(i)}} · measures<input type="number" min="1" max="128" v-model.number="sectionLengths[i]"/><button v-if="i<sectionSpans(project).length" type="button" class="secondary" :disabled="sectionLengths.length!==sectionSpans(project).length||sectionLengths.some((n,j)=>n!==sectionSpans(project)[j]?.measures)||sectionLengths.length>=26||project.bars.length+sectionSpans(project)[i].measures>512" :title="`Copy section ${sectionLetter(i)} to the end, including orchestral scores and protected edits`" @click="duplicateLeadSection(i);sectionLengths=sectionSpans(project).map(span=>span.measures)"><AppIcon name="copy"/> Copy section</button></label></div><div class="overview-actions"><button class="secondary" type="button" :disabled="sectionLengths.length>=26" @click="addSection">+ Add section</button><button class="secondary" type="button" :disabled="sectionLengths.length<=1" @click="removeSection">− Remove last section</button><button class="primary" type="button" @click="applyStructure">Apply {{sectionLengths.length}} sections · {{structureTotal}} measures</button></div><p class="hint">Existing notes and chords are preserved by position within their section. Shortening a section removes its final measures; expanding inserts empty measures. Structural changes invalidate generated/imported scores and their protection flags.</p></div></details></div>
-<div class="editor"><details class="control-fold" open><summary>Keys by section</summary><h3>Keys by section</h3><p class="muted">Choose a new key, then decide whether to change the signature only, transpose section chords, or transpose both chords and lead melody. Chord qualities are preserved; this is transposition, not automatic major/minor reharmonization.</p><div class="section-key-grid"><label v-for="sec in sections" :key="sec">{{sec}} key<select :value="keyForSection(sec)" @change="setSectionKey(sec,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label></div></details></div>
-<div class="editor"><details class="control-fold roster-management" open><summary>Orchestra roster · {{ activeRoster.length }} parts</summary>
+<div v-if="structureOpen" class="structure-editor"><div class="structure-fields"><label v-for="(length,i) in sectionLengths" :key="i">Section {{sectionLetter(i)}} · measures<input type="number" min="1" max="128" v-model.number="sectionLengths[i]"/><button v-if="i<sectionSpans(project).length" type="button" class="secondary" :disabled="sectionLengths.length!==sectionSpans(project).length||sectionLengths.some((n,j)=>n!==sectionSpans(project)[j]?.measures)||sectionLengths.length>=26||project.bars.length+sectionSpans(project)[i].measures>512" :title="`Copy section ${sectionLetter(i)} to the end, including orchestral scores and protected edits`" @click="duplicateLeadSection(i);sectionLengths=sectionSpans(project).map(span=>span.measures)"><AppIcon name="copy"/> Copy section</button></label></div><div class="overview-actions"><button class="secondary" type="button" :disabled="sectionLengths.length>=26" @click="addSection">+ Add section</button><button class="secondary" type="button" :disabled="sectionLengths.length<=1" @click="removeSection">− Remove last section</button><button class="primary" type="button" @click="applyStructure">Apply {{sectionLengths.length}} sections · {{structureTotal}} measures</button></div><p class="hint">Existing notes and chords are preserved by position within their section. Shortening a section removes its final measures; expanding inserts empty measures. Structural changes invalidate generated/imported scores and their protection flags.</p></div></details></div></div>
+<div v-show="structureSubtab==='keys'" role="tabpanel" aria-label="Keys by section"><div class="editor"><details class="control-fold" open><summary>Keys by section</summary><h3>Keys by section</h3><p class="muted">Choose a new key, then decide whether to change the signature only, transpose section chords, or transpose both chords and lead melody. Chord qualities are preserved; this is transposition, not automatic major/minor reharmonization.</p><div class="section-key-grid"><label v-for="sec in sections" :key="sec">{{sec}} key<select :value="keyForSection(sec)" @change="setSectionKey(sec,$event)"><optgroup label="Major"><option v-for="key in majorKeys" :key="key" :value="key">{{key}} major</option></optgroup><optgroup label="Minor"><option v-for="key in minorKeys" :key="key" :value="key">{{key.slice(0,-1)}} minor</option></optgroup></select></label></div></details></div></div>
+<div v-show="structureSubtab==='ensemble'" role="tabpanel" aria-label="Ensemble roster"><div class="editor"><details class="control-fold roster-management" open><summary>Orchestra roster · {{ activeRoster.length }} parts</summary>
   <p class="hint roster-help">Choose a built-in or saved roster, then add, reorder or remove instruments. Changing the roster clears generated parts but retains manual edits for instruments that remain.</p>
   <div class="two"><label>Instrument family<select v-model="newPartFamily"><option>Violin</option><option>Voice</option><option>Bandoneon</option><option>Piano</option><option>Contrabass</option><option>Guitar</option><option>Clarinet</option><option>Flute</option><option>Trumpet</option><option>Trombone</option></select></label><div class="align-bottom"><button type="button" @click="addRosterPart">+ Add instrument</button></div></div>
   <div class="roster-tuning-settings" role="group" aria-label="Project and instrument tuning reference">
@@ -5925,7 +5935,23 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Preset name<input v-model="rosterPresetName" placeholder="My tango orchestra"/></label><div class="align-bottom"><button type="button" @click="saveCurrentRoster">Save roster preset</button></div></div>
   <div class="two"><label>Saved rosters<select v-model="rosterPresetSelection"><option value="">Select a preset</option><option v-for="preset in rosterPresets" :key="preset.name" :value="preset.name">{{preset.name}}</option></select></label><div class="align-bottom"><button type="button" :disabled="!rosterPresetSelection" @click="loadSelectedRoster">Load</button><button type="button" class="secondary" :disabled="!rosterPresetSelection || ['Factory seven-part','Quartet','Sextet','Septet','Orquesta típica'].includes(rosterPresetSelection)" @click="deleteSelectedRoster">Delete</button></div></div>
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>
-</details></div>
+</details></div></div>
+<div v-show="structureSubtab==='transpose'" role="tabpanel" aria-label="Transpose and adapt" class="editor">
+ <h3>Transpose &amp; Adapt</h3>
+ <p class="muted">Preview an arrangement-wide interval and identify notes that would fall outside instrument ranges. Exact transposition remains available in Song settings.</p>
+ <label>Interval (semitones)<input type="number" min="-24" max="24" step="1" v-model.number="transposePreviewSemitones"/></label>
+ <label><input type="checkbox" v-model="transposeAdapt"/> Suggest nearest playable octaves</label>
+ <label><input type="checkbox" v-model="transposeChordSubstitution" :disabled="!transposeAdapt"/> Consider chord tones for rhythm/accompaniment (manual review)</label>
+ <button type="button" class="primary" :disabled="!Number.isInteger(transposePreviewSemitones)||Math.abs(transposePreviewSemitones)>24" @click="transposePreviewOpen=true">Analyze &amp; preview</button>
+ <div v-if="transposePreviewOpen" role="region" aria-label="Transposition analysis">
+  <p class="hint">Preview only — no changes to the arrangement have been applied. Octave suggestions preserve pitch class; chord substitutions require review.</p>
+  <div v-for="inst in activeRoster" :key="inst" class="transpose-preview-part">
+   <strong>{{rosterDisplayName(inst)}}</strong>
+   <span>{{(score[inst]??[]).filter(n=>{const [lo,hi]=instrumentRange(inst);return n.pitch+transposePreviewSemitones<lo||n.pitch+transposePreviewSemitones>hi}).length}} notes outside configured range</span>
+  </div>
+  <p class="hint">To apply an exact non-destructive transposition, use the semitone control in Song settings. Adaptive application will be enabled once score-level correction and export paths share the same result.</p>
+ </div>
+</div>
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
 <section v-else-if="active==='lead'">
 
@@ -8295,4 +8321,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .instrument-focus-panel.is-learning .instrument-focus-title{flex:1 1 100%}
  .instrument-focus-panel.is-learning .instrument-focus-toolbar,.instrument-focus-learn-controls{flex:1 1 auto;justify-content:flex-start}
 }
+</style>
+
+<style scoped>
+.structure-subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 14px}.structure-subtabs button{flex:1 1 130px;min-height:42px}.structure-subtabs button.selected{border-color:var(--accent,#c49b60);font-weight:700}.transpose-preview-part{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #7774}
 </style>
