@@ -43,7 +43,34 @@ assert.match(diagram,/'is-learn-target':isTargetStop\(string.midi,offset\)/);
 assert.match(diagram,/props\.violinPosition\?\.openMidi===openMidi/);
 assert.match(diagram,/\.diagram-string-stop\.is-learn-target/);
 assert.match(range,/Previous measure range/);
-assert.match(range,/Current section/);
+const picker=fs.readFileSync('src/SectionRangePicker.vue','utf8');
+assert.match(range,/<SectionRangePicker[^>]*:from="from"[^>]*@select="\(start,end\)=>emit\('change',start,end\)"/);
+assert.ok(range.indexOf('<label>Start measure')<range.indexOf('<SectionRangePicker'));
+assert.ok(range.indexOf('<SectionRangePicker')<range.indexOf('<label>End measure'));
+assert.match(picker,/@click="choose\(i\)"/);
+assert.match(picker,/@change="change"/);
+// Execute the actual picker setup with lightweight Vue reactive stubs.
+{
+ const props={measures:['A','A','B','B','B','A','A'].map(section=>({section})),from:4,disabled:false};
+ const events=[];
+ const setup=picker.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1].replace(/import \{computed\} from 'vue';/,'');
+ const compiled=ts.transpileModule(setup+'\nreturn {spans,current,choose,change};',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+ const state=new Function('computed','defineProps','defineEmits',compiled)(fn=>({get value(){return fn()}}),()=>props,()=>(...args)=>events.push(args));
+ assert.equal(state.current.value,1);
+ assert.deepEqual(events,[]);
+ props.from=7;
+ assert.equal(state.current.value,2);
+ assert.deepEqual(events,[]);
+ state.choose(2);
+ assert.deepEqual(events.pop(),['select',6,7,2]);
+ const target={value:'2'};
+ state.change({target});
+ assert.deepEqual(events.pop(),['select',6,7,2]);
+ assert.equal(target.value,'');
+ props.disabled=true;
+ state.choose(0);
+ assert.deepEqual(events,[]);
+}
 assert.match(range,/Entire song/);
 assert.match(app,/<MeasureRangeControl[^>]*:measures="project.bars"/);
 const {createDomainLoader}=require('./load-domain.cjs');
