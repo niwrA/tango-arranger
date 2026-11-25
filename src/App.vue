@@ -5681,15 +5681,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <span>Beat <strong>{{Math.floor(performanceMeasureBeat)}}</strong> / {{project.beats}}</span>
          <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
+         <span v-if="focusShowsScore||cardShowsDiagram(part.inst)" class="instrument-focus-dynamics-inline" :aria-label="'Dynamics now '+part.dynamics+(part.hasNextMeasure&&part.nextDynamics!==part.dynamics?', next '+part.nextDynamics:'')">
+           <span class="instrument-focus-dynamic-chip" :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}">Dynamic <strong>{{part.dynamics}}</strong></span>
+           <span v-if="part.hasNextMeasure&&part.nextDynamics!==part.dynamics" class="instrument-focus-dynamic-chip" :style="{'--dyn-alpha':stageDynamicAlpha(part.nextDynamics)}">→ <strong>{{part.nextDynamics}}</strong></span>
+         </span>
          <div class="instrument-focus-monitor" role="group" :aria-label="'Playback monitoring for '+part.display">
            <button type="button" :class="{selected:focusMonitorMode==='solo'}" :aria-pressed="focusMonitorMode==='solo'" :aria-label="'Hear only '+part.display" :title="'Solo '+part.display" @click="setFocusMonitorMode('solo')"><AppIcon name="headphones"/><span>Solo</span></button>
            <button type="button" :class="{selected:focusMonitorMode==='mute'}" :aria-pressed="focusMonitorMode==='mute'" :aria-label="'Mute '+part.display+' and hear other instruments'" :title="'Mute '+part.display" @click="setFocusMonitorMode('mute')"><AppIcon name="volume-x"/><span>Mute</span></button>
          </div>
-       </div>
-       <div v-if="!instrumentLearnMode&&(focusShowsScore||cardShowsDiagram(part.inst))" class="instrument-focus-dynamic-band" role="group"
-         :aria-label="'Dynamics now '+part.dynamics+', next '+(part.hasNextMeasure?part.nextDynamics:'end of score')">
-         <span :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}"><small>NOW · M{{performanceBar+1}}</small><strong>{{part.dynamics}}</strong></span>
-         <span :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}"><small>{{part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'}}</small><strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
@@ -8517,4 +8516,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-live .performance-top-section{grid-column:1/-1;grid-row:2;max-width:100%}
  .performance-live .performance-top-beat{grid-column:2;grid-row:1}
 }
+</style>
+
+<style scoped>
+.instrument-focus-dynamics-inline{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.instrument-focus-dynamic-chip{display:inline-flex;align-items:baseline;gap:5px;border-radius:6px;padding:2px 6px;background:rgb(244 191 113 / var(--dyn-alpha,.08));color:#c7d8e2}
+.instrument-focus-dynamic-chip strong{font-size:1.1em}
 </style>

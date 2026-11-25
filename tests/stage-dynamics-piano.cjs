@@ -27,12 +27,14 @@ check('measure dynamics map consistently to restrained background and meter inte
  assert.ok(Number(dyn.stageDynamicAlpha('fff'))<=.25);
  assert.equal(dyn.stageDynamicAlpha('—'),'0.04');
 });
-check('current and next dynamics are visible as text and shaded independently in both modes',()=>{
+check('current dynamics remain visible and upcoming changes are shown compactly in focus mode',()=>{
  assert.ok(app.includes('performance-card-dynamic-rail'));
- assert.ok(app.includes('instrument-focus-dynamic-band'));
- assert.ok(app.includes("part.hasNextMeasure?'NEXT · M'+(performanceBar+2):'END OF SCORE'"));
+ assert.ok(app.includes('class="instrument-focus-dynamics-inline"'));
+ assert.ok(!app.includes('class="instrument-focus-dynamic-band"'));
+ assert.ok(app.includes('v-if="part.hasNextMeasure&&part.nextDynamics!==part.dynamics"'));
+ assert.ok(app.includes('Dynamic <strong>{{part.dynamics}}</strong>'));
  assert.ok(app.includes('stageDynamicAlpha(part.dynamics)'));
- assert.ok(app.includes("stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')"));
+ assert.ok(app.includes('stageDynamicAlpha(part.nextDynamics)'));
  assert.ok(app.includes('hasNextMeasure:nextBar>bar'));
  assert.equal((app.match(/<PerformanceRoleCues /g)||[]).length,2);
  assert.ok(role.includes('NOW · M{{currentMeasure}}'));
