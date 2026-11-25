@@ -126,6 +126,21 @@ check('easy violin reduction stays in first position and preserves accented atta
  assert.equal(notes[1].start,1);
  assert.equal(source[0].pitch,95);
 });
+check('regenerate empty intermediate edition from stored advanced notes without source tags',()=>{
+ const p=JSON.parse(fs.readFileSync(path.join(root,'src/presets/hasta-siempre-amor.json'),'utf8'));
+ const inst='Violin I';
+ const switched=editions.switchInstrumentEdition(p,inst,'intermediate');
+ const advanced=switched.partEditions[inst].advanced;
+ advanced.notes.forEach(n=>delete n.source);
+ delete advanced.importedNotes;
+ delete switched.baseScore;
+ switched.generatedScore[inst]=[];
+ switched.partEditions[inst].intermediate.notes=[];
+ const before=JSON.stringify(advanced);
+ const repaired=editions.regenerateInstrumentEdition(switched,inst,'intermediate');
+ assert.ok(editions.assembleEditionScore(repaired)[inst].length>0);
+ assert.equal(JSON.stringify(repaired.partEditions[inst].advanced),before);
+});
 (async()=>{
  const p=song();
  const blob=await io.exportEditionPrintPack(p),files=blob.files,roster=music.projectInstruments(p);

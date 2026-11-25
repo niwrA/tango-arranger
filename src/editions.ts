@@ -154,8 +154,10 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
 }
 function importedAdvanced(p:Project,inst:Instrument):Note[]|undefined{
  const advanced=p.partEditions?.[inst]?.advanced;
- if(advanced?.importedNotes?.some(n=>n.source==='imported')||advanced?.notes.some(n=>n.source==='imported'))return advanced.notes;
- if(activeLevel(p,inst)==='advanced'&&p.importedScore?.[inst]?.some(n=>n.source==='imported'))return activeScore(p)[inst];
+ if(advanced?.notes.length&&(advanced.importedNotes?.length||advanced.notes.some(n=>n.source==='imported')||!(generateAtLevel(p,activeLevel(p,inst))[inst]?.length)))return advanced.notes;
+ if(advanced?.importedNotes?.length)return advanced.importedNotes;
+ if(activeLevel(p,inst)==='advanced'&&p.importedScore?.[inst]?.length)return activeScore(p)[inst];
+ if(p.baseScore?.[inst]?.length)return p.baseScore[inst];
  return undefined;
 }
 function createLevel(p:Project,inst:Instrument,level:Difficulty):PartEdition{
@@ -224,8 +226,8 @@ export function assembleEditionScore(p:Project,choices:EditionChoice={}):Score{
 export function regenerateInstrumentEdition(p:Project,inst:Instrument,level:Difficulty):Project{
  const selected=level===activeLevel(p,inst)?p:switchInstrumentEdition(p,inst,level);
  const fresh=generate(selected);
- const source=importedAdvanced(selected,inst);
- if(level!=='advanced'&&source?.length)fresh[inst]=simplifyImportedPart(selected,inst,source,level);
+ const source=importedAdvanced(selected,inst)??selected.partEditions?.[inst]?.advanced?.notes;
+ if(level!=='advanced'&&source?.length&&(importedAdvanced(selected,inst)?.length||!fresh[inst]?.length))fresh[inst]=simplifyImportedPart(selected,inst,source,level);
  const merged=mergeScores(selected,fresh);
  const next={...selected,generatedScore:{...(selected.generatedScore??fresh),[inst]:copyNotes(merged[inst]??[])}};
  const signatures={...(next.partEditions?.[inst]??{})};

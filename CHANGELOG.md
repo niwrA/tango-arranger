@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Recover empty practice editions from stored Advanced notes even when imported source tags are missing.
+
 - Prefer first-position violin fingering in Easy imported editions, reduce rapid passing notes conservatively, and correct harmony lookup argument order.
 
 - Improve imported violin editions with melodic contour, fingering-cost and harmony-aware voice selection, preserve syncopations and simple open-string double stops; infer missing chord symbols from ensemble evidence on complete-score import.
