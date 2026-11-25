@@ -22,7 +22,7 @@ const states=['capturePlaying','captureRecording','captureLoopEnabled','rhythmCa
  'captureSpeed','captureTranspose','captureQuantize','captureDurationQuantize','captureTakeMode','captureRecordedPass',
  'instrumentCaptureEvents','instrumentCaptureBase','instrumentCaptureSession','instrumentCaptureRangeMatches',
  'heldCaptureKeys','captureMonitorPitches','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
- 'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureEditedRhythms',
+ 'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureSelectedString','captureEditedRhythms',
  'captureSession','captureSynth','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
  'captureBarNumbers','captureInputSource','captureMuteBacking'];
 const extracted=[],found=new Set();
@@ -206,6 +206,15 @@ function harness(){
   assert.equal(h.state().instrumentCaptureEvents.value[0].durationBeats,undefined);
   h.beat(1.2);h.api.capturePianoKeyClick({detail:1},67);
   assert.equal(h.state().instrumentCaptureEvents.value.length,2);
+ });
+ await check('keyboard-accessible string input preserves the selected string for equal pitches',async()=>{
+  const h=harness();h.ctx.noteInst.value='Violin I';
+  await h.api.startCaptureTransport(true);h.beat(0.5);
+  h.api.capturePianoKeyClick({detail:0},69,62);
+  assert.equal(h.state().captureSelectedString.value,62);
+  h.beat(1.5);h.api.capturePianoKeyClick({detail:0},69,69);
+  assert.equal(h.state().captureSelectedString.value,69);
+  assert.deepEqual(h.notes().map(n=>[n.pitch,n.stringMidi]),[[69,62],[69,69]]);
  });
  await check('recording settings cannot reprocess another range, instrument, or active take',async()=>{
   const h=harness();await h.api.startCaptureTransport(true);h.down(1,60,0.36);h.up(1,0.91);
