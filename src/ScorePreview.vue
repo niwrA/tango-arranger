@@ -130,7 +130,7 @@ function highlightActiveMeasure(){
       const systemTop=tops.length?Math.min(...tops):measureGroups[0].getBoundingClientRect().top;
       followedSystem=system;
       const top=systemTop-container.getBoundingClientRect().top;
-      container.scrollTop=Math.max(0,container.scrollTop+top-24);
+      container.scrollTop=Math.max(0,container.scrollTop+top-80);
     }
   }
   highlightPlayback();
@@ -144,8 +144,50 @@ function highlightPlayback(){
   playingHeads=next;
 }
 
+// VexFlow sets some glyph colors inline. Normalize only black ink, leaving
+// transparent fills, colored note identifiers and highlight classes intact.
+function normalizeScoreSvg(){
+ const container=host.value;
+ if(!container)return;
+ const black=(value:string)=>/^(?:black|#000(?:000)?|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))$/i.test(value.trim());
+ for(const svg of container.querySelectorAll<SVGSVGElement>('svg')){
+  for(const element of svg.querySelectorAll<SVGElement>('g,path,text,tspan,rect,line,polyline,polygon,circle,ellipse,use')){
+   for(const property of ['fill','stroke'] as const){
+    const inline=element.style.getPropertyValue(property);
+    const attribute=element.getAttribute(property)??'';
+    if(black(inline)||(!inline&&black(attribute))){
+     element.style.removeProperty(property);
+     element.setAttribute(property,'currentColor');
+    }
+   }
+  }
+  // The renderer's nominal viewport can omit ledger lines, text, or lyrics.
+  // Expand it to the actual engraving bounds without changing musical scale.
+  try{
+   const bounds=svg.getBBox();
+   const original=svg.viewBox.baseVal;
+   const width=original.width||svg.width.baseVal.value;
+   const height=original.height||svg.height.baseVal.value;
+   if(width>0&&height>0&&bounds.width>0&&bounds.height>0){
+    const left=Math.min(original.x,bounds.x-8),top=Math.min(original.y,bounds.y-12);
+    const right=Math.max(original.x+width,bounds.x+bounds.width+8);
+    const bottom=Math.max(original.y+height,bounds.y+bounds.height+12);
+    svg.setAttribute('viewBox',`${left} ${top} ${right-left} ${bottom-top}`);
+    svg.setAttribute('width',String(right-left));
+    svg.setAttribute('height',String(bottom-top));
+    if(svg.parentElement&&svg.parentElement!==container){
+     svg.parentElement.style.height='auto';
+     svg.parentElement.style.minHeight='0';
+     svg.parentElement.style.overflow='visible';
+    }
+   }
+  }catch{/* Hidden or not-yet-laid-out SVG; next render will retry. */}
+ }
+}
+
 function bindNoteheads(){
   if(!host.value)return;
+  normalizeScoreSvg();
   focusedHead=undefined;
   highlightedHeads=[];
   completedHeads=[];
@@ -274,7 +316,7 @@ onMounted(()=>{
   osmd=new OpenSheetMusicDisplay(host.value,{
     autoResize:false,
     backend:'svg',
-    drawingParameters:'compacttight',
+    drawingParameters:'compact',
     drawTitle:false,
     drawCredits:false,
     drawPartNames:false,
@@ -325,7 +367,9 @@ onBeforeUnmount(()=>{
 .score-preview-selection{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:.85rem}
 .score-preview-canvas{min-height:92px;overflow-x:auto}
 .score-preview-follow{height:var(--score-follow-height,300px);overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}
-.score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto}
+.score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto;overflow:visible;color:#18222c;fill:currentColor}
+.score-preview-canvas{padding-block:12px 24px;box-sizing:border-box}
+.score-preview-canvas :deep(svg text),.score-preview-canvas :deep(svg tspan){fill:currentColor}
 .score-preview-expanded .score-preview-canvas :deep(svg){margin-inline:auto}
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
 .score-preview-interactive :deep(.score-notehead){cursor:pointer}
@@ -346,7 +390,8 @@ onBeforeUnmount(()=>{
 .score-appearance-control{display:flex;justify-content:flex-end;margin-bottom:4px}
 .score-appearance-control button{font-size:.72rem;padding:3px 8px}
 .score-preview-themed{background:var(--panel,#1a232c);color:var(--text,#e8e9ec);border-color:var(--border,#35414c)}
-.score-preview-themed .score-preview-canvas :deep(svg){color:var(--text,#e8e9ec);fill:currentColor;stroke:currentColor}
+.score-preview-themed .score-preview-canvas :deep(svg){color:var(--text,#e8e9ec);fill:currentColor}
+.score-preview-themed .score-preview-canvas :deep(svg text),.score-preview-themed .score-preview-canvas :deep(svg tspan){fill:currentColor!important}
 .score-preview-themed .score-preview-canvas :deep([fill="black"]),.score-preview-themed .score-preview-canvas :deep([fill="#000"]),.score-preview-themed .score-preview-canvas :deep([fill="#000000"]){fill:var(--text,#e8e9ec)}
 .score-preview-themed .score-preview-canvas :deep([stroke="black"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000000"]){stroke:var(--text,#e8e9ec)}
 .score-preview-themed .score-preview-canvas :deep(.score-notehead),.score-preview-themed .score-preview-canvas :deep(.score-notehead [fill]){fill:var(--text,#e8e9ec)}
