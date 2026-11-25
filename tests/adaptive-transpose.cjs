@@ -84,3 +84,15 @@ assert.deepEqual(m.optimizePhraseOctaves([[note(55,0)],[note(56,2)]],0,55,60,[70
 const chordGroups=[[note(50,0),note(54,0)],[note(65,2),note(69,2)],[note(95,4)]];
 assert.deepEqual(m.optimizePhraseOctaves(chordGroups,0,55,96),m.optimizePhraseOctaves(chordGroups.map(g=>[...g].reverse()),0,55,96));
 console.log('PASS melodic boundary and tessitura optimization');
+
+assert.equal(m.ensembleRegisterCost(note(72,0),-12,note(65,0),0),2);
+assert.equal(m.ensembleRegisterCost(note(72,0),-12,note(60,0),0),1);
+assert.equal(m.ensembleRegisterCost(note(72,0),0,note(65,0),0),0);
+assert.equal(m.ensembleRegisterCost(note(72,0),-12,note(65,2),0),0);
+const ensembleScore={'Violin I':[note(72,0)],'Violin II':[note(65,0)]};
+const ensemblePlan=m.planRegisterTransposition(ensembleScore,form,0,{'Violin I':{strategy:'phrase'},'Violin II':{strategy:'whole',octaves:12}});
+assert.equal(ensemblePlan.corrections.find(c=>c.instrument==='Violin I').suggestedPitch,84);
+assert.equal(ensemblePlan.corrections.find(c=>c.instrument==='Violin II').suggestedPitch,77);
+assert.equal(m.transposeKeySignature('C',5),'F');
+assert.equal(m.transposeKeySignature('Dm',-2),'Cm');
+console.log('PASS ensemble coordination and transpose keys');

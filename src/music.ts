@@ -354,9 +354,9 @@ function registerBoundaryPitch(group:Note[],exit:boolean):number{
 }
 /** Range first; then avoid newly enlarged leaps and reversals of melodic direction.
  * Preserve register continuity before soft tessitura and displacement preferences. */
-export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:number,high:number,tessitura?:readonly [number,number]):number[]{
+export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:number,high:number,tessitura?:readonly [number,number],ensembleCost?:(group:Note[],offset:number)=>number):number[]{
  const options=[0,12,-12,24,-24];
- type Cost=[number,number,number,number,number];
+ type Cost=[number,number,number,number,number,number];
  type State={cost:Cost;previous:number};
  const less=(a:Cost,b:Cost)=>{for(let i=0;i<a.length;i++){if(a[i]!==b[i])return a[i]<b[i];}return false;};
  const rows:State[][]=[];
@@ -371,7 +371,8 @@ export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:numbe
     const pitch=n.pitch+semitones+offset;
     return sum+Math.max(0,tessitura[0]-pitch,pitch-tessitura[1])*Math.max(0,n.duration);
    },0):0;
-   if(i===0)return {cost:[violations,0,0,comfort,displacement],previous:-1};
+   const ensemble=ensembleCost?.(group,offset)??0;
+   if(i===0)return {cost:[violations,0,ensemble,0,comfort,displacement],previous:-1};
    let best:State|undefined;
    for(let j=0;j<options.length;j++){
     const prior=rows[i-1][j].cost;
@@ -379,7 +380,7 @@ export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:numbe
     const melodic=group.length&&groups[i-1].length?
      Math.max(0,Math.abs(adapted)-Math.max(5,Math.abs(original)))+
      (original*adapted<0?Math.min(Math.abs(original),Math.abs(adapted)):0):0;
-    const cost:Cost=[prior[0]+violations,prior[1]+melodic,prior[2]+Math.abs(offset-options[j])/12,prior[3]+comfort,prior[4]+displacement];
+    const cost:Cost=[prior[0]+violations,prior[1]+melodic,prior[2]+ensemble,prior[3]+Math.abs(offset-options[j])/12,prior[4]+comfort,prior[5]+displacement];
     if(!best||less(cost,best.cost))best={cost,previous:j};
    }
    return best!;
@@ -394,9 +395,44 @@ export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:numbe
  for(let i=rows.length-1;i>=0;i--){result[i]=options[index];index=rows[i][index].previous;}
  return result;
 }
+/** Penalize new crossings and unisons between overlapping notes. */
+export function ensembleRegisterCost(a:Note,aOffset:number,b:Note,bOffset:number):number{
+ const overlap=Math.min(a.start+a.duration,b.start+b.duration)-Math.max(a.start,b.start);
+ if(overlap<=1e-6)return 0;
+ const original=a.pitch-b.pitch,adapted=original+aOffset-bOffset;
+ if(original===0)return 0;
+ return overlap*(original*adapted<0?2:adapted===0?1:0);
+}
 export function planRegisterTransposition(score:Score,p:Project,semitones:number,parts:Record<string,RegisterPartSetting>={},chordToneRhythm=false):{corrections:TransposeCorrection[];decisions:RegisterDecision[]}{
  const corrections:TransposeCorrection[]=[],decisions:RegisterDecision[]=[];
- for(const [name,notes] of Object.entries(score)){
+ const entries=Object.entries(score);
+ const ensembleOffsets=new Map<Note,number>();
+ const flexible:{name:string;groups:Note[][];low:number;high:number}[]=[];
+ for(const [name,notes] of entries){
+  const [low,high]=instrumentRange(name),requested=parts[name]?.strategy??'auto';
+  const uniform=bestOctave(notes,semitones,low,high);
+  if(requested==='whole'||(requested==='auto'&&uniform!==null)){
+   for(const n of notes)ensembleOffsets.set(n,requested==='whole'?parts[name]?.octaves??0:uniform??0);
+  }else if(requested==='phrase'||requested==='auto'){
+   const groups=phraseGroups(notes,p),shifts=optimizePhraseOctaves(groups,semitones,low,high,REGISTER_TESSITURA[instrumentFamily(name)]);
+   groups.forEach((group,i)=>group.forEach(n=>ensembleOffsets.set(n,shifts[i])));
+   flexible.push({name,groups,low,high});
+  }
+ }
+ // Coordinate flexible parts against the seeded ensemble; explicit strategies stay fixed.
+ for(const {name,groups,low,high} of flexible.sort((a,b)=>a.name.localeCompare(b.name))){
+  const others=entries.filter(([other])=>other!==name).flatMap(([,ns])=>ns).sort((a,b)=>a.start-b.start);
+  const overlaps=new Map<Note,Note[]>();
+  for(const n of groups.flat()){
+   const matching:Note[]=[];
+   for(const b of others){if(b.start>=n.start+n.duration)break;if(b.start+b.duration>n.start)matching.push(b);}
+   overlaps.set(n,matching);
+  }
+  const shifts=optimizePhraseOctaves(groups,semitones,low,high,REGISTER_TESSITURA[instrumentFamily(name)],
+   (group,offset)=>group.reduce((sum,n)=>sum+(overlaps.get(n)??[]).reduce((cost,b)=>cost+ensembleRegisterCost(n,offset,b,ensembleOffsets.get(b)??0),0),0));
+  groups.forEach((group,i)=>group.forEach(n=>ensembleOffsets.set(n,shifts[i])));
+ }
+ for(const [name,notes] of entries){
   const inst=name as Instrument,[low,high]=instrumentRange(inst);
   const requested=parts[inst]?.strategy??'auto';
   const originalOut=notes.filter(n=>!noteFits(n,semitones,low,high)).length;
@@ -409,8 +445,7 @@ export function planRegisterTransposition(score:Score,p:Project,semitones:number
   const offsets=new Map<Note,number>();
   if(strategy==='whole'){for(const n of notes)offsets.set(n,wholeOffset);}
   else if(strategy==='phrase'){
-   const shifts=optimizePhraseOctaves(groups,semitones,low,high,REGISTER_TESSITURA[instrumentFamily(inst)]);
-   for(const [i,group] of groups.entries())for(const n of group)offsets.set(n,shifts[i]);
+   for(const group of groups)for(const n of group)offsets.set(n,ensembleOffsets.get(n)??0);
   }
   let unresolved=0;
   for(const n of notes){
