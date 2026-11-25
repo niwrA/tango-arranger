@@ -104,7 +104,7 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
  const violin=instrumentFamily(inst)==='Violin';
  const [low,high]=instrumentRange(inst);
  const shift=p.transposeSemitones??0;
- const ceiling=violin?(level==='easy'?81:88):high;
+ const ceiling=violin?(level==='easy'?83:88):high;
  const floor=low;
  const ordered=copyNotes(source).sort((a,b)=>a.start-b.start||b.pitch-a.pitch);
  const result:Note[]=[];
@@ -112,12 +112,12 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
  for(const n of ordered){const last=groups.at(-1);if(last&&Math.abs(last[0].start-n.start)<1e-7)last.push(n);else groups.push([n]);}
  let previous:Note|undefined,previousOriginal:number|undefined;
  const pc=(n:number)=>(n%12+12)%12;
- const positions=(pitch:number)=>[55,62,69,76].flatMap((open,string)=>pitch>=open&&pitch<=open+12?[{string,position:Math.max(0,pitch-open-4)}]:[]);
+ const positions=(pitch:number)=>[55,62,69,76].flatMap((open,string)=>pitch>=open&&pitch<=open+(level==='easy'?7:12)?[{string,position:Math.max(0,pitch-open-7)}]:[]);
  let lastFinger:{string:number;position:number}|undefined;
  for(let g=0;g<groups.length;g++){
   const group=groups[g],start=group[0].start,bar=p.bars[Math.floor(start/p.beats)];
-  const chord=bar?chordAt(bar.chord,start%p.beats,p.beats):'';
-  const harmony=chord?chordTones(chord):[];
+  const chord=bar?chordAt(bar.chord,p.beats,start%p.beats):'';
+  const harmony=chord.trim()?chordTones(chord):[];
   const role=bar?p.roles?.[bar.section]?.[inst]:undefined;
   const ranked=[...group].sort((a,b)=>{
    const weight=(n:Note)=> (n.accent?3:0)+(n.lyric?5:0)+Math.min(2,n.duration)+(role==='harmony'&&harmony.includes(pc(n.pitch))?2:0)-(previousOriginal===undefined?0:Math.abs(n.pitch-previousOriginal)*.08);
@@ -129,18 +129,21 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
    if(b)chosen.push(b);
   }
   const primary=chosen[0],original=primary.pitch;
-  const short=level==='easy'?0.5:0.25;
+  const short=level==='easy'?0.75:0.25;
   const next=groups[g+1]?.[0];
   const ornamental=violin&&chosen.length===1&&previous&&next&&primary.duration<short&&!primary.accent&&!primary.lyric&&!primary.lyric2&&Math.abs(start-Math.round(start))>1e-7&&Math.abs(previous.start+previous.duration-start)<1e-7&&Math.floor(previous.start/p.beats)===Math.floor(start/p.beats)&&Math.floor(next.start/p.beats)===Math.floor(start/p.beats)&&Math.abs(original-(previousOriginal??original))<=2&&Math.abs(next.pitch-original)<=2;
   if(ornamental&&previous){previous.duration+=primary.duration;continue;}
   if(violin)for(const r of result.slice(-2))if(r.start<start&&r.start+r.duration>start)r.duration=start-r.start;
   for(const n of chosen){
    const candidates=[0,-12,12,-24,24].map(o=>n.pitch+o).filter(x=>x+shift>=floor&&x+shift<=ceiling);
-   const cost=(x:number)=>Math.abs(x-n.pitch)*.25+(previous?Math.abs((x-previous.pitch)-(original-(previousOriginal??original)))*.8:0)+(violin?Math.min(12,...positions(x+shift).map(f=>f.position*.7+(lastFinger?Math.abs(f.position-lastFinger.position)*.6+Math.abs(f.string-lastFinger.string)*.5:0))):0);
+   const cost=(x:number)=>Math.abs(x-n.pitch)*.25+(previous?Math.abs((x-previous.pitch)-(original-(previousOriginal??original)))*.8:0)+(violin?Math.min(12,...positions(x+shift).map(f=>f.position*.7+(level==='easy'&&x+shift===[55,62,69,76][f.string]?-1.5:0)+(lastFinger?Math.abs(f.position-lastFinger.position)*.6+Math.abs(f.string-lastFinger.string)*(level==='easy'?2:.5):0))):0);
    if(candidates.length&&chosen.length===1)n.pitch=candidates.sort((a,b)=>cost(a)-cost(b))[0];
    if(violin){
     delete n.stringMidi;delete n.handPosition;delete n.finger;delete n.slideTo;delete n.approachSlideFrom;delete n.gesture;delete n.xmlTieContinuation;
     if(level==='easy')delete n.vibrato;
+    const fingerings=positions(n.pitch+shift).sort((a,b)=>(a.position-b.position)*4+(lastFinger?Math.abs(a.string-lastFinger.string)-Math.abs(b.string-lastFinger.string):0));
+    const f=fingerings[0];
+    if(f&&f.position===0){n.stringMidi=[55,62,69,76][f.string];n.handPosition='I';const stop=n.pitch+shift-n.stringMidi;n.finger=String(stop===0?0:stop<=2?1:stop<=4?2:stop<=6?3:4) as Note['finger'];}
    }
    n.source='generated';result.push(n);
   }

@@ -110,12 +110,21 @@ check('imported Hasta Siempre violin editions derive playable notes without chor
    const switched=editions.switchInstrumentEdition(p,inst,level);
    const notes=editions.assembleEditionScore(switched)[inst];
    assert.ok(notes.length>0);
-   assert.ok(notes.every(n=>n.pitch>=55&&n.pitch<=(level==='easy'?81:88)));
+   assert.ok(notes.every(n=>n.pitch>=55&&n.pitch<=(level==='easy'?83:88)));
    assert.ok(notes.every((n,i)=>!i||notes[i-1].start+notes[i-1].duration<=n.start+1e-7||(level==='intermediate'&&notes[i-1].start===n.start)));
    assert.equal(JSON.stringify(editions.assembleEditionScore(editions.switchInstrumentEdition(switched,inst,'advanced'))[inst]),original);
    assert.equal(JSON.stringify(editions.assembleEditionScore(p,{[inst]:level})[inst]),JSON.stringify(notes));
   }
  }
+});
+check('easy violin reduction stays in first position and preserves accented attacks',()=>{
+ const p=song();
+ const source=[{pitch:95,start:0,duration:1,accent:true},{pitch:86,start:1,duration:0.25,accent:true},{pitch:88,start:1.25,duration:0.75}];
+ const notes=editions.simplifyImportedPart(p,'Violin I',source,'easy');
+ assert.equal(notes.length,3);
+ assert.ok(notes.every(n=>n.pitch>=55&&n.pitch<=83&&n.handPosition==='I'&&n.pitch-n.stringMidi>=0&&n.pitch-n.stringMidi<=7));
+ assert.equal(notes[1].start,1);
+ assert.equal(source[0].pitch,95);
 });
 (async()=>{
  const p=song();
