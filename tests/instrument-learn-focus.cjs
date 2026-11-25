@@ -39,7 +39,7 @@ assert.match(app,/id="practice-learn-tuner"/);
 assert.match(app,/const practiceDisplay=ref<PracticeDisplay>\('score-diagram'\)/);
 assert.match(app,/<template #score="\{[^}]*measure[^}]*playing[^}]*\}">\s*<ScorePreview[^>]*:active-measure="measure"[^>]*:playing-notes="playing"/);
 assert.match(component,/selectedRange|measures \{\{from\}\}–\{\{to\}\}/);
-assert.match(component,/aria-label="Target-aware pitch tuner"/);
+assert.match(component,/:aria-label="autoTuner\\?'Automatic chromatic tuner':'Target-aware pitch tuner'"/);
 assert.match(component,/Record for feedback/);
 assert.match(component,/reprocessPitchFrames\(frames/);
 assert.match(component,/alignLearnTake\(expected,performed,allowAnyOctave\.value\)/);
