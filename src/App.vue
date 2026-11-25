@@ -922,6 +922,11 @@ onBeforeUnmount(()=>{document.removeEventListener('fullscreenchange',onPerforman
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
+const keyChangeMatchingSections=ref(false);
+const keyChangeUseAdaptive=ref(true);
+const transposeIntervals=Array.from({length:49},(_,i)=>i-24);
+const transposeIntervalLabel=(n:number)=>n===0?'0 · Original key':`${n>0?'+':''}${n} semitones`;
+
 const keyChangeError=ref('');
 function setSectionKey(section:string,event:Event){
   const to=(event.target as HTMLSelectElement).value,from=keyForSection(section);
@@ -929,7 +934,9 @@ function setSectionKey(section:string,event:Event){
   // Revert the native select until the musician confirms an operation.
   (event.target as HTMLSelectElement).value=from;
   if(to===from)return;
-  keyChangeMode.value='chords';
+  keyChangeMode.value='chords-and-melody';
+  keyChangeMatchingSections.value=false;
+  keyChangeUseAdaptive.value=true;
   keyChangeError.value='';
   pendingKeyChange.value={section,from,to};
 }
@@ -938,10 +945,24 @@ function applySectionKeyChange(){
   const mode=keyChangeMode.value;
   keyChangeError.value='';
   try{
-    const changed=changeSectionKey(project.value,pending.section,pending.to,mode);
+    const targets=keyChangeMatchingSections.value
+      ?sections.value.filter(sec=>keyForSection(sec)===pending.from)
+      :[pending.section];
+    let changed=project.value;
+    for(const section of targets)changed=changeSectionKey(changed,section,pending.to,mode);
     project.value=changed;
+    // Only use the global transpose engine when every section shares the original key.
+    // Otherwise it would transpose unrelated sections.
+    if(mode==='chords-and-melody'&&targets.length===sections.value.length){
+      const from=parsePitch(pending.from.replace(/m$/,'')+'4');
+      const to=parsePitch(pending.to.replace(/m$/,'')+'4');
+      if(from!==null&&to!==null){
+        const up=((to-from)%12+12)%12;
+        transposePreviewSemitones.value=up>6?up-12:up;
+      }
+    }
     pendingKeyChange.value=null;
-    message.value=`Section ${pending.section}: ${pending.from} → ${pending.to}. ${mode==='signature'?'Key signature only; pitches and harmony unchanged.':mode==='chords'?'Chords transposed; melody and protected notes kept unchanged.':'Chords and lead melody transposed; protected instrument notes transposed as well.'} Chord qualities are preserved.`;
+    message.value=`${targets.length} section(s): ${pending.from} → ${pending.to}. ${mode==='signature'?'Key signature only; pitches and harmony unchanged.':mode==='chords'?'Chords transposed; melody and protected notes kept unchanged.':'Chords and lead melody transposed; protected instrument notes transposed as well.'} Chord qualities are preserved.`;
   }catch(error){
     keyChangeError.value=error instanceof Error?error.message:String(error);
     message.value=`Key change not applied: ${keyChangeError.value}`;
@@ -5798,6 +5819,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
             <span><strong>Key signature only</strong><small>Keep chords and all note pitches unchanged</small></span>
           </label>
         </fieldset>
+        <label class="key-change-choice"><input type="checkbox" v-model="keyChangeMatchingSections"/> Apply to all sections currently in {{pendingKeyChange.from}} ({{sections.filter(sec=>keyForSection(sec)===pendingKeyChange?.from).length}} sections)</label>
+        <p class="hint">For a whole-arrangement playable-range analysis, use the Transpose &amp; Adapt subtab. Section-only changes retain the existing section transposition behavior.</p>
         <p v-if="keyChangeError" class="key-change-error" role="alert">Unable to apply: {{keyChangeError}}. You can choose another option or cancel.</p>
       </div>
       <div class="key-change-actions">
@@ -5947,7 +5970,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <div v-show="structureSubtab==='transpose'" role="tabpanel" aria-label="Transpose and adapt" class="editor">
  <h3>Transpose &amp; Adapt</h3>
  <p class="muted">Preview an arrangement-wide interval and identify notes that would fall outside instrument ranges. Exact transposition remains available in Song settings.</p>
- <label>Interval (semitones)<input type="number" min="-24" max="24" step="1" v-model.number="transposePreviewSemitones"/></label>
+ <label>Transpose by<select v-model.number="transposePreviewSemitones"><option v-for="interval in transposeIntervals" :key="interval" :value="interval">{{transposeIntervalLabel(interval)}}</option></select></label>
  <label><input type="checkbox" v-model="transposeAdapt"/> Suggest nearest playable octaves</label>
  <label><input type="checkbox" v-model="transposeChordSubstitution" :disabled="!transposeAdapt"/> Consider chord tones for rhythm/accompaniment (manual review)</label>
  <button type="button" class="primary" :disabled="!Number.isInteger(transposePreviewSemitones)||Math.abs(transposePreviewSemitones)>24" @click="transposePreviewOpen=true">Analyze &amp; preview</button>
