@@ -281,60 +281,94 @@ export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
 export type Project = { version:1; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
-export type AdaptiveTranspose = { enabled:boolean; chordToneRhythm:boolean; semitones:number };
-export type TransposeCorrection = { instrument:Instrument; measure:number; start:number; originalPitch:number; intendedPitch:number; suggestedPitch:number; strategy:'octave'|'chord-tone'|'unresolved' };
+export type RegisterStrategy='auto'|'individual'|'whole'|'phrase'|'exact';
+export type RegisterPartSetting={strategy:RegisterStrategy;octaves?:-24|-12|0|12|24};
+export type AdaptiveTranspose={enabled:boolean;chordToneRhythm:boolean;semitones:number;parts?:Record<string,RegisterPartSetting>};
+export type TransposeCorrection={instrument:Instrument;measure:number;start:number;originalPitch:number;intendedPitch:number;suggestedPitch:number;strategy:'octave'|'chord-tone'|'unresolved'|'whole'|'phrase';};
+export type RegisterDecision={instrument:Instrument;strategy:RegisterStrategy;octaves:number;outOfRange:number;unresolved:number;};
 function nearestPlayablePitch(pitch:number,low:number,high:number,tones?:number[]):{pitch:number;strategy:'octave'|'chord-tone'|'unresolved'}{
  const octave:number[]=[];
  for(let n=low;n<=high;n++)if((n-pitch)%12===0)octave.push(n);
  if(octave.length)return {pitch:octave.reduce((a,b)=>Math.abs(a-pitch)<=Math.abs(b-pitch)?a:b),strategy:'octave'};
- if(tones?.length){
-  const candidates=Array.from({length:high-low+1},(_,i)=>low+i).filter(n=>tones.includes(((n%12)+12)%12));
+ if(tones?.length){const candidates=Array.from({length:high-low+1},(_,i)=>low+i).filter(n=>tones.includes(((n%12)+12)%12));
   if(candidates.length)return {pitch:candidates.reduce((a,b)=>Math.abs(a-pitch)<=Math.abs(b-pitch)?a:b),strategy:'chord-tone'};
  }
  return {pitch,strategy:'unresolved'};
 }
 function chordAtNote(p:Project,n:Note):string{
  const measure=Math.max(0,Math.min(p.bars.length-1,Math.floor(n.start/p.beats)));
- const chords=p.bars[measure]?.chord??'';
- const parts=chords.split(',').map(c=>c.trim()).filter(Boolean);
- const local=n.start-measure*p.beats;
- return parts[Math.min(parts.length-1,Math.floor(local/Math.max(1e-6,p.beats/Math.max(1,parts.length))))]??'';
+ const parts=(p.bars[measure]?.chord??'').split(',').map(c=>c.trim()).filter(Boolean);
+ return parts[Math.min(parts.length-1,Math.floor((n.start-measure*p.beats)/Math.max(1e-6,p.beats/Math.max(1,parts.length))))]??'';
 }
-export function planAdaptiveTransposition(score:Score,p:Project,semitones:number,chordToneRhythm=false):TransposeCorrection[]{
- const issues:TransposeCorrection[]=[];
+function noteFits(n:Note,offset:number,low:number,high:number):boolean{
+ return [n.pitch,n.slideTo,n.approachSlideFrom].every(v=>v===undefined||(v+offset>=low&&v+offset<=high));
+}
+function bestOctave(notes:Note[],semitones:number,low:number,high:number):number|null{
+ const options=[0,12,-12,24,-24].filter(o=>notes.every(n=>noteFits(n,semitones+o,low,high)));
+ return options.length?options.sort((a,b)=>Math.abs(a)-Math.abs(b))[0]:null;
+}
+function phraseGroups(notes:Note[],p:Project):Note[][]{
+ const groups=new Map<string,Note[]>();
+ for(const n of notes){const bar=Math.floor(n.start/p.beats),section=p.bars[bar]?.section??'';
+  const key=section+':'+Math.floor(bar/4);const group=groups.get(key)??[];group.push(n);groups.set(key,group);}
+ return [...groups.values()];
+}
+export function planRegisterTransposition(score:Score,p:Project,semitones:number,parts:Record<string,RegisterPartSetting>={},chordToneRhythm=false):{corrections:TransposeCorrection[];decisions:RegisterDecision[]}{
+ const corrections:TransposeCorrection[]=[],decisions:RegisterDecision[]=[];
  for(const [name,notes] of Object.entries(score)){
   const inst=name as Instrument,[low,high]=instrumentRange(inst);
-  for(const n of notes){
-   const intended=n.pitch+semitones;
-   if(intended>=low&&intended<=high)continue;
-   const measure=Math.max(0,Math.min(p.bars.length-1,Math.floor(n.start/p.beats)));
-   const role=p.measureRoles?.[`${inst}:${measure}`]??p.roles?.[p.bars[measure]?.section]?.[inst];
-   const chord=chordAtNote(p,n);
-   const tones=chordToneRhythm&&['chords','harmony','fill'].includes(role??'')&&chord
-    ?chordTones(chord).map(pc=>(pc+semitones+120)%12):undefined;
-   const result=nearestPlayablePitch(intended,low,high,tones);
-   issues.push({instrument:inst,measure,start:n.start,originalPitch:n.pitch,intendedPitch:intended,suggestedPitch:result.pitch,strategy:result.strategy});
+  const requested=parts[inst]?.strategy??'auto';
+  const originalOut=notes.filter(n=>!noteFits(n,semitones,low,high)).length;
+  const uniform=bestOctave(notes,semitones,low,high);
+  let strategy:RegisterStrategy=requested;
+  if(strategy==='auto')strategy=uniform!==null?'whole':'phrase';
+  const chosen=parts[inst]?.octaves??0;
+  const wholeOffset=strategy==='whole'?(requested==='whole'?chosen:uniform??0):0;
+  const groups=strategy==='phrase'?phraseGroups(notes,p):[notes];
+  const offsets=new Map<Note,number>();
+  if(strategy==='whole'){for(const n of notes)offsets.set(n,wholeOffset);}
+  else if(strategy==='phrase'){
+   for(const group of groups){const shift=bestOctave(group,semitones,low,high);
+    for(const n of group)offsets.set(n,shift??0);
+   }
   }
+  let unresolved=0;
+  for(const n of notes){
+   const intended=n.pitch+semitones,measure=Math.max(0,Math.min(p.bars.length-1,Math.floor(n.start/p.beats)));
+   let offset=offsets.get(n)??0,kind:TransposeCorrection['strategy']=strategy==='whole'?'whole':strategy==='phrase'?'phrase':'octave';
+   if(strategy==='exact')continue;
+   if(!noteFits(n,semitones+offset,low,high)){
+    if(strategy==='whole'){kind='unresolved';unresolved++;}
+    else{
+     const role=p.measureRoles?.[`${inst}:${measure}`]??p.roles?.[p.bars[measure]?.section]?.[inst];
+     const chord=chordAtNote(p,n);
+     const tones=chordToneRhythm&&['chords','harmony','fill'].includes(role??'')&&chord?chordTones(chord).map(pc=>(pc+semitones+120)%12):undefined;
+     const suggestion=nearestPlayablePitch(intended,low,high,tones);
+     offset=suggestion.pitch-intended;kind=suggestion.strategy;
+     if(!noteFits(n,semitones+offset,low,high)){kind='unresolved';unresolved++;}
+    }
+   }
+   if(offset!==0||kind==='unresolved')corrections.push({instrument:inst,measure,start:n.start,originalPitch:n.pitch,intendedPitch:intended,suggestedPitch:kind==='unresolved'?intended:intended+offset,strategy:kind});
+  }
+  decisions.push({instrument:inst,strategy,octaves:wholeOffset,outOfRange:originalOut,unresolved});
  }
- return issues;
+ return {corrections,decisions};
 }
-/** Keep source pitches untouched; adjust only the derived score before playback/export transposition. */
-export function adaptTransposedScore(score:Score,project:Project):Score {
+export function planAdaptiveTransposition(score:Score,p:Project,semitones:number,chordToneRhythm=false):TransposeCorrection[]{
+ return planRegisterTransposition(score,p,semitones,{},chordToneRhythm).corrections;
+}
+/** Adapt the derived score only. The global transpose is applied separately by playback/export. */
+export function adaptTransposedScore(score:Score,project:Project):Score{
  const settings=project.adaptiveTranspose;
  if(!settings?.enabled||settings.semitones!==(project.transposeSemitones??0))return score;
- const corrections=planAdaptiveTransposition(score,project,settings.semitones,settings.chordToneRhythm);
+ const {corrections}=planRegisterTransposition(score,project,settings.semitones,settings.parts,settings.chordToneRhythm);
  const lookup=new Map(corrections.map(c=>[`${c.instrument}:${c.start}:${c.originalPitch}`,c]));
  return Object.fromEntries(Object.entries(score).map(([inst,notes])=>[inst,notes.map(n=>{
-  const correction=lookup.get(`${inst}:${n.start}:${n.pitch}`);
-  if(!correction||correction.strategy==='unresolved')return n;
-  const delta=correction.suggestedPitch-correction.intendedPitch;
-  const [lo,hi]=instrumentRange(inst as Instrument);
-  const slide=n.slideTo===undefined?undefined:n.slideTo+delta+settings.semitones;
-  const approach=n.approachSlideFrom===undefined?undefined:n.approachSlideFrom+delta+settings.semitones;
-  // Do not silently break gestures whose endpoints cannot move with the note.
-  if((slide!==undefined&&(slide<lo||slide>hi))||(approach!==undefined&&(approach<lo||approach>hi)))return n;
-  return {...n,pitch:n.pitch+delta,slideTo:n.slideTo===undefined?undefined:n.slideTo+delta,
-   approachSlideFrom:n.approachSlideFrom===undefined?undefined:n.approachSlideFrom+delta};
+  const c=lookup.get(`${inst}:${n.start}:${n.pitch}`);
+  if(!c||c.strategy==='unresolved')return n;
+  const delta=c.suggestedPitch-c.intendedPitch;
+  return {...n,pitch:n.pitch+delta,slideTo:n.slideTo===undefined?undefined:n.slideTo+delta,approachSlideFrom:n.approachSlideFrom===undefined?undefined:n.approachSlideFrom+delta,
+   gesture:n.gesture?transposeTangoGesture(n.gesture,delta):undefined};
  })])) as Score;
 }
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
