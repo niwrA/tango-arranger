@@ -67,7 +67,7 @@ test('MusicXML writes short pickup voices, keeps surviving pickups tied, and mar
  const measures=xml.split('<measure ');
  assert.match(measures[1],/^implicit="yes" number="0"/);
  assert.match(measures[1],/<duration>480<\/duration><\/backup>/);
- assert.match(measures[1],/<kind text="A7">/);
+ assert.match(measures[1],/<kind text="7">dominant<\/kind>/);
  assert.doesNotMatch(measures[1],/<rehearsal/);
  assert.match(measures[2],/^implicit="no" number="1"/);
  assert.match(measures[2],/<rehearsal[^>]*>A<\/rehearsal>/);

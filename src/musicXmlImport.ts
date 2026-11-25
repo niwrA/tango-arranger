@@ -27,7 +27,11 @@ const majorKeys:Record<number,string>={'-7':'Cb','-6':'Gb','-5':'Db','-4':'Ab','
 const minorKeys:Record<number,string>={'-7':'Abm','-6':'Ebm','-5':'Bbm','-4':'Fm','-3':'Cm','-2':'Gm','-1':'Dm',0:'Am',1:'Em',2:'Bm',3:'F#m',4:'C#m',5:'G#m',6:'D#m',7:'A#m'};
 const quality=(kind:Element|undefined):string=>{
  const k=kind?.textContent?.trim().toLowerCase()??'';
- if(kind?.getAttribute('text')?.trim())return kind.getAttribute('text')!.trim();
+ if(kind?.hasAttribute('text'))return kind.getAttribute('text')!.trim();
+ if(k==='major-sixth')return '6';
+ if(k==='minor-sixth')return 'm6';
+ if(k==='dominant-ninth')return '9';
+ if(k==='suspended-fourth')return 'sus4';
  if(k.includes('major-seventh'))return 'maj7';
  if(k.includes('minor-seventh'))return 'm7';
  if(k.includes('diminished-seventh'))return 'dim7';
@@ -44,7 +48,12 @@ const chordAt=(node:Element):string=>{
  if(!step)return '';
  const alter=numeric(root,'root-alter');
  const accidental=alter===1?'#':alter===-1?'b':'';
- return step+accidental+quality(direct(node,'kind'));
+ const rootName=step+accidental,kind=direct(node,'kind');
+ const suffix=quality(kind);
+ const bass=direct(node,'bass'),bassStep=value(bass,'bass-step'),bassAlter=numeric(bass,'bass-alter');
+ const inversion=bassStep?'/'+bassStep+(bassAlter===1?'#':bassAlter===-1?'b':''):'';
+ if(kind?.textContent?.trim()==='other'&&suffix.startsWith(rootName))return suffix+inversion;
+ return rootName+suffix+inversion;
 };
 const lyric=(node:Element,verse:number)=>{
  const element=descendants(node,'lyric').find(e=>(Number(e.getAttribute('number')||1))===verse);
@@ -90,7 +99,7 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
  for(const [partIndex,partNode] of partNodes.entries()){
   const id=partNode.getAttribute('id')??String(partIndex+1);
   const measures=children(partNode).filter(e=>e.localName==='measure');
-  let divisions=1,beats=4,beatType=4,fifths:number|null=null,mode:'major'|'minor'|null=null,offset=0,staves=1;
+  let divisions=1,beats=4,beatType=4,fifths:number|null=null,mode:'major'|'minor'|null=null,offset=0,staves=1,transpose=0;
   let hasKey=false;
   const notes:Note[]=[];
   let pitchedMeasures=0;
@@ -117,6 +126,8 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
        keyChanged=hasKey&&fifths!==null;
        hasKey=true;
       }
+      const trans=direct(child,'transpose');
+      if(trans)transpose=numeric(trans,'chromatic')+12*numeric(trans,'octave-change');
       const staffCount=numeric(child,'staves',staves);
       if(staffCount>=1&&staffCount<=16)staves=staffCount;
       continue;
@@ -146,7 +157,7 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
       const staccato=Boolean(art&&descendants(art,'staccato').length);
       const legato=Boolean(art&&descendants(art,'tenuto').length);
       notes.push({
-       pitch,start:Math.round((offset+start)*1e6)/1e6,
+       pitch:pitch+transpose,start:Math.round((offset+start)*1e6)/1e6,
        duration:Math.round(duration*1e6)/1e6,source:'imported',
        ...(marcato?{accent:true,articulation:'marcato_staccato' as const}:staccato?{articulation:'staccato' as const}:legato?{articulation:'legato' as const}:{}),
        ...lyric(child,1),...lyric(child,2),

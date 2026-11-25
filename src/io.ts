@@ -20,6 +20,17 @@ export function download(content: Blob | string, filename: string, mimeType = 'a
 const exportSongTitle=(p:Project)=>p.title.trim()||'Untitled Tango';
 const esc=(s:string)=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const harmonyRootXml=(chord:string)=>{const m=chord.match(/^([A-G])([#b]?)/);return `<root><root-step>${m?.[1]??'C'}</root-step>${m?.[2]?`<root-alter>${m[2]==='#'?1:-1}</root-alter>`:''}</root>`;};
+// A kind's text is the suffix, not the complete symbol. Keep slash bass
+// independent of the root so notation applications can render it correctly.
+function harmonyXml(symbol:string):string{
+ const match=symbol.match(/^([A-G][#b]?)(.*?)(?:\/([A-G][#b]?))?$/);
+ if(!match)return '';
+ const [,root,suffix,bass]=match;
+ const kinds:Record<string,string>={'':'major','m':'minor','min':'minor','-':'minor','7':'dominant','maj7':'major-seventh','m7':'minor-seventh','dim':'diminished','dim7':'diminished-seventh','m7b5':'half-diminished','ø':'half-diminished','aug':'augmented','+':'augmented','6':'major-sixth','m6':'minor-sixth','9':'dominant-ninth','sus4':'suspended-fourth','7b9':'dominant'};
+ const kind=kinds[suffix]??'other';
+ const degree=suffix==='7b9'?'<degree><degree-value>9</degree-value><degree-alter>-1</degree-alter><degree-type>add</degree-type></degree>':'';
+ return harmonyRootXml(root)+`<kind text="${esc(suffix)}">${kind}</kind>`+(bass?`<bass><bass-step>${bass[0]}</bass-step>${bass[1]?`<bass-alter>${bass[1]==='#'?1:-1}</bass-alter>`:''}</bass>`:'')+degree;
+}
 /** Spell diatonic notes according to the active key signature, including the
  * raised leading tone of harmonic minor. Other chromatic notes use a simple
  * sharp/flat fallback; full voice-leading-based enharmonics remain future work. */
@@ -123,7 +134,7 @@ function grandStaffNotes(p:Project,inst:Instrument,notes:Note[]):[Note[],Note[]]
 }
 type NoteheadColors=ReadonlyMap<Note,string>;
 type TechniqueState={active:'pizzicato'|'arco'|null};
-function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number,fermata=false,noteheadColors?:NoteheadColors,skip=0,legatoStarts=legatoPassageStarts(notes),techniqueState:TechniqueState={active:null}){
+function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,staff?:number,fermata=false,noteheadColors?:NoteheadColors,skip=0,legatoStarts=legatoPassageStarts(notes),techniqueState:TechniqueState={active:null},writtenOctave=0){
   const barTicks=Math.round((beats-skip)*DIV),offset=bar*beats+skip;
   // Keep note-level dynamics in the export event projection; omitting subito
   // makes the MusicXML direction below fail TypeScript compilation.
@@ -145,6 +156,30 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
   const boundaries=new Set<number>([0,barTicks]);
   for(const n of snapped){boundaries.add(n.start);boundaries.add(n.end);}
   const points=[...boundaries].sort((a,b)=>a-b);
+  const tuplets=new Map<number,{start:boolean;stop:boolean;normalType:string}>();
+  if(triplets){
+    const pieces:{at:number;dur:number}[]=[];
+    for(let i=0;i<points.length-1;i++){
+      let at=points[i];
+      for(const dur of mixedChunks(points[i+1]-at,at)){pieces.push({at,dur});at+=dur;}
+    }
+    for(let i=0;i<pieces.length;){
+      if(pieces[i].dur%30===0){i++;continue;}
+      let end=i,sum=0,normalType='';
+      while(end<pieces.length&&pieces[end].dur%30!==0){
+        sum+=pieces[end].dur;
+        const unit=sum/2;
+        const types:Record<number,string>={15:'128th',30:'64th',60:'32nd',120:'16th',240:'eighth',480:'quarter',960:'half'};
+        normalType=types[unit]??'';
+        if(normalType)break;
+        end++;
+      }
+      if(normalType&&end<pieces.length){
+        for(let k=i;k<=end;k++)tuplets.set(pieces[k].at,{start:k===i,stop:k===end,normalType});
+        i=end+1;
+      }else i=Math.max(i+1,end);
+    }
+  }
   let out='';
   const voiceTag=voice?`<voice>${voice}</voice>`:'';
   const staffTag=staff?`<staff>${staff}</staff>`:'';
@@ -166,8 +201,11 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
       }
       const isTuplet=dur%30!==0;
       const [type,dots]=durationType(isTuplet?dur*1.5:dur),dot=dots?'<dot/>':'';
-      const timeMod=isTuplet?'<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>':'';
-      if(!pitches.length)out+=`<note><rest/><duration>${dur}</duration>${voiceTag}<type>${type}</type>${dot}${timeMod}${staffTag}${fermata&&i===points.length-2&&at+elapsed+dur===barTicks?'<notations><fermata type="upright"/></notations>':''}</note>`;
+      const group=tuplets.get(at+elapsed);
+      const timeMod=isTuplet?`<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes>${group?`<normal-type>${group.normalType}</normal-type>`:''}</time-modification>`:'';
+      const tupletMarks=group?(group.start?'<tuplet type="start" number="1"/>':'')+(group.stop?'<tuplet type="stop" number="1"/>':''):'';
+      const restFermata=fermata&&i===points.length-2&&at+elapsed+dur===barTicks?'<fermata type="upright"/>':'';
+      if(!pitches.length)out+=`<note><rest/><duration>${dur}</duration>${voiceTag}<type>${type}</type>${dot}${timeMod}${staffTag}${restFermata||tupletMarks?`<notations>${restFermata}${tupletMarks}</notations>`:''}</note>`;
       else for(let j=0;j<pitches.length;j++){
         const pitch=pitches[j],sources=active.filter(n=>n.pitch===pitch);
         const begin=at+elapsed,endSegment=begin+dur;
@@ -204,13 +242,13 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const lyricSource=isAttack&&j===0?active.find(n=>n.start===begin&&n.lyric?.trim()):undefined;
         const lyricXml=isAttack&&j===0?active.filter(n=>n.start===begin&&(n.lyric||n.lyric2||n.melisma||n.melisma2)).slice(0,1).map(n=>[1,2].map(v=>{const word=(v===1?n.lyric:n.lyric2)?.trim();const phase=lyricExtensionPhase(notes,n,v as 1|2);if(!word&&!phase)return '';const syllabic=v===1?n.syllabic:n.syllabic2;return `<lyric number="${v}">${word?`<syllabic>${syllabic??'single'}</syllabic><text>${esc(word)}</text>`:''}${phase?`<extend type="${phase}"/>`:''}</lyric>`;}).join('')).join(''):'';
         const fermataXml=fermata&&j===0&&i===points.length-2&&at+elapsed+dur===barTicks?'<fermata type="upright"/>':'';
-        const notations=(tieStop||tieStart||articulationMarks||fermataXml)?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${fermataXml}${articulationMarks}</notations>`:'';
+        const notations=(tieStop||tieStart||articulationMarks||fermataXml||(j===0&&tupletMarks))?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${fermataXml}${j===0?tupletMarks:''}${articulationMarks}</notations>`:'';
         // A collapsed unison with the same onset can represent several source
         // events. Leave that head unmarked so the editor never guesses.
         const color=latest.noteheadColor;
         const notehead=color&&!sources.some(n=>n.originStart===latest.originStart&&n.noteheadColor!==color)
           ?`<notehead color="${color}">normal</notehead>`:'';
-        out+=`<note>${j?'<chord/>':''}${pitchXml(pitch,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${timeMod}${notehead}${staffTag}${notations}${lyricXml}</note>`;
+        out+=`<note>${j?'<chord/>':''}${pitchXml(pitch+writtenOctave,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${timeMod}${notehead}${staffTag}${notations}${lyricXml}</note>`;
       }
       elapsed+=dur;
     }
@@ -488,6 +526,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
 export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice;previewNoteheadColors?:NoteheadColors;engravingPreview?:boolean}){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
+  const unfilteredTransposed=new Map(Object.entries(transposed));
   const pickup=openingPickupBeats(p);
   const pickupStart=pickup?p.beats-pickup:0;
   if(pickup)for(const inst of Object.keys(transposed)){
@@ -511,7 +550,7 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
     const colors=new Map<Note,string>();
     (score[inst]??[]).forEach((note,index)=>{
       const color=options.previewNoteheadColors?.get(note);
-      if(color&&/^#[0-9a-f]{6}$/i.test(color))colors.set(transposed[inst][index],color);
+      if(color&&/^#[0-9a-f]{6}$/i.test(color))colors.set(unfilteredTransposed.get(inst)![index],color);
     });
     previewColors.set(inst,colors);
   }
@@ -521,13 +560,13 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
   const subtitle=options?.onlyInstrument
     ?`<credit page="1"><credit-type>subtitle</credit-type><credit-words default-x="595" default-y="1550" justify="center">${esc(partName(options.onlyInstrument))}</credit-words></credit>`
     :'';
-  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${titleXml}</work-title></work><movement-title>${titleXml}</movement-title>${subtitle}<credit page="1"><credit-type>title</credit-type><credit-words default-x="595" default-y="1627" justify="center" valign="top" font-size="24">${titleXml}</credit-words></credit><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults><part-list>${instruments.map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(partName(inst))}</part-name><part-abbreviation>${esc(partName(inst))}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(partName(inst))}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
+  const head=`<?xml version="1.0" encoding="utf-8"?><score-partwise version="4.0"><work><work-title>${titleXml}</work-title></work><movement-title>${titleXml}</movement-title><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling></defaults>${subtitle}<credit page="1"><credit-type>title</credit-type><credit-words default-x="595" default-y="1627" justify="center" valign="top" font-size="24">${titleXml}</credit-words></credit><part-list>${instruments.map((inst,i)=>`<score-part id="P${i+1}"><part-name>${esc(partName(inst))}</part-name><part-abbreviation>${esc(partName(inst))}</part-abbreviation><score-instrument id="I${i+1}"><instrument-name>${esc(partName(inst))}</instrument-name></score-instrument></score-part>`).join('')}</part-list>`;
   const timing=normalizedTempoExpressions(p);
   const tempoMarks=tempoAutomationPoints(p,true).filter(point=>!options?.engravingPreview||point.label);
   const tempoDirections=(measure:number)=>tempoMarks.filter(point=>Math.floor(point.beat/p.beats)===measure).map(point=>{
     const offset=Math.round((Math.max(0,point.beat-measure*p.beats-barShift(measure)))*DIV);
     const name=point.label??'tempo';
-    return `<direction placement="above"${point.label?'':' print-object="no"'}><direction-type><words>${name}</words></direction-type>${offset?`<offset>${offset}</offset>`:''}<sound tempo="${point.bpm}"/></direction>`;
+    return `<direction placement="above"><direction-type><words${point.label?'':' print-object="no"'}>${esc(name)}</words></direction-type>${offset?`<offset>${offset}</offset>`:''}<sound tempo="${point.bpm}"/></direction>`;
   }).join('');
   const fermataDirection=(inst:Instrument,measure:number)=>timing.fermatas.filter(f=>f.measure===measure&&f.instrument===inst&&f.waitForCue)
     .map(()=>`<direction placement="above"><direction-type><words>colla voce · wait for cue</words></direction-type><offset>${(p.beats-1-barShift(measure))*DIV}</offset></direction>`).join('');
@@ -573,7 +612,7 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
   };
   let sectionOrdinal=-1;
   const sectionMarks=p.bars.map((bar,b)=>{if(sectionStarts(b))sectionOrdinal++;return sectionOrdinal<0?'':sectionLetter(sectionOrdinal);});
-  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="${pickup&&b===0?'yes':'no'}" number="${pickup?b:b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${grandStaves.has(inst)?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&sectionStarts(b)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction><direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}${i===0?tempoDirections(b):''}${fermataDirection(inst,b)}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${i===0?notationChords(bar.chord,p.beats,barShift(b)).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyRootXml(symbol)}<kind text="${esc(symbol)}">other</kind>${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${grandStaves.has(inst)?writeGrandStaffMeasure(p,inst,notationStaves.get(inst)!,b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),previewColors.get(inst),legatoDirections.get(inst),techniqueStates.get(inst)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),undefined,undefined,timing.fermatas.some(f=>f.measure===b&&f.instrument===inst),previewColors.get(inst),barShift(b),legatoDirections.get(inst)?.[0],techniqueStates.get(inst)?.[0])}${rangeDirections(inst,b,true)}</measure>`).join('')}</part>`).join('');
+  const body=instruments.map((inst,i)=>`<part id="P${i+1}">${p.bars.map((bar,b)=>`<measure implicit="${pickup&&b===0?'yes':'no'}" number="${pickup?b:b+1}">${b===0?`<attributes><divisions>${DIV}</divisions><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key><time><beats>${p.beats}</beats><beat-type>4</beat-type></time>${grandStaves.has(inst)?'<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>':`<clef><sign>${inst.startsWith('Contrabass')?'F':'G'}</sign><line>${inst.startsWith('Contrabass')?4:2}</line></clef>`}${instrumentFamily(inst)==='Contrabass'&&!options?.engravingPreview?'<transpose><diatonic>0</diatonic><chromatic>0</chromatic><octave-change>-1</octave-change></transpose>':''}</attributes><direction placement="above"><direction-type><words>${esc(p.profile)}</words></direction-type></direction><direction><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${p.bpm}</per-minute></metronome></direction-type><sound tempo="${p.bpm}"/></direction>`:''}${b>0&&sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<attributes><key><fifths>${parseKeySignature(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)).fifths}</fifths><mode>${parseKeySignature(sectionKey(p,bar.section)).mode}</mode></key></attributes>`:''}${i===0&&sectionStarts(b)?`<direction placement="above"><direction-type><rehearsal halign="center" valign="middle">${sectionMarks[b]}</rehearsal></direction-type></direction>${b===(pickup?1:0)||sectionKey(p,bar.section)!==sectionKey(p,p.bars[b-1].section)?`<direction placement="above"><direction-type><words>${esc(transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0)+(parseKeySignature(sectionKey(p,bar.section)).mode==='minor'?' minor':' major'))}</words></direction-type></direction>`:''}`:''}${i===0?tempoDirections(b):''}${fermataDirection(inst,b)}${dynamicDirection(inst,b)}${measureDynamicDirections(inst,b)}${rangeDirections(inst,b)}${i===0?crescendoDirection(b):''}${(i===0||options?.onlyInstrument||!options?.engravingPreview)?notationChords(bar.chord,p.beats,barShift(b)).filter((c,j,a)=>j===0||c.chord!==a[j-1].chord).map(c=>{const symbol=transposeChord(c.chord,p.transposeSemitones??0);return `<harmony>${harmonyXml(symbol)}${c.beat?`<offset>${c.beat*DIV}</offset>`:''}</harmony>`;}).join(''):''}${grandStaves.has(inst)?writeGrandStaffMeasure(p,inst,notationStaves.get(inst)!,b,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),previewColors.get(inst),legatoDirections.get(inst),techniqueStates.get(inst)):writeVoice(transposed[inst]??[],b,p.beats,transposeKeySignature(sectionKey(p,bar.section),p.transposeSemitones??0),undefined,undefined,timing.fermatas.some(f=>f.measure===b&&f.instrument===inst),previewColors.get(inst),barShift(b),legatoDirections.get(inst)?.[0],techniqueStates.get(inst)?.[0],instrumentFamily(inst)==='Contrabass'&&!options?.engravingPreview?12:0)}${rangeDirections(inst,b,true)}${b===p.bars.length-1?'<barline location="right"><bar-style>light-heavy</bar-style></barline>':''}</measure>`).join('')}</part>`).join('');
   return head+body+'</score-partwise>';
 }
 

@@ -40,7 +40,7 @@ test('non-destructive transpose moves notes and chord symbols',()=>{
   assert.equal(s.Piano[0].pitch,initial);
   assert.equal(music.transposeScore(s,3).Piano[0].pitch,initial+3);
   assert.equal(music.transposeChord('Dm/A',3),'Fm/C');
-  assert.match(xml,/<kind text="Fm">/);
+  assert.match(xml,/<root-step>F<\/root-step><\/root><kind text="m">minor<\/kind>/);
   assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,4)),[]);
 });
 test('eight-bar phrasing and individual measure override',()=>{
@@ -88,8 +88,8 @@ test('comma chord entry maps D,G to beat three in 4/4',()=>{assert.equal(music.c
 test('four-slot entry changes harmony on beat four',()=>{assert.equal(music.chordAt('D,D,D,G',4,2),'D');assert.equal(music.chordAt('D,D,D,G',4,3),'G');});
 test('chord entry validates empty and excessive slots',()=>{assert.throws(()=>music.parseChordSequence('D,,G',4),/Invalid chord/);assert.throws(()=>music.parseChordSequence('D,D,D,G,A',4),/At most/);assert.throws(()=>music.parseChordSequence('H7',4),/Invalid chord/);});
 test('piano follows beat four chord change',()=>{let p=music.demoProject();p.bars=p.bars.slice(0,1);p.bars[0].chord='D,D,D,G';p.roles.A1.Piano='chords';const notes=music.generate(p).Piano;const beat4=notes.filter(n=>n.start>=3&&n.start<4);assert.ok(beat4.length);assert.ok(beat4.every(n=>music.chordTones('G').includes(n.pitch%12)),JSON.stringify(beat4));});
-test('MusicXML exports correctly offset multiple harmonies and complete measures',()=>{let p=music.demoProject();p.bars=p.bars.slice(0,2);p.bars[0].chord='D,G';p.bars[1].chord='D,D,D,G';const xml=io.exportMusicXml(p,music.generate(p));assert.match(xml,/<kind text="G">other<\/kind><offset>960<\/offset>/);assert.match(xml,/<kind text="G">other<\/kind><offset>1440<\/offset>/);assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,4)),[]);});
-test('global transpose applies to each harmony in a measure',()=>{let p=music.demoProject();p.bars=p.bars.slice(0,1);p.bars[0].chord='D,G';p.transposeSemitones=2;const xml=io.exportMusicXml(p,music.generate(p));assert.match(xml,/<kind text="E">other<\/kind>/);assert.match(xml,/<kind text="A">other<\/kind>/);});
+test('MusicXML exports correctly offset multiple harmonies and complete measures',()=>{let p=music.demoProject();p.bars=p.bars.slice(0,2);p.bars[0].chord='D,G';p.bars[1].chord='D,D,D,G';const xml=io.exportMusicXml(p,music.generate(p));assert.match(xml,/<root-step>G<\/root-step><\/root><kind text="">major<\/kind><offset>960<\/offset>/);assert.match(xml,/<root-step>G<\/root-step><\/root><kind text="">major<\/kind><offset>1440<\/offset>/);assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,4)),[]);});
+test('global transpose applies to each harmony in a measure',()=>{let p=music.demoProject();p.bars=p.bars.slice(0,1);p.bars[0].chord='D,G';p.transposeSemitones=2;const xml=io.exportMusicXml(p,music.generate(p));assert.match(xml,/<root-step>E<\/root-step><\/root><kind text="">major<\/kind>/);assert.match(xml,/<root-step>A<\/root-step><\/root><kind text="">major<\/kind>/);});
 
 // v0.8 blank song regression tests
 test('blank song has no demo melody or chord symbols',()=>{
@@ -652,4 +652,17 @@ test('note editor never disables a piano-roll cell based on chord or key',()=>{
   assert.match(src,/note-tone-\$\{pitchClass\(pitch,beat\)\}/);
   assert.match(src,/v-model="editorAccidentals"/);
   assert.match(src,/\{\{displayPitch\(pitch\)\}\}/);
+});
+
+test('structured slash harmony, complete triplets and final barline export',()=>{
+ const p=music.blankProject({measures:1});p.bars[0].chord='Dm,A7/E';
+ const score=music.generate(p);score.Voice=[{pitch:60,start:0,duration:1/3},{pitch:62,start:1/3,duration:1/3},{pitch:64,start:2/3,duration:1/3}];
+ const xml=io.exportMusicXml(p,score,{onlyInstrument:'Voice'});
+ assert.match(xml,/<root-step>D<\/root-step><\/root><kind text="m">minor<\/kind>/);
+ assert.match(xml,/<kind text="7">dominant<\/kind><bass><bass-step>E<\/bass-step><\/bass><offset>960<\/offset>/);
+ assert.equal((xml.match(/<tuplet type="start"/g)||[]).length,1);
+ assert.equal((xml.match(/<tuplet type="stop"/g)||[]).length,1);
+ assert.equal((xml.match(/<normal-type>eighth<\/normal-type>/g)||[]).length,3);
+ assert.match(xml,/<barline location="right"><bar-style>light-heavy<\/bar-style><\/barline>/);
+ assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,4,1)),[]);
 });
