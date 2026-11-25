@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Align the five measure-range controls in a compact row, including the section selector, with responsive toolbar grouping.
+
 - Select a whole section from measure-range controls using buttons or a compact dropdown. Manual start-measure changes update the displayed section without automatically selecting its full range.
 - Preview the destination key of the opening section for each transposition interval, preserving major or minor mode.
 - Choose automatic, whole-part, phrase, individual-note or exact register strategies per instrument. Phrase optimization uses score boundaries, rests and ties, melodic intervals, instrument tessitura and ensemble crossing/unison penalties.

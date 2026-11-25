@@ -43,6 +43,8 @@ assert.match(diagram,/'is-learn-target':isTargetStop\(string.midi,offset\)/);
 assert.match(diagram,/props\.violinPosition\?\.openMidi===openMidi/);
 assert.match(diagram,/\.diagram-string-stop\.is-learn-target/);
 assert.match(range,/Previous measure range/);
+assert.match(range,/grid-template-columns:auto minmax\(0,120px\) auto minmax\(0,120px\) auto/);
+assert.match(app,/grid-template-columns:auto minmax\(0,96px\) auto minmax\(0,96px\) auto/);
 const picker=fs.readFileSync('src/SectionRangePicker.vue','utf8');
 assert.match(range,/<SectionRangePicker[^>]*:from="from"[^>]*@select="\(start,end\)=>emit\('change',start,end\)"/);
 assert.ok(range.indexOf('<label>Start measure')<range.indexOf('<SectionRangePicker'));

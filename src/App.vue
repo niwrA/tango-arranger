@@ -7066,16 +7066,19 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-toolbar-part,.note-toolbar-transport,.note-toolbar-actions{min-width:0}
 .note-toolbar-part{
   display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end;gap:5px;
-  flex:1 1 265px;max-width:380px;
+  flex:1 1 240px;max-width:340px;
 }
 .note-toolbar-part>label{display:grid;gap:3px;margin:0;min-width:0;font-size:11px}
 .note-toolbar-part .note-focus-identity{align-self:center;margin:0;min-width:0;white-space:normal;overflow-wrap:anywhere}
-.note-toolbar-transport{display:flex;align-items:end;gap:5px;flex:1 1 325px;max-width:440px}
+.note-toolbar-transport{display:flex;align-items:end;gap:5px;flex:0 1 auto;max-width:100%}
 .note-toolbar-transport>.measure-range-control{
-  display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto;
-  align-items:end;gap:4px;flex:1 1 auto;
+  display:grid;grid-template-columns:auto minmax(0,96px) auto minmax(0,96px) auto;
+  align-items:end;gap:4px;flex:0 1 auto;
 }
-.note-toolbar-transport>.measure-range-control label{white-space:normal;margin:0}
+.note-toolbar-transport>.measure-range-control :deep(label){white-space:nowrap;margin:0;min-width:0}
+.note-toolbar-transport>.measure-range-control :deep(.section-range-picker){align-self:end}
+.note-toolbar-transport>.measure-range-control :deep(.section-range-dropdown){min-height:42px;box-sizing:border-box}
+.note-toolbar-transport>.measure-range-control :deep(.range-arrow){min-width:32px;width:32px;padding-inline:4px}
 .note-editor-section .note-unified-toolbar select{
   width:100%;min-width:0;max-width:none;min-height:42px;
   margin:0;padding:4px 6px;box-sizing:border-box;font-size:13px;
@@ -7089,6 +7092,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 @media(max-width:880px){
   .note-editor-section .compact-note-toolbar.note-unified-toolbar{position:relative}
   .note-toolbar-part,.note-toolbar-transport,.note-toolbar-actions{flex:1 0 100%;max-width:none}
+  .note-toolbar-transport>.measure-range-control{grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto;flex:1 1 0}
 }
 .note-editor-section:not(.note-focus-mode) .note-subtabs{margin:3px 0 4px;padding:0;gap:4px}
 .note-editor-section:not(.note-focus-mode) .note-subtabs button{padding:7px 10px}
