@@ -42,7 +42,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,adaptTransposedScore,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -451,7 +451,7 @@ watch(selectedBar,measure=>{try{localStorage.setItem('tango-last-measure',String
 const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'|'merge'>('melody');
 const pendingParsed=ref<ParsedMusicXml|null>(null);
 const pendingSourceName=ref('');
-const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});const performanceBeat=ref(0);
+const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const score=computed(()=>{const base=project.value.generatedScore??generate(project.value);const merged=project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;return adaptTransposedScore(merged,project.value);});const performanceBeat=ref(0);
 const rehearsalSpeed=ref<RehearsalSpeed>((()=>{
  try{return normalizeRehearsalSpeed(localStorage.getItem('tango-rehearsal-speed'));}catch{return 1;}
 })());
@@ -2492,6 +2492,14 @@ function barArticulation(inst:Instrument):Articulation{return project.value.arti
 function setBarArticulation(inst:Instrument,e:Event){project.value.articulation??=defaultArticulation();const key=`${inst}:${selectedBar.value}`;const value=(e.target as HTMLSelectElement).value as Articulation;if(value==='auto')delete project.value.articulation.overrides[key];else project.value.articulation.overrides[key]=value;}
 function inferredArticulation(inst:Instrument):string{return measureArticulation(project.value,inst,selectedBar.value,plannedPhrasesByMeasure.value[selectedBar.value]??null)??'not applicable';}
 function setTranspose(e:Event){const n=Number((e.target as HTMLInputElement).value);if(Number.isInteger(n)&&n>=-24&&n<=24)project.value.transposeSemitones=n;}
+function applyAdaptiveTranspose(){
+ if(!Number.isInteger(transposePreviewSemitones.value)||Math.abs(transposePreviewSemitones.value)>24)return;
+ project.value.transposeSemitones=transposePreviewSemitones.value;
+ project.value.adaptiveTranspose={enabled:transposeAdapt.value,chordToneRhythm:transposeChordSubstitution.value,semitones:transposePreviewSemitones.value};
+ transposePreviewOpen.value=false;
+ message.value='Transposition applied. Adapted notes are derived from the original score; source notes are preserved.';
+}
+
 // Song overview: measure-level overrides are sparse and do not replace section defaults.
 const orchestrationScope=ref<'instrument'|'section'|'all'>('all');
 const orchestrationToolsOpen=ref(false);
@@ -5949,7 +5957,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
    <strong>{{rosterDisplayName(inst)}}</strong>
    <span>{{(score[inst]??[]).filter(n=>{const [lo,hi]=instrumentRange(inst);return n.pitch+transposePreviewSemitones<lo||n.pitch+transposePreviewSemitones>hi}).length}} notes outside configured range</span>
   </div>
-  <p class="hint">To apply an exact non-destructive transposition, use the semitone control in Song settings. Adaptive application will be enabled once score-level correction and export paths share the same result.</p>
+  <button type="button" class="primary" @click="applyAdaptiveTranspose">Apply transposition</button><p class="hint">Original notes remain unchanged; adaptations are recalculated from the original pitches.</p>
  </div>
 </div>
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
