@@ -56,6 +56,17 @@ const contour=computed(()=>{
  }).join(' ');
 });
 const tokens=computed(()=>page.value.tokens.filter(n=>n.start<to.value&&n.start+n.duration>from.value));
+const lyricRows=computed(()=>{
+ const starts=[...(props.lineStarts??[])].filter(Number.isFinite).sort((a,b)=>a-b);
+ const rows=new Map<number,typeof tokens.value>();
+ for(const token of tokens.value){
+  let line=0;
+  for(let i=0;i<starts.length;i++){if(starts[i]<=token.start+1e-7)line=i;else break;}
+  const row=rows.get(line)??[];
+  row.push(token);rows.set(line,row);
+ }
+ return [...rows.values()];
+});
 </script>
 
 <template>
@@ -72,10 +83,12 @@ const tokens=computed(()=>page.value.tokens.filter(n=>n.start<to.value&&n.start+
     <div v-if="showHarmony && visibleChords.length" class="stage-lyrics-chords" aria-label="Harmony"><span v-for="(c,i) in visibleChords" :key="i" :style="{left:c.at+'%'}">{{c.symbol}}</span></div>
    <div class="stage-lyrics-words" aria-live="off">
      <template v-if="tokens.length">
-       <span v-for="(token,i) in tokens" :key="i"
-         class="stage-lyric-token" :class="{'is-current':token.active}"
-         :style="{left:x(token.start)+'%',width:Math.max(0,x(tokens[i+1]?.start??to)-x(token.start))+'%'}"
-         :title="token.text">{{token.text}}</span>
+       <span v-for="(row,rowIndex) in lyricRows" :key="rowIndex" class="stage-lyric-row">
+         <span v-for="(token,i) in row" :key="i"
+           class="stage-lyric-token" :class="{'is-current':token.active}"
+           :style="{left:x(token.start)+'%',width:Math.max(0,x(row[i+1]?.start??to)-x(token.start))+'%'}"
+           :title="token.text">{{token.text}}</span>
+       </span>
      </template>
      <span v-else class="stage-lyrics-rest">Instrumental passage</span>
    </div>
@@ -102,7 +115,7 @@ const tokens=computed(()=>page.value.tokens.filter(n=>n.start<to.value&&n.start+
 .stage-lyrics-upcoming{color:#c2d4e5;font-size:11px;text-align:right;white-space:nowrap;min-width:0}
 .stage-lyrics-words{display:flex;justify-content:center;align-items:center;align-content:center;flex-wrap:wrap;gap:3px 6px;min-height:1.6em;
  font-size:clamp(19px,2.35vw,30px);font-weight:650;line-height:1.4;text-align:center}
-.stage-lyric-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 8px;width:100%}
+.stage-lyric-row{position:relative;display:block;width:100%;min-height:1.6em}
 .stage-lyric-token{display:inline-block;padding:1px 6px;border:1px solid transparent;border-radius:7px;color:#e2e8f0;
  background:transparent;opacity:.94;font-weight:650;transition:background-color .08s linear,color .08s linear,box-shadow .08s linear}
 .stage-lyric-word{display:inline-flex;white-space:nowrap}
