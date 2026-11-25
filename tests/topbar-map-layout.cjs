@@ -31,7 +31,18 @@ const checks=[
  ['topbar responsive',()=>assert.match(css,/@media\(max-width:620px\)\{\.app-topbar/)],
  ['legacy local song dropdown removed from drawer',()=>assert.doesNotMatch(app,/<summary>Local song library<\/summary>/)],
  ['settings still available',()=>assert.match(app,/id="song-settings-modal"/)],
- ['release notes point to changelog',()=>assert.match(app,/Versioned history is loaded from CHANGELOG\.md/)],
+ ['release notes load changelog data',()=>{assert.match(app,/import changelogMarkdown from '\.\.\/CHANGELOG\.md\?raw'/);assert.match(app,/v-for="release in releaseHistory"/)}],
+ ['release notes include dated and numbered entries',()=>{
+  const ts=require('typescript');
+  const source=app.slice(app.indexOf('type ChangelogEntry='),app.indexOf('const active=ref',app.indexOf('type ChangelogEntry=')));
+  const js=ts.transpileModule(source+'\nreturn releaseHistory;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+  const parse=new Function('changelogMarkdown',js);
+  const entries=parse('## New feature (2026-11-25)\n- New detail\n## v5.5.3 — Old release\n- Old detail\n## v5.5.3 — Duplicate\n- Duplicate detail');
+  assert.deepEqual(entries.map(e=>[e.version,e.title,e.summary]),[['','New feature (2026-11-25)','New detail'],['5.5.3','Old release','Old detail']]);
+  const actual=parse(fs.readFileSync('CHANGELOG.md','utf8'));
+  assert.ok(actual.some(e=>!e.version&&e.summary));
+  assert.ok(actual.some(e=>e.version==='5.5.3'));
+ }],
 ];
 for(const [name,fn] of checks){fn();console.log('PASS',name)}
 console.log(checks.length+' topbar/map layout checks passed');
