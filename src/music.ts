@@ -307,11 +307,34 @@ function bestOctave(notes:Note[],semitones:number,low:number,high:number):number
  const options=[0,12,-12,24,-24].filter(o=>notes.every(n=>noteFits(n,semitones+o,low,high)));
  return options.length?options.sort((a,b)=>Math.abs(a)-Math.abs(b))[0]:null;
 }
-function phraseGroups(notes:Note[],p:Project):Note[][]{
- const groups=new Map<string,Note[]>();
- for(const n of notes){const bar=Math.floor(n.start/p.beats),section=p.bars[bar]?.section??'';
-  const key=section+':'+Math.floor(bar/4);const group=groups.get(key)??[];group.push(n);groups.set(key,group);}
- return [...groups.values()];
+/** Register boundaries follow the score, not fixed-size measure buckets.
+ * Written durations protect sustained notes; playback gates are irrelevant here.
+ * A half-beat silence is a conservative heuristic, not a formal phrase analysis. */
+export function phraseGroups(notes:Note[],p:Project):Note[][]{
+ const epsilon=1e-6,groups:Note[][]=[],planned=phraseMeasureMap(p);
+ const boundaries:number[]=[];
+ for(let bar=1;bar<p.bars.length;bar++){
+  if(p.bars[bar].section!==p.bars[bar-1].section||planned[bar]!==planned[bar-1])boundaries.push(bar*p.beats);
+ }
+ const sorted=[...notes].sort((a,b)=>a.start-b.start);
+ let group:Note[]=[],end=-Infinity,lastStart=-Infinity,boundaryIndex=0,pending=false;
+ for(let i=0;i<sorted.length;){
+  const start=sorted[i].start,onset:Note[]=[];
+  while(i<sorted.length&&Math.abs(sorted[i].start-start)<=epsilon)onset.push(sorted[i++]);
+  while(boundaryIndex<boundaries.length&&boundaries[boundaryIndex]<=start+epsilon){
+   if(boundaries[boundaryIndex]>lastStart+epsilon)pending=true;
+   boundaryIndex++;
+  }
+  const safe=start>=end-epsilon&&!onset.some(n=>n.xmlTieContinuation);
+  if(group.length&&safe&&(pending||start-end>=0.5-epsilon)){
+   groups.push(group);group=[];end=-Infinity;pending=false;
+  }
+  group.push(...onset);
+  for(const n of onset)end=Math.max(end,n.start+n.duration);
+  lastStart=start;
+ }
+ if(group.length)groups.push(group);
+ return groups;
 }
 export function planRegisterTransposition(score:Score,p:Project,semitones:number,parts:Record<string,RegisterPartSetting>={},chordToneRhythm=false):{corrections:TransposeCorrection[];decisions:RegisterDecision[]}{
  const corrections:TransposeCorrection[]=[],decisions:RegisterDecision[]=[];
