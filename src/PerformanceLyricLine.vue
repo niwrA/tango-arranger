@@ -16,6 +16,7 @@ const props=withDefaults(defineProps<{
 }>(),{count:null,overlay:false});
 const surface=ref<HTMLElement|null>(null);
 const availableWidth=ref(800);
+const availableHeight=ref(100);
 let observer:ResizeObserver|undefined;
 onMounted(()=>{
  const element=surface.value;
@@ -25,6 +26,8 @@ onMounted(()=>{
  observer=new ResizeObserver(entries=>{
   const width=entries[0]?.contentRect.width;
   if(width&&width>0)availableWidth.value=width;
+  const height=entries[0]?.contentRect.height;
+  if(height&&height>0)availableHeight.value=height;
  });
  observer.observe(element);
 });
@@ -64,7 +67,7 @@ function measureArtwork(){
  const bounds=root.getBoundingClientRect();
  const anchors=Array.from(root.querySelectorAll<HTMLElement>('[data-lyric-start]')).map(el=>{
   const rect=el.getBoundingClientRect();
-  return {start:Number(el.dataset.lyricStart),duration:Number(el.dataset.lyricDuration),left:rect.left-bounds.left,right:rect.right-bounds.left,top:rect.top-bounds.top};
+  return {start:Number(el.dataset.lyricStart),duration:Number(el.dataset.lyricDuration),left:rect.left-bounds.left,right:rect.right-bounds.left,top:rect.top-bounds.top,height:rect.height};
  });
  const rows:typeof anchors[]=[];
  for(const a of anchors){
@@ -88,7 +91,9 @@ function measureArtwork(){
    }
    return last.right;
   };
-  const y=(pitch:number)=>first.top-4-(hi>lo?12*(pitch-lo)/(hi-lo):6);
+  const room=Math.max(0,Math.min(1,(availableHeight.value-60)/65));
+  const center=first.top+first.height*.48;
+  const y=(pitch:number)=>center-room*(first.height*.48+4)-(hi>lo?12*(pitch-lo)/(hi-lo):6);
   let previousEnd=-Infinity;
   for(const n of ns.filter(n=>n.start<end&&n.start+n.duration>begin)){
    const a=Math.max(begin,n.start),b=Math.min(end,n.start+n.duration);
@@ -106,7 +111,7 @@ function measureArtwork(){
   for(const c of changes){
    const left=Math.max(x(c.beat),previousRight);
    if(left>=bounds.width-10)continue;
-   chords.push({symbol:c.symbol,left,top:first.top-34});
+   chords.push({symbol:c.symbol,left,top:Math.max(0,center-9-room*(first.height*.48+16))});
    previousRight=left+c.symbol.length*8+12;
   }
  }
@@ -121,22 +126,20 @@ onMounted(()=>{
  measureArtwork();
 });
 onBeforeUnmount(()=>artworkObserver?.disconnect());
-watch(()=>[page.value.startMeasure,page.value.endMeasure,props.notes,props.chords,props.lineStarts,showHarmony.value,showContour.value,availableWidth.value],()=>nextTick(measureArtwork),{flush:'post'});
+watch(()=>[page.value.startMeasure,page.value.endMeasure,props.notes,props.chords,props.lineStarts,showHarmony.value,showContour.value,availableWidth.value,availableHeight.value],()=>nextTick(measureArtwork),{flush:'post'});
 </script>
 
 <template>
  <div ref="surface" class="stage-lyrics" :class="{'stage-lyrics-overlay':overlay}" role="group"
    :aria-label="instrument+' lyrics, measures '+(page.startMeasure+1)+' to '+page.endMeasure">
    <div class="stage-lyrics-heading">
-     <strong>{{instrument}} · lyrics</strong>
-     <span class="stage-lyrics-location">M{{page.startMeasure+1}}–{{page.endMeasure}}</span>
+     <span v-if="count!==null" class="stage-lyrics-upcoming">{{'Entrance in '+count+' beat'+(count===1?'':'s')}}</span>
      <span class="stage-lyrics-options"><button type="button" :aria-pressed="showHarmony" @click="showHarmony=!showHarmony">Chords</button><button type="button" :aria-pressed="showContour" @click="showContour=!showContour">Melody</button></span>
-     <span class="stage-lyrics-upcoming">{{count!==null?'Entrance in '+count+' beat'+(count===1?'':'s'):'Follow highlighted syllable'}}</span>
    </div>
    <div class="stage-lyrics-content" ref="wordsSurface">
     <svg v-if="showContour && artwork.path" class="stage-lyrics-contour" :viewBox="'0 0 '+artwork.width+' '+artwork.height" preserveAspectRatio="none" aria-hidden="true"><path :d="artwork.path" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>
     <div v-if="showHarmony && artwork.chords.length" class="stage-lyrics-chords" aria-label="Harmony"><span v-for="(c,i) in artwork.chords" :key="i" :style="{left:c.left+'px',top:c.top+'px'}">{{c.symbol}}</span></div>
-    <div class="stage-lyrics-words" :class="{'with-annotations':showHarmony||showContour}" aria-live="off">
+    <div class="stage-lyrics-words" aria-live="off">
      <template v-if="tokens.length">
        <span v-for="(row,rowIndex) in lyricRows" :key="rowIndex" class="stage-lyric-row">
          <span v-for="(word,i) in row" :key="i" class="stage-lyric-word">
@@ -170,7 +173,7 @@ watch(()=>[page.value.startMeasure,page.value.endMeasure,props.notes,props.chord
 .stage-lyrics-words{display:flex;justify-content:center;align-items:center;align-content:center;flex-wrap:wrap;gap:3px 6px;min-height:1.6em;
  font-size:clamp(19px,2.35vw,30px);font-weight:650;line-height:1.4;text-align:center}
 .stage-lyric-row{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px 8px;width:100%;min-height:1.6em}
-.with-annotations .stage-lyric-row{row-gap:34px;padding-top:34px}
+
 .stage-lyric-token{display:inline-block;padding:1px 6px;border:1px solid transparent;border-radius:7px;color:#e2e8f0;
  background:transparent;opacity:.94;font-weight:650;transition:background-color .08s linear,color .08s linear,box-shadow .08s linear}
 .stage-lyric-word{display:inline-flex;white-space:nowrap}
@@ -194,5 +197,23 @@ watch(()=>[page.value.startMeasure,page.value.endMeasure,props.notes,props.chord
 }
 @media(prefers-reduced-motion:reduce){
  .stage-lyric-token{transition:none}
+}
+/* Lyrics own the layout; annotations never reserve space or intercept input. */
+.stage-lyrics{position:relative;isolation:isolate;container-type:inline-size;box-sizing:border-box;gap:0;padding:8px 10px;min-height:var(--stage-lyrics-height,76px)}
+.stage-lyrics-heading{position:absolute;inset:6px 8px auto;display:flex;justify-content:flex-end;align-items:center;pointer-events:none;z-index:3}
+.stage-lyrics-options{pointer-events:auto;flex-shrink:0}
+.stage-lyrics-options button{font-size:11px;min-height:30px;padding:3px 7px}
+.stage-lyrics-options button[aria-pressed="true"]{background:#30465c;border-color:#829ab3}
+.stage-lyrics-upcoming{margin-right:auto}
+.stage-lyrics-content{box-sizing:border-box;padding-inline:112px}
+.stage-lyrics-contour{opacity:.32}
+.stage-lyrics-chords{z-index:0;opacity:.48;font-size:16px;font-weight:650}
+.stage-lyrics-words,.stage-lyrics-overlay .stage-lyrics-words{font-size:clamp(22px,4.2cqw,56px);line-height:1.12;min-height:1.25em}
+.stage-lyric-row{min-height:1.25em}
+.stage-lyric-token{opacity:1;text-shadow:0 1px 3px #172337}
+@container (max-width:700px){
+ .stage-lyrics-content{padding-inline:0;padding-bottom:32px}
+ .stage-lyrics-heading{inset:auto 8px 4px}
+ .stage-lyrics-words,.stage-lyrics-overlay .stage-lyrics-words{font-size:clamp(22px,5.5cqw,42px)}
 }
 </style>
