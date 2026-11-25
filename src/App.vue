@@ -5395,7 +5395,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'">{{performanceShortTitle}}</div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
-    <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${measureLabel(selectedBar)}`" :aria-label="`Play arrangement from selected measure ${measureLabel(selectedBar)}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{measureLabel(selectedBar)}}</span></button>
+    <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${measureLabel(selectedBar)}`" :aria-label="`Play arrangement from selected measure ${measureLabel(selectedBar)}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/></button>
     <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button>
     <button v-if="waitingForSingerCue" type="button" class="primary icon-action singer-cue-continue" @click="continueAfterSingerCue" title="Continue after singer cue" aria-label="Continue playback after singer cue"><AppIcon name="play"/><span>Cue</span></button>
     <div class="playback-speed-actions">
@@ -8473,4 +8473,29 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .capture-real-piano .capture-keybed .capture-piano-key.is-held{z-index:1}
 .capture-real-piano .capture-keybed .capture-piano-black.is-held{z-index:3}
 .capture-real-piano .capture-keybed .capture-piano-key.capture-piano-selected{outline:2px solid #f2b34d;outline-offset:-3px}
+</style>
+
+<style scoped>
+/* One consistent mobile transport row, including the rehearsal-speed menu. */
+@media(max-width:1120px){
+ .app-topbar .topbar-playback{align-items:center!important;gap:4px!important}
+ .app-topbar .topbar-playback .transport-play,
+ .app-topbar .topbar-playback .transport-stop,
+ .app-topbar .topbar-playback .performance-topbar-button,
+ .app-topbar .topbar-playback .performance-editor-button{
+  box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;
+  flex:0 0 42px;width:42px!important;min-width:42px!important;height:42px!important;min-height:42px!important;
+  padding:6px!important;margin:0!important
+ }
+ .app-topbar .topbar-playback .playback-speed-actions,
+ .app-topbar .topbar-playback .playback-speed-menu{display:flex;align-items:center;margin:0!important;padding:0!important}
+ .app-topbar .topbar-playback .playback-speed-menu>summary.playback-speed-summary{
+  box-sizing:border-box;display:inline-flex!important;align-items:center;justify-content:center;
+  height:42px!important;min-height:42px!important;min-width:56px!important;padding:6px 8px!important;margin:0!important
+ }
+ .app-topbar .topbar-playback .transport-play .app-icon,
+ .app-topbar .topbar-playback .transport-stop .app-icon,
+ .app-topbar .topbar-playback .performance-topbar-button .app-icon,
+ .app-topbar .topbar-playback .performance-editor-button .app-icon{width:19px;height:19px;flex:0 0 19px}
+}
 </style>
