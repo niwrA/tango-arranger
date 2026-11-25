@@ -31,17 +31,21 @@ const checks=[
  ['topbar responsive',()=>assert.match(css,/@media\(max-width:620px\)\{\.app-topbar/)],
  ['legacy local song dropdown removed from drawer',()=>assert.doesNotMatch(app,/<summary>Local song library<\/summary>/)],
  ['settings still available',()=>assert.match(app,/id="song-settings-modal"/)],
- ['release notes load changelog data',()=>{assert.match(app,/import changelogMarkdown from '\.\.\/CHANGELOG\.md\?raw'/);assert.match(app,/v-for="release in releaseHistory"/)}],
+ ['release notes load changelog data',()=>{assert.match(app,/import changelogMarkdown from '\.\.\/CHANGELOG\.md\?raw'/);assert.match(app,/<details v-for="release in majorReleases"/);assert.match(app,/<details v-for="day in dailyReleases"/);assert.doesNotMatch(app,/<details v-for="(?:release in majorReleases|day in dailyReleases)"[^>]*\s(?:open|:open)(?:\s|=|>)/)}],
  ['release notes include dated and numbered entries',()=>{
   const ts=require('typescript');
   const source=app.slice(app.indexOf('type ChangelogEntry='),app.indexOf('const active=ref',app.indexOf('type ChangelogEntry=')));
-  const js=ts.transpileModule(source+'\nreturn releaseHistory;',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+  const js=ts.transpileModule(source+'\nreturn {releaseHistory,majorReleases,dailyReleases};',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
   const parse=new Function('changelogMarkdown',js);
-  const entries=parse('## New feature (2026-11-25)\n- New detail\n## v5.5.3 — Old release\n- Old detail\n## v5.5.3 — Duplicate\n- Duplicate detail');
-  assert.deepEqual(entries.map(e=>[e.version,e.title,e.summary]),[['','New feature (2026-11-25)','New detail'],['5.5.3','Old release','Old detail']]);
+  const {releaseHistory,majorReleases,dailyReleases}=parse('## [Feature] New feature (2026-11-25)\n- New detail\n## Minor fix (2026-11-25)\n- Fix detail\n## Another fix (2026-11-25)\n- More detail\n## v5.5.3 — Old release\n- Old detail\n## v5.5.3 — Follow-up\n- Follow-up detail');
+  assert.equal(releaseHistory.length,5);
+  assert.deepEqual(majorReleases.map(e=>[e.title,e.date,e.details]),[['New feature','2026-11-25',['New detail']]]);
+  assert.deepEqual(dailyReleases.map(d=>[d.date,d.entries.length]),[['2026-11-25',2],['archive',2]]);
+  assert.equal(dailyReleases[1].entries[0].version,'5.5.3');
   const actual=parse(fs.readFileSync('CHANGELOG.md','utf8'));
-  assert.ok(actual.some(e=>!e.version&&e.summary));
-  assert.ok(actual.some(e=>e.version==='5.5.3'));
+  assert.ok(actual.releaseHistory.some(e=>!e.version&&e.details.length));
+  assert.ok(actual.releaseHistory.some(e=>e.version==='5.5.3'));
+  assert.equal(actual.majorReleases.length+actual.dailyReleases.reduce((sum,d)=>sum+d.entries.length,0),actual.releaseHistory.length);
  }],
 ];
 for(const [name,fn] of checks){fn();console.log('PASS',name)}
