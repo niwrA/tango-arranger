@@ -19,7 +19,7 @@ export interface StringPositionGuide {
  anchorStringMidi:number;
  anchorMidi:number;
 }
-export interface PositionNote {pitch:number;start?:number;duration?:number}
+export interface PositionNote {pitch:number;start?:number;duration?:number;stringMidi?:number}
 type Position={label:string;first:number;thumb?:boolean};
 const violin:Position[]=[
  {label:'I',first:2},{label:'II',first:4},{label:'III',first:5},
@@ -72,6 +72,7 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
   for(const note of notes){
    const options:PositionFingering[]=[];
    for(const string of strings){
+    if(note.stringMidi!==undefined&&note.stringMidi!==string.midi)continue;
     const offset=note.pitch-string.midi;
     if(offset<0)continue;
     const finger=fingerAtPosition(instrument,pos.first,offset,Boolean(pos.thumb));
@@ -92,7 +93,7 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
    score+=50+weight*7+(chosen.finger==='0'?3:-chosen.offset*2.5);
    if(priorString!==null&&priorString!==chosen.openMidi)score-=2;
    priorString=chosen.openMidi;
-   if(!assignments.some(item=>item.pitch===chosen.pitch))assignments.push(chosen);
+   if(!assignments.some(item=>item.pitch===chosen.pitch&&item.openMidi===chosen.openMidi))assignments.push(chosen);
   }
   if(!covered)continue;
   const firstStop=Math.max(0,pos.first-1);

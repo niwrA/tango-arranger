@@ -24,10 +24,11 @@ export interface ViolinPosition {
  semitonesAboveOpen:number;
  finger:number;
 }
-export function suggestViolinPosition(midi:number):ViolinPosition|null {
+export function suggestViolinPosition(midi:number,openMidi?:number):ViolinPosition|null {
  if(!Number.isInteger(midi)||midi<55||midi>109)return null;
  const candidates: {suggestion:ViolinPosition;weight:number}[]=[];
  VIOLIN_OPEN_STRINGS.forEach((string,stringIndex)=>{
+  if(openMidi!==undefined&&openMidi!==string.midi)return;
   const offset=midi-string.midi;
   if(offset<0)return;
   POSITIONS.forEach((pos,index)=>{

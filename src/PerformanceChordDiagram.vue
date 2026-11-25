@@ -9,7 +9,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -76,7 +76,11 @@ const openStrings=computed(()=>fingerboardStrings(family.value));
 const stops=[0,1,2,3,4,5,6,7];
 // The open-string cell already represents offset zero. Never render it again
 // as a stopped note; the first two stopped cells are +1 and +2 semitones.
-const displayedStops=computed(()=>(props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops).filter(offset=>offset>0));
+const displayedStops=computed(()=>{
+ const base=(props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops).filter(offset=>offset>0);
+ const explicit=(props.activeStringNotes??[]).flatMap(n=>n.stringMidi===undefined?[]:[n.pitch-n.stringMidi]).filter(n=>n>0);
+ return [...new Set([...base,...explicit])].sort((a,b)=>a-b);
+});
 const fingerboardColumns=computed(()=>({'--stop-count':displayedStops.value.length}));
 const positionText=computed(()=>props.positionGuide
  ?'Position '+props.positionGuide.position+' · '+(props.positionGuide.thumb?'thumb':'1st finger')+' '+midiLabel(props.positionGuide.anchorMidi)+' on '+midiLabel(props.positionGuide.anchorStringMidi)+' string'
@@ -94,6 +98,8 @@ function stringAnchorLabel(openMidi:number){
 }
 function isPlayingStringPitch(stringMidi:number,midi:number){
  if(!isPlayingPitch(midi))return false;
+ const explicit=(props.activeStringNotes??[]).filter(n=>n.pitch===midi&&n.stringMidi!==undefined);
+ if(explicit.length)return explicit.some(n=>n.stringMidi===stringMidi);
  if(props.positionGuide)return isPlannedStringPitch(stringMidi,midi);
  if(family.value!=='Violin')return true;
  return suggestViolinPosition(midi)?.openMidi===stringMidi;
@@ -178,7 +184,7 @@ const diagramDescription=computed(()=>{
      </div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
        :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
-       <span class="diagram-open-label" :class="{'is-sounding':isPlayingPitch(string.midi)&&(!props.positionGuide||isPlannedStringPitch(string.midi,string.midi)),'is-learn-target':isTarget(string.midi)}"
+       <span class="diagram-open-label" :class="{'is-sounding':isPlayingStringPitch(string.midi,string.midi),'is-learn-target':isTarget(string.midi)}"
          :title="'Open '+string.name+(props.positionGuide?' · '+stringAnchorLabel(string.midi):'')">
          <strong>{{string.name}}</strong><small v-if="props.positionGuide">{{stringAnchorLabel(string.midi)}}</small>
        </span>

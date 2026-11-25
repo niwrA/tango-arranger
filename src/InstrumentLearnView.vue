@@ -159,9 +159,9 @@ const bandoneonHands=computed(()=>family.value==='Bandoneon'
  ?bandoneonPracticeHands(diagramNotes.value,props.instrument,props.staffSplit,props.concertTranspose):undefined);
 const bandoneonTargetHand=computed<'right'|'left'|undefined>(()=>family.value==='Bandoneon'&&guideNote.value
  ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit)===1?'right':'left':undefined);
-const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value):null);
+const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value,guideNote.value?.stringMidi):null);
 const bassGuide=computed(()=>family.value==='Contrabass'&&guideMidi.value!==null
- ?suggestStringMeasurePosition('Contrabass',[{pitch:guideMidi.value}]):null);
+ ?suggestStringMeasurePosition('Contrabass',[{pitch:guideMidi.value,stringMidi:guideNote.value?.stringMidi}]):null);
 const fingeringCue=computed(()=>{
  const violin=violinGuide.value;
  if(violin)return violin.finger===0?'Open '+violin.stringName+' string':
