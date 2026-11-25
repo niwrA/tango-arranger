@@ -923,7 +923,6 @@ function keyForSection(section:string){return sectionKey(project.value,section);
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
 const keyChangeMatchingSections=ref(false);
-const keyChangeUseAdaptive=ref(true);
 const transposeIntervals=Array.from({length:49},(_,i)=>i-24);
 const transposeIntervalLabel=(n:number)=>n===0?'0 · Original key':`${n>0?'+':''}${n} semitones`;
 
@@ -936,7 +935,6 @@ function setSectionKey(section:string,event:Event){
   if(to===from)return;
   keyChangeMode.value='chords-and-melody';
   keyChangeMatchingSections.value=false;
-  keyChangeUseAdaptive.value=true;
   keyChangeError.value='';
   pendingKeyChange.value={section,from,to};
 }
@@ -967,6 +965,18 @@ function applySectionKeyChange(){
     keyChangeError.value=error instanceof Error?error.message:String(error);
     message.value=`Key change not applied: ${keyChangeError.value}`;
   }
+}
+function reviewKeyChangeInTranspose(){
+ const pending=pendingKeyChange.value;if(!pending)return;
+ const from=parsePitch(pending.from.replace(/m$/,'')+'4');
+ const to=parsePitch(pending.to.replace(/m$/,'')+'4');
+ if(from===null||to===null)return;
+ const up=((to-from)%12+12)%12;
+ transposePreviewSemitones.value=up>6?up-12:up;
+ transposePreviewOpen.value=false;
+ pendingKeyChange.value=null;
+ structureSubtab.value='transpose';
+ message.value='Transposition interval prepared from section key change. Review the whole-arrangement scope before applying.';
 }
 function cancelSectionKeyChange(){pendingKeyChange.value=null;keyChangeError.value='';}
 
@@ -5825,6 +5835,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
       <div class="key-change-actions">
         <button type="button" class="secondary" @click="cancelSectionKeyChange">Cancel</button>
+        <button type="button" class="secondary" @click="reviewKeyChangeInTranspose">Review in Transpose &amp; Adapt (whole song)</button>
         <button type="submit" class="primary key-change-confirm">Apply key change</button>
       </div>
     </form>
