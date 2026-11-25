@@ -9,7 +9,10 @@ assert.match(app,/function closePerformanceInstrument\(\)\{\s*instrumentLearnMod
 assert.match(app,/aria-label="Learn this instrument's notes"/);
 assert.match(app,/v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore\[part.inst\]\?\?\[\]"/);
 assert.match(app,/v-if="!instrumentLearnMode" class="instrument-focus-status"/);
-assert.match(app,/v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play"/);
+assert.match(app,/v-if="!instrumentLearnMode" class="instrument-focus-transport"/);
+assert.match(app,/@click="play\('beginning'\)"[^>]*title="Play from beginning"/);
+assert.match(app,/@click="playFocusedFromMeasure"/);
+assert.match(app,/class="secondary icon-action transport-stop"[^>]*@click="stopPlayback"/);
 assert.match(app,/v-if="!instrumentLearnMode" class="instrument-focus-hint"/);
 assert.match(component,/detectMonophonicPitch/);
 assert.match(component,/navigator\.mediaDevices\.getUserMedia/);

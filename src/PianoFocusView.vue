@@ -59,7 +59,7 @@ function label(pitch:number){return ['C','C♯','D','D♯','E','F','F♯','G','G
  </div>
 </template>
 <style scoped>
-.piano-focus-view{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;max-width:1300px;width:100%;margin:auto;gap:12px}
+.piano-focus-view{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;max-width:none;width:100%;margin:0;gap:12px}
 .piano-focus-options{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .piano-focus-options button,.piano-focus-range-actions button{border:1px solid #657d8e;border-radius:8px;background:#253c4e;color:#e7eff5;min-height:39px;padding:6px 12px;font-size:13px;cursor:pointer}
 .piano-focus-options button.selected,.piano-focus-range-actions button.selected{background:#e5be84;color:#142532;font-weight:800}
@@ -70,8 +70,9 @@ function label(pitch:number){return ['C','C♯','D','D♯','E','F','F♯','G','G
 .piano-focus-register-bar>strong{font-size:clamp(14px,1.6vw,21px)}
 .piano-focus-register-bar>span{font-size:13px;color:#efca91;font-variant-numeric:tabular-nums}
 .piano-focus-range-actions{display:flex;gap:5px;margin-left:auto}
-.piano-focus-keyboard-button{display:flex;flex:1 1 auto;padding:0;background:none;border:0;cursor:pointer;min-height:92px;width:100%}
+.piano-focus-keyboard-button{display:flex;align-items:stretch;flex:1 1 0;padding:0;background:none;border:0;cursor:pointer;min-height:92px;width:100%}
 .piano-focus-keyboard-button:focus-visible,.piano-focus-options button:focus-visible,.piano-focus-range-actions button:focus-visible{outline:3px solid #f9d6a4;outline-offset:2px}
+.piano-focus-registers.is-single .piano-focus-keyboard-button{min-height:clamp(180px,28dvh,360px)}
 .piano-focus-legend{font-size:12px;color:#b9cbd6;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0}
 .piano-focus-indicator{display:inline-block;height:10px;width:10px;border-radius:3px}
 .piano-focus-indicator.active{background:#74d8c6}.piano-focus-indicator.planned{background:#f0ba6a}.piano-focus-indicator.chord{background:#ebdfba}

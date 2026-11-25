@@ -1411,6 +1411,22 @@ const captureLast=computed(()=>Math.max(captureFirst.value,Math.min(project.valu
 const captureBarNumbers=computed(()=>Array.from({length:captureLast.value-captureFirst.value+1},(_,i)=>captureFirst.value+i));
 const capturePitchOptions=computed(()=>keyboardPitchOptions(noteCtx.value.range));
 const captureKeyboardPitches=computed(()=>keyboardPitches(captureStartPitch.value,captureEndPitch.value,noteCtx.value.range));
+const captureIsBlack=(pitch:number)=>[1,3,6,8,10].includes(pitch%12);
+const capturePianoGeometry=computed(()=>{
+ const pitches=captureKeyboardPitches.value;
+ const whites=pitches.filter(p=>!captureIsBlack(p));
+ const firstBlack=pitches.length>0&&captureIsBlack(pitches[0]);
+ const lastBlack=pitches.length>1&&captureIsBlack(pitches[pitches.length-1]);
+ const leftPad=firstBlack?.5:0,rightPad=lastBlack?.5:0;
+ const span=Math.max(1,whites.length+leftPad+rightPad);
+ const positions=Object.fromEntries(pitches.map(pitch=>{
+  const before=whites.filter(p=>p<pitch).length;
+  const black=captureIsBlack(pitch);
+  const left=leftPad+before-(black?.34:0);
+  return [pitch,{left:Math.max(0,left)/span*100+'%',width:(black?.68:1)/span*100+'%'}];
+ }));
+ return {span,positions};
+});
 /** Adaptive piano capture fits as many playable keys as are touch-friendly. */
 const captureAutoFit=ref(true);
 const capturePianoWidth=ref(460);
@@ -5625,8 +5641,11 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
              <button type="button" :class="{selected:performanceScoreView==='both'}" :aria-pressed="performanceScoreView==='both'" @click="performanceScoreView='both'">Both</button>
              <button type="button" :class="{selected:!focusShowsScore&&!cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&!cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'cues')">Role &amp; cues</button>
            </div>
-           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-play" aria-label="Play from here" @click="playFocusedFromMeasure"><AppIcon name="play"/> <span>Play from here</span></button>
-           <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-stop" aria-label="Stop" :disabled="!playing" @click="stopPlayback"><AppIcon name="square"/> <span>Stop</span></button>
+           <div v-if="!instrumentLearnMode" class="instrument-focus-transport" role="group" aria-label="Arrangement playback">
+             <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
+             <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="playFocusedFromMeasure" :title="'Play from here · measure '+measureLabel(performanceBar)" :aria-label="'Play from here · measure '+measureLabel(performanceBar)" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/><span class="selected-play-measure">{{measureLabel(performanceBar)}}</span></button>
+             <button type="button" class="secondary icon-action transport-stop" :disabled="!playing" @click="stopPlayback" title="Stop playback" aria-label="Stop arrangement playback"><AppIcon name="square"/></button>
+           </div>
            <div class="playback-speed-actions">
            <details class="topbar-menu playback-speed-menu instrument-focus-speed-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
               <summary class="playback-speed-summary" :aria-label="'Playback speed '+rehearsalSpeed+' times; choose rehearsal tempo'">{{rehearsalSpeed}}× <AppIcon name="chevron-down"/></summary>
@@ -6568,7 +6587,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
     </template>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView,'capture-real-piano':noteInst==='Piano'}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><div class="capture-keybed" :style="noteInst==='Piano'?{minWidth:captureAutoFit?'100%':(capturePianoGeometry.span*44)+'px'}:undefined"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :style="noteInst==='Piano'?capturePianoGeometry.positions[pitch]:undefined" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div></div>
 
       <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
     </template>
@@ -8435,4 +8454,23 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-live .performance-diagram-grid :deep(.stage-role-next-name){font-size:calc(23 * var(--stage-diagram-scale))}
  .performance-live .performance-diagram-grid :deep(.stage-role-articulation),.performance-live .performance-diagram-grid :deep(.stage-role-next-articulation),.performance-live .performance-diagram-grid :deep(.stage-dynamic-label){font-size:calc(13 * var(--stage-diagram-scale))}
 }
+</style>
+
+<style scoped>
+.instrument-focus-transport{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+.instrument-focus-toolbar .instrument-focus-transport button{width:42px;min-width:42px;height:42px;min-height:42px;padding:5px;position:relative}
+.instrument-focus-toolbar .instrument-focus-transport .primary{background:#e7bb80;color:#162631;border-color:#e7bb80}
+.instrument-focus-toolbar .instrument-focus-transport .play{background:#2e544c;color:#eaf4fa;border-color:#397568}
+.instrument-focus-transport .selected-play-measure{position:absolute;right:3px;bottom:2px;font-size:9px;line-height:1}
+.instrument-focus-panel:has(.piano-focus-view):not(:has(.instrument-focus-score-content)){height:100%;min-height:0}
+.instrument-focus-content:has(>.piano-focus-view){flex:1 1 0;min-height:0;overflow:auto}
+.capture-keybed{display:flex;align-items:stretch;gap:3px;min-width:100%}
+.capture-real-piano{display:block;min-height:0;padding:0 0 5px;overflow-x:auto}
+.capture-real-piano .capture-keybed{position:relative;display:block;height:clamp(155px,25dvh,310px);background:#d5dee4;border:1px solid #718391;border-radius:10px;overflow:hidden}
+.capture-real-piano.capture-large-instrument .capture-keybed{height:clamp(240px,44dvh,560px)}
+.capture-real-piano .capture-keybed .capture-piano-key{position:absolute;top:0;height:100%;min-height:0;min-width:0;flex:none;margin:0;border:0;border-right:1px solid #8899a5;border-radius:0;background:#f2f1ec;color:#3c5261;touch-action:none}
+.capture-real-piano .capture-keybed .capture-piano-black{height:58%;z-index:2;background:#1d2a35;color:#f2f1ec;border:1px solid #627685;border-radius:0 0 5px 5px}
+.capture-real-piano .capture-keybed .capture-piano-key.is-held{z-index:1}
+.capture-real-piano .capture-keybed .capture-piano-black.is-held{z-index:3}
+.capture-real-piano .capture-keybed .capture-piano-key.capture-piano-selected{outline:2px solid #f2b34d;outline-offset:-3px}
 </style>

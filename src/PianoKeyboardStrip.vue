@@ -29,8 +29,8 @@ function marked(p:number){return {
  </div>
 </template>
 <style scoped>
-.piano-register-keyboard{position:relative;width:100%;height:100%;min-height:92px;max-height:100%;background:#d5dee4;border-radius:10px;border:1px solid #718391;box-sizing:border-box;overflow:hidden}
-.piano-register-white{display:flex;height:100%}
+.piano-register-keyboard{position:relative;width:100%;height:auto;align-self:stretch;flex:1 1 auto;min-height:92px;background:#d5dee4;border-radius:10px;border:1px solid #718391;box-sizing:border-box;overflow:hidden}
+.piano-register-white{display:flex;position:absolute;inset:0}
 .piano-register-white-key{position:relative;flex:1 1 0;min-width:0;background:#f2f1ec;border-right:1px solid #8899a5;box-sizing:border-box}
 .piano-register-white-key:last-child{border-right:0}
 .piano-register-white-key small{position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#3c5261;font-size:clamp(9px,1.1vw,14px);font-weight:700}
