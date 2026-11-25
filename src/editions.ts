@@ -2,7 +2,7 @@
  * The legacy generatedScore/importedScore/protectedBars fields remain the
  * authoritative *active* workspace; other variants are durable snapshots.
  * Keeping this boundary makes old .tango files and existing editors work. */
-import {generate,mergeScores,projectInstruments,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
+import {generate,mergeScores,projectInstruments,instrumentFamily,instrumentRange,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
 import {validatePhrasePlan,type PhrasePlan} from './phrasePlan';
 
 export const EDITION_LEVELS:readonly Difficulty[]=['easy','intermediate','advanced'];
@@ -97,8 +97,46 @@ function generateAtLevel(p:Project,level:Difficulty):Score{
  return generate({...p,importedScore:undefined,generatedScore:undefined,protectedBars:{},
    instrumentSettings:{...(p.instrumentSettings??{}),...settings}});
 }
+/** Derive practice parts from the actual imported advanced arrangement, not
+ * the chord generator (imported songs may have no chord or melody tokens). */
+export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly Note[],level:Difficulty):Note[]{
+ if(level==='advanced')return copyNotes(source);
+ const violin=instrumentFamily(inst)==='Violin';
+ const [low,high]=instrumentRange(inst);
+ const shift=p.transposeSemitones??0;
+ const ceiling=violin?(level==='easy'?81:88):high;
+ const floor=low;
+ const ordered=copyNotes(source).sort((a,b)=>a.start-b.start||b.pitch-a.pitch);
+ const result:Note[]=[];
+ for(const n of ordered){
+  if(violin&&result.some(r=>Math.abs(r.start-n.start)<1e-7))continue;
+  const previous=result[result.length-1];
+  const candidates=[0,-12,12,-24,24].map(o=>n.pitch+o).filter(x=>x+shift>=floor&&x+shift<=ceiling);
+  if(candidates.length)n.pitch=candidates.sort((a,b)=>Math.abs(a-n.pitch)-Math.abs(b-n.pitch)||Math.abs(a-(previous?.pitch??n.pitch))-Math.abs(b-(previous?.pitch??n.pitch)))[0];
+  if(violin){
+   delete n.stringMidi;delete n.handPosition;delete n.finger;
+   delete n.slideTo;delete n.approachSlideFrom;delete n.gesture;
+   delete n.xmlTieContinuation;
+   if(level==='easy')delete n.vibrato;
+   if(previous&&previous.start+previous.duration>n.start)previous.duration=n.start-previous.start;
+   const short=level==='easy'?0.5:0.25;
+   if(previous&&n.duration<short&&Math.abs(previous.start+previous.duration-n.start)<1e-7&&Math.floor(previous.start/p.beats)===Math.floor(n.start/p.beats)&&!n.accent&&!n.lyric&&!n.lyric2){
+    previous.duration+=n.duration;continue;
+   }
+  }
+  n.source='generated';result.push(n);
+ }
+ return result.filter(n=>n.duration>0);
+}
+function importedAdvanced(p:Project,inst:Instrument):Note[]|undefined{
+ const advanced=p.partEditions?.[inst]?.advanced;
+ if(advanced?.importedNotes?.some(n=>n.source==='imported')||advanced?.notes.some(n=>n.source==='imported'))return advanced.notes;
+ if(activeLevel(p,inst)==='advanced'&&p.importedScore?.[inst]?.some(n=>n.source==='imported'))return activeScore(p)[inst];
+ return undefined;
+}
 function createLevel(p:Project,inst:Instrument,level:Difficulty):PartEdition{
- return {notes:copyNotes(generateAtLevel(p,level)[inst]??[]),protectedMeasures:[],
+ const source=importedAdvanced(p,inst);
+ return {notes:source?.length?simplifyImportedPart(p,inst,source,level):copyNotes(generateAtLevel(p,level)[inst]??[]),protectedMeasures:[],
   sourceSignature:scoreSourceSignature(p,inst)};
 }
 /** Switch exactly one part without changing other players' notes or protections. */
@@ -109,7 +147,8 @@ export function switchInstrumentEdition(p:Project,inst:Instrument,level:Difficul
  if(previous===level)return p;
  const saved=snapshotActiveEditions(p);
  const variants:PartEditions={...(saved.partEditions??{})};
- const target=variants[inst]?.[level]??createLevel(saved,inst,level);
+ const existing=variants[inst]?.[level];
+ const target=existing&&(existing.notes.length||existing.protectedMeasures.length||!importedAdvanced(saved,inst)?.length)?existing:createLevel(saved,inst,level);
  variants[inst]={...(variants[inst]??{}),[level]:copyEdition(target)};
  const generated=Object.fromEntries(Object.entries(saved.generatedScore??generate(saved))
   .map(([name,notes])=>[name,copyNotes(notes)])) as Score;
@@ -142,16 +181,15 @@ export function getEditionInfo(p:Project,inst:Instrument,level:Difficulty):Editi
 /** Resolve any mix of versions for print/export, including uncreated variants.
  * Missing levels are generated non-destructively and never overwrite edits. */
 export function assembleEditionScore(p:Project,choices:EditionChoice={}):Score{
- const selected=activeScore(p),result={} as Score,generated=new Map<Difficulty,Score>();
+ const selected=activeScore(p),result={} as Score;
  for(const inst of projectInstruments(p)){
   const level=choices[inst]??activeLevel(p,inst);
   if(!EDITION_LEVELS.includes(level))throw Error('Unknown difficulty edition');
   let notes:Note[]|undefined;
   if(level===activeLevel(p,inst))notes=selected[inst];
   else notes=p.partEditions?.[inst]?.[level]?.notes;
-  if(!notes){
-   if(!generated.has(level))generated.set(level,generateAtLevel(p,level));
-   notes=generated.get(level)?.[inst];
+  if(!notes||(!notes.length&&level!==activeLevel(p,inst)&&!p.partEditions?.[inst]?.[level]?.protectedMeasures.length&&importedAdvanced(p,inst)?.length)){
+   notes=createLevel(p,inst,level).notes;
   }
   result[inst]=copyNotes(notes??[]);
  }
@@ -162,6 +200,8 @@ export function assembleEditionScore(p:Project,choices:EditionChoice={}):Score{
 export function regenerateInstrumentEdition(p:Project,inst:Instrument,level:Difficulty):Project{
  const selected=level===activeLevel(p,inst)?p:switchInstrumentEdition(p,inst,level);
  const fresh=generate(selected);
+ const source=importedAdvanced(selected,inst);
+ if(level!=='advanced'&&source?.length)fresh[inst]=simplifyImportedPart(selected,inst,source,level);
  const merged=mergeScores(selected,fresh);
  const next={...selected,generatedScore:{...(selected.generatedScore??fresh),[inst]:copyNotes(merged[inst]??[])}};
  const signatures={...(next.partEditions?.[inst]??{})};

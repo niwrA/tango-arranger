@@ -102,6 +102,21 @@ check('generating an uncreated version does not reuse protected notes from other
  const easy=editions.assembleEditionScore(p,{'Violin I':'easy'})['Violin I'].filter(n=>n.start<4);
  assert.ok(!easy.some(n=>n.pitch===83&&n.source==='manual'));
 });
+check('imported Hasta Siempre violin editions derive playable notes without chord tokens',()=>{
+ const p=JSON.parse(fs.readFileSync(path.join(root,'src/presets/hasta-siempre-amor.json'),'utf8'));
+ for(const inst of ['Violin I','Violin II']){
+  const original=JSON.stringify(editions.assembleEditionScore(p)[inst]);
+  for(const level of ['easy','intermediate']){
+   const switched=editions.switchInstrumentEdition(p,inst,level);
+   const notes=editions.assembleEditionScore(switched)[inst];
+   assert.ok(notes.length>0);
+   assert.ok(notes.every(n=>n.pitch>=55&&n.pitch<=(level==='easy'?81:88)));
+   assert.ok(notes.every((n,i)=>!i||notes[i-1].start+notes[i-1].duration<=n.start+1e-7));
+   assert.equal(JSON.stringify(editions.assembleEditionScore(editions.switchInstrumentEdition(switched,inst,'advanced'))[inst]),original);
+   assert.equal(JSON.stringify(editions.assembleEditionScore(p,{[inst]:level})[inst]),JSON.stringify(notes));
+  }
+ }
+});
 (async()=>{
  const p=song();
  const blob=await io.exportEditionPrintPack(p),files=blob.files,roster=music.projectInstruments(p);
