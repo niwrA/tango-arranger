@@ -517,21 +517,21 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     </div>
     
     <button v-if="microphoneSupported" type="button" class="secondary" :aria-pressed="autoTuner" :title="autoTuner?'Return to score-note intonation':'Automatic chromatic tuner'" :aria-label="autoTuner?'Switch to score-note tuner':'Switch to automatic chromatic tuner'" :disabled="takeBeat!==null" @click="autoTuner=!autoTuner;stableSince=0;heldProgress=0;accepted=false;armed=true"><AppIcon name="tuning-fork"/></button>
-    <strong>{{autoTuner?'Auto tuner':'Intonation'}} · {{autoTuner?(autoTunerMidi===null?'—':pitchLabel(autoTunerMidi)):(current?pitchLabel(targetMidi??current.pitch):'—')}}</strong>
-    <span :class="{'learn-in-tune':tunerInTune}">{{displayedCents===null?'—':(displayedCents>0?'+':'')+displayedCents+'¢'}}</span>
+    <strong class="learn-tuner-pitch">{{autoTuner?'Auto tuner':'Intonation'}} · {{autoTuner?(autoTunerMidi===null?'—':pitchLabel(autoTunerMidi)):(current?pitchLabel(targetMidi??current.pitch):'—')}}</strong>
+    <span class="learn-tuner-cents" :class="{'learn-in-tune':tunerInTune}">{{displayedCents===null?'—':(displayedCents>0?'+':'')+displayedCents+'¢'}}</span>
    </div>
    <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
     <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
    </div>
    <div v-if="listening&&!demoPlaying&&!autoTuner" class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
-      <strong>{{intonationFeedback}}</strong><span v-if="cents!==null&&detectedPitchMatches">{{cents>0?'+':''}}{{cents}}¢</span>
+      <strong>{{intonationFeedback}}</strong><span class="learn-feedback-cents">{{cents!==null&&detectedPitchMatches?(cents>0?'+':'')+cents+'¢':'—'}}</span>
       <span v-if="current">{{Math.round(requiredHoldMs)}} ms target</span>
      </div>
     <div v-if="listening&&!demoPlaying&&!autoTuner" class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100"><span :style="{width:(heldProgress*100)+'%'}"></span></div>
     <div class="learn-tuner-meter" role="meter" :aria-label="autoTuner?'Pitch deviation from nearest chromatic note':'Pitch deviation from expected note'" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="displayedCents===null?undefined:Math.max(-50,Math.min(50,displayedCents))">
-    <div class="learn-accuracy-window" :style="{left:(50-tolerance/2)+'%',width:tolerance+'%'}"></div>
+    <div class="learn-accuracy-window" :style="{left:Math.max(0,50-tolerance)+'%',width:Math.min(100,tolerance*2)+'%'}"></div>
     <div class="learn-meter-center"></div>
-    <div v-if="displayedCents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+displayedCents/2))+'%'}"></div>
+    <div v-if="displayedCents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+displayedCents))+'%'}"></div>
    </div>
    <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
    <div class="learn-mic-row">
@@ -946,4 +946,12 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
  .learn-tuner{grid-template-columns:minmax(0,1fr)}
  .learn-tuner-title,.learn-tuner-meter,.learn-tuner-ends{grid-column:1;grid-row:auto}
 }
+</style>
+
+<style scoped>
+.learn-tuner-title .learn-tuner-pitch{flex:0 0 10.5em;width:10.5em;margin-right:0;white-space:nowrap;font-variant-numeric:tabular-nums}
+.learn-tuner-title .learn-tuner-cents,.learn-feedback-cents{display:inline-block;flex:0 0 7ch;width:7ch;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.learn-live-feedback>strong{min-width:9em}
+.learn-tuner-title{justify-content:flex-start}
+@media(max-width:700px){.learn-tuner-title .learn-tuner-pitch{flex-basis:9.5em;width:9.5em}}
 </style>

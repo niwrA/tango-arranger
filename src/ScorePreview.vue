@@ -74,7 +74,7 @@ function setTabStop(head:SVGElement){
 }
 
 function updateLiveFeedback(){
- const active=props.selectedNote?headsByNote.get(props.selectedNote)??[]:[];
+ const active=props.selectedNote?resolveNoteHeads(props.selectedNote):[];
  const state=props.feedbackState;
  const color=state==='Too low'?'#69a9f5':state==='Too high'?'#ee8f70':state==='In tune'?'#46b988':'#c98b3b';
  const progress=Math.max(0,Math.min(100,(props.feedbackProgress??0)*100));
@@ -87,12 +87,29 @@ function updateLiveFeedback(){
   head.style.setProperty('--note-feedback-color',color);
  }
 }
+function resolveNoteHeads(note:Note):SVGElement[]{
+ const exact=headsByNote.get(note);
+ if(exact?.length)return exact;
+ // Exercise targets may be reconstructed by the practice model.
+ for(const [candidate,heads] of headsByNote)
+  if(candidate.pitch===note.pitch&&Math.abs(candidate.start-note.start)<1e-6)return heads;
+ return [];
+}
+function followExpectedNote(){
+ const container=host.value;
+ if(!props.followMeasure||!container||!props.selectedNote)return;
+ const head=resolveNoteHeads(props.selectedNote)[0];
+ if(!head)return;
+ const bounds=container.getBoundingClientRect(),rect=head.getBoundingClientRect();
+ if(rect.top<bounds.top+20||rect.bottom>bounds.bottom-35)
+  container.scrollTop=Math.max(0,container.scrollTop+rect.top-bounds.top-Math.min(80,container.clientHeight*.18));
+}
 function highlightSelection(){
   for(const head of highlightedHeads){
     head.classList.remove('score-note-selected');
     if(props.interactive)head.setAttribute('aria-pressed','false');
   }
-  highlightedHeads=props.selectedNote?headsByNote.get(props.selectedNote)??[]:[];
+  highlightedHeads=props.selectedNote?resolveNoteHeads(props.selectedNote):[];
   for(const head of highlightedHeads){
     head.classList.add('score-note-selected');
     if(props.interactive)head.setAttribute('aria-pressed','true');
@@ -103,7 +120,7 @@ function highlightSelection(){
 
 function highlightCompleted(){
   for(const head of completedHeads)head.classList.remove('score-note-completed');
-  completedHeads=(props.completedNotes??[]).flatMap(note=>headsByNote.get(note)??[]);
+  completedHeads=(props.completedNotes??[]).flatMap(note=>resolveNoteHeads(note));
   for(const head of completedHeads)head.classList.add('score-note-completed');
 }
 
@@ -178,11 +195,11 @@ function normalizeScoreSvg(){
 
 function bindNoteheads(){
   if(!host.value)return;
-  normalizeScoreSvg();
   focusedHead=undefined;
   highlightedHeads=[];
   completedHeads=[];
   notesByHead=findScoreNoteheads(host.value,notesByColor);
+  normalizeScoreSvg();
   headsByNote=new Map();
   for(const [head,note] of notesByHead){
     head.classList.add('score-notehead');
@@ -201,6 +218,7 @@ function bindNoteheads(){
   highlightCompleted();
   highlightSelection();
   highlightActiveMeasure();
+  followExpectedNote();
 }
 
 function eventHead(event:Event){
@@ -296,10 +314,10 @@ function scheduleLayout(){
 watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{deep:true});
 watch(displayedRange,scheduleLayout);
 watch(()=>props.expanded,scheduleLayout);
-watch(()=>props.selectedNote,highlightSelection);
+watch(()=>props.selectedNote,()=>{highlightSelection();highlightActiveMeasure();followExpectedNote();});
 watch([()=>props.feedbackProgress,()=>props.feedbackState],updateLiveFeedback);
 watch(()=>props.completedNotes,highlightCompleted);
-watch(()=>props.activeMeasure,highlightActiveMeasure);
+watch(()=>props.activeMeasure,()=>{highlightActiveMeasure();followExpectedNote();});
 watch(()=>props.playingNotes,highlightPlayback);
 
 onMounted(()=>{
