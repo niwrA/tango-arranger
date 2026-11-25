@@ -43,7 +43,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -637,6 +637,7 @@ function stageMeasureChords(index:number):string[]{
   let symbol='';
   try{symbol=chordAt(bar.chord,p.beats,beat).trim();}catch{symbol=bar.chord.split(',')[0]?.trim()??'';}
   if(!symbol)return '–';
+  symbol=soundingChord(symbol,sectionKey(p,bar.section),p.transposeSemitones??0);
   if(symbol===previous)return '–';
   previous=symbol;
   return symbol;
@@ -654,19 +655,8 @@ const performanceHarmony=computed(()=>{
  const key=keyForSection(current?.section??'A');
  let upcomingKey=key,changeMeasure:number|null=null;
  for(let i=bar+1;i<p.bars.length;i++){const candidate=keyForSection(p.bars[i].section);if(candidate!==key){upcomingKey=candidate;changeMeasure=i+1;break;}}
- let chord='';try{chord=chordAt(current?.chord??'',p.beats,localBeat);}catch{chord=current?.chord.split(',')[0]?.trim()??'';}
- let nextChord='',nextChordMeasure:number|null=null,nextChordBeat:number|null=null;
- outer:for(let i=bar;i<p.bars.length;i++){
-  let changes:{beat:number;chord:string}[];
-  try{changes=parseChordSequence(p.bars[i].chord,p.beats);}catch{changes=[{beat:0,chord:p.bars[i].chord.split(',')[0]?.trim()??''}];}
-  for(const change of changes){
-   if(i===bar&&change.beat<=localBeat+0.0001)continue;
-   if(!change.chord||change.chord===chord)continue;
-   nextChord=change.chord;nextChordMeasure=i+1;nextChordBeat=change.beat+1;
-   break outer;
-  }
- }
- return {key,upcomingKey,changeMeasure,chord:chord||'—',nextChord:nextChord||'—',nextChordMeasure,nextChordBeat};
+ const cue=stageHarmonyAt(p,bar,localBeat);
+ return {key:transposeKeySignature(key,p.transposeSemitones??0),upcomingKey:transposeKeySignature(upcomingKey,p.transposeSemitones??0),changeMeasure,chord:cue.current,nextChord:cue.next,nextChordMeasure:cue.nextMeasure,nextChordBeat:cue.nextBeat};
 });
 function performanceDynamic(inst:Instrument,bar:number):string{
  const p=project.value,b=p.bars[bar];
@@ -5632,7 +5622,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </span>
       <span v-if="part.vocalRest" class="stage-vocal-rest"><strong>{{part.vocalEntranceMeasure===null?'Finished':part.vocalEntranceMeasure-(performanceBar+1)}}</strong><span>{{part.vocalEntranceMeasure===null?'No further entrance':'Measures until entrance · M'+part.vocalEntranceMeasure}}</span></span>
       <PerformanceChordDiagram v-else-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
-      <PerformanceRoleCues v-else :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="['chords','harmony'].includes(part.role)?roleCueHarmony.chord:(performanceChordBeats.next.find(symbol=>symbol!=='–')??'—')" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
+      <PerformanceRoleCues v-else :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="roleCueHarmony.chord" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
         :articulation="part.articulation" :next-articulation="part.nextArticulation"
         :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
         :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
@@ -5728,7 +5718,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          </div>
          <button v-else-if="!part.vocalRest&&!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
-           <PerformanceRoleCues :focus="true" :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="['chords','harmony'].includes(part.role)?roleCueHarmony.chord:(performanceChordBeats.next.find(symbol=>symbol!=='–')??'—')" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
+           <PerformanceRoleCues :focus="true" :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="roleCueHarmony.chord" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
              :articulation="part.articulation" :next-articulation="part.nextArticulation"
              :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
              :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>

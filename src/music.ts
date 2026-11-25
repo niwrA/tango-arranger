@@ -501,6 +501,37 @@ export function transposeChord(symbol:string,semitones:number):string {
  * reharmonize a major passage into minor or vice versa.
  */
 export type SectionKeyChangeMode='signature'|'chords'|'chords-and-melody';
+/** Display harmony in the sounding key, without modifying the source chord.
+ * Preserve explicit source spelling when no transposition is applied, except
+ * where the key's accidental preference supplies a better enharmonic name. */
+export function soundingChord(symbol:string,key:string,semitones=0):string{
+ if(!symbol.trim()||symbol==='—'||symbol==='–')return symbol;
+ const target=transposeKeySignature(key,semitones);
+ const {fifths}=parseKeySignature(target);
+ const tonic=target.replace(/m$/,'');
+ // Neutral keys use their conventional diatonic names; F and flat keys
+ // prefer flats, while sharp keys prefer sharps.
+ const names=fifths<0||tonic==='F'?['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B']:['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+ const sharp=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+ return symbol.replace(/(^|\/)([A-Ga-g])([#b]?)/g,(match,prefix,step,acc)=>{
+  const pitch=parsePitch(step.toUpperCase()+acc+'4');
+  if(pitch===null)return match;
+  const pc=((pitch+semitones)%12+12)%12;
+  return prefix+(fifths>0?sharp:names)[pc];
+ });
+}
+/** Current and immediately upcoming harmony, with the current bar's changes
+ * taking precedence over the following bar's first chord (even if repeated). */
+export function stageHarmonyAt(p:Project,bar:number,localBeat:number){
+ const changes=(index:number)=>{
+  const measure=p.bars[index];if(!measure)return [];
+  return parseChordSequence(measure.chord,p.beats).map(c=>({...c,chord:soundingChord(c.chord,sectionKey(p,measure.section),p.transposeSemitones??0)}));
+ };
+ const now=changes(bar),current=now.filter(c=>c.beat<=localBeat+1e-7).at(-1)?.chord??'—';
+ const within=now.find(c=>c.beat>localBeat+1e-7&&c.chord!==current);
+ const next=within??changes(bar+1)[0];
+ return {current,next:next?.chord??'—',sameBar:!!within,nextMeasure:next?(within?bar+1:bar+2):null,nextBeat:next?next.beat+1:null};
+}
 export function sectionKeyInterval(fromKey:string,toKey:string):number {
   parseKeySignature(fromKey);parseKeySignature(toKey);
   const from=parsePitch(fromKey.replace(/m$/,'')+'4')!;

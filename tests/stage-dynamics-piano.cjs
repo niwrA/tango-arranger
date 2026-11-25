@@ -134,3 +134,16 @@ check('speed menu is Files-style and wide iPad layout avoids two transport rows'
  ])assert.ok(app.includes(fragment),fragment);
 });
 console.log(count+' stage dynamics, role and compact piano checks passed');
+
+check('stage harmony previews the next chord within a bar, then the next measure',()=>{
+ const music=load('src/music.ts'),p=music.blankProject({measures:2});
+ p.sectionKeys={A:'F'};p.bars[0].chord='A#,C7';p.bars[1].chord='F';
+ let h=music.stageHarmonyAt(p,0,0);
+ assert.equal(h.current,'Bb');assert.equal(h.next,'C7');assert.equal(h.sameBar,true);assert.equal(h.nextBeat,3);
+ h=music.stageHarmonyAt(p,0,2);
+ assert.equal(h.current,'C7');assert.equal(h.next,'F');assert.equal(h.sameBar,false);
+ assert.equal(music.soundingChord('Bb/F','B',0),'A#/F');
+ assert.equal(music.soundingChord('A#/F','F',0),'Bb/F');
+ p.transposeSemitones=-5;h=music.stageHarmonyAt(p,0,0);
+ assert.equal(h.current,'F');assert.equal(h.next,'G7');
+});
