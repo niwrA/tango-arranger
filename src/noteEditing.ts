@@ -3,7 +3,7 @@ export function clampWrittenDuration(localStart:number,requested:number,beats:nu
   if(!Number.isFinite(localStart)||!Number.isFinite(requested)||!Number.isFinite(beats)||beats<=0)throw Error('Invalid note timing');
   const available=beats-localStart;
   if(available<0.25-1e-8)throw Error('Note onset leaves no room for a minimum-duration note');
-  return Math.max(0.25,Math.min(available,Number(requested.toFixed(4))));
+  return Math.max(0.25,Math.min(available,Number(requested.toFixed(9))));
 }
 /** Convert horizontal movement into snapped beats, using the actual grid cell width. */
 export function dragWrittenDuration(initial:number,deltaPixels:number,cellWidth:number,gridStep:number,localStart:number,beats:number):number {
@@ -19,7 +19,7 @@ export function dragWrittenNotePosition(initialStart:number,duration:number,delt
   validateDragGeometry(cellWidth,gridStep,deltaPixels);
   if(!Number.isFinite(initialStart)||!Number.isFinite(duration)||!Number.isFinite(beats)||duration<0.25||initialStart<0||initialStart+duration>beats+1e-8)throw Error('Invalid note position');
   const shift=Math.round(deltaPixels/cellWidth)*gridStep;
-  return Number(Math.max(0,Math.min(beats-duration,initialStart+shift)).toFixed(4));
+  return Number(Math.max(0,Math.min(beats-duration,initialStart+shift)).toFixed(9));
 }
 /** Resize from the left edge: move the onset but keep the original end fixed.
  * A minimum of 0.25 beats must remain, and the onset cannot precede the bar.
@@ -29,8 +29,8 @@ export function dragWrittenNoteLeftEdge(initialStart:number,initialDuration:numb
   if(!Number.isFinite(initialStart)||!Number.isFinite(initialDuration)||!Number.isFinite(beats)||initialDuration<0.25||initialStart<0||initialStart+initialDuration>beats+1e-8)throw Error('Invalid note endpoints');
   const end=initialStart+initialDuration;
   const shift=Math.round(deltaPixels/cellWidth)*gridStep;
-  const start=Number(Math.max(0,Math.min(end-0.25,initialStart+shift)).toFixed(4));
-  return {start,duration:Number((end-start).toFixed(4))};
+  const start=Number(Math.max(0,Math.min(end-0.25,initialStart+shift)).toFixed(9));
+  return {start,duration:Number((end-start).toFixed(9))};
 }
 function validateDragGeometry(cellWidth:number,gridStep:number,deltaPixels:number):void {
   if(!Number.isFinite(cellWidth)||cellWidth<=0||!Number.isFinite(gridStep)||gridStep<=0||!Number.isFinite(deltaPixels))throw Error('Invalid note grid geometry');
@@ -40,13 +40,13 @@ function validateDragGeometry(cellWidth:number,gridStep:number,deltaPixels:numbe
 /** The continuous grid operates in absolute beats, not measure-local coordinates. */
 export function dragAbsoluteNotePosition(start:number,duration:number,deltaPixels:number,cellWidth:number,gridStep:number,totalBeats:number):number {
   validateDragGeometry(cellWidth,gridStep,deltaPixels);
-  if(!Number.isFinite(start)||!Number.isFinite(duration)||!Number.isFinite(totalBeats)||duration<0.25||start<0||start+duration>totalBeats+1e-8)throw Error('Invalid note position');
-  return Number(Math.max(0,Math.min(totalBeats-duration,start+Math.round(deltaPixels/cellWidth)*gridStep)).toFixed(4));
+  if(!Number.isFinite(start)||!Number.isFinite(duration)||!Number.isFinite(totalBeats)||duration<1/6-1e-8||start<0||start+duration>totalBeats+1e-8)throw Error('Invalid note position');
+  return Number(Math.max(0,Math.min(totalBeats-duration,start+Math.round(deltaPixels/cellWidth)*gridStep)).toFixed(9));
 }
 export function dragAbsoluteNoteLeftEdge(start:number,duration:number,deltaPixels:number,cellWidth:number,gridStep:number):{start:number;duration:number} {
   validateDragGeometry(cellWidth,gridStep,deltaPixels);
-  if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<0.25)throw Error('Invalid note endpoints');
+  if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<1/6-1e-8)throw Error('Invalid note endpoints');
   const end=start+duration;
-  const next=Number(Math.max(0,Math.min(end-0.25,start+Math.round(deltaPixels/cellWidth)*gridStep)).toFixed(4));
-  return {start:next,duration:Number((end-next).toFixed(4))};
+  const next=Number(Math.max(0,Math.min(end-Math.min(0.25,gridStep),start+Math.round(deltaPixels/cellWidth)*gridStep)).toFixed(9));
+  return {start:next,duration:Number((end-next).toFixed(9))};
 }

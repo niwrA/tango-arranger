@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Add compact triplet snap and duration choices to the Notes editor and preserve fractional-third timing in MusicXML export.
+
 - Recover empty practice editions from stored Advanced notes even when imported source tags are missing.
 
 - Prefer first-position violin fingering in Easy imported editions, reduce rapid passing notes conservatively, and correct harmony lookup argument order.

@@ -4377,6 +4377,7 @@ const noteInst=ref<Instrument>('Violin I');
 watch(noteInst,inst=>{try{localStorage.setItem('tango-last-note-instrument',inst);}catch{/* Storage disabled. */}});
 const noteEditorRegion=ref<HTMLElement|null>(null);
 const noteStep=ref(0.5);
+const tripletGrid=computed(()=>Math.abs(noteStep.value-1/3)<1e-8||Math.abs(noteStep.value-1/6)<1e-8);
 const noteRhythmPreset=ref<'off'|RhythmPreset>('off');
 const noteRhythmTargets=computed(()=>noteRhythmPreset.value==='off'?[]:presetRhythmSlots(noteRhythmPreset.value,project.value.beats,noteInst.value,project.value.profile));
 const isRhythmGuideBeat=(beat:number)=>noteRhythmTargets.value.some(s=>Math.abs(s.beat-beat)<1e-6);
@@ -4464,7 +4465,7 @@ function moveNoteDrag(event:PointerEvent){
   let duration=drag.startDuration;
   let pitch=drag.startPitch;
   if(drag.mode==='resize-right'){
-    duration=Math.max(0.25,Math.min(total-drag.original.start,Number((drag.startDuration+Math.round(dx/drag.cellWidth)*noteStep.value).toFixed(4))));
+    duration=Math.max(Math.min(0.25,noteStep.value),Math.min(total-drag.original.start,drag.startDuration+Math.round(dx/drag.cellWidth)*noteStep.value));
   }else if(drag.mode==='resize-left'){
     const geometry=dragAbsoluteNoteLeftEdge(drag.original.start,drag.startDuration,dx,drag.cellWidth,noteStep.value);
     absoluteStart=geometry.start;duration=geometry.duration;
@@ -4524,7 +4525,7 @@ function changeNoteDuration(delta:number){
   if(!selectedEvent.value)return;
   const localStart=selectedEvent.value.start-selectedBar.value*project.value.beats;
   const maxDuration=project.value.bars.length*project.value.beats-selectedEvent.value.start;
-  const next=Math.max(0.25,Math.min(maxDuration,Math.round((selectedEvent.value.duration+delta)*4)/4));
+  const next=Math.max(Math.min(0.25,noteStep.value),Math.min(maxDuration,selectedEvent.value.duration+delta));
   if(Math.abs(next-selectedEvent.value.duration)<0.0001){
     message.value=delta>0?'This note already reaches the end of the song.':'Minimum written duration is 0.25 beats.';
     return;
@@ -4557,7 +4558,7 @@ const noteCtx=computed(()=>({...noteEditorContext(project.value,noteInst.value,s
 const noteMeasure=computed(()=>[...(score.value[noteInst.value]??[])]
   .filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===selectedBar.value)
   .sort((a,b)=>a.start-b.start||a.pitch-b.pitch));
-const noteBeats=computed(()=>Array.from({length:Math.round(project.value.beats/noteStep.value)},(_,i)=>Number((i*noteStep.value).toFixed(4))));
+const noteBeats=computed(()=>Array.from({length:Math.round(project.value.beats/noteStep.value)},(_,i)=>i*noteStep.value));
 // Only a small buffered horizontal window is mounted in the piano roll.
 // The complete selected range still controls playback, editing and exports.
 const noteGridWindow=ref<NoteGridViewport>(noteGridViewport(2,16,0,900));
@@ -4692,6 +4693,7 @@ function releaseSelectedRhythmSource(){
 }
 function noteGridBeatLabel(beat:number):string {
   const whole=Math.floor(beat)+1;
+  if(tripletGrid.value){const sub=Math.round((beat-Math.floor(beat))/noteStep.value);return sub?`${whole}·${sub+1}`:String(whole);}
   const subdivision=Math.round((beat-Math.floor(beat))*4);
   return subdivision===0?String(whole):subdivision===1?`${whole}e`:subdivision===2?`${whole}&`:`${whole}a`;
 }
@@ -4881,7 +4883,7 @@ function toggleNote(pitch:number,beat:number){
  if(index>=0){auditionEvent(events[index]);events.splice(index,1);noteSelected.value=-1;}
  else{
    const duration=noteLength.value==='auto'
-     ?newNoteWrittenDuration(project.value,noteInst.value,selectedBar.value,targetBeat,newNoteArticulation.value)
+     ?tripletGrid.value?Math.min(noteStep.value,project.value.beats-targetBeat):newNoteWrittenDuration(project.value,noteInst.value,selectedBar.value,targetBeat,newNoteArticulation.value)
      :Math.min(noteLength.value,project.value.beats-targetBeat);
    const added=suggestedEditorNote(project.value,noteInst.value,selectedBar.value,targetBeat,pitch,duration);
    if(slot&&preset!=='off')added.rhythmSource={
@@ -5258,7 +5260,7 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   if(field==='melisma'||field==='melisma2'||field==='vibrato')value=raw==='true';
   if(field==='gate')value=(value as number)/100;
   if(field==='duration'){
-    if(!Number.isFinite(value)||Number(value)<0.25){message.value='Duration must be at least 0.25 beats';return;}
+    if(!Number.isFinite(value)||Number(value)<1/6-1e-8){message.value='Duration must be at least 1/6 beat';return;}
     const limited=Math.min(Number(value),project.value.bars.length*project.value.beats-old.start);
     if(limited!==value)message.value=`Duration limited to ${limited} beats: the note must end within the song.`;
     value=limited;
@@ -6716,8 +6718,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
   <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
       <label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
-      <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option></select></label>
-      <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option></select></label>
+      <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option><option :value="1/3">Eighth triplet</option><option :value="1/6">Sixteenth triplet</option></select></label>
+      <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option><option :value="1/6">Sixteenth triplet</option><option :value="1/3">Eighth triplet</option><option :value="2/3">Quarter triplet</option><option :value="4/3">Half triplet</option></select></label>
       <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
       <label>Pitch labels<select v-model="editorAccidentals"><option value="auto">Follow key signature</option><option value="sharp">Use sharps (♯)</option><option value="flat">Use flats (♭)</option></select></label>
     </div>
@@ -6819,7 +6821,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>
       <label>Beat (starts at 1)<input type="number" min="1" :max="project.beats" step="0.25" :value="selectedEvent.start-selectedBar*project.beats+1" @change="updateSelectedNote('start',String(Number(($event.target as HTMLInputElement).value)-1))"/></label><div class="note-position-nudge"><span>Move onset (keep duration)</span><div class="note-nudge-buttons"><button type="button" class="secondary" aria-label="Move selected note half a beat earlier" :disabled="selectedEvent.start-selectedBar*project.beats<=0" @click="nudgeSelectedNote(-0.5)">← ½ beat</button><button type="button" class="secondary" aria-label="Move selected note half a beat later" :disabled="selectedEvent.start-selectedBar*project.beats+selectedEvent.duration>=project.beats-0.0001" @click="nudgeSelectedNote(0.5)">½ beat →</button></div></div>
-      <div class="note-duration-field"><label for="note-written-duration">Written duration · {{selectedEvent.duration}} beats</label><div class="note-duration-controls"><button type="button" class="secondary" @click="changeNoteDuration(-0.25)" :disabled="selectedEvent.duration<=0.25" aria-label="Shorten note by quarter beat">−</button><input id="note-written-duration" type="number" min="0.25" :max="selectedDurationMax" step="0.25" v-model="writtenDurationDraft" @keydown.enter.prevent="applyWrittenDurationDraft" @change="applyWrittenDurationDraft"/><button type="button" class="primary" @click="applyWrittenDurationDraft">Apply</button><button type="button" class="secondary" @click="changeNoteDuration(0.25)" :disabled="selectedEvent.duration>=selectedDurationMax-0.0001" aria-label="Lengthen note by quarter beat">+</button></div><input class="note-duration-slider" type="range" min="0.25" :max="selectedDurationMax" step="0.25" :value="selectedEvent.duration" :disabled="selectedDurationMax<=0.25" aria-label="Written note duration in beats" @input="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><div class="duration-preview" role="status" :aria-label="`Written duration ${selectedEvent.duration} beats`"><span :style="{width:`${noteDurationPercent}%`}"></span></div><small class="hint">Saved duration: <strong>{{selectedEvent.duration}} beats</strong> · starts at beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}} · maximum {{selectedDurationMax}} beats until the song ends. Written length is separate from sounding length.</small></div>
+      <div class="note-duration-field"><label for="note-written-duration">Written duration · {{selectedEvent.duration}} beats</label><div class="note-duration-controls"><button type="button" class="secondary" @click="changeNoteDuration(-noteStep)" :disabled="selectedEvent.duration<=Math.min(0.25,noteStep)" aria-label="Shorten note by quarter beat">−</button><input id="note-written-duration" type="number"  :min="Math.min(0.25,noteStep)" :max="selectedDurationMax" :step="noteStep" v-model="writtenDurationDraft" @keydown.enter.prevent="applyWrittenDurationDraft" @change="applyWrittenDurationDraft"/><button type="button" class="primary" @click="applyWrittenDurationDraft">Apply</button><button type="button" class="secondary" @click="changeNoteDuration(noteStep)" :disabled="selectedEvent.duration>=selectedDurationMax-0.0001" aria-label="Lengthen note by quarter beat">+</button></div><input class="note-duration-slider" type="range"  :min="Math.min(0.25,noteStep)" :max="selectedDurationMax" :step="noteStep" :value="selectedEvent.duration" :disabled="selectedDurationMax<=0.25" aria-label="Written note duration in beats" @input="updateSelectedNote('duration',($event.target as HTMLInputElement).value)"/><div class="duration-preview" role="status" :aria-label="`Written duration ${selectedEvent.duration} beats`"><span :style="{width:`${noteDurationPercent}%`}"></span></div><small class="hint">Saved duration: <strong>{{selectedEvent.duration}} beats</strong> · starts at beat {{Number((selectedEvent.start-selectedBar*project.beats+1).toFixed(2))}} · maximum {{selectedDurationMax}} beats until the song ends. Written length is separate from sounding length.</small></div>
       <label v-if="noteInst.startsWith('Voice')">Lyric syllable (selected note)<input type="text" maxlength="160" :value="selectedEvent.lyric??''" placeholder="e.g. cho" @change="updateSelectedNote('lyric',($event.target as HTMLInputElement).value)"/></label>
       <label v-if="noteInst.startsWith('Voice')">Syllable position<select :value="selectedEvent.syllabic??'single'" @change="updateSelectedNote('syllabic',($event.target as HTMLSelectElement).value)"><option value="single">Single syllable</option><option value="begin">Beginning of word</option><option value="middle">Middle of word</option><option value="end">End of word</option></select></label>
       <label v-if="noteInst.startsWith('Voice')">Verse 2 syllable<input type="text" maxlength="160" :value="selectedEvent.lyric2??''" @change="updateSelectedNote('lyric2',($event.target as HTMLInputElement).value)"/></label>

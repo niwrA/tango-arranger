@@ -54,11 +54,16 @@ const pitchXml=(n:number,key='C')=>{
 // simultaneous pitch set; durations are never accumulated twice for chords.
 const DIV=480;
 const durationType=(ticks:number):[string,number]=>{
-  const table:[number,string,number][]=[[1920,'whole',0],[1440,'half',1],[960,'half',0],[720,'quarter',1],[480,'quarter',0],[360,'eighth',1],[240,'eighth',0],[180,'16th',1],[120,'16th',0],[60,'32nd',0],[30,'64th',0]];
+  const table:[number,string,number][]=[[1920,'whole',0],[1440,'half',1],[960,'half',0],[720,'quarter',1],[480,'quarter',0],[360,'eighth',1],[240,'eighth',0],[180,'16th',1],[120,'16th',0],[60,'32nd',0],[30,'64th',0],[15,'128th',0]];
   const item=table.find((x:[number,string,number])=>x[0]===ticks);
   if(!item)throw Error(`Unsupported rhythmic duration ${ticks} ticks`);
   return [item[1],item[2]];
 };
+// Preserve binary durations where possible; use 3:2 values for fractional thirds.
+function mixedChunks(ticks:number,at:number):number[]{
+ const values=[1920,1440,1280,960,720,640,480,360,320,240,180,160,120,80,60,40,30,20,10];
+ const out:number[]=[];while(ticks>0){const v=values.find(v=>v<=ticks&&(v%30!==0||at%30===0))??10;out.push(v);ticks-=v;at+=v;}return out;
+}
 const chunks=(ticks:number)=>{const values=[1920,1440,960,720,480,360,240,180,120,60,30];const out:number[]=[];let remaining=ticks;for(const v of values)while(remaining>=v){out.push(v);remaining-=v;}if(remaining)throw Error(`Duration not representable at 1/16 beat: ${ticks}`);return out;};
 // Derive MusicXML extender phases from the ordered sung note onsets, including
 // across barlines. A melisma flag marks the syllable that starts the span.
@@ -134,7 +139,8 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
   // overlapping melody/chord notes a valid succession of tied chords.
-  const quantum=NOTATION_QUANTUM;
+  const triplets=events.some(n=>[n.start,n.end].some(t=>t%30!==0&&t%40===0));
+  const quantum=triplets?10:NOTATION_QUANTUM;
   const snapped=events.map(n=>({...n,start:Math.max(0,Math.round(n.start/quantum)*quantum),end:Math.min(barTicks,Math.round(n.end/quantum)*quantum),originStart:Math.round(n.originStart/quantum)*quantum,originEnd:Math.round(n.originEnd/quantum)*quantum})).filter(n=>n.end>n.start);
   const boundaries=new Set<number>([0,barTicks]);
   for(const n of snapped){boundaries.add(n.start);boundaries.add(n.end);}
@@ -147,7 +153,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
     const at=points[i],end=points[i+1],active=snapped.filter(n=>n.start<=at&&n.end>=end).sort((a,b)=>a.pitch-b.pitch);
     const pitches=[...new Set(active.map(n=>n.pitch))];
     let elapsed=0;
-    for(const dur of chunks(end-at)){
+    for(const dur of triplets?mixedChunks(end-at,at):chunks(end-at)){
       const nextTechnique=active.find(n=>n.technique)?.technique??'arco';
       if(elapsed===0&&pitches.length&&legatoStarts.has(notationTick(offset)+at))
         out+=`<direction placement="above"><direction-type><words>legato</words></direction-type>${staffTag}</direction>`;
@@ -158,8 +164,10 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
           out+=`<direction placement="above"><direction-type><words>${nextTechnique==='pizzicato'?'pizz.':'arco'}</words></direction-type>${staffTag}<sound pizzicato="${nextTechnique==='pizzicato'?'yes':'no'}"/></direction>`;
         techniqueState.active=nextTechnique;
       }
-      const [type,dots]=durationType(dur),dot=dots?'<dot/>':'';
-      if(!pitches.length)out+=`<note><rest/><duration>${dur}</duration>${voiceTag}<type>${type}</type>${dot}${staffTag}${fermata&&i===points.length-2&&at+elapsed+dur===barTicks?'<notations><fermata type="upright"/></notations>':''}</note>`;
+      const isTuplet=dur%30!==0;
+      const [type,dots]=durationType(isTuplet?dur*1.5:dur),dot=dots?'<dot/>':'';
+      const timeMod=isTuplet?'<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>':'';
+      if(!pitches.length)out+=`<note><rest/><duration>${dur}</duration>${voiceTag}<type>${type}</type>${dot}${timeMod}${staffTag}${fermata&&i===points.length-2&&at+elapsed+dur===barTicks?'<notations><fermata type="upright"/></notations>':''}</note>`;
       else for(let j=0;j<pitches.length;j++){
         const pitch=pitches[j],sources=active.filter(n=>n.pitch===pitch);
         const begin=at+elapsed,endSegment=begin+dur;
@@ -202,7 +210,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const color=latest.noteheadColor;
         const notehead=color&&!sources.some(n=>n.originStart===latest.originStart&&n.noteheadColor!==color)
           ?`<notehead color="${color}">normal</notehead>`:'';
-        out+=`<note>${j?'<chord/>':''}${pitchXml(pitch,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${notehead}${staffTag}${notations}${lyricXml}</note>`;
+        out+=`<note>${j?'<chord/>':''}${pitchXml(pitch,key)}<duration>${dur}</duration>${ties}${voiceTag}<type>${type}</type>${dot}${timeMod}${notehead}${staffTag}${notations}${lyricXml}</note>`;
       }
       elapsed+=dur;
     }
