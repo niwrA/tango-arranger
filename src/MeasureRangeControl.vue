@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SectionRangePicker from './SectionRangePicker.vue';
 const props=withDefaults(defineProps<{
  from:number;to:number;measures:ReadonlyArray<{section:string}>;
  disabled?:boolean;presets?:boolean;compact?:boolean;
@@ -19,23 +20,17 @@ function shift(delta:number){
  const next=Math.max(1,Math.min(total()-span,start+delta));
  emit('change',next,next+span);
 }
-function chooseSection(){
- const section=props.measures[clamp(props.from)-1]?.section;
- if(!section)return;
- const first=props.measures.findIndex(m=>m.section===section);
- let last=first;
- while(last+1<props.measures.length&&props.measures[last+1].section===section)last++;
- emit('change',first+1,last+1);
-}
+
 function chooseSong(){emit('change',1,total());}
 </script>
 <template>
  <div class="measure-range-control" :class="{'is-compact':compact}" role="group" aria-label="Measure range">
   <button type="button" class="secondary range-arrow" aria-label="Previous measure range" title="Previous measure range" :disabled="disabled||from<=1" @click="shift(-1)">←</button>
   <label>Start measure<select :value="from" :disabled="disabled" aria-label="Start measure" @change="setStart"><option v-for="(measure,index) in measures" :key="index" :value="index+1">{{index+1}} · {{measure.section}}</option></select></label>
+  <SectionRangePicker :measures="measures" :from="from" :disabled="disabled" :compact="compact" @select="(start,end)=>emit('change',start,end)"/>
   <label>End measure<select :value="to" :disabled="disabled" aria-label="End measure" @change="setEnd"><option v-for="(measure,index) in measures" :key="index" :value="index+1">{{index+1}} · {{measure.section}}</option></select></label>
   <button type="button" class="secondary range-arrow" aria-label="Next measure range" title="Next measure range" :disabled="disabled||to>=measures.length" @click="shift(1)">→</button>
-  <div v-if="presets" class="range-presets"><button type="button" class="secondary" :disabled="disabled" @click="chooseSection">Current section</button><button type="button" class="secondary" :disabled="disabled" @click="chooseSong">Entire song</button></div>
+  <div v-if="presets" class="range-presets"><button type="button" class="secondary" :disabled="disabled" @click="chooseSong">Entire song</button></div>
  </div>
 </template>
 <style scoped>
