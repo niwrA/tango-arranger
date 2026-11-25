@@ -8407,10 +8407,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </style>
 
 <style scoped>
-@media(min-width:1450px){
+@media(min-width:1280px) and (min-height:800px){
  .shell.performance-live{width:100%;max-width:none;margin:0}
  .performance-live .performance-workspace.performance-expanded{width:100%;max-width:none;box-sizing:border-box;padding:12px 20px}
- .performance-live .performance-stage-only .performance-diagram-grid{grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:clamp(280px,calc((100dvh - 155px)/2),680px)!important;gap:14px}
+ .performance-live .performance-stage-only .performance-diagram-grid{grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:clamp(300px,calc((100dvh - 220px)/2),1000px)!important;gap:14px}
  .performance-live .performance-diagram-grid>.performance-cue-card-wrap{grid-column:span 3}
  .performance-live .performance-diagram-grid>.performance-cue-card-wrap:nth-child(5):nth-last-child(3),.performance-live .performance-diagram-grid>.performance-cue-card-wrap:nth-child(5):nth-last-child(3)~.performance-cue-card-wrap{grid-column:span 4}
  .performance-live .performance-stage-only .performance-diagram-card{height:100%!important;min-height:0!important;max-height:none!important;padding:clamp(12px,1vw,24px);gap:clamp(8px,1vh,18px)}
@@ -8419,5 +8419,20 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .performance-live .performance-section-grid{display:flex;flex-wrap:nowrap}
  .performance-live .performance-section-grid .performance-section-jump{min-width:42px}
  .performance-live .performance-stage-top{padding:10px 16px}
+ .performance-live .performance-diagram-grid{--stage-diagram-scale:clamp(1px,.13dvh,2.7px)}
+ .performance-live .performance-diagram-grid .performance-diagram-card :deep(.performance-instrument-diagram){gap:calc(7 * var(--stage-diagram-scale));min-height:0;justify-content:space-between}
+ .performance-live .performance-diagram-grid :deep(.diagram-visual-stage){flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center}
+ .performance-live .performance-diagram-grid :deep(.diagram-piano),.performance-live .performance-diagram-grid :deep(.diagram-targets),.performance-live .performance-diagram-grid :deep(.diagram-fingerboard){height:calc(100 * var(--stage-diagram-scale));min-height:calc(100 * var(--stage-diagram-scale));max-height:none;flex:1 1 auto}
+ .performance-live .performance-diagram-grid :deep(.diagram-fingerboard){grid-auto-rows:minmax(0,1fr)}
+ .performance-live .performance-diagram-grid :deep(.diagram-string-stop),.performance-live .performance-diagram-grid :deep(.diagram-open-label){height:calc(18 * var(--stage-diagram-scale));min-height:0;font-size:calc(10 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.diagram-string-stop span),.performance-live .performance-diagram-grid :deep(.diagram-stop-header),.performance-live .performance-diagram-grid :deep(.diagram-white-key>span),.performance-live .performance-diagram-grid :deep(.diagram-piano-register-badge){font-size:calc(10 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.diagram-chord-beat){height:calc(46 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.diagram-next-chord-beat){height:calc(30 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.diagram-chord-beat strong){font-size:calc(20 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.diagram-next-chord-beat strong){font-size:calc(14 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.diagram-tone-pill){min-width:calc(29 * var(--stage-diagram-scale));min-height:calc(29 * var(--stage-diagram-scale));font-size:calc(14 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.stage-role-name){font-size:calc(30 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.stage-role-next-name){font-size:calc(23 * var(--stage-diagram-scale))}
+ .performance-live .performance-diagram-grid :deep(.stage-role-articulation),.performance-live .performance-diagram-grid :deep(.stage-role-next-articulation),.performance-live .performance-diagram-grid :deep(.stage-dynamic-label){font-size:calc(13 * var(--stage-diagram-scale))}
 }
 </style>
