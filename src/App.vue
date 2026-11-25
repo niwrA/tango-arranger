@@ -5543,7 +5543,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
      class="stage-ensemble-lyrics" :notes="performanceVocalCue.notes" :line-starts="performanceVocalCue.lineStarts"
      :instrument="stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))"
      :beat="performanceBeat" :beats-per-measure="project.beats"
-     :measure-count="project.bars.length" :effective-bpm="effectivePlaybackBpm"
+     :measure-count="project.bars.length" :chords="project.bars" :effective-bpm="effectivePlaybackBpm"
      :count="performanceVocalCue.count"/>
   </div>
   <p v-if="performanceFullscreenHint" role="status" class="performance-fullscreen-hint">{{performanceFullscreenHint}}</p>
@@ -5552,7 +5552,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <PerformanceLyricLine :overlay="true" :notes="performanceVocalCue.notes" :line-starts="performanceVocalCue.lineStarts"
     :instrument="stageInstrumentName(rosterDisplayName(performanceVocalCue.instrument))"
     :beat="performanceBeat" :beats-per-measure="project.beats"
-    :measure-count="project.bars.length" :effective-bpm="effectivePlaybackBpm"
+    :measure-count="project.bars.length" :chords="project.bars" :effective-bpm="effectivePlaybackBpm"
     :count="performanceVocalCue.count"/>
 </div></div><p v-else class="muted">No instrument is assigned the melody role in this measure. Select a part below to view its notes.</p></div>
 
