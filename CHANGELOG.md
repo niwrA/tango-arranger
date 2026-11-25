@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Remove three below-range Violin II recognition artifacts from the bundled Hasta Siempre Amor score; show a responsive full-arrangement score with system following in Performance focus.
+
 - Expand Note Editor pitch bounds to include existing imported and adapted notes, even when their stored pitches exceed the sounding instrument range.
 
 - Keep pitch labels and time headers visible while scrolling the note grid; use native two-axis touch scrolling instead of custom horizontal panning.

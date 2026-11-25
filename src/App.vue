@@ -596,12 +596,12 @@ const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-
 watch(performanceBar,bar=>{if(performanceMode.value){try{localStorage.setItem('tango-last-performance-measure',String(bar));}catch{/* Storage disabled. */}}});
 const performanceSection=computed(()=>performanceBar.value===0&&pickupBeats.value?'':project.value.bars[performanceBar.value]?.section??'A');
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
-const performanceScoreFrom=computed(()=>Math.floor(performanceBar.value/2)*2+1);
-const performanceScoreTo=computed(()=>Math.min(project.value.bars.length,performanceScoreFrom.value+1));
+const performanceScoreFrom=1;
+const performanceScoreTo=computed(()=>project.value.bars.length);
 const performanceScoreNotes=computed(()=>{
  const inst=performanceExpandedInstrument.value;
  if(!inst||!focusShowsScore.value||instrumentLearnMode.value)return [];
- const firstBeat=(performanceScoreFrom.value-1)*project.value.beats;
+ const firstBeat=(performanceScoreFrom-1)*project.value.beats;
  const lastBeat=performanceScoreTo.value*project.value.beats;
  return (score.value[inst]??[]).filter(note=>note.start<lastBeat&&note.start+note.duration>firstBeat);
 });
@@ -5657,7 +5657,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <template v-else>
          <ScorePreview v-if="focusShowsScore" :project="project" :score="score" :instrument="part.inst"
            :from-measure="performanceScoreFrom" :to-measure="performanceScoreTo"
-           :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" :interactive="false" />
+           :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" expanded follow-measure :interactive="false" />
          <PianoFocusView v-if="performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
            :active-pitches="part.activePitches" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="performanceScoreView==='both'?performanceScoreView='score':flipPerformanceCard(part.inst)"/>
@@ -7722,7 +7722,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .instrument-focus-status strong{color:#ffdaa0;font-size:1.25em}
 .instrument-focus-content{display:flex;justify-content:center;align-items:stretch;flex:1 1 auto;min-height:0}
 .instrument-focus-score-content{flex-direction:column;justify-content:flex-start;align-items:stretch;gap:8px}
-.instrument-focus-score-content>.score-preview{width:100%;max-width:1200px;box-sizing:border-box;align-self:center}
+.instrument-focus-score-content>.score-preview{width:100%;max-width:none;box-sizing:border-box;align-self:center;flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+.instrument-focus-panel:has(.instrument-focus-score-content){height:100%;min-height:0}
+.instrument-focus-score-content>.score-preview :deep(.score-preview-follow){height:0;flex:1 1 0;min-height:120px}
+.instrument-focus-score-content{overflow:auto}
 .instrument-focus-score-diagram{width:100%;max-width:1100px;align-self:center;padding:8px;box-sizing:border-box}
 .instrument-focus-switch-area{width:100%;max-width:1200px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;align-items:stretch;padding:clamp(12px,2vw,28px);text-align:left;border:1px solid #627c8b;border-radius:16px;background:linear-gradient(150deg,#293d4c,#192936);color:#eaf4fa;cursor:pointer}
 .instrument-focus-switch-area:focus-visible{outline:3px solid #f6d29c;outline-offset:2px}

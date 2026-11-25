@@ -41,3 +41,14 @@ check('only focus class enlarges diagrams; normal fixed-height cards remain',()=
  assert.ok(app.includes('position:fixed;inset:0;z-index:2000'));
 });
 console.log(count+' focus-view checks passed');
+
+check('performance score follows the complete arrangement in a flexible viewport',()=>{
+ assert.match(app,/const performanceScoreFrom=1;/);
+ assert.match(app,/const performanceScoreTo=computed\(\(\)=>project.value.bars.length\)/);
+ assert.match(app,/:playing-notes="performanceScorePlayingNotes" expanded follow-measure/);
+ assert.match(app,/\.instrument-focus-score-content>\.score-preview\{width:100%;max-width:none/);
+});
+check('bundled violin notes remain within playable range',()=>{
+ const preset=JSON.parse(fs.readFileSync(path.join(root,'src/presets/hasta-siempre-amor.json'),'utf8'));
+ for(const key of ['importedScore','generatedScore','baseScore'])for(const inst of ['Violin I','Violin II'])assert.ok(preset[key][inst].every(n=>n.pitch>=55&&n.pitch<=96));
+});
