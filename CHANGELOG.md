@@ -1,3 +1,24 @@
+## Section shortcuts and ensemble-aware transposition (2026-11-25)
+
+- Select a whole section from measure-range controls using buttons or a compact dropdown. Manual start-measure changes update the displayed section without automatically selecting its full range.
+- Preview the destination key of the opening section for each transposition interval, preserving major or minor mode.
+- Choose automatic, whole-part, phrase, individual-note or exact register strategies per instrument. Phrase optimization uses score boundaries, rests and ties, melodic intervals, instrument tessitura and ensemble crossing/unison penalties.
+- Updated About to display dated development notes as well as numbered releases. The existing package version remains unchanged; deployed builds retain their commit identifier.
+- Build and browser acceptance of these latest changes remain to be verified.
+
+## Structure, keys and adaptive transposition (2026-11-24)
+
+- Organized Structure into Form, Keys, Transpose & Adapt and Ensemble subtabs. Added matching-key section scope and explicit whole-song transposition analysis.
+- Added range-aware transposition preview and playback integration, octave corrections and optional accompaniment chord-tone suggestions.
+- Added the Hasta Siempre Amor example arrangement.
+
+## Complete score import and instrument practice improvements (2026-11-23)
+
+- Added complete MusicXML song import with independent roster, part previews and section review.
+- Added automatic chromatic tuning, live intonation feedback, target-note highlighting and fingerboard feedback.
+- Added compact karaoke harmony and optional vocal pitch contour, microphone volume envelope and raw recorded pitch contour.
+- Added tango sounding-duration options for practice and recording analysis, improved Learn layout and persistent pizzicato/arco notation.
+
 ## Instrument-specific Note Editor capture · phase 1 (2026-11-20)
 
 - Added direct violin finger-trace input on the existing string surface. Holding a note preserves written duration, moving to another fret on the same string can record a portamento **into the final written pitch**, repeated small movements can mark vibrato, and a broad returning sweep can create a tango sirena contour. An explicit Notes/Slide/Vibrato mode and a visible draft marking allow correction when automatic classification is unsuitable.

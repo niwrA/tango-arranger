@@ -408,36 +408,34 @@ function initialWorkspaceTab():WorkspaceTab{
   }catch{/* Storage may be disabled; default to the first tab. */}
   return 'structure';
 }
-type ChangelogEntry={version:string;title:string;summary:string};
+type ChangelogEntry={id:string;version:string;title:string;summary:string};
 const releaseHistory:ChangelogEntry[]=(()=>{
-  const lines=changelogMarkdown.split(/\r?\n/);
-  const entries:ChangelogEntry[]=[];
-  const seen=new Set<string>();
-  const heading=/^#{1,3}\s+(.+)$/;
-  const version=/\bv(\d+)\.(\d+)(?:\.(\d+))?\b/i;
-  for(let i=0;i<lines.length;i++){
-    const match=lines[i].match(heading);
-    if(!match)continue;
-    const number=match[1].match(version);
-    if(!number)continue;
-    const release=[number[1],number[2],number[3]??'0'].join('.');
-    if(seen.has(release))continue;
-    seen.add(release);
-    const title=match[1].replace(/^.*?\bv\d+\.\d+(?:\.\d+)?\s*[-–—·:]?\s*/i,'').trim();
-    const details:string[]=[];
-    for(let j=i+1;j<lines.length&&details.length<3;j++){
-      const line=lines[j].trim();
-      if(heading.test(line))break;
-      if(!line||line==='---'||line.startsWith('**Verification:**')||line.startsWith('**Status:**'))continue;
-      if(line.startsWith('- '))details.push(line.slice(2));
-      else if(!line.startsWith('|')&&!line.startsWith('>')&&!line.startsWith('```')&&line.length>55)details.push(line);
-    }
-    entries.push({version:release,title:title||'Release improvements',summary:details.join(' ').replace(/\*\*/g,'').replace(/`/g,'').slice(0,580)});
+ const lines=changelogMarkdown.split(/\r?\n/);
+ const entries:ChangelogEntry[]=[];
+ const seen=new Set<string>();
+ const heading=/^#{1,3}\s+(.+)$/;
+ const version=/\bv(\d+)\.(\d+)(?:\.(\d+))?\b/i;
+ for(let i=0;i<lines.length;i++){
+  const match=lines[i].match(heading);
+  if(!match)continue;
+  const number=match[1].match(version);
+  const dated=/\(\d{4}-\d{2}-\d{2}\)/.test(match[1]);
+  if(!number&&!dated)continue;
+  const release=number?[number[1],number[2],number[3]??'0'].join('.'):'';
+  const title=number?match[1].replace(/^.*?\bv\d+\.\d+(?:\.\d+)?\s*[-–—·:]?\s*/i,'').trim():match[1];
+  const id=release||title;
+  if(seen.has(id))continue;
+  seen.add(id);
+  const details:string[]=[];
+  for(let j=i+1;j<lines.length;j++){
+   const line=lines[j].trim();
+   if(heading.test(line))break;
+   if(line.startsWith('- '))details.push(line.slice(2));
+   else if(line.length>55&&!/^(\||>|\x60\x60\x60|\*\*Verification:|\*\*Status:)/.test(line))details.push(line);
   }
-  return entries.sort((a,b)=>{
-    const x=a.version.split('.').map(Number),y=b.version.split('.').map(Number);
-    return (y[0]-x[0])||(y[1]-x[1])||(y[2]-x[2]);
-  });
+  entries.push({id,version:release,title:title||'Release improvements',summary:details.join(' ').replace(/\*\*/g,'').replace(/\x60/g,'')});
+ }
+ return entries;
 })();
 const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>(initialWorkspaceTab());
 const structureSubtab=ref<'form'|'keys'|'transpose'|'ensemble'>('form');
@@ -5959,13 +5957,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="about-content-columns">
   <div class="about-grid">
     <article class="editor"><h2>Start with your song</h2><p>Enter a melody and chords in the Lead Sheet, or import MIDI or MusicXML. Define sections, measure counts, keys and your ensemble in Structure, Keys &amp; Ensemble.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
-    <article class="editor"><h2>Arrange the orchestra</h2><p>Generate parts for piano, contrabass, violins and bandoneons. Assign roles, styles, figures and articulations by section or measure in Orchestration.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
-    <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, written durations, velocities, articulations and expressive gestures. Audition notes or loop a measure while you work.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
-    <article class="editor"><h2>Listen, save and export</h2><p>Play arrangements in your browser, save songs locally, download .tango.json backups, and export native .mscz scores for MuseScore.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
+    <article class="editor"><h2>Arrange the orchestra</h2><p>Build a custom ensemble, generate parts, plan phrases and assign roles, styles, figures and articulations by section or measure. Use Transpose &amp; Adapt to preview playable registers and coordinate phrase shifts across instruments.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
+    <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, durations, lyrics, dynamics and expressive gestures. Record notes and rhythms, audition samples, and loop a measure range or whole section.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
+    <article class="editor"><h2>Listen, save and export</h2><p>Play and rehearse arrangements with instrument diagrams, karaoke, microphone pitch feedback and tuning tools. Save songs locally, download .tango.json backups and export MuseScore scores.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
-  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appDisplayVersion}} · Versioned history is loaded from CHANGELOG.md.</p>
-    <div class="release-entry"><h3>Latest improvements · Not yet assigned a version</h3><p>Native .mscz crescendo and diminuendo hairpins, interactive Dynamics Timeline editing, sampled note audition, compact workspace controls, responsive About layout and restoration of the last selected tab.</p></div>
-    <div v-for="release in releaseHistory" :key="release.version" class="release-entry"><h3>v{{release.version}} · {{release.title}}</h3><p>{{release.summary}}</p></div>
+  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appDisplayVersion}} · Dated development updates and versioned history are loaded from CHANGELOG.md.</p>
+    <div v-for="release in releaseHistory" :key="release.id" class="release-entry"><h3>{{release.version?`v${release.version} · `:''}}{{release.title}}</h3><p>{{release.summary}}</p></div>
     <p class="hint">For the full technical history and verification notes, see CHANGELOG.md in the repository.</p>
   </div>
   </div>
