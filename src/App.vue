@@ -8498,4 +8498,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .app-topbar .topbar-playback .performance-topbar-button .app-icon,
  .app-topbar .topbar-playback .performance-editor-button .app-icon{width:19px;height:19px;flex:0 0 19px}
 }
+
+/* Stage transport: section buttons keep their intrinsic width; seek absorbs resizing. */
+.performance-live .performance-stage-controls{grid-template-columns:minmax(0,1fr) minmax(0,max-content) auto;gap:8px}
+.performance-live .performance-top-seek{grid-column:1;grid-row:1}
+.performance-live .performance-top-section{grid-column:2;grid-row:1;min-width:0;max-width:48vw;overflow-x:auto}
+.performance-live .performance-top-beat{grid-column:3;grid-row:1}
+.performance-live .performance-top-seek .performance-compact-seek{min-width:0}
+.performance-live .performance-section-grid{display:flex;flex-wrap:nowrap;width:max-content;min-width:0}
+.performance-live .performance-section-grid .performance-section-jump{flex:0 0 auto}
+@media(max-width:480px){
+ .performance-live .performance-stage-controls{grid-template-columns:minmax(0,1fr) auto;gap:5px}
+ .performance-live .performance-top-section{grid-column:1/-1;grid-row:2;max-width:100%}
+ .performance-live .performance-top-beat{grid-column:2;grid-row:1}
+}
 </style>
