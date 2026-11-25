@@ -280,7 +280,40 @@ export type Bar = { chord:string; melody:Note[]; section:string; pickupBeats?:nu
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
-export type Project = { version:1; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type AdaptiveTranspose = { enabled:boolean; chordToneRhythm:boolean; semitones:number };
+/** Apply register corrections before the project's non-destructive semitone transpose. */
+export function adaptTransposedScore(score:Score,project:Project):Score {
+ const settings=project.adaptiveTranspose;
+ if(!settings?.enabled||settings.semitones!==(project.transposeSemitones??0))return score;
+ const shift=settings.semitones;
+ return Object.fromEntries(Object.entries(score).map(([inst,notes])=>{
+  const [low,high]=instrumentRange(inst as Instrument);
+  return [inst,notes.map(note=>{
+   const sounding=note.pitch+shift;
+   if(sounding>=low&&sounding<=high)return note;
+   const octaveCandidates:number[]=[];
+   for(let pitch=low;pitch<=high;pitch++){
+    if((pitch-sounding)%12===0)octaveCandidates.push(pitch);
+   }
+   let candidates=octaveCandidates;
+   const measure=Math.max(0,Math.min(project.bars.length-1,Math.floor(note.start/project.beats)));
+   const role=project.measureRoles?.[`${inst}:${measure}`]??project.roles?.[project.bars[measure]?.section]?.[inst as Instrument];
+   if(settings.chordToneRhythm&&['chords','bass','harmony','fill'].includes(role??'')){
+    const chord=project.bars[measure]?.chord?.split(',')[0]??'';
+    const tones=chordTones(chord).map(pc=>(pc+shift+120)%12);
+    const chordCandidates=Array.from({length:high-low+1},(_,i)=>low+i).filter(p=>tones.includes(p%12));
+    if(chordCandidates.length)candidates=chordCandidates;
+   }
+   if(!candidates.length)return note;
+   const corrected=candidates.reduce((best,p)=>Math.abs(p-sounding)<Math.abs(best-sounding)?p:best,candidates[0]);
+   const delta=corrected-sounding;
+   return {...note,pitch:note.pitch+delta,
+     slideTo:note.slideTo===undefined?undefined:note.slideTo+delta,
+     approachSlideFrom:note.approachSlideFrom===undefined?undefined:note.approachSlideFrom+delta};
+  })];
+ })) as Score;
+}
 export const defaultArticulation=()=>({phraseBars:8,enabled:true,overrides:{} as Record<string,Exclude<Articulation,'auto'>>});
 export function transposeScore(score:Score,semitones:number):Score {
   if(!Number.isInteger(semitones)||semitones < -24||semitones > 24)throw Error('Transpose must be an integer between -24 and +24 semitones');
