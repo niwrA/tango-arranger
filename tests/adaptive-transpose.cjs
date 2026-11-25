@@ -61,3 +61,16 @@ const phraseResult=m.planRegisterTransposition(phraseScore,form,-2,{[inst]:{stra
 assert.equal(phraseResult.corrections.find(c=>c.originalPitch===59).suggestedPitch,69);
 assert.equal(phraseResult.corrections.find(c=>c.originalPitch===55).suggestedPitch,65);
 console.log('PASS score-aware phrase grouping');
+
+const optimize=(pitches)=>m.optimizePhraseOctaves(pitches.map((ps,i)=>ps.map(pitch=>note(pitch,i*2))),0,55,96);
+assert.deepEqual(optimize([[50],[65],[50]]),[12,12,12],'bridge flexible phrase without octave jumps');
+assert.deepEqual(optimize([[50],[95]]),[12,0],'range fit takes precedence over continuity');
+assert.deepEqual(optimize([[65],[70]]),[0,0],'prefer exact register when equally continuous');
+assert.deepEqual(optimize([]),[]);
+assert.deepEqual(optimize([[43,96]]),[0],'deterministic least-violation fallback');
+const globalScore={[inst]:[note(50,0),note(65,2),note(50,4),note(95,6)]};
+const globalPlan=m.planRegisterTransposition(globalScore,form,0,{[inst]:{strategy:'phrase'}});
+assert.equal(globalPlan.corrections.find(c=>c.start===2).suggestedPitch,77);
+assert.equal(globalPlan.decisions[0].unresolved,0);
+assert.equal(globalScore[inst][1].pitch,65);
+console.log('PASS global phrase register optimization');

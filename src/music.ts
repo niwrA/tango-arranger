@@ -336,6 +336,39 @@ export function phraseGroups(notes:Note[],p:Project):Note[][]{
  if(group.length)groups.push(group);
  return groups;
 }
+/** Globally choose phrase offsets. Lexicographic costs prioritize range fit,
+ * then register continuity, then minimal displacement from the requested key.
+ * A phrase that cannot fit uniformly still uses the existing note fallback. */
+export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:number,high:number):number[]{
+ const options=[0,12,-12,24,-24];
+ type Cost=[number,number,number];
+ type State={cost:Cost;previous:number};
+ const less=(a:Cost,b:Cost)=>a[0]<b[0]||(a[0]===b[0]&&(a[1]<b[1]||(a[1]===b[1]&&a[2]<b[2])));
+ const rows:State[][]=[];
+ for(let i=0;i<groups.length;i++){
+  const group=groups[i];
+  const row=options.map((offset):State=>{
+   const violations=group.filter(n=>!noteFits(n,semitones+offset,low,high)).length;
+   const displacement=Math.abs(offset)/12*group.length;
+   if(i===0)return {cost:[violations,0,displacement],previous:-1};
+   let best:State|undefined;
+   for(let j=0;j<options.length;j++){
+    const prior=rows[i-1][j].cost;
+    const cost:Cost=[prior[0]+violations,prior[1]+Math.abs(offset-options[j])/12,prior[2]+displacement];
+    if(!best||less(cost,best.cost))best={cost,previous:j};
+   }
+   return best!;
+  });
+  rows.push(row);
+ }
+ if(!rows.length)return [];
+ let index=0;
+ const last=rows[rows.length-1];
+ for(let j=1;j<options.length;j++)if(less(last[j].cost,last[index].cost))index=j;
+ const result:number[]=Array(rows.length);
+ for(let i=rows.length-1;i>=0;i--){result[i]=options[index];index=rows[i][index].previous;}
+ return result;
+}
 export function planRegisterTransposition(score:Score,p:Project,semitones:number,parts:Record<string,RegisterPartSetting>={},chordToneRhythm=false):{corrections:TransposeCorrection[];decisions:RegisterDecision[]}{
  const corrections:TransposeCorrection[]=[],decisions:RegisterDecision[]=[];
  for(const [name,notes] of Object.entries(score)){
@@ -351,9 +384,8 @@ export function planRegisterTransposition(score:Score,p:Project,semitones:number
   const offsets=new Map<Note,number>();
   if(strategy==='whole'){for(const n of notes)offsets.set(n,wholeOffset);}
   else if(strategy==='phrase'){
-   for(const group of groups){const shift=bestOctave(group,semitones,low,high);
-    for(const n of group)offsets.set(n,shift??0);
-   }
+   const shifts=optimizePhraseOctaves(groups,semitones,low,high);
+   for(const [i,group] of groups.entries())for(const n of group)offsets.set(n,shifts[i]);
   }
   let unresolved=0;
   for(const n of notes){
