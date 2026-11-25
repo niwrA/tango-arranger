@@ -74,3 +74,13 @@ assert.equal(globalPlan.corrections.find(c=>c.start===2).suggestedPitch,77);
 assert.equal(globalPlan.decisions[0].unresolved,0);
 assert.equal(globalScore[inst][1].pitch,65);
 console.log('PASS global phrase register optimization');
+
+const melodicGroups=[[note(50,0)],[note(65,2)],[note(95,4)]];
+assert.deepEqual(m.optimizePhraseOctaves(melodicGroups,0,55,96),[12,0,0]);
+const comfortGroups=[[note(90,0)],[note(91,2)]];
+assert.deepEqual(m.optimizePhraseOctaves(comfortGroups,0,55,96,[60,84]),[-12,-12]);
+assert.deepEqual(m.optimizePhraseOctaves(comfortGroups,0,55,96),[0,0]);
+assert.deepEqual(m.optimizePhraseOctaves([[note(55,0)],[note(56,2)]],0,55,60,[70,80]),[0,0],'hard range wins');
+const chordGroups=[[note(50,0),note(54,0)],[note(65,2),note(69,2)],[note(95,4)]];
+assert.deepEqual(m.optimizePhraseOctaves(chordGroups,0,55,96),m.optimizePhraseOctaves(chordGroups.map(g=>[...g].reverse()),0,55,96));
+console.log('PASS melodic boundary and tessitura optimization');

@@ -336,25 +336,50 @@ export function phraseGroups(notes:Note[],p:Project):Note[][]{
  if(group.length)groups.push(group);
  return groups;
 }
-/** Globally choose phrase offsets. Lexicographic costs prioritize range fit,
- * then register continuity, then minimal displacement from the requested key.
- * A phrase that cannot fit uniformly still uses the existing note fallback. */
-export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:number,high:number):number[]{
+/** Soft, reviewable sounding-MIDI register preferences, not hard range limits.
+ * Piano and unspecified vocal types deliberately have no narrower preference. */
+export const REGISTER_TESSITURA:Partial<Record<InstrumentFamily,readonly [number,number]>>={
+ Contrabass:[31,48],Violin:[60,84],Bandoneon:[53,79],Guitar:[45,76],
+ Clarinet:[55,82],Flute:[65,89],Trumpet:[58,77],Trombone:[45,69]
+};
+/** Representative boundary pitches: median of simultaneous notes, using slide endpoints
+ * where present. This avoids treating arbitrary chord ordering as a melodic voice. */
+function registerBoundaryPitch(group:Note[],exit:boolean):number{
+ const time=(n:Note)=>exit?n.start+n.duration:n.start;
+ const edge=group.reduce((v,n)=>exit?Math.max(v,time(n)):Math.min(v,time(n)),exit?-Infinity:Infinity);
+ const pitches=group.filter(n=>Math.abs(time(n)-edge)<1e-6)
+  .map(n=>exit?n.slideTo??n.pitch:n.approachSlideFrom??n.pitch).sort((a,b)=>a-b);
+ const middle=Math.floor(pitches.length/2);
+ return pitches.length%2?pitches[middle]:(pitches[middle-1]+pitches[middle])/2;
+}
+/** Range first; then avoid newly enlarged leaps and reversals of melodic direction.
+ * Preserve register continuity before soft tessitura and displacement preferences. */
+export function optimizePhraseOctaves(groups:Note[][],semitones:number,low:number,high:number,tessitura?:readonly [number,number]):number[]{
  const options=[0,12,-12,24,-24];
- type Cost=[number,number,number];
+ type Cost=[number,number,number,number,number];
  type State={cost:Cost;previous:number};
- const less=(a:Cost,b:Cost)=>a[0]<b[0]||(a[0]===b[0]&&(a[1]<b[1]||(a[1]===b[1]&&a[2]<b[2])));
+ const less=(a:Cost,b:Cost)=>{for(let i=0;i<a.length;i++){if(a[i]!==b[i])return a[i]<b[i];}return false;};
  const rows:State[][]=[];
+ const entries=groups.map(g=>g.length?registerBoundaryPitch(g,false):0);
+ const exits=groups.map(g=>g.length?registerBoundaryPitch(g,true):0);
  for(let i=0;i<groups.length;i++){
   const group=groups[i];
   const row=options.map((offset):State=>{
    const violations=group.filter(n=>!noteFits(n,semitones+offset,low,high)).length;
    const displacement=Math.abs(offset)/12*group.length;
-   if(i===0)return {cost:[violations,0,displacement],previous:-1};
+   const comfort=tessitura?group.reduce((sum,n)=>{
+    const pitch=n.pitch+semitones+offset;
+    return sum+Math.max(0,tessitura[0]-pitch,pitch-tessitura[1])*Math.max(0,n.duration);
+   },0):0;
+   if(i===0)return {cost:[violations,0,0,comfort,displacement],previous:-1};
    let best:State|undefined;
    for(let j=0;j<options.length;j++){
     const prior=rows[i-1][j].cost;
-    const cost:Cost=[prior[0]+violations,prior[1]+Math.abs(offset-options[j])/12,prior[2]+displacement];
+    const original=entries[i]-exits[i-1],adapted=original+offset-options[j];
+    const melodic=group.length&&groups[i-1].length?
+     Math.max(0,Math.abs(adapted)-Math.max(5,Math.abs(original)))+
+     (original*adapted<0?Math.min(Math.abs(original),Math.abs(adapted)):0):0;
+    const cost:Cost=[prior[0]+violations,prior[1]+melodic,prior[2]+Math.abs(offset-options[j])/12,prior[3]+comfort,prior[4]+displacement];
     if(!best||less(cost,best.cost))best={cost,previous:j};
    }
    return best!;
@@ -384,7 +409,7 @@ export function planRegisterTransposition(score:Score,p:Project,semitones:number
   const offsets=new Map<Note,number>();
   if(strategy==='whole'){for(const n of notes)offsets.set(n,wholeOffset);}
   else if(strategy==='phrase'){
-   const shifts=optimizePhraseOctaves(groups,semitones,low,high);
+   const shifts=optimizePhraseOctaves(groups,semitones,low,high,REGISTER_TESSITURA[instrumentFamily(inst)]);
    for(const [i,group] of groups.entries())for(const n of group)offsets.set(n,shifts[i]);
   }
   let unresolved=0;
