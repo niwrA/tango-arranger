@@ -96,3 +96,7 @@ assert.equal(ensemblePlan.corrections.find(c=>c.instrument==='Violin II').sugges
 assert.equal(m.transposeKeySignature('C',5),'F');
 assert.equal(m.transposeKeySignature('Dm',-2),'Cm');
 console.log('PASS ensemble coordination and transpose keys');
+
+// A sounding C7 at -5 semitones is stored as F7 in the adapted score.
+assert.deepEqual(m.editablePitchRange(inst,[note(101,0),note(50,2)]),[50,101]);
+assert.deepEqual(m.editablePitchRange(inst,[]),m.instrumentRange(inst));

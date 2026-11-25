@@ -868,6 +868,13 @@ export function assessPianoPlayability(notes:readonly Note[],p:Pick<Project,'bea
 }
 
 export function instrumentRange(inst:Instrument):[number,number]{return INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].range;}
+/** Editing coordinates are pre-global-transpose; adapted/imported pitches can
+ * therefore lie outside the sounding instrument range. Never hide those notes. */
+export function editablePitchRange(inst:Instrument,notes:readonly Note[]):[number,number]{
+ const [lo,hi]=instrumentRange(inst);
+ return notes.reduce<[number,number]>((range,n)=>[Math.min(range[0],n.pitch),Math.max(range[1],n.pitch)], [lo,hi]);
+}
+
 export function convertTwoFourToFour(p:Project):Project {
   if(p.beats!==2)throw Error('Only 2/4 projects can be converted to 4/4');
   if(openingPickupBeats(p))throw Error('Disable the written pickup before converting the meter');

@@ -43,7 +43,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -4553,7 +4553,7 @@ function noteBarClick(pitch:number,beat:number){
   if(index>=0)selectNoteEvent(index);
 }
 
-const noteCtx=computed(()=>noteEditorContext(project.value,noteInst.value,selectedBar.value));
+const noteCtx=computed(()=>({...noteEditorContext(project.value,noteInst.value,selectedBar.value),range:editablePitchRange(noteInst.value,score.value[noteInst.value]??[])}));
 const noteMeasure=computed(()=>[...(score.value[noteInst.value]??[])]
   .filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===selectedBar.value)
   .sort((a,b)=>a.start-b.start||a.pitch-b.pitch));
@@ -4703,14 +4703,14 @@ function pitchWindow(lo:number,hi:number,center:number):number[]{
   return Array.from({length:size},(_,i)=>start+size-1-i);
 }
 const noteRows=computed(()=>{
-  const [lo,hi]=instrumentRange(noteInst.value);
+  const [lo,hi]=noteCtx.value.range;
   return noteViewCustom.value
     ?Array.from({length:noteViewEnd.value-noteViewStart.value+1},(_,i)=>noteViewEnd.value-i)
     :pitchWindow(lo,hi,noteCenter.value);
 });
 const noteStaffViews=computed(()=>{
   if(noteInst.value!=='Piano')return [{id:'single',label:'Piano roll',clef:'',pitches:noteRows.value}];
-  const [lo,hi]=instrumentRange('Piano');
+  const [lo,hi]=editablePitchRange('Piano',score.value['Piano']??[]);
   const trebleLo=Math.max(lo,pianoSplit.value,noteViewCustom.value?noteViewStart.value:lo);
   const trebleHi=Math.min(hi,noteViewCustom.value?noteViewEnd.value:hi);
   const bassLo=Math.max(lo,noteViewCustom.value?noteViewStart.value:lo);
@@ -4725,7 +4725,7 @@ const noteStaffViews=computed(()=>{
 });
 function shiftPianoRegister(staff:'treble'|'bass',semitones:number){
   if(noteViewCustom.value){shiftNoteView(semitones);return;}
-  const [lo,hi]=instrumentRange('Piano');
+  const [lo,hi]=editablePitchRange('Piano',score.value['Piano']??[]);
   if(staff==='treble')pianoTrebleCenter.value=Math.max(Math.max(lo,pianoSplit.value)+8,Math.min(hi-8,pianoTrebleCenter.value+semitones));
   else pianoBassCenter.value=Math.max(lo+8,Math.min(Math.min(hi,pianoSplit.value-1)-8,pianoBassCenter.value+semitones));
 }
@@ -4826,13 +4826,14 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
     noteLoopFrom.value=first+1;
     noteLoopTo.value=first+count;
   }
-  const range=instrumentRange(inst);
+  const range=editablePitchRange(inst,score.value[inst]??[]);
   const existing=(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value);
   const typical=inst==='Contrabass'?43:inst==='Piano'?61:inst==='Violin I'?76:inst==='Violin II'?69:inst.startsWith('Bandoneon')?67:72;
   noteCenter.value=Math.max(range[0]+9,Math.min(range[1]-8,existing.length?Math.round(existing.reduce((sum,n)=>sum+n.pitch,0)/existing.length):typical));
   if(arrivingFromAnotherView||!noteFocusMode.value){
     noteViewCustom.value=true;
     const initial=inst==='Piano'?{start:48,end:84}:{start:Math.max(range[0],noteCenter.value-9),end:Math.min(range[1],noteCenter.value+8)};
+    for(const n of existing){initial.start=Math.min(initial.start,n.pitch);initial.end=Math.max(initial.end,n.pitch);}
     noteViewStart.value=Math.max(range[0],initial.start);
     noteViewEnd.value=Math.min(range[1],initial.end);
   }

@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Expand Note Editor pitch bounds to include existing imported and adapted notes, even when their stored pitches exceed the sounding instrument range.
+
 - Keep pitch labels and time headers visible while scrolling the note grid; use native two-axis touch scrolling instead of custom horizontal panning.
 
 - Align the five measure-range controls in a compact row, including the section selector, with responsive toolbar grouping.
