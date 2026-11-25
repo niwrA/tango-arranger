@@ -156,6 +156,7 @@ function selectProjectInEditor(p:Project){
   syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
   overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
+  noteLoopFrom.value=1;noteLoopTo.value=firstNoteSectionEnd(p.bars);
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
   leadDrafts.value={};pendingKeyChange.value=null;
 }
@@ -283,7 +284,11 @@ const noteFocusMode=ref(false);
 const noteFocusMore=ref(false);
 const noteSettingsOpen=ref(false);
 const noteLoopFrom=ref(1);
-const noteLoopTo=ref(2);
+const noteLoopTo=ref(1);
+function firstNoteSectionEnd(bars:readonly {section:string}[]):number{
+ const next=bars.findIndex(bar=>bar.section!==bars[0]?.section);
+ return Math.max(1,next<0?bars.length:next);
+}
 const noteLoopMeasure=ref(-1);
 function enterNoteFocusMode(){
   // Preserve the current editing tool when entering focus mode.
@@ -351,7 +356,7 @@ const focusVisibleMeasures=computed(()=>{
   const max=project.value.bars.length;
   const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
   const to=Math.max(from,Math.min(max,Math.round(Number(noteLoopTo.value)||from)));
-  // Two measures by default; the user's explicit start and end define the exact view.
+  // The first section is the default; explicit start and end define the exact view.
   return Array.from({length:to-from+1},(_,i)=>from-1+i);
 });
 function focusMeasureNotes(bar:number){
@@ -4857,7 +4862,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
    captureSelectedString.value=undefined;fitCaptureStrings();
   overviewFocus.value=selectedBar.value;
   if(arrivingFromAnotherView||previousBar!==selectedBar.value){
-    const count=arrivingFromAnotherView?Math.min(2,project.value.bars.length):Math.min(previousLoopLength,project.value.bars.length);
+    const count=arrivingFromAnotherView?Math.min(firstNoteSectionEnd(project.value.bars),project.value.bars.length):Math.min(previousLoopLength,project.value.bars.length);
     const first=Math.max(0,Math.min(selectedBar.value,project.value.bars.length-count));
     noteLoopFrom.value=first+1;
     noteLoopTo.value=first+count;
