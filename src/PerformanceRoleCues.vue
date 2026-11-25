@@ -8,7 +8,7 @@ import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 const props=defineProps<{
  role:string;nextRole:string;articulation:string;nextArticulation:string;
  dynamics:string;nextDynamics:string;cueStatus:string;
- currentMeasure:number;nextMeasure:number|null;focus?:boolean;chord?:string;nextChord?:string
+ currentMeasure:number;nextMeasure:number|null;focus?:boolean;chord?:string;nextChord?:string;beatGlow?:string
 }>();
 const chordRole=(role:string)=>['chords','harmony'].includes(role.toLowerCase());
 const currentChordPrimary=computed(()=>chordRole(props.role));
@@ -17,9 +17,9 @@ const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.ne
 
 <template>
  <span class="stage-role-timeline" :class="{'is-focus':focus}">
-  <span class="stage-role-current" :style="{'--dyn-alpha':stageDynamicAlpha(dynamics)}">
+  <span class="stage-role-current" :style="{'--dyn-alpha':stageDynamicAlpha(dynamics),'--role-beat-glow':beatGlow??'0.13'}">
    <span class="stage-role-eyebrow"><span>NOW · M{{currentMeasure}}</span><span class="stage-role-status">{{cueStatus}}</span></span>
-   <strong class="stage-role-name" :class="{'is-chord':currentChordPrimary}">{{currentChordPrimary?(chord||'—'):role}}</strong>
+   <strong class="stage-role-name" :style="currentChordPrimary?{'--chord-length':Math.max(2,(chord||'—').length)}:undefined" :class="{'is-chord':currentChordPrimary}">{{currentChordPrimary?(chord||'—'):role}}</strong>
    <span v-if="currentChordPrimary" class="stage-role-secondary">{{role}}</span>
    <span class="stage-role-articulation">{{articulation||'—'}}</span>
    <span class="stage-role-dynamic">
@@ -29,7 +29,7 @@ const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.ne
   </span>
   <span class="stage-role-upcoming" :style="{'--dyn-alpha':stageDynamicAlpha(nextDynamics)}">
    <span class="stage-role-eyebrow"><span>{{nextMeasure===null?'END OF SCORE':'NEXT · M'+nextMeasure}}</span></span>
-   <strong class="stage-role-next-name" :class="{'is-chord':nextChordPrimary}">{{nextMeasure===null?'—':nextChordPrimary?(nextChord||'—'):nextRole}}</strong>
+   <strong class="stage-role-next-name" :style="nextChordPrimary?{'--chord-length':Math.max(2,(nextChord||'—').length)}:undefined" :class="{'is-chord':nextChordPrimary}">{{nextMeasure===null?'—':nextChordPrimary?(nextChord||'—'):nextRole}}</strong>
    <span v-if="nextChordPrimary" class="stage-role-secondary">{{nextRole}}</span>
    <span class="stage-role-next-articulation">{{nextMeasure===null?'':nextArticulation}}</span>
    <span class="stage-role-dynamic">
@@ -87,4 +87,11 @@ const nextChordPrimary=computed(()=>props.nextMeasure!==null&&chordRole(props.ne
 .stage-role-timeline.is-focus .stage-role-next-name.is-chord{font-size:clamp(38px,7vw,108px)}
 .stage-role-timeline.is-focus .stage-role-secondary{font-size:clamp(18px,2.1vw,30px)}
 @media(max-width:550px){.stage-role-timeline.is-focus .stage-role-name.is-chord{font-size:clamp(42px,12vw,72px)}.stage-role-timeline.is-focus .stage-role-next-name.is-chord{font-size:clamp(32px,9vw,54px)}}
+/* Size the main symbol against the card itself, not the device resolution. */
+.stage-role-timeline.is-focus .stage-role-current,.stage-role-timeline.is-focus .stage-role-upcoming{container-type:size;justify-content:flex-start;box-sizing:border-box;gap:clamp(4px,1vh,12px);padding:clamp(10px,2vw,26px)}
+.stage-role-timeline.is-focus .stage-role-name.is-chord,.stage-role-timeline.is-focus .stage-role-next-name.is-chord{flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;font-size:clamp(24px,min(55cqh,calc(145cqw / var(--chord-length,3))),360px);line-height:1}
+.stage-role-timeline.is-focus .stage-role-secondary{text-align:center}
+.stage-role-timeline.is-focus .stage-role-articulation,.stage-role-timeline.is-focus .stage-role-next-articulation{min-height:0}
+.stage-role-timeline.is-focus .stage-role-current{box-shadow:inset 0 0 0 2px rgb(247 193 111 / var(--role-beat-glow)),inset 0 0 65px rgb(244 191 113 / calc(var(--role-beat-glow) * .28));border-color:rgb(247 193 111 / calc(.25 + var(--role-beat-glow)))}
+@media(prefers-reduced-motion:reduce){.stage-role-timeline.is-focus .stage-role-current{--role-beat-glow:.13!important}}
 </style>

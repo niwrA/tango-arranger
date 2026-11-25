@@ -5717,7 +5717,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          </div>
          <button v-else-if="!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
-           <PerformanceRoleCues :focus="true" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find(symbol=>symbol!=='–')??'—'"
+           <PerformanceRoleCues :focus="true" :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="performanceChordBeats.next.find(symbol=>symbol!=='–')??'—'"
              :articulation="part.articulation" :next-articulation="part.nextArticulation"
              :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
              :current-measure="performanceBar+1" :next-measure="part.hasNextMeasure?performanceBar+2:null"/>
@@ -8522,4 +8522,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .instrument-focus-dynamics-inline{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 .instrument-focus-dynamic-chip{display:inline-flex;align-items:baseline;gap:5px;border-radius:6px;padding:2px 6px;background:rgb(244 191 113 / var(--dyn-alpha,.08));color:#c7d8e2}
 .instrument-focus-dynamic-chip strong{font-size:1.1em}
+</style>
+
+<style scoped>
+.instrument-focus-role-switch{max-width:none;width:100%;padding:clamp(5px,1vw,14px)}
 </style>
