@@ -162,7 +162,7 @@ function signed(value:number,places=2){
    </div>
   </div>
   <div class="practice-roll">
-   <div class="practice-lane-labels"  :style="{'--pitch-lane':showPitchTrace&&pitchFrames?.length?'120px':'0px','--volume-lane':showVolumeTrace&&pitchFrames?.length?'100px':'0px'}" aria-hidden="true"><span>Measure</span><span>Expected</span><span>Detected</span><span v-if="showPitchTrace&&pitchFrames?.length">Pitch trace</span><span v-if="showVolumeTrace&&pitchFrames?.length">Volume (dBFS)</span></div>
+   <div class="practice-lane-labels" :style="{'--trace-lane':(showPitchTrace||showVolumeTrace)&&pitchFrames?.length?'120px':'0px'}" aria-hidden="true"><span>Measure</span><span>Expected</span><span>Detected</span><span v-if="(showPitchTrace||showVolumeTrace)&&pitchFrames?.length" class="practice-combined-label"><b v-if="showPitchTrace" class="practice-pitch-label">Pitch</b><b v-if="showVolumeTrace" class="practice-volume-label">Volume (dBFS)</b></span></div>
    <div ref="scroller" class="practice-roll-scroll" role="region" aria-label="Scrollable measure timeline" tabindex="0" @scroll.passive="syncScroll">
     <div class="practice-roll-content" :style="{width:`calc(${timeline.span} * var(--beat-width))`,'--measure-width':`calc(${beats} * var(--beat-width))`}">
      <div class="practice-ruler">
@@ -178,17 +178,13 @@ function signed(value:number,places=2){
        :aria-label="`${measureLabel(Math.floor(note.start/beats))}, ${lane} ${pitch(note.pitch)}, ${feedbackStatuses[note.status]}`"
        :title="`${pitch(note.pitch)} · ${feedbackStatuses[note.status]}`" @click="selected=note.row">{{pitch(note.pitch)}}</button>
      </div>
-     <div v-if="showPitchTrace&&pitchFrames?.length" class="practice-trace-track" role="img" :aria-label="`Recorded pitch contour from ${trace.low} to ${trace.high} MIDI, ${trace.points} reliable frames; gaps and large jumps are not connected`">
+     <div v-if="(showPitchTrace||showVolumeTrace)&&pitchFrames?.length" class="practice-trace-track" role="img" :aria-label="`Recording traces on a shared time axis. ${showPitchTrace?'Pitch: '+pitch(trace.low)+' to '+pitch(trace.high)+'. ':''}${showVolumeTrace?'Microphone level: '+volumeTrace.floor+' to '+volumeTrace.ceiling+' dBFS (not calibrated loudness).':''}`">
       <svg viewBox="0 0 1000 120" preserveAspectRatio="none" aria-hidden="true">
-       <path v-for="(segment,index) in trace.segments" :key="index" :d="segment" class="practice-pitch-path"/>
+       <g v-if="showVolumeTrace"><path v-for="(segment,index) in volumeTrace.segments" :key="index" :d="segment" class="practice-volume-path"/></g>
+       <g v-if="showPitchTrace"><path v-for="(segment,index) in trace.segments" :key="index" :d="segment" class="practice-pitch-path"/></g>
       </svg>
-      <span class="practice-trace-range">{{pitch(trace.high)}} – {{pitch(trace.low)}}</span>
-     </div>
-     <div v-if="showVolumeTrace&&pitchFrames?.length" class="practice-volume-track" role="img" :aria-label="`Microphone signal level from ${volumeTrace.floor} to ${volumeTrace.ceiling} dBFS, ${volumeTrace.points} frames; not calibrated acoustic loudness`">
-      <svg viewBox="0 0 1000 120" preserveAspectRatio="none" aria-hidden="true">
-       <path v-for="(segment,index) in volumeTrace.segments" :key="index" :d="segment" class="practice-volume-path"/>
-      </svg>
-      <span class="practice-trace-range">{{volumeTrace.ceiling}} to {{volumeTrace.floor}} dBFS</span>
+      <span v-if="showPitchTrace" class="practice-trace-range practice-pitch-label">{{pitch(trace.high)}} – {{pitch(trace.low)}}</span>
+      <span v-if="showVolumeTrace" class="practice-trace-range practice-volume-label practice-volume-range">{{volumeTrace.ceiling}} to {{volumeTrace.floor}} dBFS</span>
      </div>
     </div>
    </div>
@@ -236,7 +232,7 @@ function signed(value:number,places=2){
 .practice-timeline-navigation button{min-height:36px;min-width:38px;padding:4px}
 .practice-roll{display:grid;grid-template-columns:auto minmax(0,1fr);min-width:0;border:1px solid #405c70;border-radius:8px;background:#102330}
 .practice-lane-labels{display:grid;grid-template-rows:29px 40px 40px;background:#142a38;border-right:1px solid #527083;border-radius:8px 0 0 8px}
-.practice-lane-labels{grid-template-rows:29px 40px 40px var(--pitch-lane,0px) var(--volume-lane,0px)}
+.practice-lane-labels{grid-template-rows:29px 40px 40px var(--trace-lane,0px)}
 .practice-trace-options{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap}
 .practice-trace-toggle{display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:#d8e8f0;font-size:12px}
 .practice-trace-toggle input{width:17px;height:17px;accent-color:#e7c98b}
@@ -248,6 +244,10 @@ function signed(value:number,places=2){
 .practice-volume-track svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .practice-volume-path{fill:none;stroke:#75d7c1;stroke-width:2.2;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
 .practice-trace-range{position:absolute;right:5px;top:3px;font-size:10px;color:#c5d9e5;pointer-events:none;background:#172d3bcc;padding:2px}
+.practice-lane-labels .practice-combined-label{flex-direction:column;justify-content:center;align-items:flex-start;gap:5px}
+.practice-pitch-label{color:#f6d087!important}
+.practice-volume-label{color:#75d7c1!important}
+.practice-volume-range{top:auto;bottom:3px}
 .practice-lane-labels span{display:flex;align-items:center;padding:0 8px;color:#d5e5ef;font-size:11px;font-weight:650}
 .practice-roll-scroll{--beat-width:clamp(39px,5.5vw,66px);min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-color:#6b91a4 #152c3a}
 .practice-roll-scroll:focus-visible{outline:2px solid #e9c684;outline-offset:2px}

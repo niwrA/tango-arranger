@@ -138,7 +138,7 @@ function detection(pitch,startBeat,durationBeats=.5){
  assert.deepEqual(pulse(3.5,3,6,33),{phase:'recording',measure:34,beat:1,progress:.5});
  assert.equal(pulse(6,3,6,33).phase,'finish');
 }
-const {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt}=load('src/practiceTargets.ts');
+const {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt,practiceAttackDuration}=load('src/practiceTargets.ts');
 const bass={pitch:48,start:0,duration:1};
 const middle={pitch:55,start:0,duration:1};
 const treble={pitch:72,start:0,duration:1};
@@ -173,3 +173,18 @@ const doc=new DOMParser().parseFromString(xml,'application/xml');
 const written=Array.from(doc.getElementsByTagName('note')).filter(note=>note.getElementsByTagName('pitch').length);
 assert.deepEqual(written.map(note=>[note.getElementsByTagName('octave')[0].textContent,note.getElementsByTagName('staff')[0].textContent]),[['3','1'],['5','2']]);
 console.log('Learn pitch reference, sensitivity, target highlighting and shared range checks passed');
+
+// Adjacent same-pitch attacks and overlapping written events remain distinct.
+const repeated=[{pitch:60,start:0,duration:1.25},{pitch:60,start:1,duration:1},{pitch:60,start:2,duration:.5}];
+assert.equal(practiceTargets(repeated,'Violin I',60,'all','highest').targets.length,3);
+assert.equal(practiceAttackDuration(repeated,repeated[0],1.25),1);
+assert.deepEqual(practiceNotesSoundingAt(repeated,1),[repeated[1]]);
+assert.deepEqual(practiceNotesSoundingAt(repeated,2),[repeated[2]]);
+const learnUi=fs.readFileSync('src/InstrumentLearnView.vue','utf8');
+const traceUi=fs.readFileSync('src/PracticeTakeTimeline.vue','utf8');
+assert.ok(learnUi.includes('aria-label="Close recording results"'));
+assert.ok(learnUi.includes('Show last recording'));
+assert.ok(learnUi.includes('feedbackOpen.value=true'));
+assert.ok(traceUi.includes('--trace-lane'));
+assert.ok(traceUi.includes('v-if="showVolumeTrace"><path'));
+assert.ok(traceUi.includes('v-if="showPitchTrace"><path'));

@@ -41,6 +41,15 @@ export function bandoneonPracticeHands(notes:readonly Note[],instrument:Instrume
  return {left:[...left].sort((a,b)=>a-b),right:[...right].sort((a,b)=>a-b),inferred};
 }
 
-export function practiceNotesSoundingAt(notes:readonly Note[],beat:number):Note[]{
- return notes.filter(note=>note.start<=beat&&beat<note.start+note.duration);
+/** A separate attack of the same target pitch must supersede an earlier overlapping note. */
+export function practiceAttackDuration(notes:readonly Note[],note:Note,duration:number,pitchOf:(note:Note)=>number=n=>n.pitch):number{
+ let limit=duration;
+ for(const next of notes){
+  const delta=next.start-note.start;
+  if(delta>1e-6&&delta<limit&&pitchOf(next)===pitchOf(note)&&!next.xmlTieContinuation)limit=delta;
+ }
+ return limit;
+}
+export function practiceNotesSoundingAt(notes:readonly Note[],beat:number,pitchOf:(note:Note)=>number=n=>n.pitch):Note[]{
+ return notes.filter(note=>note.start<=beat&&beat<note.start+practiceAttackDuration(notes,note,note.duration,pitchOf));
 }

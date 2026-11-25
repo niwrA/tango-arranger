@@ -157,7 +157,7 @@ function highlightActiveMeasure(){
 
 function highlightPlayback(){
   const next=new Set((props.playingNotes??[]).flatMap(note=>
-    (headsByNote.get(note)??[]).filter(head=>measureGroups.some(group=>group.contains(head)))));
+    resolveNoteHeads(note).filter(head=>measureGroups.some(group=>group.contains(head)))));
   for(const head of playingHeads)if(!next.has(head))head.classList.remove('score-note-playing');
   for(const head of next)if(!playingHeads.has(head))head.classList.add('score-note-playing');
   playingHeads=next;

@@ -10,7 +10,7 @@ import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensi
 import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
 import {alignLearnTake} from './learnTake';
 import {download} from './io';
-import {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt,type ChordTarget,type PracticeStaff} from './practiceTargets';
+import {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt,practiceAttackDuration,type ChordTarget,type PracticeStaff} from './practiceTargets';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import {suggestViolinPosition} from './violinPositions';
 import MeasureRangeControl from './MeasureRangeControl.vue';
@@ -146,7 +146,7 @@ const diagramNotes=computed(()=>{
 });
 const scoreDemoNotes=computed(()=>{
  if(demoBeat.value===null)return [];
- return practiceNotesSoundingAt(targets.value,(from.value-1)*props.beatsPerMeasure+demoBeat.value);
+ return practiceNotesSoundingAt(targets.value,(from.value-1)*props.beatsPerMeasure+demoBeat.value,targetPitch);
 });
 const guideNote=computed(()=>demoPlaying.value?scoreDemoNotes.value.at(-1)??null:current.value);
 const guideMidi=computed(()=>guideNote.value?targetPitch(guideNote.value)+props.concertTranspose:null);
@@ -178,6 +178,7 @@ const takeReleaseBeats=1;
 const upcoming=computed(()=>targets.value.slice(cursor.value+1,cursor.value+4));
 const demoPlaying=ref(false);
 const takeResult=ref<ReturnType<typeof alignLearnTake>|null>(null);
+const feedbackOpen=ref(false);
 const feedbackFilter=ref<'all'|'review'>('all');
 const feedbackView=ref<'timeline'|'table'>('timeline');
 type PracticeTakeExport={
@@ -281,7 +282,7 @@ async function listenToNotes(){
   const start=ctx.currentTime+0.04;
   for(const note of targets.value){
    const at=start+(note.start-rangeStart)*secondsPerBeat;
-   const soundingBeats=previewDuration.value==='tango'?noteSoundingDuration(note):note.duration;
+   const soundingBeats=practiceAttackDuration(targets.value,note,previewDuration.value==='tango'?noteSoundingDuration(note):note.duration,targetPitch);
    const end=at+Math.max(0.01,Math.min(rangeEnd-note.start,soundingBeats)*secondsPerBeat);
    const fade=Math.min(0.035,(end-at)/3);
    const tone=ctx.createOscillator(),gain=ctx.createGain();
@@ -329,6 +330,7 @@ function finishTake(analysisHalfWindowMs:number){
  });
  const alignment=alignLearnTake(expected,performed,allowAnyOctave.value);
  takeResult.value=alignment;
+ feedbackOpen.value=true;
  feedbackFilter.value='all';
  takeExport.value={
   version:1,song:props.songTitle,instrument:props.instrument,recordedAt:new Date().toISOString(),
@@ -585,9 +587,11 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
    </div>
   </div>
-  <section v-if="takeResult" class="learn-feedback" aria-label="Feedback from your last recording">
+  <button v-if="takeResult&&!feedbackOpen" type="button" class="secondary learn-feedback-reopen" @click="feedbackOpen=true">Show last recording</button>
+  <section v-if="takeResult&&feedbackOpen" class="learn-feedback" aria-label="Feedback from your last recording" @keydown.esc.stop.prevent="feedbackOpen=false">
    <div class="learn-feedback-actions">
     <h3>Last recording</h3>
+    <button type="button" class="secondary" aria-label="Close recording results" @click="feedbackOpen=false">✕ Close</button>
     <div class="learn-feedback-switch" role="group" aria-label="Recording feedback view">
      <button type="button" :class="feedbackView==='timeline'?'primary':'secondary'" :aria-pressed="feedbackView==='timeline'" @click="feedbackView='timeline'">Timeline</button>
      <button type="button" :class="feedbackView==='table'?'primary':'secondary'" :aria-pressed="feedbackView==='table'" @click="feedbackView='table'">Note details</button>
@@ -690,7 +694,9 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-navigation{justify-content:center}
 .learn-mic-instructions{margin:0;text-align:center;font-size:12px;color:#b7cbd8}
 .learn-target .learn-companion-notes{max-width:100%;overflow-wrap:anywhere;color:#aebfcd}
-.learn-feedback{min-width:0;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
+.learn-feedback{min-width:0;flex:0 0 auto;max-height:45dvh;overflow:auto;box-sizing:border-box;border:1px solid #526c7d;border-radius:9px;background:#1a2c39;padding:10px}
+.learn-feedback-reopen{flex:0 0 auto;align-self:flex-start}
+.learn-workspace:has(>.learn-feedback)>.learn-display{min-height:220px}
 .learn-feedback-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px}
 .learn-feedback-actions h3{margin-right:auto}
 .learn-feedback-switch{display:flex;gap:4px}
