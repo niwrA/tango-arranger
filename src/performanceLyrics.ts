@@ -5,6 +5,7 @@
 export type PerformanceLyricNote={
  start:number;
  duration:number;
+ pitch?:number;
  lyric?:string;
  lyric2?:string;
  syllabic?:'single'|'begin'|'middle'|'end';
