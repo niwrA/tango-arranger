@@ -1,5 +1,7 @@
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
+- Improve imported violin editions with melodic contour, fingering-cost and harmony-aware voice selection, preserve syncopations and simple open-string double stops; infer missing chord symbols from ensemble evidence on complete-score import.
+
 - Derive simplified practice editions from imported advanced parts, preserving the original and recovering empty unedited alternatives.
 
 - Remove three below-range Violin II recognition artifacts from the bundled Hasta Siempre Amor score; show a responsive full-arrangement score with system following in Performance focus.

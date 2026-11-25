@@ -2,7 +2,7 @@
  * The legacy generatedScore/importedScore/protectedBars fields remain the
  * authoritative *active* workspace; other variants are durable snapshots.
  * Keeping this boundary makes old .tango files and existing editors work. */
-import {generate,mergeScores,projectInstruments,instrumentFamily,instrumentRange,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
+import {generate,mergeScores,projectInstruments,instrumentFamily,instrumentRange,chordAt,chordTones,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
 import {validatePhrasePlan,type PhrasePlan} from './phrasePlan';
 
 export const EDITION_LEVELS:readonly Difficulty[]=['easy','intermediate','advanced'];
@@ -108,23 +108,44 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
  const floor=low;
  const ordered=copyNotes(source).sort((a,b)=>a.start-b.start||b.pitch-a.pitch);
  const result:Note[]=[];
- for(const n of ordered){
-  if(violin&&result.some(r=>Math.abs(r.start-n.start)<1e-7))continue;
-  const previous=result[result.length-1];
-  const candidates=[0,-12,12,-24,24].map(o=>n.pitch+o).filter(x=>x+shift>=floor&&x+shift<=ceiling);
-  if(candidates.length)n.pitch=candidates.sort((a,b)=>Math.abs(a-n.pitch)-Math.abs(b-n.pitch)||Math.abs(a-(previous?.pitch??n.pitch))-Math.abs(b-(previous?.pitch??n.pitch)))[0];
-  if(violin){
-   delete n.stringMidi;delete n.handPosition;delete n.finger;
-   delete n.slideTo;delete n.approachSlideFrom;delete n.gesture;
-   delete n.xmlTieContinuation;
-   if(level==='easy')delete n.vibrato;
-   if(previous&&previous.start+previous.duration>n.start)previous.duration=n.start-previous.start;
-   const short=level==='easy'?0.5:0.25;
-   if(previous&&n.duration<short&&Math.abs(previous.start+previous.duration-n.start)<1e-7&&Math.floor(previous.start/p.beats)===Math.floor(n.start/p.beats)&&!n.accent&&!n.lyric&&!n.lyric2){
-    previous.duration+=n.duration;continue;
-   }
+ const groups:Note[][]=[];
+ for(const n of ordered){const last=groups.at(-1);if(last&&Math.abs(last[0].start-n.start)<1e-7)last.push(n);else groups.push([n]);}
+ let previous:Note|undefined,previousOriginal:number|undefined;
+ const pc=(n:number)=>(n%12+12)%12;
+ const positions=(pitch:number)=>[55,62,69,76].flatMap((open,string)=>pitch>=open&&pitch<=open+12?[{string,position:Math.max(0,pitch-open-4)}]:[]);
+ let lastFinger:{string:number;position:number}|undefined;
+ for(let g=0;g<groups.length;g++){
+  const group=groups[g],start=group[0].start,bar=p.bars[Math.floor(start/p.beats)];
+  const chord=bar?chordAt(bar.chord,start%p.beats,p.beats):'';
+  const harmony=chord?chordTones(chord):[];
+  const role=bar?p.roles?.[bar.section]?.[inst]:undefined;
+  const ranked=[...group].sort((a,b)=>{
+   const weight=(n:Note)=> (n.accent?3:0)+(n.lyric?5:0)+Math.min(2,n.duration)+(role==='harmony'&&harmony.includes(pc(n.pitch))?2:0)-(previousOriginal===undefined?0:Math.abs(n.pitch-previousOriginal)*.08);
+   return weight(b)-weight(a)||b.pitch-a.pitch;
+  });
+  const chosen=violin?[ranked[0]]:group;
+  if(violin&&level==='intermediate'&&group.length>1){
+   const a=chosen[0],b=ranked.slice(1).find(n=>Math.abs(n.duration-a.duration)<1e-7&&[55,62,69,76].some(open=>[55,62,69,76].some(other=>Math.abs(open-other)===7&&Math.min(a.pitch+shift,n.pitch+shift)===Math.min(open,other)&&Math.max(a.pitch+shift,n.pitch+shift)===Math.max(open,other))));
+   if(b)chosen.push(b);
   }
-  n.source='generated';result.push(n);
+  const primary=chosen[0],original=primary.pitch;
+  const short=level==='easy'?0.5:0.25;
+  const next=groups[g+1]?.[0];
+  const ornamental=violin&&chosen.length===1&&previous&&next&&primary.duration<short&&!primary.accent&&!primary.lyric&&!primary.lyric2&&Math.abs(start-Math.round(start))>1e-7&&Math.abs(previous.start+previous.duration-start)<1e-7&&Math.floor(previous.start/p.beats)===Math.floor(start/p.beats)&&Math.floor(next.start/p.beats)===Math.floor(start/p.beats)&&Math.abs(original-(previousOriginal??original))<=2&&Math.abs(next.pitch-original)<=2;
+  if(ornamental&&previous){previous.duration+=primary.duration;continue;}
+  if(violin)for(const r of result.slice(-2))if(r.start<start&&r.start+r.duration>start)r.duration=start-r.start;
+  for(const n of chosen){
+   const candidates=[0,-12,12,-24,24].map(o=>n.pitch+o).filter(x=>x+shift>=floor&&x+shift<=ceiling);
+   const cost=(x:number)=>Math.abs(x-n.pitch)*.25+(previous?Math.abs((x-previous.pitch)-(original-(previousOriginal??original)))*.8:0)+(violin?Math.min(12,...positions(x+shift).map(f=>f.position*.7+(lastFinger?Math.abs(f.position-lastFinger.position)*.6+Math.abs(f.string-lastFinger.string)*.5:0))):0);
+   if(candidates.length&&chosen.length===1)n.pitch=candidates.sort((a,b)=>cost(a)-cost(b))[0];
+   if(violin){
+    delete n.stringMidi;delete n.handPosition;delete n.finger;delete n.slideTo;delete n.approachSlideFrom;delete n.gesture;delete n.xmlTieContinuation;
+    if(level==='easy')delete n.vibrato;
+   }
+   n.source='generated';result.push(n);
+  }
+  previous=primary;previousOriginal=original;
+  lastFinger=positions(primary.pitch+shift).sort((a,b)=>a.position-b.position)[0];
  }
  return result.filter(n=>n.duration>0);
 }

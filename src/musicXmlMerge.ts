@@ -48,11 +48,12 @@ export function chordEstimate(parsed:ParsedMusicXml,measure:number,partIndex:num
  const actual=parsed.chords[measure]??'';
  if(actual.trim())return {chord:actual,confidence:1,explicit:true};
  const info=parsed.measures[measure];
- const notes=(parsed.parts[partIndex]?.notes??[]).filter(n=>!!info&&n.start>=info.offset-1e-7&&n.start<info.offset+info.beats-1e-7);
+ const notes=(partIndex<0?parsed.parts.flatMap(part=>part.notes):parsed.parts[partIndex]?.notes??[]).filter(n=>!!info&&n.start+n.duration>info.offset+1e-7&&n.start<info.offset+info.beats-1e-7);
  if(!notes.length)return {chord:'',confidence:0,explicit:false};
  const hist=notePitchClasses(notes,info.offset,info.offset+info.beats);
  const bass=notes.filter(n=>n.pitch<=60).sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  const bassPc=bass.length?mod(bass[0].pitch):null;
+ if(partIndex<0&&hist.filter(w=>w>0).length<3)return {chord:'',confidence:0,explicit:false};
  const total=hist.reduce((sum,val)=>sum+val,0)||1;
  const weights:Array<{chord:string;score:number}>=[];
  for(let root=0;root<12;root++)for(const [quality,steps] of candidateQualities){
@@ -63,6 +64,7 @@ export function chordEstimate(parsed:ParsedMusicXml,measure:number,partIndex:num
   weights.push({chord:noteNames[root]+quality,score});
  }
  weights.sort((a,b)=>b.score-a.score);
+ if(partIndex<0&&(weights[0].score<.75||weights[0].score-weights[1].score<.025))return {chord:'',confidence:0,explicit:false};
  return {chord:weights[0].chord,confidence:Math.max(0,Math.min(.82,weights[0].score*.82)),
   explicit:false};
 }

@@ -30,7 +30,7 @@ import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import CompleteScoreImportReview from './CompleteScoreImportReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
-import {applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
+import {chordEstimate,applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
 import type {PolySynth,Synth} from 'tone';
 import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
@@ -2690,7 +2690,7 @@ async function createCompleteScore(config:{families:import('./music').Instrument
   fresh.generatedScore=Object.fromEntries(roster.map((inst,i)=>[inst,parsed.parts[i].notes.map(n=>({...n,source:'imported' as const}))]));
   fresh.protectedBars=Object.fromEntries(roster.flatMap(inst=>fresh.bars.map((_,i)=>[inst+':'+i,true])));
   for(let i=0;i<lengths.length;i++){const section=fresh.bars[config.starts[i]]?.section;if(section)fresh.roles[section]=Object.fromEntries(roster.map((inst,j)=>[inst,config.roles[j]]));}
-  for(let i=0;i<fresh.bars.length;i++){fresh.bars[i].chord=parsed.chords[i]??'';}
+  for(let i=0;i<fresh.bars.length;i++){fresh.bars[i].chord=parsed.chords[i]?.trim()||chordEstimate(parsed,i,-1).chord;}
   await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
   completeScorePreview.value=null;active.value='arrange';
   message.value='Imported complete score: '+parsed.parts.length+' preserved parts, '+parsed.measureCount+' measures, '+lengths.length+' sections. Source notes are protected against regeneration.';
