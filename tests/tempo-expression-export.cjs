@@ -191,8 +191,11 @@ test('score engraving keeps written tempo markings and omits automation text',()
  assert.equal((xml.match(/<words>rit\.<\/words>/g)||[]).length,1);
  assert.match(xml,/<words>a tempo<\/words>/);
  assert.match(xml,/<fermata type="upright"\/>/);
- assert.doesNotMatch(xml,/<words>tempo<\/words>/);
- assert.match(exportMusicXml(p,score),/<words>tempo<\/words>/);
+ assert.doesNotMatch(xml,/<words(?:\s[^>]*)?>tempo<\/words>/);
+ const full=exportMusicXml(p,score);
+ assert.match(full,/<words print-object="no">tempo<\/words>/);
+ assert.doesNotMatch(full,/<words>tempo<\/words>/);
+ assert.match(full,/<sound tempo="36"/);
 });
 function notesInNativeScore(mscx,beats){
  const doc=new DOMParser().parseFromString(mscx,'application/xml');
