@@ -15,6 +15,7 @@ const currentChordPrimary=computed(()=>chordRole(props.role));
 const upcomingRole=computed(()=>props.sameMeasureChord&&currentChordPrimary.value?props.role:props.nextRole);
 const nextChordPrimary=computed(()=>((props.sameMeasureChord&&currentChordPrimary.value)||props.nextMeasure!==null)&&chordRole(upcomingRole.value));
 const upcomingMeasure=computed(()=>props.sameMeasureChord&&currentChordPrimary.value?props.currentMeasure:props.nextMeasure);
+const upcomingLabel=computed(()=>upcomingMeasure.value===null?'END OF SCORE':props.sameMeasureChord&&currentChordPrimary.value?'NEXT · M'+props.currentMeasure+' · BEAT '+props.nextChordBeat:'NEXT · M'+props.nextMeasure);
 </script>
 
 <template>
@@ -30,7 +31,7 @@ const upcomingMeasure=computed(()=>props.sameMeasureChord&&currentChordPrimary.v
    </span>
   </span>
   <span class="stage-role-upcoming" :style="{'--dyn-alpha':stageDynamicAlpha(sameMeasureChord&&currentChordPrimary?dynamics:nextDynamics)}">
-   <span class="stage-role-eyebrow"><span>{{upcomingMeasure===null?'END OF SCORE':sameMeasureChord&&currentChordPrimary?'NEXT · M'+currentMeasure+' · BEAT '+nextChordBeat:'NEXT · M'+nextMeasure}}</span></span>
+   <span class="stage-role-eyebrow"><span>{{upcomingLabel}}</span></span>
    <strong class="stage-role-next-name" :style="nextChordPrimary?{'--chord-length':Math.max(2,(nextChord||'—').length)}:undefined" :class="{'is-chord':nextChordPrimary}">{{upcomingMeasure===null?'—':nextChordPrimary?(nextChord||'—'):upcomingRole}}</strong>
    <span v-if="nextChordPrimary" class="stage-role-secondary">{{upcomingRole}}</span>
    <span class="stage-role-next-articulation">{{upcomingMeasure===null?'':sameMeasureChord&&currentChordPrimary?articulation:nextArticulation}}</span>

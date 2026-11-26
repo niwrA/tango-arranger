@@ -27,6 +27,7 @@ import {DEFAULT_A4_HZ,MIN_A4_HZ,MAX_A4_HZ,validReferenceHz,tuningReferenceFor} f
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import SectionRangePicker from './SectionRangePicker.vue';
 import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
+import EnsembleImportReview from './EnsembleImportReview.vue';
 import CompleteScoreImportReview from './CompleteScoreImportReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
@@ -470,6 +471,7 @@ watch(active,tab=>{
 watch(selectedBar,measure=>{try{localStorage.setItem('tango-last-measure',String(measure));}catch{/* Storage disabled. */}});
 const message=ref('New blank tango: five sections of sixteen measures. Enter chords and melody, or import a song.');const importMode=ref<'melody'|'score'|'merge'>('melody');
 const pendingParsed=ref<ParsedMusicXml|null>(null);
+const pendingEnsemble=ref<{name:string;parsed:ParsedMusicXml}[]>([]);
 const pendingSourceName=ref('');
 const pendingSourceXml=ref('');const selectedTrack=ref(0);const pending=ref<{name:string;notes:Note[]}[]>([]);const pendingChords=ref<string[]>([]);const pendingKeys=ref<string[]>([]);const playing=ref(false);const playbackOrigin=ref<PlaybackOrigin|null>(null);const sourceScore=computed(()=>{const base=project.value.generatedScore??generate(project.value);return project.value.importedScore&&Object.values(project.value.protectedBars??{}).some(Boolean)?mergeScores(project.value,base):base;});
 const score=computed(()=>adaptTransposedScore(sourceScore.value,project.value));
@@ -3640,10 +3642,16 @@ function exportXml(){try{const xml=exportMusicXml(project.value,score.value);con
 function exportAbcLead(){try{const filename=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();download(exportAbc(project.value,score.value),filename+'-lead-sheet.abc','text/vnd.abc');message.value='ABC lead sheet exported.';}catch(err){message.value='ABC export failed: '+String(err);}}
 async function exportForMobileSheets(){try{const filename=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();const bundle=await exportMobileSheetsBundle(project.value,score.value);download(bundle,filename+'-mobilesheets.zip','application/zip');message.value='MobileSheets bundle exported. Extract the ZIP, then import the individual ABC files into MobileSheets.';}catch(err){message.value='MobileSheets export failed: '+String(err);}}
 async function importFile(e:Event){
-  const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;
+  const files=Array.from((e.target as HTMLInputElement).files??[]);const file=files[0];if(!file)return;
   try{
+    pendingEnsemble.value=[];
     pending.value=[];pendingChords.value=[];pendingKeys.value=[];
     pendingParsed.value=null;pendingSourceName.value='';pendingSourceXml.value='';
+    if(files.length>1){
+      if(files.some(f=>/\.tango(?:\.json)?$/i.test(f.name)))throw Error('Choose score files only for ensemble import');
+      pendingEnsemble.value=await Promise.all(files.map(async f=>({name:f.name,parsed:(await readScoreImport(f)).parsed})));
+      importDialogOpen.value=true;return;
+    }
     if(/\.tango(?:\.json)?$/i.test(file.name)){
       await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);
       structureOpen.value=false;message.value='Portable project imported as a separate local song.';closeImportDialog();
@@ -3670,6 +3678,9 @@ function fillMissingPart(inst:Instrument){
   if(!window.confirm('Generate upper-staff chords in measures '+result.filled.map(i=>i+1).join(', ')+'? Existing notes are preserved. '+result.skipped.length+' measures without chords are skipped.'))return;
   project.value=result.project;message.value='Completed '+result.filled.length+' measures for '+inst+'.';
  }catch(error){message.value='Accompaniment generation failed: '+String(error);}
+}
+async function applyEnsembleImport(next:Project){
+ try{await flushAutosave();stopPlayback();project.value=next;selectedBar.value=0;overviewFocus.value=0;overviewStart.value=1;overviewEnd.value=Math.min(8,next.bars.length);chosenSection.value=next.bars[0]?.section??'A';closeImportDialog();message.value='Ensemble imported. Undo last MusicXML merge restores the previous song.';}catch(error){message.value='Import failed: '+String(error);}
 }
 async function applyMusicXmlMerge(plan:MergePlan){
  const parsed=pendingParsed.value;
@@ -3711,7 +3722,7 @@ function revertMusicXmlMerge(){
  }catch(error){message.value='Unable to restore merge backup: '+String(error);}
 }
 function closeSongSettings(){projectDrawerOpen.value=false;}
-function closeImportDialog(){importDialogOpen.value=false;pending.value=[];pendingChords.value=[];pendingKeys.value=[];pendingParsed.value=null;pendingSourceName.value='';pendingSourceXml.value='';}
+function closeImportDialog(){pendingEnsemble.value=[];importDialogOpen.value=false;pending.value=[];pendingChords.value=[];pendingKeys.value=[];pendingParsed.value=null;pendingSourceName.value='';pendingSourceXml.value='';}
 function trapModalTab(event:KeyboardEvent){
   if(event.key!=='Tab')return;
   const root=event.currentTarget as HTMLElement;
@@ -5563,11 +5574,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </section>
 </div>
 <div v-if="importDialogOpen" class="app-modal-backdrop" @click.self="closeImportDialog" @keydown.esc.stop.prevent="closeImportDialog" @keydown.tab="trapModalTab">
-  <section id="import-workflow-modal" class="app-modal" :class="{'musicxml-merge-modal':importMode==='merge'&&pendingParsed}" role="dialog" aria-modal="true" aria-labelledby="import-workflow-title">
+  <section id="import-workflow-modal" class="app-modal" :class="{'musicxml-merge-modal':(importMode==='merge'&&pendingParsed)||pendingEnsemble.length}" role="dialog" aria-modal="true" aria-labelledby="import-workflow-title">
     <div class="app-modal-heading"><div><h2 id="import-workflow-title">Import &amp; MuseScore round-trip</h2><p>Open a portable song, a melody, or an edited score.</p></div><button class="secondary icon-action modal-close" type="button" title="Close import" aria-label="Close import" @click="closeImportDialog"><AppIcon name="x"/></button></div>
     <div class="app-modal-content">
-      <label class="file-picker">Choose .tango.json, legacy .tango, MusicXML or MIDI file<input type="file" accept=".tango,.json,.xml,.musicxml,.mid,.midi" @change="importFile"/></label>
-      <div v-if="pending.length" class="import-panel" aria-label="Import track selection">
+      <label class="file-picker">Choose one or more MusicXML / MIDI files, or one portable song<input type="file" multiple accept=".tango,.json,.xml,.musicxml,.mid,.midi" @change="importFile"/></label>
+      <EnsembleImportReview v-if="pendingEnsemble.length" :project="project" :files="pendingEnsemble" @apply="applyEnsembleImport" @cancel="closeImportDialog"/>
+      <div v-else-if="pending.length" class="import-panel" aria-label="Import track selection">
         <p class="hint">{{pending.length}} part(s) detected. Choose how to apply them.</p>
         <label>Import as<select v-model="importMode"><option v-if="pendingParsed" value="merge">Align &amp; merge (review before applying)</option><option value="melody">Melody only (legacy)</option><option value="score">Edited full score (legacy positional import)</option></select></label>
         <MusicXmlMergeReview v-if="importMode==='merge'&&pendingParsed" :project="project" :parsed="pendingParsed" :source-name="pendingSourceName" @apply="applyMusicXmlMerge" @reference="keepMusicXmlReference" @cancel="closeImportDialog"/>

@@ -200,3 +200,12 @@ check('slash noteheads are rhythmic instructions, not literal pitches',()=>{
  const parsed=xml.parseMusicXmlDetailed(xmlExample().replace('<duration>2</duration><voice>1</voice>','<duration>2</duration><notehead>slash</notehead><voice>1</voice>'));
  assert.equal(parsed.parts[0].slashAttacks.length,1);assert.equal(parsed.parts[0].notes.length,15);
 });
+
+check('ensemble import aligns multiple assigned parts atomically',()=>{
+ const ensemble=load('src/ensembleImport.ts');const parsed=xml.parseMusicXmlDetailed(xmlExample());const original=music.blankProject({measures:4,beats:4});
+ const sources=['Piano','Violin I','Violin II'].map(instrument=>({name:instrument+'.xml',parsed,partIndex:0,instrument}));
+ const result=ensemble.ensemblePreview(original,sources,0,false,false);
+ assert.equal(result.project.bars.length,4);assert.equal(result.project.generatedScore.Piano.length,16);assert.equal(result.project.generatedScore['Violin II'].length,16);
+ assert.equal(merge.undoReviewedMerge(result.project).bars.length,4);
+ assert.throws(()=>ensemble.ensemblePreview(original,[sources[0],sources[0]],0,false,false),/different destination/);
+});
