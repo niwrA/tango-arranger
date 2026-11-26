@@ -38,17 +38,21 @@ check('current dynamics remain visible and upcoming changes are shown compactly 
  assert.ok(app.includes('hasNextMeasure:nextBar>bar'));
  assert.equal((app.match(/<PerformanceRoleCues /g)||[]).length,2);
  assert.ok(role.includes('NOW · M{{currentMeasure}}'));
- assert.ok(role.includes("'NEXT · M'+nextMeasure"));
- assert.ok(role.includes('stageDynamicAlpha(dynamics)'));
- assert.ok(role.includes('stageDynamicAlpha(nextDynamics)'));
- assert.ok(role.includes('stageDynamicMeter(dynamics)'));
- assert.ok(role.includes('stageDynamicMeter(nextDynamics)'));
+ assert.ok(role.includes("'NEXT · M'+props.nextMeasure"));
+ assert.ok(role.includes('stageDynamicAlpha(props.dynamics)'));
+ assert.ok(role.includes('stageDynamicAlpha(upcomingDynamic.value)'));
+ assert.ok(role.includes('stageDynamicMeter(props.dynamics)'));
+ assert.ok(role.includes('stageDynamicMeter(upcomingDynamic.value)'));
+ assert.ok(role.includes('sameChord.value?props.dynamics:props.nextDynamics'));
+ assert.ok(role.includes("upcomingMeasure.value===null?'END OF SCORE'"));
+ for(const binding of [':style="currentStyle"',':style="upcomingStyle"',':style="currentMeter"',':style="upcomingMeter"','{{upcomingLabel}}','{{currentName}}','{{upcomingName}}'])
+  assert.ok(role.includes(binding),binding);
  assert.ok(!role.includes('<button'));
 });
 check('chordal role cues prioritize chord symbols without changing chord case',()=>{
  assert.ok(role.includes("['chords','harmony'].includes(role.toLowerCase())"));
- assert.ok(role.includes("currentChordPrimary?(chord||'—'):role"));
- assert.ok(role.includes("nextChordPrimary?(nextChord||'—'):upcomingRole"));
+ assert.ok(role.includes("currentChordPrimary.value?(props.chord||'—'):props.role"));
+ assert.ok(role.includes("nextChordPrimary.value?(props.nextChord||'—'):upcomingRole.value"));
  assert.ok(role.includes('text-transform:none'));
  assert.equal((app.match(/:same-measure-chord="roleCueHarmony.sameBar"/g)||[]).length,2);
  assert.ok(role.includes("BEAT "));
