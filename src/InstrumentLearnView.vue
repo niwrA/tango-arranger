@@ -535,6 +535,12 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     </div>
     <div class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
      <div class="learn-bar-content"><span>Pitch feedback</span><strong>{{intonationFeedback}}</strong><span>{{cents!==null&&detectedPitchMatches?(cents>0?'+':'')+cents+'¢':'—'}}</span></div>
+     <div class="learn-live-pitch-scale" role="meter" aria-label="Pitch deviation from expected note" aria-valuemin="-50" aria-valuemax="50" :aria-valuenow="cents!==null&&detectedPitchMatches?Math.max(-50,Math.min(50,cents)):undefined" :aria-valuetext="cents!==null&&detectedPitchMatches?cents+' cents':intonationFeedback" :class="{'has-pitch':cents!==null&&detectedPitchMatches}">
+      <div class="learn-live-pitch-window" :style="{left:(50-tolerance)+'%',width:(2*tolerance)+'%'}"></div>
+      <div class="learn-live-pitch-center"></div>
+      <div v-if="cents!==null&&detectedPitchMatches" class="learn-live-pitch-marker" :style="{left:Math.max(0,Math.min(100,50+cents))+'%',backgroundColor:'hsl('+Math.round(145*(1-Math.min(1,Math.abs(cents)/50)))+' 78% 72%)'}"></div>
+     </div>
+     <div class="learn-live-pitch-ends" aria-hidden="true"><span>−50¢</span><span>0</span><span>+50¢</span></div>
     </div>
    </div>
     <div class="learn-tuner-meter" role="meter" :aria-label="autoTuner?'Pitch deviation from nearest chromatic note':'Pitch deviation from expected note'" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="displayedCents===null?undefined:Math.max(-50,Math.min(50,displayedCents))">
@@ -975,7 +981,13 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-bar-content{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px;text-align:center;overflow-wrap:anywhere;color:#e6eff6;font-size:12px;font-variant-numeric:tabular-nums}
 .learn-bar-content>strong{font-size:clamp(18px,2.5vw,26px);line-height:1.15;color:inherit}
 .learn-active-bars>.learn-detected-pitch.pitch-matched{background:#235447;border-color:#8ad9af}
-.learn-active-bars>.learn-live-feedback.is-flat{background:#294d75;border-color:#83bfff}
-.learn-active-bars>.learn-live-feedback.is-sharp{background:#713e34;border-color:#ff9e85}
-.learn-active-bars>.learn-live-feedback.is-correct{background:#255d46;border-color:#69d5a1}
+.learn-active-bars>.learn-live-feedback{flex-direction:column;gap:0;padding:0 6px 4px}
+.learn-active-bars>.learn-live-feedback .learn-bar-content{padding:4px 0;gap:1px}
+.learn-active-bars>.learn-live-feedback.is-correct{border-color:#69d5a1}
+.learn-live-pitch-scale{position:relative;flex:1 0 16px;min-height:16px;max-height:36px;border-radius:5px;background:linear-gradient(90deg,#b34b46 0%,#b58a42 25%,#38865d 50%,#b58a42 75%,#b34b46 100%);opacity:.45;overflow:hidden}
+.learn-live-pitch-scale.has-pitch{opacity:1}
+.learn-live-pitch-window{position:absolute;inset-block:0;border-inline:1px dashed #e1f5e8;background:#d3ffe51a}
+.learn-live-pitch-center{position:absolute;inset-block:0;left:50%;width:1px;background:#e1f5e8}
+.learn-live-pitch-marker{position:absolute;inset-block:0;width:5px;max-width:100%;border:1px solid #fff;border-radius:2px;box-shadow:0 0 4px #000;box-sizing:border-box;transform:translateX(-50%);transition:left 65ms linear,background-color 65ms linear}
+.learn-live-pitch-ends{display:flex;justify-content:space-between;gap:2px;color:#c5d5df;font-size:10px;line-height:1.2;font-variant-numeric:tabular-nums}
 </style>
