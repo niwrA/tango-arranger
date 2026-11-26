@@ -3,6 +3,7 @@ import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay,type MusicSystem} from 'opensheetmusicdisplay';
 import {exportMusicXml} from './io';
 import {midiName,type Instrument,type Note,type Project,type Score} from './music';
+import {effectiveViolinTechnique} from './phrasePlan';
 import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
 
 const props=withDefaults(defineProps<{
@@ -287,8 +288,22 @@ async function reloadScore(){
   loading.value=true;
   error.value='';
   try{
-    const colors=scoreNoteheadColors(props.score[props.instrument]??[]);
-    const xml=exportMusicXml(props.project,props.score,{onlyInstrument:props.instrument,previewNoteheadColors:colors.byNote,engravingPreview:true});
+    const sourceNotes=props.score[props.instrument]??[];
+    const displayNotes=props.instrument.startsWith('Violin')?sourceNotes.map(note=>{
+      if(note.technique)return note;
+      const measure=Math.floor((note.start+1e-7)/props.project.beats);
+      const technique=effectiveViolinTechnique(props.project,props.instrument,measure);
+      return technique==='pizzicato'||technique==='pizzicato_arpeggio'?{...note,technique:'pizzicato' as const}:note;
+    }):sourceNotes;
+    const displayScore=displayNotes.some((note,index)=>note!==sourceNotes[index])
+      ?{...props.score,[props.instrument]:displayNotes}:props.score;
+    const colors=scoreNoteheadColors(sourceNotes);
+    const displayColors=new Map<Note,string>();
+    sourceNotes.forEach((note,index)=>{
+      const color=colors.byNote.get(note);
+      if(color)displayColors.set(displayNotes[index],color);
+    });
+    const xml=exportMusicXml(props.project,displayScore,{onlyInstrument:props.instrument,previewNoteheadColors:displayColors,engravingPreview:true});
     await renderer.load(xml);
     if(current!==generation)return;
     notesByColor=colors.byColor;
