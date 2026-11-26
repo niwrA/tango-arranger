@@ -12,7 +12,11 @@ check('Voice notes show their active verse syllable instead of beat count',()=>{
  assert.ok(app.includes('lyricVerse===1?n.lyric:n.lyric2'));
  assert.ok(app.includes('lyricVerse===1?n.melisma:n.melisma2'));
  assert.ok(app.includes('class="note-bar-lyric"')||css.includes('.note-bar-lyric'));
- assert.ok(app.includes('<span v-else class="note-bar-label">{{n.duration}} beats</span>'));
+ const label=app.match(/<span v-else class="note-bar-label">([^<]+)<\/span>/)?.[1];
+ assert.ok(label,'Non-vocal note label exists');
+ assert.ok(label.includes('{{n.duration}} beats'),'Written duration remains visible');
+ assert.ok(label.includes('n.finger'),'Fingering hints remain visible');
+ assert.ok(label.includes('n.bowDirection'),'Bowing hints remain visible');
 });
 check('Transport buttons are independent, accessible and share one component',()=>{
  for(const kind of ['melody','rhythm'])assert.ok(app.includes('<LiveCaptureTransport kind="'+kind+'"'));
