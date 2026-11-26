@@ -1,21 +1,8 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
-  const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const mod={exports:{}};
-  vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console,Blob,URL,setTimeout},{filename:file})((name)=>{
-    if(imports[name])return imports[name];
-    if(name==='jszip')return class JSZip{};
-    if(name==='@tonejs/midi')return {Midi:class Midi{}};
-    throw Error('Unexpected import '+name);
-  },mod,mod.exports);
-  return mod.exports;
-}
+const load=require('./load-domain.cjs').createDomainLoader();
 const edit=load('src/noteEditing.ts');
 const music=load('src/music.ts');
 const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
@@ -52,7 +39,7 @@ test('note move and left resize persist in protected score and valid MusicXML',(
 test('Vue editor exposes separate left and right resize handles and middle move mode',()=>{
   const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
   const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
-  for(const token of ['note-resize-handle-left','note-resize-handle-right',"mode:'move'|'resize-left'|'resize-right'",'dragWrittenNotePosition(','dragWrittenNoteLeftEdge(','scroller.setPointerCapture(event.pointerId)','startLocal:note.start-selectedBar.value*project.value.beats'])assert.ok(app.includes(token),token);
+  for(const token of ['note-resize-handle-left','note-resize-handle-right',"mode:'move'|'resize-left'|'resize-right'",'dragAbsoluteNotePosition(','dragAbsoluteNoteLeftEdge(','scroller.setPointerCapture(event.pointerId)','startLocal:note.start-selectedBar.value*project.value.beats'])assert.ok(app.includes(token),token);
   for(const token of ['.note-bar .note-resize-handle-left','.note-bar .note-resize-handle-right','cursor:move'])assert.ok(css.includes(token),token);
 });
 console.log(`${passes} note move and dual-edge resize checks passed`);

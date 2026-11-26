@@ -1,16 +1,8 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
 const root=path.join(__dirname,'..');
-function load(file,imports={}){
- const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const mod={exports:{}};vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console})((name)=>{
-  if(name in imports)return imports[name];if(name==='jszip')return class JSZip{};if(name==='@tonejs/midi')return {Midi:class Midi{}};throw Error(name);
- },mod,mod.exports);return mod.exports;
-}
+const load=require('./load-domain.cjs').createDomainLoader();
 const music=load('src/music.ts');const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let count=0;function test(name,fn){fn();count++;console.log('PASS',name);}
 function project(beats=4){const p=music.blankProject({sections:1,measuresPerSection:2,beats});p.bars[0].chord='Dm,A7';p.bars[1].chord='Dm';p.roles.A.Contrabass='bass';p.instrumentSettings.Contrabass.activity=1;return p;}
@@ -30,5 +22,5 @@ test('section resize preserves bass settings and remaps overrides',()=>{const p=
 test('note editor defaults reflect bass playing technique',()=>{const p=project();p.orchestration.contrabass.A='pizzicato';const n=music.suggestedEditorNote(p,'Contrabass',0,0,40);assert.equal(n.technique,'pizzicato');});
 test('MusicXML exports pizzicato and arco directions',()=>{const p=project();p.orchestration.contrabass.A='pizzicato';p.measureBassTechniques={'Contrabass:1':'arco_legato'};const xml=io.exportMusicXml(p,music.generate(p));assert.match(xml,/<words>pizz\.<\/words>/);assert.match(xml,/<words>arco<\/words>/);});
 test('all bass styles export valid MusicXML rhythmic totals',()=>{for(const style of music.BASS_TECHNIQUES){const p=project();p.orchestration.contrabass.A=style;const xml=io.exportMusicXml(p,music.generate(p));assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,p.beats)),[],style);}});
-test('Song Overview and Orchestration expose bass technique selectors',()=>{const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');assert.match(app,/Contrabass playing style/);assert.match(app,/v-model="overviewBassTechnique"/);assert.match(app,/measureBassTechniques\[key\]/);assert.match(app,/bassTechniqueFor\(project.value,i\)/);});
+test('Song Overview and Orchestration expose bass technique selectors',()=>{const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');assert.match(app,/Contrabass playing style/);assert.match(app,/v-model="overviewBassTechnique"/);assert.match(app,/measureBassTechniques\[key\]/);assert.match(app,/plannedBassTechnique\(project.value,inst,i,plannedPhrasesByMeasure.value\[i\]\?\?null\)/);});
 console.log(`Contrabass styles: ${count} checks passed`);

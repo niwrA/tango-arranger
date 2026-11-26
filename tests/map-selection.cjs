@@ -46,7 +46,7 @@ test('real map click handler updates editor From/To and preserves settings on Sh
  const js=ts.transpileModule(handlerSource,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
  const mapRangeAnchor={value:null},overviewStart={value:1},overviewEnd={value:1},overviewInstrument={value:'Piano'},overviewFocus={value:0},selectedBar={value:0},chosenSection={value:'A'},overviewNotice={value:''},overviewRole={value:'inherit'};
  const project={value:{bars:Array.from({length:20},(_,i)=>({section:i<10?'A':'B'}))}};
- const context={mapRangeAnchor,overviewStart,overviewEnd,overviewInstrument,overviewFocus,selectedBar,chosenSection,overviewNotice,overviewRole,project,selectMapMeasure:select,
+ const context={suppressMeasureSettingsClick:false,mapRangeAnchor,overviewStart,overviewEnd,overviewInstrument,overviewFocus,selectedBar,chosenSection,overviewNotice,overviewRole,project,selectMapMeasure:select,
    focusOverview(inst,i){overviewInstrument.value=inst;overviewFocus.value=i;selectedBar.value=i;chosenSection.value=project.value.bars[i].section;overviewRole.value='chords';}};
  const click=vm.runInNewContext(`${js};selectOverviewMapCell`,context);
  click('Violin II',4,{shiftKey:false});

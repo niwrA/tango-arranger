@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
+const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8').replaceAll('\r\n','\n');
 const diagram=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');
 let count=0;function check(name,fn){fn();console.log('PASS',name);count++;}
 check('card tap and expand are separate sibling buttons',()=>{

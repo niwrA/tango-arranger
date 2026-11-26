@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
-import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,type EditCategory,type MusicalEditResult,type EditSelection} from './musicalEdit';
+import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,resolveEditSelection,type EditCategory,type MusicalEditResult,type EditSelection} from './musicalEdit';
 import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -124,6 +124,14 @@ function stopPlayback(){
   stopMicrophoneCapture();
   if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
   const wasPlayingArrangement=playing.value;
+  const wasPlayingQuickDraft=typeof quickAuditionPlaying!=='undefined'&&quickAuditionPlaying.value;
+  if(typeof quickAuditionPlaying!=='undefined'){
+    quickAuditionSession++;
+    clearTimeout(quickAuditionTimer);
+    quickAuditionOutput?.disconnect();
+    quickAuditionOutput=undefined;
+    quickAuditionPlaying.value=false;
+  }
   // Invalidate a pending Tone.start() before it can schedule anything.
   noteLoopSession++;rhythmLoopSession++;captureSession++;
   // A failed node release must not strand the flags in the recording state.
@@ -133,7 +141,7 @@ function stopPlayback(){
   // Keep the final held notes when Stop is pressed before the selected range ends.
   if(captureRecording.value)for(const id of [...heldCaptureKeys.keys()])
     safeRelease(()=>releaseCapturePianoKey({pointerId:id,type:'transport-end'} as PointerEvent));
-  if(Tone&&(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||rhythmAuditionPlaying.value!==null||capturePlaying.value)){
+  if(Tone&&(wasPlayingQuickDraft||playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value||rhythmAuditionPlaying.value!==null||capturePlaying.value)){
     safeRelease(()=>{Tone.getTransport().stop();Tone.getTransport().cancel();});
   }
   safeRelease(()=>synth?.releaseAll());
@@ -399,7 +407,6 @@ function activateGridMeasure(bar:number){
  noteSelected.value=-1;
 }
 function continuousVisibleNotes(pitch:number){
- if(quickDraft.value)return (quickDraft.value.result.score[noteInst.value]??[]).filter(n=>n.pitch===pitch&&n.start<(noteLoopTo.value)*project.value.beats&&n.start+n.duration>(noteLoopFrom.value-1)*project.value.beats);
  return noteGridNotesByPitch.value.get(pitch)??[];
 }
 function focusMeasureOnsets(bar:number){
@@ -812,6 +819,8 @@ function restoreHistory(direction:'undo'|'redo'){
   historyBaseline=snapshotProject(previous);
   restoringHistory=false;
   noteSelected.value=-1;
+  multiNoteMode.value=false;
+  multiNoteKeys.value=[];
   noteDetailsPopup.value=false;
   message.value=direction==='undo'?'Undid last edit.':'Redid last edit.';
 }
@@ -4737,7 +4746,7 @@ function noteCellClick(pitch:number,beat:number){
   if(suppressNoteClick){suppressNoteClick=false;return;}
   if(quickMode.value==='create'){quickCreate(pitch,beat);return;}
   if(quickMode.value==='erase'){const n=noteMeasure.value[noteAt(pitch,beat)];if(n)quickErase(n);return;}
-  if(multiNoteMode.value||quickScope.value==='measures')return;
+  if(multiNoteMode.value||quickScope.value!=='notes')return;
   toggleNote(pitch,beat);
 }
 function openNoteBarContext(pitch:number,beat:number,event?:MouseEvent|KeyboardEvent){
@@ -4793,7 +4802,7 @@ const noteGridNotesByPitch=computed(()=>{
  const first=noteGridMeasures.value[0],last=noteGridMeasures.value.at(-1);
  if(first===undefined||last===undefined)return byPitch;
  const beats=project.value.beats;
- for(const note of score.value[noteInst.value]??[]){
+ for(const note of quickDisplayScore.value[noteInst.value]??[]){
   if(note.start>=(last+1)*beats-1e-7||note.start+note.duration<=first*beats+1e-7)continue;
   const row=byPitch.get(note.pitch);
   if(row)row.push(note);else byPitch.set(note.pitch,[note]);
@@ -4940,36 +4949,52 @@ const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
 const multiNoteMode=ref(false);
 const multiNoteKeys=ref<string[]>([]);
 const quickNoteCategory=ref<EditCategory>('pitch');
-const quickScope=ref<'notes'|'measures'>('notes');
+const quickScope=ref<'notes'|'measures'|'phrase'|'part'>('notes');
 const quickMode=ref<'select'|'create'|'erase'>('select');
 const quickSplit=ref(false);
 watch(noteEditorTab,tab=>{if(tab!=='notes'&&tab!=='score')quickSplit.value=false;});
 const quickPreview=ref((()=>{try{return localStorage.getItem('tango-musical-edit-preview')!=='false';}catch{return true;}})());
 watch(quickPreview,v=>{try{localStorage.setItem('tango-musical-edit-preview',String(v));}catch{}});
 const quickDraft=shallowRef<{base:Project;result:MusicalEditResult}|null>(null);
+const quickDisplayScore=computed(()=>quickDraft.value?.result.score??score.value);
 const quickRole=ref<Role|'inherit'>('inherit');
 const quickPitch=ref(72),quickBeat=ref(1);
 const quickNoteKey=editNoteKey;
-const quickSelection=computed<EditSelection>(()=>quickScope.value==='measures'?{kind:'measures',from:noteLoopFrom.value-1,to:noteLoopTo.value-1}:{kind:'notes',keys:multiNoteMode.value?multiNoteKeys.value:selectedEvent.value?[quickNoteKey(selectedEvent.value)]:[]});
-const quickSelectionCount=computed(()=>quickScope.value==='measures'?noteLoopTo.value-noteLoopFrom.value+1:multiNoteMode.value?multiNoteKeys.value.length:selectedEvent.value?1:0);
+const quickSelection=computed<EditSelection>(()=>{
+ const last=Math.max(0,project.value.bars.length-1);
+ const clamp=(bar:number)=>Math.max(0,Math.min(bar,last));
+ switch(quickScope.value){
+  case 'measures':{
+   const from=clamp(noteLoopFrom.value-1);
+   return {kind:'measures',from,to:Math.max(from,clamp(noteLoopTo.value-1))};
+  }
+  case 'phrase':return {kind:'phrase',measure:clamp(selectedBar.value)};
+  case 'part':return {kind:'part'};
+  default:return {kind:'notes',keys:multiNoteMode.value?multiNoteKeys.value:selectedEvent.value?[quickNoteKey(selectedEvent.value)]:[]};
+ }
+});
+const resolvedQuickSelection=computed(()=>resolveEditSelection(project.value,score.value[noteInst.value]??[],quickSelection.value));
+const quickSelectedNotes=computed(()=>new Set(resolvedQuickSelection.value.notes));
+const quickSelectionCount=computed(()=>quickScope.value==='notes'?resolvedQuickSelection.value.notes.length:resolvedQuickSelection.value.measures.length);
 const quickCategories=computed(()=>editCategories.filter(c=>musicalEditActions(c.id,noteInst.value).length));
 const quickNoteActions=computed(()=>musicalEditActions(quickNoteCategory.value,noteInst.value));
-function quickNoteSelected(n:Note){if(quickDraft.value)return quickDraft.value.result.keys.includes(quickNoteKey(n));return quickScope.value==='measures'?n.start>=(noteLoopFrom.value-1)*project.value.beats&&n.start<noteLoopTo.value*project.value.beats:multiNoteMode.value?multiNoteKeys.value.includes(quickNoteKey(n)):selectedEvent.value===n;}
+function quickNoteSelected(n:Note){return quickDraft.value?quickDraft.value.result.keys.includes(quickNoteKey(n)):quickSelectedNotes.value.has(n);}
 function toggleQuickNote(n:Note){
  const key=quickNoteKey(n);multiNoteKeys.value=multiNoteKeys.value.includes(key)?multiNoteKeys.value.filter(k=>k!==key):[...multiNoteKeys.value,key];
 }
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
 watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
 watch([noteLoopFrom,noteLoopTo],()=>{quickDraft.value=null;});
-watch(project,()=>{quickDraft.value=null;},{flush:'sync'});
+watch(project,()=>{quickDraft.value=null;},{deep:true,flush:'sync'});
 const quickAuditionPlaying=ref(false);
 let quickAuditionTimer:ReturnType<typeof setTimeout>|undefined;
 let quickAuditionSession=0;
+let quickAuditionOutput:GainNode|undefined;
 function stopQuickAudition(){
- quickAuditionSession++;clearTimeout(quickAuditionTimer);
- if(quickAuditionPlaying.value){quickAuditionPlaying.value=false;stopPlayback();}
+ if(quickAuditionPlaying.value)stopPlayback();
+ else quickAuditionSession++;
 }
-watch(quickDraft,stopQuickAudition);
+watch(quickDraft,stopQuickAudition,{flush:'sync'});
 async function auditionQuickDraft(){
  if(quickAuditionPlaying.value){stopQuickAudition();return;}
  const draft=quickDraft.value;if(!draft)return;
@@ -4980,19 +5005,25 @@ async function auditionQuickDraft(){
   const p=draft.result.project,inst=noteInst.value,from=(noteLoopFrom.value-1)*p.beats,to=noteLoopTo.value*p.beats;
   const transpose=p.transposeSemitones??0,seconds=60/p.bpm/rehearsalSpeed.value;
   const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;
+  const context=Tone.getContext().rawContext as AudioContext;
+  const output=context.createGain();
+  output.connect(context.destination);
+  quickAuditionOutput=output;
+  quickAuditionPlaying.value=true;
   const notes=playbackNotesInRange(draft.result.score[inst]??[],from,to,transpose);
   for(const note of notes){
    const onset=Math.max(0,(note.start-from)*seconds);
    transport.scheduleOnce(time=>{
+    if(session!==quickAuditionSession)return;
     const n=note.stringGlissando?stringGlissandoPlayback(note):note;
     const duration=Math.min(noteSoundingDuration(n)*seconds,(to-n.start)*seconds);
     if(duration<=0)return;
     if(n.gesture||n.slideTo!==undefined||n.swellTo!==undefined||n.bowedTremolo)
-     playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{pitch:n.pitch+transpose,gesture:n.gesture?transposeTangoGesture(n.gesture,transpose):undefined,slideTo:n.slideTo===undefined?undefined:n.slideTo+transpose,durationSeconds:duration,velocity:noteSoundingVelocity(n),endVelocity:n.swellTo,bowedTremolo:n.bowedTremolo},time);
+     playExpressiveEvent(context,{pitch:n.pitch+transpose,gesture:n.gesture?transposeTangoGesture(n.gesture,transpose):undefined,slideTo:n.slideTo===undefined?undefined:n.slideTo+transpose,durationSeconds:duration,velocity:noteSoundingVelocity(n),endVelocity:n.swellTo,bowedTremolo:n.bowedTremolo},time,output);
     else triggerInstrument(inst,n.pitch+transpose,duration,time,noteSoundingVelocity(n)/127,n.technique);
    },onset);
   }
-  quickAuditionPlaying.value=true;transport.start('+0.05');
+  transport.start('+0.05');
   quickAuditionTimer=setTimeout(()=>{if(session===quickAuditionSession)stopQuickAudition();},(to-from)*seconds*1000+150);
  }catch(error){stopQuickAudition();message.value='Preview audition failed: '+String(error);}
 }
@@ -5002,12 +5033,15 @@ function commitQuickDraft(){
  if(draft.base!==project.value){quickDraft.value=null;message.value='Project changed; create a new preview.';return;}
  quickDraft.value=null;project.value=draft.result.project;
  if(quickScope.value==='notes'){multiNoteMode.value=true;multiNoteKeys.value=draft.result.keys;}
- message.value=draft.result.description;
+ message.value=[draft.result.description,...draft.result.warnings].join('. ');
 }
 function applyQuickNote(value:string,entry?:{bar:number;beat:number;pitch:number},override?:EditSelection,category=quickNoteCategory.value){
  try{
   const base=project.value;
-  const result=executeMusicalEdit({project:base,score:score.value,instrument:noteInst.value,selection:override??quickSelection.value,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined)},category,value);
+  if(score.value!==sourceScore.value)throw Error('Turn off adaptive register transposition before editing this score');
+  const selection=override??quickSelection.value;
+  if(category==='create'&&value==='replace'&&!quickPreview.value&&!window.confirm('Replace the written notes in the selected measures?'))return;
+  const result=executeMusicalEdit({project:base,score:score.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined)},category,value);
   quickDraft.value={base,result};
   if(!quickPreview.value)commitQuickDraft();
  }catch(error){message.value='Musical edit rejected: '+String(error);}
@@ -5048,24 +5082,20 @@ function selectNoteForEdit(note:Note,index:number){
  selectNoteEvent(index);
 }
 function startGridNoteDrag(event:PointerEvent,note:Note){
- if(quickDraft.value||mergeAnchor.value||multiNoteMode.value||quickMode.value!=='select'||quickScope.value==='measures')return;
+ if(quickDraft.value||mergeAnchor.value||multiNoteMode.value||quickMode.value!=='select'||quickScope.value!=='notes')return;
  activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
  beginNoteDrag(event,note.pitch,note.start%project.value.beats);
 }
 function selectGridNote(note:Note){
- if(quickDraft.value)return;
- if(quickMode.value==='erase'){quickErase(note);return;}
- if(quickMode.value==='create'){activateGridMeasure(Math.floor(note.start/project.value.beats));quickPitch.value=note.pitch;quickBeat.value=note.start%project.value.beats+1;return;}
- if(multiNoteMode.value){toggleQuickNote(note);return;}
- if(mergeAnchor.value){chooseMergeTarget(note);return;}
- activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
- noteBarClick(note.pitch,note.start%project.value.beats);
+ if(suppressNoteClick){suppressNoteClick=false;return;}
+ selectScoreNote(note);
 }
 function selectScoreNote(note:Note){
  if(quickDraft.value)return;
   if(quickMode.value==='erase'){quickErase(note);return;}
   if(quickMode.value==='create'){activateGridMeasure(Math.floor(note.start/project.value.beats));quickPitch.value=note.pitch;quickBeat.value=note.start%project.value.beats+1;return;}
   if(multiNoteMode.value){toggleQuickNote(note);return;}
+  if(mergeAnchor.value){chooseMergeTarget(note);return;}
   if(!(score.value[noteInst.value]??[]).includes(note))return;
   const measure=Math.floor((note.start+1e-7)/project.value.beats);
   if(measure<0||measure>=project.value.bars.length)return;
@@ -6768,9 +6798,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div v-if="noteEditorTab==='notes'||noteEditorTab==='score'" class="note-quick-tools musical-edit-tools" role="group" aria-label="Musical editing commands">
    <div class="musical-edit-row">
     <button v-for="mode in (['select','create','erase'] as const)" :key="mode" type="button" class="secondary" :aria-pressed="quickMode===mode" @click="setQuickMode(mode)">{{mode==='select'?'Select':mode==='create'?'Create':'Erase'}}</button>
-    <select v-model="quickScope" aria-label="Selection scope"><option value="notes">Notes</option><option value="measures">Measures</option></select>
+    <select v-model="quickScope" aria-label="Selection scope"><option value="notes">Notes</option><option value="measures">Measures</option><option value="phrase">Current phrase</option><option value="part">Entire part</option></select>
     <button v-if="quickScope==='notes'" type="button" class="secondary" :aria-pressed="multiNoteMode" @click="multiNoteMode=!multiNoteMode;multiNoteKeys=selectedEvent?[quickNoteKey(selectedEvent)]:[]">{{multiNoteMode?'Done selecting':'Select notes'}}</button>
-    <span class="quick-note-count" role="status">{{quickSelectionCount}} selected</span>
+    <span class="quick-note-count" role="status">{{quickSelectionCount}} {{quickScope==='notes'?'notes':'measures'}} selected</span>
     <label><input type="checkbox" v-model="quickPreview"/> Preview</label>
     <button type="button" class="secondary" :aria-pressed="quickSplit" @click="quickSplit=!quickSplit">Split</button>
    </div>
@@ -6786,6 +6816,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
    </div>
    <div v-if="quickDraft" class="musical-edit-row musical-preview-row" role="status">
     <strong>Preview · {{quickDraft.result.description}}</strong>
+    <small v-if="quickDraft.result.warnings.length">{{quickDraft.result.warnings.join('. ')}}</small>
     <button type="button" class="secondary" @click="auditionQuickDraft">{{quickAuditionPlaying?'Stop':'▶ Audition'}}</button>
     <button type="button" class="secondary" @click="quickDraft=null">Cancel</button><button type="button" class="primary" @click="commitQuickDraft">Apply</button>
    </div>
@@ -6798,7 +6829,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'||quickSplit" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDraft?.result.score??score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft?undefined:selectedEvent" :selected-notes="quickDraft?(quickDraft.result.score[noteInst]??[]).filter(n=>quickDraft?.result.keys.includes(quickNoteKey(n))):multiNoteMode||quickScope==='measures'?(score[noteInst]??[]).filter(n=>quickNoteSelected(n)):undefined"  :entry-mode="quickMode==='create'&&!quickDraft" @insert-at="insertFromScore" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
+    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft?(quickDraft.result.score[noteInst]??[]).filter(n=>quickDraft?.result.keys.includes(quickNoteKey(n))):multiNoteMode||quickScope!=='notes'?resolvedQuickSelection.notes:undefined"  :entry-mode="quickMode==='create'&&!quickDraft" @insert-at="insertFromScore" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
@@ -7128,6 +7159,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option><option :value="1/6">Sixteenth triplet</option><option :value="1/3">Eighth triplet</option><option :value="2/3">Quarter triplet</option><option :value="4/3">Half triplet</option></select></label>
       <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
       <label>Pitch labels<select v-model="editorAccidentals"><option value="auto">Follow key signature</option><option value="sharp">Use sharps (♯)</option><option value="flat">Use flats (♭)</option></select></label>
+      <label><input type="checkbox" v-model="auditionEnabled"/> Play notes when editing</label>
     </div>
 </div>
   <div class="note-tools-group note-tools-range-group" aria-label="Pitch range and octave"><div class="note-view-range-controls" aria-label="Visible pitch range">

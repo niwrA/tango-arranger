@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const cp=require('node:child_process');
 const root=path.resolve(__dirname,'..');
-const tmp=fs.mkdtempSync('/tmp/tango-rhythm-');
+const tmp=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'tango-rhythm-'));
 try{
  const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts')],{encoding:'utf8'});
  assert.equal(result.status,0,(result.error?.message||'')+'\n'+result.stdout+'\n'+result.stderr);

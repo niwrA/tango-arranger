@@ -1,20 +1,9 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
-  const source=fs.readFileSync(path.join(root,file),'utf8');
-  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const mod={exports:{}};
-  vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console},{filename:file})((name)=>{
-    if(Object.prototype.hasOwnProperty.call(imports,name))return imports[name];
-    throw Error('Unexpected import '+name);
-  },mod,mod.exports);
-  return mod.exports;
-}
+const load=createDomainLoader();
 const music=load('src/music.ts');
 const loop=load('src/measureLoop.ts',{'./music':music});
 let count=0;

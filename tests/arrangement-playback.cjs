@@ -1,11 +1,8 @@
 const assert=require('node:assert/strict');
-const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const fs=require('node:fs');const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const source=fs.readFileSync(path.join(root,'src/arrangementPlayback.ts'),'utf8');
-const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-const mod={exports:{}};vm.runInNewContext(`(function(module,exports){${code}\n})`,{})(mod,mod.exports);
-const {arrangementPlaybackWindow:window,arrangementEventTime:eventTime,arrangementCountInEnd:countInEnd}=mod.exports;
+const {arrangementPlaybackWindow:window,arrangementEventTime:eventTime,arrangementCountInEnd:countInEnd}=
+ require('./load-domain.cjs').createDomainLoader()('src/arrangementPlayback.ts');
 let checks=0;function test(name,fn){fn();console.log('PASS',name);checks++;}
 test('start at beginning schedules complete song',()=>{const w=window(80,4,120,0);assert.equal(w.startBeat,0);assert.equal(w.durationSeconds,160);assert.equal(eventTime(0,w),0);assert.equal(eventTime(6,w),3);});
 test('a whole count-in precedes the shortened pickup and section A starts on its own downbeat',()=>{

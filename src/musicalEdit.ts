@@ -1,11 +1,17 @@
 import {chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
 import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhythmEditor';
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
+import {createPhrasePlan,phraseAt} from './phrasePlan';
 export type EditCategory='pitch'|'duration'|'rhythm'|'expression'|'dynamics'|'articulation'|'finger'|'bow'|'position'|'timing'|'structure'|'role'|'create';
 export type EditAction={value:string;label:string;title:string};
-export type EditSelection={kind:'notes';keys:readonly string[]}|{kind:'measures';from:number;to:number};
-export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;replaceExisting?:boolean;entry?:{bar:number;beat:number;pitch:number}};
-export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string};
+export type EditSelection=
+ |{kind:'notes';keys:readonly string[]}
+ |{kind:'measures';from:number;to:number}
+ |{kind:'range';fromBeat:number;toBeat:number}
+ |{kind:'phrase';measure:number}
+ |{kind:'part'};
+export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:{bar:number;beat:number;pitch:number}};
+export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[]};
 export const editNoteKey=(n:Note)=>n.start+':'+n.pitch;
 const action=(value:string,label:string,title=label):EditAction=>({value,label,title});
 const roles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];
@@ -29,12 +35,52 @@ export function musicalEditActions(category:EditCategory,inst:Instrument):EditAc
  }
 }
 function clearExpression(n:Note){delete n.gesture;delete n.slideTo;delete n.approachSlideFrom;delete n.stringGlissando;delete n.bowedTremolo;delete n.pianoGlissando;delete n.vibrato;delete n.swellTo;}
+/** Ranges are half-open in beats. An attack belongs to the range it starts in. */
+export function resolveEditSelection(p:Project,notes:readonly Note[],selection:EditSelection){
+ const measureOf=(start:number)=>Math.floor((start+1e-7)/p.beats);
+ if(selection.kind==='notes'){
+  const keys=new Set(selection.keys);
+  const chosen=notes.filter(note=>keys.has(editNoteKey(note)));
+  return {notes:chosen,measures:[...new Set(chosen.map(note=>measureOf(note.start)))]};
+ }
+ let from=0,to=p.bars.length-1;
+ let fromBeat=0,toBeat=p.bars.length*p.beats;
+ if(selection.kind==='range'){
+  ({fromBeat,toBeat}=selection);
+  if(!Number.isFinite(fromBeat)||!Number.isFinite(toBeat)||fromBeat<0||toBeat>p.bars.length*p.beats||fromBeat>=toBeat)
+   throw Error('Beat range is outside the song');
+  from=Math.floor(fromBeat/p.beats);
+  to=Math.ceil(toBeat/p.beats)-1;
+ }else{
+  if(selection.kind==='measures')({from,to}=selection);
+  if(selection.kind==='phrase'){
+   const phrase=phraseAt(p,selection.measure)??createPhrasePlan(p,p.articulation?.phraseBars??8).phrases.find(item=>item.startMeasure<=selection.measure&&item.endMeasure>=selection.measure);
+   if(!phrase)throw Error('Phrase selection is outside the song');
+   from=phrase.startMeasure;
+   to=phrase.endMeasure;
+  }
+  if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<from||to>=p.bars.length)
+   throw Error('Measure selection is outside the song');
+  fromBeat=from*p.beats;
+  toBeat=(to+1)*p.beats;
+ }
+ return {notes:notes.filter(note=>note.start>=fromBeat&&note.start<toBeat),measures:Array.from({length:to-from+1},(_,i)=>from+i)};
+}
 export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,value:string):MusicalEditResult{
  const {project:p,score, instrument:inst,selection}=ctx,notes=score[inst]??[],beats=p.beats,total=p.bars.length*beats;
+ if(!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
+ if(selection.kind==='range'&&(category==='role'||category==='rhythm'||category==='create'&&value!=='insert'))
+  throw Error('Choose whole measures for this edit');
  const barOf=(n:Note)=>Math.floor((n.start+1e-7)/beats);
- const chosen=notes.filter(n=>selection.kind==='measures'?barOf(n)>=selection.from&&barOf(n)<=selection.to:selection.keys.includes(editNoteKey(n)));
+ const {notes:chosen,measures}=resolveEditSelection(p,notes,selection);
  const selected=new Set(chosen);
- const bars=new Set(selection.kind==='measures'?Array.from({length:selection.to-selection.from+1},(_,i)=>selection.from+i):chosen.map(barOf));
+ const bars=new Set(measures);
+ if(category!=='create'&&category!=='role'){
+  // Empty measures inside a selection do not become protected edits.
+  const activeBars=new Set(chosen.map(barOf));
+  for(const bar of bars)if(!activeBars.has(bar))bars.delete(bar);
+ }
+ const warnings:string[]=[];
  let next:Project={...p},result:Note[]=[],kept:Note[]=notes.filter(n=>!selected.has(n));
  const range=instrumentRange(inst);
  const bound=(pitch:number)=>Math.max(range[0],Math.min(range[1],pitch));
@@ -43,22 +89,31 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  if(category==='create'&&value==='insert'){
   if(!ctx.entry)throw Error('Choose a pitch and onset first');
   const {bar,beat,pitch}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
+  if(!Number.isInteger(bar)||!p.bars[bar]||!Number.isFinite(beat)||beat<0||beat>=beats||!Number.isInteger(pitch)||pitch!==bound(pitch))
+   throw Error('Note entry is outside the measure or instrument range');
   if(notes.some(n=>n.pitch===pitch&&Math.abs(n.start-bar*beats-beat)<1e-6))throw Error('A note already exists at that onset and pitch');
   const defaults=ctx.role?{...p,measureRoles:{...p.measureRoles,[inst+':'+bar]:ctx.role}}:p;
   result=[suggestedEditorNote(defaults,inst,bar,beat,pitch,ctx.duration)];
  }else if(category==='create'&&(value==='generate'||value==='replace')||category==='role'){
   if(!bars.size)throw Error('Select a measure range');
-  if(category==='create'&&value==='generate')for(const b of [...bars])if(notes.some(n=>barOf(n)===b))bars.delete(b);
-  if(!bars.size)throw Error('All selected measures already contain notes; use Replace with role explicitly');
   const overrides={...p.measureRoles};
-  for(const b of bars)if(category==='role'||ctx.role)overrides[inst+':'+b]=(category==='role'?value:ctx.role) as Role;
+  if(category==='role'){
+   for(const b of bars)overrides[inst+':'+b]=value as Role;
+   return {project:{...p,generatedScore:p.generatedScore??score,measureRoles:overrides},score,keys:chosen.map(editNoteKey),count:chosen.length,description:'Changed role in '+bars.size+' measure(s)',affectedMeasures:[...bars],warnings};
+  }
+  if(value==='generate'){
+   for(const b of bars)if(p.protectedBars[inst+':'+b]||notes.some(n=>n.start<(b+1)*beats&&n.start+n.duration>b*beats)){
+    bars.delete(b);
+    warnings.push('Skipped occupied or protected measure '+(b+1));
+   }
+   if(!bars.size)throw Error('Selected measures already contain notes or are protected');
+  }
+  for(const b of bars)if(ctx.role)overrides[inst+':'+b]=ctx.role;
   const temporary={...p,measureRoles:overrides,protectedBars:{...p.protectedBars}};
   for(const b of bars)delete temporary.protectedBars[inst+':'+b];
   const fresh=generate(temporary)[inst]??[];
   kept=notes.filter(n=>!bars.has(barOf(n)));
   result=fresh.filter(n=>bars.has(barOf(n)));
-  if(category==='role'){kept=notes.filter(n=>!bars.has(barOf(n)));result=notes.filter(n=>bars.has(barOf(n)));}
-  if(category==='role')next={...next,measureRoles:overrides};
  }else if(category==='rhythm'){
   if(!chosen.length)throw Error('Select notes or measures containing notes');
   for(const b of bars)result.push(...retimeMeasure(chosen,inst,b,beats,rhythmSlots(value as RhythmPreset,beats,inst,p.profile),'rhythm',p.pianoSplitPitch??60,undefined,value as RhythmPreset));
@@ -111,9 +166,23 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  }
  for(const n of result)bars.add(barOf(n));
  const combined=[...kept,...result];
+ const countByKey=(part:readonly Note[])=>{
+  const counts=new Map<string,number>();
+  for(const note of part){const key=editNoteKey(note);counts.set(key,(counts.get(key)??0)+1);}
+  return counts;
+ };
+ const originalCounts=countByKey(notes);
+ for(const [key,count] of countByKey(combined))
+  if(count>Math.max(1,originalCounts.get(key)??0))throw Error('Edit would place multiple notes at the same onset and pitch');
  let current=score;
+ const unchanged=new Set(kept);
  for(const bar of [...bars].sort((a,b)=>a-b)){
-  next=replaceInstrumentMeasure(next,current,inst,bar,combined.filter(n=>barOf(n)===bar));current=next.generatedScore!;
+  next=replaceInstrumentMeasure(next,current,inst,bar,combined.filter(n=>barOf(n)===bar),unchanged);current=next.generatedScore!;
  }
- return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:category+' · '+value+' · '+bars.size+' measure(s)'};
+ const affectedMeasures=new Set(bars);
+ for(const note of [...chosen.filter(note=>!unchanged.has(note)),...result]){
+  const last=Math.min(p.bars.length-1,Math.floor((note.start+note.duration-1e-8)/beats));
+  for(let bar=barOf(note);bar<=last;bar++)affectedMeasures.add(bar);
+ }
+ return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:category+' · '+value+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings};
 }

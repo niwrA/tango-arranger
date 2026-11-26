@@ -3,9 +3,9 @@ const fs=require('node:fs');
 const cp=require('node:child_process');
 const path=require('node:path');
 const root=path.resolve(__dirname,'..');
-const temp=fs.mkdtempSync('/tmp/tango-dynamics-');
+const temp=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'tango-dynamics-'));
 try{
- const result=cp.spawnSync('tsc',['--module','commonjs','--moduleResolution','node','--target','es2020','--lib','es2020,dom','--outDir',temp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','measureLoop.ts'),path.join(root,'src','io.ts')],{encoding:'utf8'});
+ const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--module','commonjs','--moduleResolution','node','--target','es2020','--lib','es2020,dom','--outDir',temp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','measureLoop.ts'),path.join(root,'src','io.ts')],{encoding:'utf8'});
  // io imports external packages; test source contracts independently when unavailable.
  const music=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
  const loop=fs.readFileSync(path.join(root,'src/measureLoop.ts'),'utf8');

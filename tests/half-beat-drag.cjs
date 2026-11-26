@@ -1,21 +1,8 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
- const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const mod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console,Blob,URL,setTimeout},{filename:file})((name)=>{
-   if(imports[name])return imports[name];
-   if(name==='jszip')return class JSZip{};
-   if(name==='@tonejs/midi')return {Midi:class Midi{}};
-   throw Error('Unexpected import '+name);
- },mod,mod.exports);
- return mod.exports;
-}
+const load=require('./load-domain.cjs').createDomainLoader();
 const edit=load('src/noteEditing.ts');
 const music=load('src/music.ts');
 const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
@@ -58,7 +45,7 @@ test('selected note can be nudged by half a beat in either direction',()=>{
 test('short note grips do not cover the central drag target',()=>{
  assert.match(css,/\.note-bar \.note-resize-handle\{width:10px/);
  assert.match(css,/\.note-bar\{padding-left:11px;padding-right:11px\}/);
- assert.match(vue,/@pointerdown="beginNoteDrag\(\$event,pitch,n\.start-selectedBar\*project\.beats\)"/);
+ assert.match(vue,/@pointerdown="startGridNoteDrag\(\$event,n\)"/);
 });
 test('grid resolution can be changed manually',()=>{
  assert.match(vue,/Drag snap resolution<select v-model\.number="noteStep"/);

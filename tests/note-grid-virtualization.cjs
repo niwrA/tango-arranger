@@ -56,7 +56,7 @@ assert.ok(enterFocus,'Focus entry function is present');
 assert.doesNotMatch(enterFocus,/noteEditorTab\.value\s*=\s*'notes'/,'entering focus keeps the selected tool');
 assert.match(vue,/\.note-editor-section\.note-focus-mode>\.note-subtabs\{\s*display:flex!important/,'Focus has visible tool tabs');
 for(const tab of ['notes','score','capture','figures','expression']){
-  assert.ok(vue.includes(`<section id="note-panel-${tab}" v-show="noteEditorTab==='${tab}'"`),`Focus retains the ${tab} tool panel`);
+  assert.ok(vue.includes(`<section id="note-panel-${tab}" v-show="noteEditorTab==='${tab}'${tab==='notes'||tab==='score'?'||quickSplit':''}"`),`Focus retains the ${tab} tool panel`);
 }
 assert.match(vue,/<ScorePreview[^>]*:from-measure="noteLoopFrom" :to-measure="noteLoopTo"/,'Score follows the Note Editor range');
 assert.doesNotMatch(styles,/\.note-focus-mode[^\n]*\.note-subtabs\{display:none!important\}/,'global styles must not hide focus tabs');

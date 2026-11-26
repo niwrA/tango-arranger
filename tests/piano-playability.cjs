@@ -1,12 +1,7 @@
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),cp=require('node:child_process');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(__dirname,'..');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
-const source=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
-const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-const mod={exports:{}};
-vm.runInNewContext('(function(require,module,exports){'+compiled+'\n})',{console},{filename:'src/music.ts'})(
- name=>{throw Error('Unexpected import '+name);},mod,mod.exports);
-const m=mod.exports;
+const {createDomainLoader}=require('./load-domain.cjs');
+const m=createDomainLoader()('src/music.ts');
 let checks=0;
 function test(label,fn){fn();checks++;console.log('PASS',label);}
 function project(chord='Dm',difficulty='advanced',beats=4,bpm=120){

@@ -4,7 +4,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../src/io.ts'), 'utf8');
 const music = fs.readFileSync(path.join(__dirname, '../src/music.ts'), 'utf8');
 assert.match(music, /subito\?:DynamicMark/, 'Note type must support subito');
-const projection = source.match(/const events=notes\.map\(n=>\(\{([\s\S]*?)\}\)\)/);
+const projection = source.match(/const events=notationNotes\.map\(n=>\(\{([\s\S]*?)\}\)\)/);
 assert.ok(projection, 'MusicXML note event projection exists');
 assert.match(projection[1], /subito:n\.subito/, 'Projected events must carry subito');
 assert.match(source, /sources\.find\(n=>n\.subito/, 'MusicXML exports subito from projected events');

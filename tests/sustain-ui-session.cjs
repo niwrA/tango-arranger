@@ -23,7 +23,7 @@ check('normal score playback does not clip sustained note duration at the measur
  assert.ok(renderer.includes('durationSeconds:duration'));
  assert.ok(renderer.includes('triggerInstrument(inst,event.pitch,duration,time,velocity/127,technique)'));
  // Exercise the shared renderer with a sustained note and an expressive piano note.
- const body=renderer.slice(renderer.indexOf('{\n')+2,renderer.lastIndexOf('}'));
+ const body=renderer.slice(renderer.indexOf('{')+1,renderer.lastIndexOf('}'));
  const calls=[];
  const render=new Function('inst','n','event','duration','time','focusGain','focusInstrumentAudible','usesPizzicatoBank','resolveStringTechnique','violinTechnique','project','playExpressiveEvent','triggerInstrument','Tone',body.replace(' as AudioContext','').replace(' as Instrument',''));
  const run=(inst,n,event)=>render(inst,n,event,3.25,10,1,()=>true,()=>false,(_inst,explicit)=>explicit,()=>undefined,{value:{beats:4}},(_ctx,e)=>calls.push(['expressive',e.durationSeconds]),(_inst,_pitch,duration,_time,_velocity,technique)=>calls.push(['instrument',duration,technique]),{getContext:()=>({rawContext:{}})});

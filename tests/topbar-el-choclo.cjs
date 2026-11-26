@@ -1,9 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
 const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
@@ -11,17 +9,7 @@ const icon=fs.readFileSync(path.join(root,'src/AppIcon.vue'),'utf8');
 const source=JSON.parse(fs.readFileSync(path.join(root,'src/presets/el-choclo-source.json'),'utf8'));
 let passes=0;
 function check(label,fn){fn();passes++;console.log('PASS',label)}
-function load(file,imports={}){
-  const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const mod={exports:{}};
-  vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console,Date,Math,JSON,Array,Map,Set,Number,Error,Blob,URL,setTimeout},{filename:file})((name)=>{
-    if(name in imports)return imports[name];
-    if(name==='jszip')return class JSZip{};
-    if(name==='@tonejs/midi')return {Midi:class Midi{}};
-    throw Error('Unexpected import '+name);
-  },mod,mod.exports);
-  return mod.exports;
-}
+const load=createDomainLoader({imports:{'./el-choclo-source.json':{default:source}}});
 const music=load('src/music.ts');
 const preset=load('src/presets/el-choclo.ts',{'./el-choclo-source.json':{default:source},'../music':music});
 const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});

@@ -1169,7 +1169,10 @@ export function generate(p:Project):Score {
         for(const beat of chordBeats){
           const pcs=harmony(beat);
           const voicing=[...new Set(pcs.slice(0,maxNotes).map((pc,j)=>closest(pc,58+j*5,range[0],Math.min(range[1],79))))];
-          for(const pitch of voicing)put(pitch,beat,Math.min(0.7,p.beats-beat),68,undefined,0.72);
+          const duration=Math.min(0.75,p.beats-beat);
+          // Keep the compact attack while engraving it on the written beat grid.
+          const gate=Math.min(0.7,p.beats-beat)*0.72/duration;
+          for(const pitch of voicing)put(pitch,beat,duration,68,undefined,gate);
         }
         if(role==='chords')continue;
         // In fill mode, continue generating the melody line on top of these chord events.
@@ -1483,10 +1486,11 @@ export function suggestedEditorNote(p:Project,inst:Instrument,barIndex:number,be
  * Manual material is copied into importedScore because mergeScores already uses
  * that store for protected measures. This also makes edits survive regeneration.
  */
-export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument,barIndex:number,notes:Note[]):Project {
+export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument,barIndex:number,notes:Note[],unchanged?:ReadonlySet<Note>):Project {
   if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const offset=barIndex*p.beats,hi=offset+p.beats,range=instrumentRange(inst);
   const edited=notes.map(n=>{
+    if(unchanged?.has(n))return {...n};
     if(n.stringGlissando){const g=n.stringGlissando;if(!['Violin','Contrabass'].includes(instrumentFamily(inst))||n.technique==='pizzicato'||n.gesture||n.slideTo!==undefined||n.approachSlideFrom!==undefined||!Number.isInteger(g.interval)||!g.interval||n.pitch+g.interval<range[0]||n.pitch+g.interval>range[1]||!Number.isFinite(g.beats)||g.beats<=0||n.start+g.beats>p.bars.length*p.beats+1e-7)throw Error('Invalid bowed glissando endpoint or duration');}
     if(n.bowedTremolo&&(!['Violin','Contrabass'].includes(instrumentFamily(inst))||n.technique==='pizzicato'||![1,2,3].includes(n.bowedTremolo.strokes)||n.bowedTremolo.rateHz!==undefined&&(!Number.isFinite(n.bowedTremolo.rateHz)||n.bowedTremolo.rateHz<4||n.bowedTremolo.rateHz>24)))throw Error('Invalid bowed tremolo');
     if(n.pianoGlissando){const g=n.pianoGlissando;if(instrumentFamily(inst)!=='Piano'||!Number.isInteger(g.interval)||!g.interval||n.pitch+g.interval<21||n.pitch+g.interval>108||!['white','black','chromatic'].includes(g.keys)||!Number.isFinite(g.beats)||g.beats<=0||n.start+g.beats>p.bars.length*p.beats+1e-7)throw Error('Invalid piano glissando endpoint or duration');}

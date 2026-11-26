@@ -1,9 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript');}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
 const data=new Map();
 const localData=new Map();
@@ -25,13 +23,11 @@ const db={objectStoreNames:{contains:()=>true},onversionchange:null,close(){},
   }
 };
 const indexedDB={open(){const request={result:db,error:null,onupgradeneeded:null,onsuccess:null,onerror:null,onblocked:null};queueMicrotask(()=>request.onsuccess?.());return request;}};
-const source=fs.readFileSync(path.join(root,'src/localProjects.ts'),'utf8');
-const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-const mod={exports:{}};
-vm.runInNewContext(`(function(require,module,exports){${compiled}\n})`,{indexedDB,localStorage,crypto:{randomUUID:()=>`test-id-${data.size+1}`},Date,Math,JSON,Promise,Error,console}, {filename:'src/localProjects.ts'})(()=>{throw Error('No runtime imports expected');},mod,mod.exports);
-const lib=mod.exports;
+const load=createDomainLoader({globals:{indexedDB,localStorage,crypto:{randomUUID:()=>`test-id-${data.size+1}`}}});
+const lib=load('src/localProjects.ts');
+const {blankProject}=load('src/music.ts');
 async function run(){
-  const p={title:'Untitled Tango',beats:4,bpm:124,bars:[{chord:'Dm,A7',section:'A',melody:[]},{chord:'G7',section:'A',melody:[]}]};
+  const p={...blankProject({measures:2}),title:'Untitled Tango',beats:4,bpm:124,bars:[{chord:'Dm,A7',section:'A',melody:[]},{chord:'G7',section:'A',melody:[]}]};
   const first=lib.newLocalSongId();assert.equal(first,'test-id-1');
   await lib.saveLocalSong(first,p);
   p.bars[0].chord='Changed after save';
@@ -56,7 +52,7 @@ async function run(){
   const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
   assert.match(app,/watch\(project,scheduleAutosave,\{deep:true\}\)/);
   assert.match(app,/await flushAutosave\(\)/);
-  assert.match(app,/onMounted\(\(\)=>\{void initializeLocalLibrary\(\)/);
+  assert.match(app,/onMounted\(\(\)=>\{[^}]*void initializeLocalLibrary\(\)/);
   assert.match(app,/\@change="chooseSongFromPicker/);
   assert.match(app,/await adoptLocalSong\(fresh\)/);
   assert.match(app,/await adoptLocalSong\(imported\)/);
@@ -65,7 +61,9 @@ async function run(){
   assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
   assert.match(app,/auditionEvent\(events\[index\]\)/);
-  assert.match(app,/\@click="selectNoteEvent\(i\)"/);
+  assert.match(app,/@click.stop="selectGridNote\(n\)"/);
+  assert.match(app,/function selectGridNote\(note:Note\)\{[\s\S]*?selectScoreNote\(note\)/);
+  assert.match(app,/if\(index>=0\)selectNoteEvent\(index\)/);
   assert.match(app,/v-model="auditionEnabled"/);
   console.log('PASS piano-roll click audition, event audition and sound toggle are wired');
   console.log('6 local-library / audition checks passed');

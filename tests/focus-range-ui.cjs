@@ -2,8 +2,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');const path=require('node:path');
 const root=path.resolve(__dirname,'..');const vue=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
 let checks=0;function test(name,fn){fn();checks++;console.log('PASS',name);}
-const note=vue.slice(vue.indexOf('<section v-else ref="noteEditorRegion"'),vue.indexOf('</main></div><footer>'));
-test('focus entry sits in note editor heading',()=>assert.match(note,/<div class="section-heading note-editor-heading">[\s\S]*?class="secondary note-focus-enter"/));
+const note=vue.slice(vue.indexOf('<section v-else-if="active===\'notes\'" ref="noteEditorRegion"'),vue.indexOf('</main></div><footer'));
+test('focus entry sits in the note toolbar',()=>assert.match(note,/<div class="note-toolbar-actions">[\s\S]*?class="secondary note-focus-enter"/));
 test('top-right focus action visually emphasized',()=>assert.match(css,/\.note-editor-heading \.note-focus-enter\{margin-left:auto/));
 test('visible pitch start and end are selectable',()=>{assert.match(note,/v-model\.number="noteViewStart"/);assert.match(note,/v-model\.number="noteViewEnd"/);});
 test('pitch controls use instrument register options',()=>assert.match(vue,/noteViewOptions=computed\(\(\)=>Array\.from\(\{length:noteCtx\.value\.range\[1\]-noteCtx\.value\.range\[0\]\+1/));
@@ -12,10 +12,10 @@ test('changing upper bound keeps valid range',()=>assert.match(vue,/if\(noteView
 test('custom range drives note rows',()=>assert.match(vue,/noteViewCustom\.value\s*\?Array\.from\(\{length:noteViewEnd\.value-noteViewStart\.value\+1/));
 test('custom range filters both piano staves',()=>{assert.match(vue,/const trebleLo=Math\.max\(lo,pianoSplit\.value,noteViewCustom\.value/);assert.match(vue,/const bassHi=Math\.min\(hi,pianoSplit\.value-1,noteViewCustom\.value/);});
 test('focus overview derives measures from loop bounds',()=>{assert.match(vue,/const focusVisibleMeasures=computed/);assert.match(vue,/noteLoopFrom\.value/);assert.match(vue,/noteLoopTo\.value/);});
-test('focus overview renders note positions and lengths',()=>{assert.match(note,/class="note-focus-measure-lanes"/);assert.match(note,/n\.duration\/project\.beats\*100/);});
-test('overview click selects the editable measure',()=>{assert.match(note,/@click="selectFocusMeasure\(barIndex\)"/);assert.match(vue,/function selectFocusMeasure\(bar:number\)/);});
+test('focus overview renders note positions and lengths',()=>{assert.match(note,/class="note-continuous-grid"/);assert.match(note,/Math.min\(n.start\+n.duration,/);});
+test('overview click selects the editable measure',()=>{assert.match(note,/@click="activateGridMeasure\(barIndex\);noteCellClick\(pitch,beat\)"/);assert.match(vue,/function activateGridMeasure\(bar:number\)/);});
 test('phrase overview scrolls horizontally',()=>assert.match(css,/\.note-focus-phrase-scroll\{display:flex;overflow-x:auto/));
-test('loop keeps playing when selecting another measure of the same instrument',()=>assert.match(vue,/const keepFocusLoop=noteFocusMode\.value&&noteLoopPlaying\.value&&inst===noteInst\.value/));
-test('focus mode keeps selected measure drag editor',()=>assert.match(note,/@pointerdown="beginNoteDrag\(\$event,pitch,n\.start-selectedBar\*project\.beats\)"/));
-test('range is preserved when navigating measures in focus',()=>assert.match(vue,/if\(!noteFocusMode\.value\)\{noteLoopFrom\.value=selectedBar\.value\+1;noteLoopTo\.value=selectedBar\.value\+1;\}/));
+test('loop keeps playing when selecting another measure of the same instrument',()=>assert.match(vue,/const keepFocusLoop=noteLoopPlaying\.value&&inst===noteInst\.value/));
+test('focus mode keeps note dragging in the continuous grid',()=>assert.match(note,/@pointerdown="startGridNoteDrag\(\$event,n\)"/));
+test('measure navigation keeps the previous range length where possible',()=>{assert.match(vue,/const previousLoopLength=Math.max\(1,noteLoopTo.value-noteLoopFrom.value\+1\)/);assert.match(vue,/Math.min\(previousLoopLength,project.value.bars.length\)/);assert.match(vue,/noteLoopFrom.value=first\+1;\s*noteLoopTo.value=first\+count/);});
 console.log(`${checks} focus range UI checks passed`);

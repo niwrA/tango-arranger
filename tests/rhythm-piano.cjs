@@ -1,22 +1,9 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
- const src=fs.readFileSync(path.join(root,file),'utf8');
- const code=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const mod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console,Blob,URL,setTimeout},{filename:file})((name)=>{
-   if(name in imports)return imports[name];
-   if(name==='jszip')return class JSZip{};
-   if(name==='@tonejs/midi')return {Midi:class Midi{}};
-   throw Error('Unexpected import '+name);
- },mod,mod.exports);
- return mod.exports;
-}
+const load=createDomainLoader();
 const music=load('src/music.ts');const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let count=0;function test(label,fn){fn();count++;console.log('PASS',label);}
 const p=music.blankProject({sections:1,measuresPerSection:4});p.bars.forEach(b=>b.chord='Dm,A7');
@@ -24,14 +11,14 @@ p.roles.A.Piano='chords';p.roles.A.Contrabass='bass';p.roles.A['Bandoneon I']='c
 p.orchestration.bandoneon.A={'Bandoneon I':{target:'independent',method:'exact'},'Bandoneon II':{target:'independent',method:'exact'}};
 p.instrumentSettings.Piano.activity=1;p.instrumentSettings.Contrabass.activity=1;
 const score=music.generate(p);
-test('UI version is read from package version',()=>{
+test('UI shows the deployed build ID',()=>{
  const pkg=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
- assert.equal(pkg.version,'5.5.0');
+ assert.match(pkg.version,/^\d+\.\d+\.\d+$/);
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
- assert.match(app,/import \{version as appVersion\} from '\.\.\/package\.json'/);
- assert.match(app,/v\{\{appVersion\}\}/);
+ assert.match(app,/const appDisplayBuild=appBuildId/);
+ assert.match(app,/\{\{appDisplayBuild\}\}/);
  assert.doesNotMatch(app,/prototype 2\.0/);
- assert.match(app,/synth\?\.triggerAttackRelease\(Tone\.Frequency\(event\.pitch,'midi'\)\.toFrequency\(\)/);
+ assert.match(app,/loopSynth\?\.triggerAttackRelease\(Tone\.Frequency\(event\.pitch,'midi'\)\.toFrequency\(\)/);
 });
 test('piano generated lower staff is monophonic and within bass range',()=>{
  const lower=score.Piano.filter(n=>n.pitch<(p.pianoSplitPitch??60));
@@ -48,10 +35,17 @@ test('custom piano split respected by figure generation',()=>{
  assert.ok(notes.filter(n=>n.pitch>=65).length>=8);
  assert.ok(notes.filter(n=>n.pitch<65).every(n=>n.pitch<=55));
 });
-test('piano, contrabass and bandoneon notes use notated beat grid',()=>{
+test('ensemble notes use the beat grid and compact bandoneon chord durations',()=>{
  for(const inst of ['Piano','Contrabass','Bandoneon I','Bandoneon II']){
   const notes=score[inst];assert.ok(notes.length,inst);
-  for(const n of notes){assert.equal(n.start*4,Math.round(n.start*4),`${inst} onset ${n.start}`);assert.equal(n.duration*4,Math.round(n.duration*4),`${inst} duration ${n.duration}`);}
+  for(const n of notes){
+   assert.equal(n.start*4,Math.round(n.start*4),`${inst} onset ${n.start}`);
+   assert.equal(n.duration*4,Math.round(n.duration*4),`${inst} duration ${n.duration}`);
+   if(inst.startsWith('Bandoneon')){
+    assert.equal(n.duration,0.75,`${inst} compact chord duration`);
+    assert.ok(Math.abs(music.noteSoundingDuration(n)-0.504)<1e-8);
+   }
+  }
  }
 });
 test('short bass and bandoneon articulation stored as sounding gate',()=>{

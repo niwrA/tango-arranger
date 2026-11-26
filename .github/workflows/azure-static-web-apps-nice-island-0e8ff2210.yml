@@ -33,6 +33,9 @@ jobs:
           VITE_APP_BUILD_SHA: ${{ github.sha }}
         run: npm run build
 
+      - name: Run full regression suite including shared musical editing
+        run: npm run test:regression
+
       - name: Test expressive tempo, fermata and native MuseScore ties
         run: node tests/tempo-expression-export.cjs
 

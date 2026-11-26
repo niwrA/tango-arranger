@@ -29,13 +29,32 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 
 ### Desktop Codex handoff / acceptance checklist
 
-- [ ] Pull main and inspect `src/musicalEdit.ts`, `src/App.vue`, `src/ScorePreview.vue`, `tests/musical-edit.cjs`, `tests/string-fingering-ui.cjs`, `package.json` and actual CI workflow configuration.
-- [ ] Run the build and regression commands above; integrate the currently omitted musical-edit test. Record failing commands and root causes, fix code or intentionally outdated tests rather than weakening assertions.
-- [ ] Expand behavioural tests: preview/direct equivalence, immutable input, atomic undo/redo, cancellation, stale preview, note/measure scope, chord collisions, boundaries, protected bars, other parts/editions, fill vs replace vs role change, and role-default isolation.
+- [x] Confirm local main matches upstream and inspect `src/musicalEdit.ts`, `src/App.vue`, `src/ScorePreview.vue`, `tests/musical-edit.cjs`, `tests/string-fingering-ui.cjs`, `package.json` and actual CI workflow configuration.
+- [x] Run the build and regression commands above; integrate the musical-edit test. Record failing commands and root causes, fix code or intentionally outdated tests rather than weakening assertions.
+- [x] Expand behavioural tests: preview/direct equivalence, immutable input, atomic undo/redo, cancellation, stale preview, note/measure scope, chord collisions, boundaries, protected bars, other parts/editions, fill vs replace vs role change, and role-default isolation.
 - [ ] Verify score/grid parity and split navigation, preview audition lifecycle, empty staff and accidental mapping, chords, rests, touch/pointer cancellation, and selection versus playback/Tutor/preview feedback. Add browser tests where practical; test physical iPad Safari portrait/landscape and Apple Pencil separately.
 - [ ] Check MusicXML/MuseScore and portable project round-trip for changed notes, expression, fingering, ties and protected editions. Do not claim device or musical acceptance from source assertions alone.
 
-No build or tests were executed as part of this documentation update. Existing backlog entries below remain valid where not superseded.
+#### TA-EDIT-VALIDATE progress — 2026-11-27
+
+- Reviewed `14eefaad` and `892e9ea` on local `main`. A live query confirmed upstream `main` matches the local starting commit `e63c5bf`.
+- `npm ci` hit a Windows file lock on `esbuild.exe`. An offline `npm install` from the existing npm cache restored dependencies. `npm run build` passed TypeScript and the production bundle. Vite still reports large bundles.
+- `npm run test:musical-edit`, `tests/string-fingering-ui.cjs`, and all 20 checks in `tests/tempo-expression-export.cjs` passed locally. The musical edit suite is now in `test:regression` and the GitHub workflow before deployment. The hosted workflow has not run for these local changes.
+- The shared editor rejects new onset/pitch collisions and invalid measure selections. Fill skips protected rests and measures already occupied by sustaining notes. Changing a role preserves the written score and temporary creation roles stay local to the command. Unedited notes in a changed measure retain their imported metadata.
+- Compact generated Bandoneon chords use a written three-quarter beat with a revised sounding gate. This removes artificial micro-rests from MusicXML while preserving the previous audible length.
+- Vue runtime checks exercise the actual handlers for Score/Grid selection, a common preview score, direct versus preview Apply, Cancel, in-place stale draft invalidation, and one-step undo/redo. A compressed project round trip verifies edited notes and protections. The transport now cancels scheduled draft events when stopping.
+- `npm run test:regression` passed all 84 invoked scripts, including 85 checks in `tests/regression.cjs`. All nine additional scripts from the hosted workflow passed locally. The starting command stopped at a stale custom TypeScript loader, and the initial independent sweep found 43 failing scripts. Several suites now use the shared domain loader and local TypeScript CLI. Assertion updates follow documented changes, including the written eighth-note default for marcato and staccato.
+- Headless desktop Chrome passed a local smoke check for startup, Split view with the same staged note rendered in Score and Grid, Cancel, Apply, Undo and Redo. The smoke check used programmatic DOM clicks. Desktop pointer and keyboard gestures, real audio audition, physical iPad Safari and Apple Pencil, visual MuseScore, and musician acceptance are outstanding.
+- The automated P0 baseline is established. Shared commands currently reject edits while adaptive register transposition is active to avoid writing its derived pitches back into the project. Written/display pitch mapping, stable note identity, richer selection and change metadata remain open under P1.1.
+
+#### TA-EDIT-CORE in progress
+
+- Commands accept note, measure, phrase, instrument part, and half-open beat ranges. The toolbar exposes current phrase and entire part. Phrase selection follows the active plan or the same suggested phrase boundaries. Beat ranges are available to the domain for future gestures.
+- Transactions report affected measures and explain the protected or occupied measures skipped by Fill. Note edits within a broad selection leave its empty measures alone.
+- Automated editing tests cover the new scopes and skipped-measure reporting. The Chrome smoke check also verified switching between phrase and part scope.
+- Stable identity across duplicate unisons and structural edits, change records, and editing with adaptive register transposition are still pending.
+
+Existing backlog entries below remain valid where not superseded.
 
 ---
 

@@ -1,16 +1,8 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
 const root=path.resolve(__dirname,'..');
-function load(file){
- const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const mod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console},{filename:file})((name)=>{throw Error('Unexpected import '+name)},mod,mod.exports);
- return mod.exports;
-}
+const load=require('./load-domain.cjs').createDomainLoader();
 const music=load('src/music.ts');
 let count=0;
 function test(name,fn){fn();console.log('PASS',name);count++}
@@ -81,7 +73,7 @@ test('section key modal requires explicit confirmation and shows errors inside d
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
  assert.match(app,/const keyChangeMode=ref<SectionKeyChangeMode>\('chords'\)/);
- assert.match(app,/keyChangeMode\.value='chords'/);
+ assert.match(app,/keyChangeMode\.value='chords-and-melody'/);
  assert.match(app,/<Teleport to="body">/);
  assert.match(app,/<form class="editor key-change-dialog"[^>]+@submit\.prevent="applySectionKeyChange"/);
  assert.match(app,/type="radio" name="section-key-mode" value="chords"/);
@@ -98,6 +90,6 @@ test('duration editor has explicit Apply and saved duration feedback',()=>{
  assert.match(app,/v-model="writtenDurationDraft"/);
  assert.match(app,/@click="applyWrittenDurationDraft"/);
  assert.match(app,/Saved duration: <strong>\{\{selectedEvent\.duration\}\} beats/);
- assert.match(app,/width:`\$\{n\.duration\/project\.beats\*100\}%`/);
+ assert.match(app,/width:\(Math.min\(n.start\+n.duration,/);
 });
 console.log(`${count} section key / chord / duration regression checks passed`);

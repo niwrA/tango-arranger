@@ -7,7 +7,7 @@ let count=0;
 function check(label,fn){fn();count++;console.log('PASS',label)}
 const lead=app.slice(app.indexOf('<section v-else-if="active===\'lead\'"'),app.indexOf('<section v-else-if="active===\'arrange\'"'));
 const arrange=app.slice(app.indexOf('<section v-else-if="active===\'arrange\'"'),app.indexOf('<section v-else-if="active===\'rhythm\'"'));
-check('version 5.0',()=>assert.equal(pkg.version,'5.5.0'));
+check('package and lockfile agree',()=>assert.equal(pkg.version,require('../package-lock.json').version));
 check('no dedicated Score Review tab',()=>assert.doesNotMatch(app,/<button :class="\{active:active===\'score\'/));
 check('score notes preserved under orchestration',()=>{assert.match(arrange,/class="control-fold score-review-details"/);assert.match(arrange,/class="notes score-notes-shortcut"/);});
 check('score details closed by default',()=>assert.doesNotMatch(arrange,/<details class="control-fold score-review-details" open/));
@@ -19,12 +19,12 @@ check('lead editor follows selected card inside grid',()=>{assert.match(lead,/<t
 check('lead editor only one selected measure',()=>assert.match(lead,/v-if="selectedBar===span.start\+offset-1&&leadMeasureEditorOpen"/));
 check('melody editing preserved',()=>{assert.match(lead,/v-model="melodyText" data-lead-melody/);assert.match(lead,/@click="setMelody"/);});
 check('chord typing does not automatically open melody editor',()=>{const fn=app.slice(app.indexOf('function focusLeadChord('),app.indexOf('function updateLeadChord('));assert.doesNotMatch(fn,/leadMeasureEditorOpen.value=true/);});
-check('measure heading opens inline editor',()=>assert.match(lead,/@click="toggleLeadMeasureEditor\(span.start\+offset-1\)"/));
+check('measure heading selects the lead measure',()=>assert.match(lead,/@click="selectLeadMeasure\(span.start\+offset-1\)"/));
 check('double click focuses melody editor',()=>{assert.match(lead,/@dblclick.stop="focusLeadMelody\(span.start\+offset-1\)"/);assert.match(app,/function focusLeadMelody\(i:number\)\{[\s\S]*?leadMeasureEditorOpen.value=true/);});
-check('section headers selectable',()=>assert.match(lead,/@click="onLeadSectionHeaderClick\(si\)"/));
+check('section headers selectable',()=>assert.match(lead,/@click="onLeadSectionHeaderClick\(span.sectionIndex\)"/));
 check('target section header triggers paste',()=>assert.match(app,/function onLeadSectionHeaderClick\(i:number\)\{if\(copySectionMode.value&&i!==copySourceIndex.value\)copyChordsToSection\(i\)/));
-check('copy source action on section header',()=>assert.match(lead,/@click="beginSectionCopy\(si\)"/));
-check('paste target action on section header',()=>assert.match(lead,/@click="copyChordsToSection\(si\)"/));
+check('copy source action on section header',()=>assert.match(lead,/@click="beginSectionCopy\(span.sectionIndex\)"/));
+check('paste target action on section header',()=>assert.match(lead,/@click="copyChordsToSection\(span.sectionIndex\)"/));
 check('same source cannot be destination',()=>assert.match(app,/if\(!copySectionMode.value\|\|i===copySourceIndex.value\)return/));
 check('confirmation before chord copy',()=>{const fn=app.slice(app.indexOf('function applySectionChordCopy('),app.indexOf('const inlineHarmonyFeedback'));assert.match(fn,/window.confirm\(confirmation\)/);assert.match(fn,/copySectionChords\(project.value/);});
 check('copy mode ends only after successful copy',()=>{const fn=app.slice(app.indexOf('function applySectionChordCopy('),app.indexOf('const inlineHarmonyFeedback'));assert.ok(fn.indexOf('copySectionMode.value=false')>fn.indexOf('copySectionChords(project.value'));});

@@ -8,7 +8,7 @@ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tango-shortcuts-'));
 let count=0;
 function check(name,fn){fn();count++;console.log('PASS '+name);}
 try{
- const compilation=cp.spawnSync('tsc',['--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/editorShortcuts.ts')],{encoding:'utf8'});
+ const compilation=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/editorShortcuts.ts')],{encoding:'utf8'});
  assert.equal(compilation.status,0,compilation.stdout+'\n'+compilation.stderr);
  const {resolveEditorShortcut:resolve}=require(path.join(tmp,'editorShortcuts.js'));
  for(const editor of ['notes','rhythm']){
@@ -41,9 +41,9 @@ try{
   assert.match(app,/target\?\.closest\('input,textarea,select,\[contenteditable\]'\)/);
   assert.match(app,/altKey:event\.altKey,ctrlKey:event\.ctrlKey,metaKey:event\.metaKey,shiftKey:event\.shiftKey/);
  });
- check('Keyboard help and focus indication exist in both editors',()=>{
-  assert.match(app,/Keyboard: Delete \/ Backspace remove note/);
-  assert.match(app,/Delete \/ Backspace remove selected attack/);
+ check('Keyboard delete handlers and visible focus exist in both editors',()=>{
+  assert.match(app,/action==='delete'&&selectedEvent\.value\)\{event\.preventDefault\(\);deleteSelectedNote\(\)/);
+  assert.match(app,/action==='delete'&&rhythmSelectedSlot\.value\)\{event\.preventDefault\(\);rhythmDelete\(\)/);
   assert.match(css,/\.rhythm-event:focus-visible/);
   assert.match(css,/\.note-event-button:focus-visible/);
  });

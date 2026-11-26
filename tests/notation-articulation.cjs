@@ -1,21 +1,13 @@
 const assert=require('node:assert/strict');
-const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
-const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
- const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const mod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console})((name)=>{
-  if(imports[name])return imports[name];if(name==='jszip')return class JSZip{};if(name==='@tonejs/midi')return {Midi:class Midi{}};throw Error('Unknown import '+name);
- },mod,mod.exports);
- return mod.exports;
-}
+const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');const root=path.resolve(__dirname,'..');
+const load=require('./load-domain.cjs').createDomainLoader();
 const music=load('src/music.ts'),io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
 let checks=0;function test(label,fn){fn();checks++;console.log('PASS',label);}
 const p=music.blankProject({sections:1,measuresPerSection:1,beats:4});
 p.bars[0].chord='Dm';p.roles.A['Violin I']='melody';
-test('all articulation choices keep one-beat written default',()=>{
- for(const art of ['staccato','marcato_staccato','legato'])assert.equal(music.newNoteWrittenDuration(p,'Violin I',0,0,art),1);
+test('staccato and marcato default to eighth notes and legato defaults to a quarter',()=>{
+ for(const art of ['staccato','marcato_staccato'])assert.equal(music.newNoteWrittenDuration(p,'Violin I',0,0,art),0.5);
+ assert.equal(music.newNoteWrittenDuration(p,'Violin I',0,0,'legato'),1);
 });
 test('new-note default respects measure-end cap and explicit written lengths',()=>{
  assert.equal(music.newNoteWrittenDuration(p,'Violin I',0,3.75,'staccato'),0.25);

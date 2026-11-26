@@ -1,20 +1,10 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const ts=require('typescript');
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
-  const source=fs.readFileSync(path.join(root,file),'utf8');
-  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const mod={exports:{}};
-  vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console},{filename:file})((name)=>{
-    if(Object.prototype.hasOwnProperty.call(imports,name))return imports[name];
-    throw Error('Unexpected import '+name);
-  },mod,mod.exports);
-  return mod.exports;
-}
+const load=createDomainLoader();
 const music=load('src/music.ts');
 const {measureLoopEvents}=load('src/measureLoop.ts',{'./music':music});
 const vue=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
@@ -49,18 +39,18 @@ test('loop rejects invalid timing and supports empty measures',()=>{
 });
 test('note editor loop UI has play/stop, beat indicator and shortcut',()=>{
   assert.match(vue,/@click="toggleNoteLoop"/);
-  assert.match(vue,/noteLoopPlaying\?'■ Stop measure loop':'▶ Loop this instrument measure'/);
+  assert.match(vue,/:aria-pressed="noteLoopPlaying" @click="toggleNoteLoop"[^>]*>\{\{noteLoopPlaying\?'■ Stop':'▶ Loop'/);
   assert.match(vue,/note-loop-playhead/);
   assert.match(vue,/action==='loop'\)\{event\.preventDefault\(\);void toggleNoteLoop\(\)/);
   assert.match(vue,/role="status" aria-live="polite"/);
 });
 test('loop refreshes notes on every measure repeat and stops on navigation',()=>{
-  assert.match(vue,/transport\.scheduleRepeat\(time=>\{[\s\S]*?measureLoopEvents\(score\.value\[noteInst\.value\]/);
+  assert.match(vue,/transport\.scheduleRepeat\(time=>\{[\s\S]*?measureLoopEvents\(playbackNotesInRange\(practiceScore\.value\[noteInst\.value\]/);
   assert.match(vue,/\},'1m',0\)/);
   assert.match(vue,/function openNoteEditor\(inst:Instrument=overviewInstrument\.value,b:number=selectedBar\.value\)\{/);
   assert.match(vue,/if\(!keepFocusLoop\)stopNoteLoop\(\)/);
   assert.match(vue,/watch\(active,tab=>\{[\s\S]*?if\(tab!=='notes'&&noteLoopPlaying\.value\)stopNoteLoop\(\)/);
-  assert.match(vue,/function selectProjectInEditor\(p:Project\)\{\s*stopPlayback\(\)/);
+  assert.match(vue,/function selectProjectInEditor\(p:Project\)\{[^}]*?stopPlayback\(\)/);
   assert.match(vue,/function stopPlayback\(\)\{[\s\S]*?noteLoopSession\+\+/);
 });
 test('Vue script parses and retains audio error handling',()=>{

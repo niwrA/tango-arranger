@@ -95,17 +95,18 @@ test('section and key editing is separate from the orchestration map',()=>{
   const structure=src.slice(start,lead),orchestration=src.slice(arrange,rhythm);
   assert.match(structure,/<h3>Song structure<\/h3>/);
   assert.match(structure,/<h3>Keys by section<\/h3>/);
-  assert.match(structure,/@click="active='arrange'"/);
+  assert.match(src,/@click="active='arrange'">Orchestration<\/button>/);
   assert.match(orchestration,/<div class="song-map-scroll">/);
   assert.match(orchestration,/<div class="editor overview-edit">/);
   assert.match(orchestration,/Configure the selected A\/B\/C song part/);
   assert.doesNotMatch(orchestration,/class="overview-section-strip"/);
 });
-test('Orchestration opens by default and tabs have descriptive labels without numbers',()=>{
-  assert.match(src,/ref<'structure'\|'lead'\|'arrange'\|'rhythm'\|'notes'\|'about'>\('arrange'\)/);
-  const nav=src.match(/<nav class="tabs" aria-label="Main work areas">[\s\S]*?<\/nav>/)?.[0];
+test('Structure opens by default, saved tabs restore, and tabs have descriptive labels',()=>{
+  assert.match(src,/function initialWorkspaceTab\(\):WorkspaceTab\{[\s\S]*?workspaceTabs.includes\(saved as WorkspaceTab\)[\s\S]*?return 'structure'/);
+  assert.match(src,/const active=ref<[^>]+>\(initialWorkspaceTab\(\)\)/);
+  const nav=src.match(/<nav class="tabs workspace-menu" aria-label="Main work areas">[\s\S]*?<\/nav>/)?.[0];
   assert.ok(nav);
-  assert.match(nav,/Structure &amp; keys/);
+  assert.match(nav,/Structure, Keys &amp; Ensemble/);
   assert.match(nav,/Note editor/);
   assert.doesNotMatch(nav,/\d+ ·/);
   assert.doesNotMatch(nav,/Song overview/);

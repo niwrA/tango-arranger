@@ -1,22 +1,9 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
-  const source=fs.readFileSync(path.join(root,file),'utf8');
-  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const mod={exports:{}};
-  vm.runInNewContext(`(function(require,module,exports){${code}\n})`,{console,Blob,URL,setTimeout},{filename:file})((name)=>{
-    if(imports[name])return imports[name];
-    if(name==='jszip')return class JSZip{};
-    if(name==='@tonejs/midi')return {Midi:class Midi{}};
-    throw Error('Unexpected import '+name);
-  },mod,mod.exports);
-  return mod.exports;
-}
+const load=createDomainLoader();
 const edit=load('src/noteEditing.ts');
 const music=load('src/music.ts');
 const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
@@ -47,9 +34,9 @@ test('duration edit persists in generated and protected imported scores',()=>{
 test('note bars render across measure with width proportional to real duration, including off-grid starts',()=>{
   const app=fs.readFileSync('src/App.vue','utf8');
   const css=fs.readFileSync('src/style.css','utf8');
-  assert.match(app,/left:`\$\{\(n\.start-selectedBar\*project\.beats\)\/project\.beats\*100\}%`/);
-  assert.match(app,/width:`\$\{n\.duration\/project\.beats\*100\}%`/);
-  assert.match(app,/class="note-lane-grid"/);
+  assert.match(app,/left:\(Math.max\(n.start,focusVisibleMeasures\[0\]\*project.beats\)-focusVisibleMeasures\[0\]\*project.beats\)\/\(project.beats\*focusVisibleMeasures.length\)\*100/);
+  assert.match(app,/width:\(Math.min\(n.start\+n.duration,\(focusVisibleMeasures\[focusVisibleMeasures.length-1\]\+1\)\*project.beats\)-Math.max\(n.start,focusVisibleMeasures\[0\]\*project.beats\)\)\/\(project.beats\*focusVisibleMeasures.length\)\*100/);
+  assert.match(app,/class="note-continuous-grid"/);
   assert.match(css,/\.note-bar\{position:absolute/);
   assert.match(css,/\.note-bar \.note-resize-handle/);
 });

@@ -1,24 +1,11 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
+const {createDomainLoader}=require('./load-domain.cjs');
 const root=path.resolve(__dirname,'..');
-function load(file,imports={}){
-  const src=fs.readFileSync(path.join(root,file),'utf8');
-  const compiled=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const mod={exports:{}};
-  vm.runInNewContext(`(function(require,module,exports){${compiled}\n})`,{console,Blob,URL,setTimeout}, {filename:file})((name)=>{
-    if(imports[name])return imports[name];
-    if(name==='jszip')return class JSZip{};
-    if(name==='@tonejs/midi')return {Midi:class Midi{}};
-    throw Error('Unexpected import '+name);
-  },mod,mod.exports);
-  return mod.exports;
-}
+const load=createDomainLoader();
 const music=load('src/music.ts');
-const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music});
+const io=load('src/io.ts');
 let passes=0;
 function test(label,fn){fn();passes++;console.log('PASS',label);}
 const project=music.demoProject();
@@ -280,7 +267,7 @@ test('blank-song UI uses per-section measure inputs rather than a single common 
   const p=music.blankProject({sections:1,measuresPerSection:1});
   p.roles.A['Violin II']='chords';p.measureViolinTechniques={'Violin II:0':'pizzicato'};
   const n=music.suggestedEditorNote(p,'Violin II',0,0,69);
-  assert.equal(n.duration,1);assert.equal(n.technique,'pizzicato');assert.equal(n.source,'manual');
+  assert.equal(n.duration,0.5);assert.equal(n.technique,'pizzicato');assert.equal(n.source,'manual');
   assert.equal(n.articulation,'marcato_staccato');assert.equal(n.gate,0.58);
  });
  test('manual note edits survive regeneration and export to MusicXML',()=>{
@@ -332,7 +319,7 @@ test('blank-song UI uses per-section measure inputs rather than a single common 
  });
  test('note editor UI includes piano roll, harmonic colors and reset',()=>{
   const src=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
-  assert.match(src,/class="note-grid"/);assert.match(src,/noteEditorPitchClass/);
+  assert.match(src,/class="note-continuous-grid"/);assert.match(src,/noteEditorPitchClass/);
   assert.match(src,/replaceInstrumentMeasure/);assert.match(src,/restoreNoteMeasure/);
   assert.match(src,/>Note editor<\/button>/);
  });
@@ -342,7 +329,7 @@ test('lead sheet shows section boundaries, keys and measure ranges',()=>{
   assert.match(src,/class="lead-sections"/);
   assert.match(src,/sectionSpans\(project\)/);
   assert.match(src,/class="lead-key-label"/);
-  assert.match(src,/Measures \{\{span.start\+1\}\}–\{\{span.start\+span.measures\}\}/);
+  assert.match(src,/Measures \{\{measureLabel\(span.start\)\}\}–\{\{measureLabel\(span.start\+span.measures-1\)\}\}/);
 });
 test('lead sheet and overview both offer direct harmony inputs',()=>{
   const src=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
@@ -421,7 +408,7 @@ test('copy invalidates generated preview while retaining protected manual notes'
 });
 test('lead sheet exposes section chord copy controls and confirmation',()=>{
   const src=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
-  assert.match(src,/beginSectionCopy\(si\)/);assert.match(src,/copySourceIndex/);
+  assert.match(src,/@click="beginSectionCopy\(span.sectionIndex\)"/);assert.match(src,/copySourceIndex/);
   assert.match(src,/copyTargetIndex/);assert.match(src,/applySectionChordCopy/);
   assert.match(src,/window.confirm\(confirmation\)/);
 });
@@ -648,8 +635,8 @@ test('sharp and flat labels denote identical sounding pitches',()=>{
 test('note editor never disables a piano-roll cell based on chord or key',()=>{
   const src=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
   assert.doesNotMatch(src,/pitchAllowed|noteFilter|:disabled="!pitchAllowed/);
-  assert.match(src,/@click="noteCellClick\(pitch,beat\)"/);
-  assert.match(src,/note-tone-\$\{pitchClass\(pitch,beat\)\}/);
+  assert.match(src,/@click="activateGridMeasure\(barIndex\);noteCellClick\(pitch,beat\)"/);
+  assert.match(src,/'note-tone-'\+pitchClass\(pitch,beat,barIndex\)/);
   assert.match(src,/v-model="editorAccidentals"/);
   assert.match(src,/\{\{displayPitch\(pitch\)\}\}/);
 });

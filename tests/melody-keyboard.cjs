@@ -8,7 +8,7 @@ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'tango-keyboard-'));
 let count=0;
 const check=(name,fn)=>{fn();count++;console.log('PASS '+name);};
 try{
- const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/melodyKeyboard.ts')],{encoding:'utf8'});
+ const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--target','es2022','--lib','es2022,dom','--outDir',tmp,path.join(root,'src/melodyKeyboard.ts')],{encoding:'utf8'});
  assert.equal(result.status,0,result.stdout+'\n'+result.stderr);
  const {keyboardPitchOptions,keyboardPitches,defaultKeyboardRange,changeKeyboardBoundary,clampKeyboardPitch}=require(path.join(tmp,'melodyKeyboard.js'));
  check('Available pitches include both instrument endpoints',()=>assert.deepEqual(keyboardPitchOptions([55,57]),[55,56,57]));

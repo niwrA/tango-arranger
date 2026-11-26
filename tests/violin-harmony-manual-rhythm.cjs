@@ -3,14 +3,14 @@ const fs=require('node:fs');
 const path=require('node:path');
 const cp=require('node:child_process');
 const root=path.resolve(__dirname,'..');
-const tmp=fs.mkdtempSync('/tmp/tango-v36-');
+const tmp=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'tango-v36-'));
 let checks=0;
 function check(description,fn){fn();checks++;console.log('PASS '+description);}
 try{
- const result=cp.spawnSync('tsc',['--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts'),path.join(root,'src','io.ts')],{encoding:'utf8'});
+ const result=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts'),path.join(root,'src','io.ts')],{encoding:'utf8'});
  // io.ts depends on jszip and MIDI packages; domain check is done independently.
  if(result.status!==0){
-  const domain=cp.spawnSync('tsc',['--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts')],{encoding:'utf8'});
+  const domain=cp.spawnSync(process.execPath,[require.resolve('typescript/bin/tsc'),'--strict','--module','commonjs','--moduleResolution','node','--target','es2022','--lib','es2022,dom','--outDir',tmp,'--rootDir',path.join(root,'src'),path.join(root,'src','music.ts'),path.join(root,'src','rhythmEditor.ts')],{encoding:'utf8'});
   assert.equal(domain.status,0,domain.stdout+'\n'+domain.stderr);
  }
  const m=require(path.join(tmp,'music.js')),r=require(path.join(tmp,'rhythmEditor.js'));
