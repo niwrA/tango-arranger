@@ -68,7 +68,13 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
  for(let index=0;index<positions.length;index++){
   const pos=positions[index];
   const assignments:PositionFingering[]=[];
-  let covered=0,score=-index*6,priorString:number|null=null;
+  // For tango bass, prefer a practical first-finger position rather than
+  // the lowest possible position at the expense of repeated fourth fingers.
+  // Coverage still dominates: do not omit notes merely to avoid finger 4.
+  const isBass=instrument==='Contrabass';
+  const fingerCost=(finger:GuideFinger)=>isBass?({'0':0,'1':0,'2':5,'4':11,'T':8,'3':12}[finger]):0;
+  let covered=0,score=-index*(isBass?2:6)-(isBass&&pos.thumb?36:0),priorString:number|null=null;
+  const repeated=new Map<string,PositionFingering>();
   for(const note of notes){
    const options:PositionFingering[]=[];
    for(const string of strings){
@@ -80,17 +86,20 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
    }
    options.sort((a,b)=>{
     const quality=(item:PositionFingering)=>
-      (item.finger==='0'?-12:0) +
+      (item.finger==='0'?-12:0) + fingerCost(item.finger) +
       (priorString!==null&&item.openMidi!==priorString?2:0) +
       (item.offset===pos.first?0:Math.abs(item.offset-pos.first)*.35) -
       item.openMidi*.018;
     return quality(a)-quality(b);
    });
-   const chosen=options[0];
+   const repeatKey=note.pitch+':'+(note.stringMidi??'auto');
+   const previous=isBass?repeated.get(repeatKey):undefined;
+   const chosen=previous??options[0];
+   if(isBass&&chosen)repeated.set(repeatKey,chosen);
    const weight=Math.max(1,Math.min(4,Number.isFinite(note.duration)?note.duration!:1));
    if(!chosen){score-=8*weight;continue;}
    covered++;
-   score+=50+weight*7+(chosen.finger==='0'?3:-chosen.offset*2.5);
+   score+=50+weight*7+(chosen.finger==='0'?(isBass?10:3):-chosen.offset*(isBass?.65:2.5))-fingerCost(chosen.finger);
    if(priorString!==null&&priorString!==chosen.openMidi)score-=2;
    priorString=chosen.openMidi;
    if(!assignments.some(item=>item.pitch===chosen.pitch&&item.openMidi===chosen.openMidi))assignments.push(chosen);

@@ -1,3 +1,7 @@
+## Contrabass fingering refinements (2026-11-26)
+
+- Prefer open strings and first-finger stops in tango bass accompaniment, retain 1–2–4 lower-position coverage, avoid unnecessary thumb positions and keep repeated pitch suggestions consistent.
+
 ## [Feature] Bowed glissando and tremolo (2026-11-26)
 
 - Independent timed string glissandi and measured or unmeasured bowed tremolo; editable destination, duration and bow rate.

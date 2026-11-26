@@ -61,6 +61,17 @@ check('bass lower positions use 1-2-4 and never invent a third finger',()=>{
  assert.equal(guide.position,'½');
  assert.ok(guide.fingerings.some(f=>f.finger==='4'));
 });
+check('bass tango accompaniment prefers open strings and first finger without losing coverage',()=>{
+ const guide=pos.suggestStringMeasurePosition('Contrabass',[{pitch:28},{pitch:31},{pitch:33},{pitch:36},{pitch:38},{pitch:41},{pitch:31}]);
+ assert.ok(guide);
+ assert.equal(guide.thumb,false);
+ assert.equal(guide.fingerings.length,6);
+ assert.ok(guide.fingerings.every(f=>f.finger==='0'||f.finger==='1'));
+ assert.equal(guide.fingerings.filter(f=>f.pitch===31).length,1);
+ const forced=pos.suggestStringMeasurePosition('Contrabass',[{pitch:31,stringMidi:28},{pitch:32,stringMidi:28}]);
+ assert.ok(forced.fingerings.every(f=>f.openMidi===28));
+ assert.deepEqual(Array.from(forced.fingerings,f=>f.finger),['1','2']);
+});
 check('bass higher thumb range uses thumb and 1-2-3',()=>{
  assert.equal(pos.fingerAtPosition('Contrabass',12,12,true),'T');
  assert.equal(pos.fingerAtPosition('Contrabass',12,15,true),'3');
