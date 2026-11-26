@@ -79,12 +79,12 @@ const stops=[0,1,2,3,4,5,6,7];
 const displayedStops=computed(()=>{
  const base=(props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops).filter(offset=>offset>0);
  const explicit=(props.activeStringNotes??[]).flatMap(n=>n.stringMidi===undefined?[]:[n.pitch-n.stringMidi]).filter(n=>n>0);
- const high=family.value==='Violin'&&props.learn&&base.length&&Math.min(...base)>=5?Array.from({length:3},(_,i)=>Math.max(...base)+i+1).filter(n=>n<=24):[];
+ const high=family.value==='Violin'&&(props.learn||props.focus)&&base.length&&Math.min(...base)>=5?Array.from({length:3},(_,i)=>Math.max(...base)+i+1).filter(n=>n<=24):[];
  return [...new Set([...base,...explicit,...high])].sort((a,b)=>a-b);
 });
 const fingerboardColumns=computed(()=>{
  const offsets=displayedStops.value;
- return {'--stop-count':offsets.length,'--violin-columns':family.value==='Violin'&&props.learn?'minmax(0,1.1fr) '+offsets.map(n=>'minmax(0,'+Math.max(.38,Math.pow(2,-n/12)).toFixed(3)+'fr)').join(' '):undefined};
+ return {'--stop-count':offsets.length,'--violin-columns':family.value==='Violin'?'minmax(0,1.1fr) '+offsets.map(n=>'minmax(0,'+Math.max(.38,Math.pow(2,-n/12)).toFixed(3)+'fr)').join(' '):undefined};
 });
 const positionText=computed(()=>props.positionGuide
  ?'Position '+props.positionGuide.position+' · '+(props.positionGuide.thumb?'thumb':'1st finger')+' '+midiLabel(props.positionGuide.anchorMidi)+' on '+midiLabel(props.positionGuide.anchorStringMidi)+' string'
@@ -180,7 +180,7 @@ const diagramDescription=computed(()=>{
    <div v-else-if="isStringInstrument" class="diagram-fingerboard" :style="fingerboardColumns"
      :class="{'diagram-violin-fingerboard':family==='Violin','diagram-bass-fingerboard':family==='Contrabass'&&Boolean(props.positionGuide),'diagram-has-guide':Boolean(props.positionGuide)}"
      :aria-label="family+' open strings and schematic semitone positions'+(props.positionGuide||family==='Violin'?', '+positionText:'')">
-     <span v-if="!props.learn&&(family==='Violin'||(family==='Contrabass'&&props.positionGuide))" class="diagram-violin-position"
+     <span v-if="!props.learn&&(!props.focus||!props.positionGuide)&&(family==='Violin'||(family==='Contrabass'&&props.positionGuide))" class="diagram-violin-position"
        :title="'Schematic suggestion: '+positionText">
        <template v-if="props.learn">
         <span class="diagram-hand-position-main" :key="props.positionGuide?.position??props.violinPosition?.position??'first'">
@@ -191,7 +191,7 @@ const diagramDescription=computed(()=>{
        </template>
        <template v-else>{{positionText}}</template>
       </span>
-     <div v-if="props.learn" class="diagram-string-row diagram-stop-header" aria-label="Semitones above open string">
+     <div v-if="props.learn||props.focus" class="diagram-string-row diagram-stop-header" aria-label="Semitones above open string">
       <span class="diagram-open-heading" :title="positionText">Open · 0</span>
       <span v-for="offset in displayedStops" :key="offset" :class="{'diagram-position-column':props.positionGuide?offset===props.positionGuide.firstFingerOffset:false}" :title="offset+' semitones above open string · '+positionText">{{offset}}<small v-if="props.positionGuide&&offset===props.positionGuide.firstFingerOffset">{{props.positionGuide.position}} · {{props.positionGuide.thumb?'T':'1'}}</small></span>
      </div>
@@ -206,10 +206,10 @@ const diagramDescription=computed(()=>{
            'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),
            'is-measure-note':isPlannedStringPitch(string.midi,string.midi+offset),
            'is-learn-target':isTargetStop(string.midi,offset),
-           'is-position-anchor':props.learn&&!!props.positionGuide&&string.midi===props.positionGuide.anchorStringMidi&&string.midi+offset===props.positionGuide.anchorMidi,
+           'is-position-anchor':!!props.positionGuide&&string.midi===props.positionGuide.anchorStringMidi&&string.midi+offset===props.positionGuide.anchorMidi,
            'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}"
          :title="midiLabel(string.midi+offset)+(fingerFor(string.midi,string.midi+offset)!==null?' · suggested finger '+fingerFor(string.midi,string.midi+offset):'')">
-         <template v-if="props.learn&&isTargetStop(string.midi,offset)">
+         <template v-if="(props.learn&&isTargetStop(string.midi,offset))||(!props.learn&&isPlayingStringPitch(string.midi,string.midi+offset))">
           <svg class="diagram-target-fingerprint" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false">
            <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
             <path d="M4 16a12 12 0 0 1 24 0c0 5-1 9-3 13"/>
@@ -645,4 +645,19 @@ const diagramDescription=computed(()=>{
 .diagram-position-column small{display:block;font-size:10px;line-height:1.1}
 .performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop:not(.is-learn-target):not(.is-position-anchor):not(.is-sounding){filter:saturate(.55);opacity:.62}
 :global(.learn-display-overlay) .performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop:not(.is-learn-target):not(.is-position-anchor):not(.is-sounding){filter:none;opacity:1}
+</style>
+
+<style scoped>
+/* Shared performance geometry and visual priority. No practice pulse during playback. */
+.performance-instrument-diagram:not(.is-learn) .diagram-violin-fingerboard .diagram-string-row{grid-template-columns:var(--violin-columns)}
+.performance-instrument-diagram:not(.is-learn) .diagram-fingerboard .diagram-string-stop:not(.is-sounding):not(.is-position-anchor):not(.is-measure-note){opacity:.55;filter:saturate(.65)}
+.performance-instrument-diagram:not(.is-learn) .diagram-fingerboard .diagram-string-stop:not(.is-chord-tone):not(.is-sounding):not(.is-position-anchor):not(.is-measure-note){border-top-color:#506675}
+.performance-instrument-diagram:not(.is-learn) .diagram-fingerboard .diagram-string-stop.is-position-anchor:not(.is-sounding){outline:1px solid #83c6e7;outline-offset:-1px;background:#24495e;color:#e2f6ff}
+.performance-instrument-diagram:not(.is-learn) .diagram-stop-header .diagram-position-column{background:#23465b;color:#e2f6ff;border-radius:3px}
+.performance-instrument-diagram:not(.is-learn) .diagram-string-stop.is-sounding{gap:1px;container-type:inline-size;z-index:2;opacity:1;filter:none;box-shadow:inset 0 0 0 1px #e0fff7,0 0 6px #5deace80}
+.performance-instrument-diagram:not(.is-learn) .diagram-string-stop.is-sounding .diagram-target-fingerprint{color:#174940;width:min(42%,26px)}
+.performance-instrument-diagram:not(.is-learn) .diagram-string-stop.is-sounding .diagram-target-finger-number{font-size:clamp(9px,43cqi,24px);font-weight:900;color:#132e32;line-height:1}
+.performance-instrument-diagram.is-focus:not(.is-learn) .diagram-fingerboard.diagram-has-guide{padding-top:clamp(6px,1vw,16px)}
+.performance-instrument-diagram.is-focus:not(.is-learn) .diagram-stop-header{flex:0 0 auto;min-height:20px;font-size:12px;text-align:center;color:#b8ccd9}
+.performance-instrument-diagram.is-focus:not(.is-learn) .diagram-stop-header small{font-size:10px}
 </style>

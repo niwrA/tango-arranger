@@ -6750,7 +6750,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <span v-if="captureLastExpression&&captureInputLayout==='fingerboard'" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
     <template v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length">
      <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin'),'capture-large-instrument':captureLargeView}" role="group" :aria-label="`Playable ${noteInst} string positions`">
-      <div class="capture-fingerboard-grid" :style="{'--capture-fret-columns':captureFrets.length}">
+      <div class="capture-fingerboard-grid" :class="{'capture-violin-geometry':noteInst.startsWith('Violin')}" :style="{'--capture-fret-columns':captureFrets.length,'--capture-violin-columns':'58px '+captureFrets.map(fret=>'minmax(44px,'+Math.max(.38,Math.pow(2,-fret/12)).toFixed(3)+'fr)').join(' ')}">
        <div class="capture-fingerboard-header"><span>String</span><span v-for="fret in captureFrets" :key="fret">{{fret===0?'Open':fret}}</span></div>
        <div v-for="string in captureFingerboardRows" :key="string.name" class="capture-fingerboard-row">
         <strong>{{string.name}}</strong>
@@ -8789,4 +8789,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .shell:not(.performance-live)>.app-topbar>.brand small{font-size:9px}
  .instrument-focus-panel.is-learning .instrument-focus-title{flex-basis:100%}
 }
+</style>
+
+<style scoped>
+/* Keep touch targets at least 44px wide while approximating violin spacing. */
+.capture-fingerboard-grid.capture-violin-geometry .capture-fingerboard-row,
+.capture-fingerboard-grid.capture-violin-geometry .capture-fingerboard-header{grid-template-columns:var(--capture-violin-columns)}
+.capture-fingerboard-grid.capture-violin-geometry .capture-fingerboard-key:not(.selected):not(.is-held){background:#202e39;color:#b8cbd8;border-color:#435767}
+.capture-fingerboard-grid.capture-violin-geometry .capture-fingerboard-key.selected{outline:2px solid #f4cc85;outline-offset:-2px}
 </style>
