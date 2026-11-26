@@ -1,6 +1,11 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const root=path.join(__dirname,'..'),app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8'),music=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
-assert.match(music,/stringMidi\?:number; handPosition\?:string; finger\?:/);
+const noteType=music.match(/export type Note = \{([^\n]+)\};/)?.[1];
+assert.ok(noteType,'Note type exists');
+assert.match(noteType,/\bstringMidi\?:number\b/);
+assert.match(noteType,/\bhandPosition\?:string\b/);
+assert.match(noteType,/\bfinger\?:'0'\|'1'\|'2'\|'3'\|'4'\|'T'/);
+assert.match(noteType,/\bbowDirection\?:'up'\|'down'/);
 assert.match(app,/captureInputLayout\.value=fingerboardStrings\(inst\)\.length\?'fingerboard':'keyboard'/);
 assert.match(app,/noteStringRows=computed/);
 assert.match(app,/suggestStringMeasurePosition\(/);
