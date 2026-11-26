@@ -89,3 +89,9 @@ check('global status is error-only; dynamics editor exposes direct paint, scope 
  assert.ok(app.includes("noteEditorTab==='expression'"));
 });
 console.log(count+' sustain, piano, session and toolbar checks passed');
+
+check('dedicated pizzicato sample banks are routed independently of arco',()=>{
+ assert.ok(app.includes('usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst)'));
+ assert.ok(app.includes('loadSamples(inst,true)'));
+ assert.ok(app.includes('!usesPizzicatoBank(inst,n.technique)'));
+});

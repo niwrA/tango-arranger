@@ -1,3 +1,9 @@
+## Acoustic pizzicato samples (2026-11-26)
+
+- Dedicated CC0 solo violin pizzicato (VSCO 2 CE) and upright bass pizzicato (Karoryfer Meatbass), loaded from upstream WAV files with original pitch anchors.
+- Bass defaults to pizzicato unless explicitly marked arco; violin uses pizzicato only when marked. Existing bowed rendering remains intact.
+- Initial compact bank uses a single recorded velocity layer and round robin per pitch; network failure falls back to the existing audio engine.
+
 ## Consistent piano playback (2026-11-26)
 
 - Wait for bounded sample preparation before full arrangement playback, as in instrument preview.
