@@ -602,9 +602,11 @@ const diagramDescription=computed(()=>{
  content:'';position:absolute;inset:-2px;border:2px solid #fff2b8;border-radius:inherit;
  pointer-events:none;animation:learn-finger-target-pulse 1.45s ease-out infinite;
 }
-.diagram-target-fingerprint{position:absolute;inset:0;width:100%;height:100%;color:#70430d;opacity:.65;pointer-events:none;z-index:0}
+.diagram-target-fingerprint{position:relative;flex:0 1 auto;width:min(48%,32px);height:90%;min-width:0;color:#70430d;opacity:.9;pointer-events:none;z-index:0}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop.is-learn-target{gap:1px;flex-wrap:nowrap;justify-content:center;container-type:inline-size}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop.is-learn-target>.diagram-target-finger-number{flex:0 0 auto;white-space:nowrap}
 .performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop.is-learn-target>.diagram-target-finger-number{
- position:relative;z-index:1;font-size:clamp(16px,2.5vw,28px);font-weight:900;line-height:1;
+ position:relative;z-index:1;font-size:clamp(12px,45cqi,28px);font-weight:900;line-height:1;
  color:#21180d;text-shadow:0 0 2px #fff4ce,0 0 4px #fff4ce,0 0 5px #fff4ce;
 }
 .performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-open-label.is-learn-target>strong{

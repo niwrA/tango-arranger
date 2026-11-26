@@ -71,7 +71,7 @@ const inputThreshold=computed(()=>sensitivityThresholdDb(sensitivity.value));
 const settingsOpen=ref(false);
 const autoTuner=ref(false);
 const tolerance=ref(20);
-const holdMs=ref(400); // 0 = written note duration; -1 = tango sounding duration
+const holdMs=ref(-1); // 0 = written note duration; -1 = tango sounding duration
 const previewDuration=ref<'tango'|'written'>('tango');
 const analysisDuration=ref<'tango'|'written'>('tango');
 const autoAdvance=ref(true);
@@ -486,23 +486,37 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </div>
   </div>
   </Teleport>
-  <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="group" aria-label="Learn settings">
-   <label class="learn-check"><input v-model="disableOverlay" type="checkbox"/> Disable overlay (separate score and diagram)</label>
-   <label v-if="overlayScore">Score opacity <input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
-   <div class="learn-settings-range"><MeasureRangeControl :from="from" :to="to" :measures="measures" presets @change="setRange"/></div>
-   <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
-   <div class="learn-reference-readout">A4 tuning: <strong>{{referenceHz}} Hz</strong><small>Change the project reference or this instrument's override under Structure, Keys &amp; Ensemble → Orchestra roster.</small></div>
-   <label>Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
-   <label>Listen: note lengths<select v-model="previewDuration" aria-label="Preview note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
-   <label>Recording analysis: expected lengths<select v-model="analysisDuration" aria-label="Recording expected note duration"><option value="tango">Tango articulation (sounding length)</option><option value="written">Written note lengths</option></select></label>
-   <label>Stable pitch<select v-model.number="holdMs"><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option><option :value="0">Follow note · written length</option><option :value="-1">Follow note · tango sounding length (less reliable for very short notes)</option></select></label>
-   <label v-if="grandStaff">Practice staff
-    <select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper staff (usually right hand)':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower staff (usually left hand)':'Lower staff'}}</option></select>
-   </label>
-   <label>Chord target <select v-model="chordTarget"><option value="highest">Highest note</option><option value="lowest">Lowest note</option></select></label>
-   <label v-if="family==='Voice'" class="learn-check"><input v-model="voiceAnyOctave" type="checkbox" :disabled="takeBeat!==null"/> Allow any octave</label>
-   <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Advance after a stable correct note</label>
-   <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Restart after the last note</label>
+  <div v-if="settingsOpen" id="learn-settings" class="learn-settings" role="region" aria-label="Practice settings">
+   <div class="learn-settings-heading"><h3>Practice settings</h3><button type="button" class="secondary" @click="settingsOpen=false" aria-label="Close practice settings">Done</button></div>
+   <fieldset class="learn-settings-group learn-settings-range">
+    <legend>Exercise range</legend>
+    <MeasureRangeControl :from="from" :to="to" :measures="measures" presets compact @change="setRange"/>
+   </fieldset>
+   <fieldset class="learn-settings-group">
+    <legend>Microphone &amp; intonation</legend>
+    <label>Stable pitch duration<select v-model.number="holdMs"><option :value="-1">Tango sounding length</option><option :value="0">Written note length</option><option :value="300">300 ms</option><option :value="400">400 ms</option><option :value="650">650 ms</option><option :value="1000">1 second</option></select></label>
+    <label>Intonation tolerance<select v-model.number="tolerance"><option :value="35">Getting started · ±35¢</option><option :value="20">Normal · ±20¢</option><option :value="10">Precise · ±10¢</option><option :value="5">Very precise · ±5¢</option></select></label>
+    <label class="learn-setting-wide"><span class="learn-setting-inline">Input sensitivity <strong>{{sensitivity}}% · {{inputThreshold.toFixed(0)}} dBFS</strong></span><input v-model.number="sensitivity" type="range" min="0" max="100" step="5" aria-label="Microphone input sensitivity"/></label>
+    <div class="learn-reference-readout learn-setting-wide" title="Change the project reference or instrument override under Structure, Keys &amp; Ensemble → Orchestra roster.">Reference pitch <strong>A4 = {{referenceHz}} Hz</strong></div>
+   </fieldset>
+   <fieldset class="learn-settings-group">
+    <legend>Playback &amp; recording</legend>
+    <label>Listen: note lengths<select v-model="previewDuration" aria-label="Preview note duration"><option value="tango">Tango sounding length</option><option value="written">Written note length</option></select></label>
+    <label>Recording: expected lengths<select v-model="analysisDuration" aria-label="Recording expected note duration"><option value="tango">Tango sounding length</option><option value="written">Written note length</option></select></label>
+    <label class="learn-check"><input v-model="autoAdvance" type="checkbox"/> Auto-advance</label>
+    <label class="learn-check"><input v-model="autoRepeat" type="checkbox"/> Repeat exercise</label>
+   </fieldset>
+   <fieldset class="learn-settings-group">
+    <legend>Notes to practise</legend>
+    <label v-if="grandStaff">Practice staff<select v-model="staff"><option value="all">Both staves</option><option value="upper">{{family==='Piano'?'Upper · right hand':'Upper staff'}}</option><option value="lower">{{family==='Piano'?'Lower · left hand':'Lower staff'}}</option></select></label>
+    <label>Chord target<select v-model="chordTarget"><option value="highest">Highest note</option><option value="lowest">Lowest note</option></select></label>
+    <label v-if="family==='Voice'" class="learn-check"><input v-model="voiceAnyOctave" type="checkbox" :disabled="takeBeat!==null"/> Allow any octave</label>
+   </fieldset>
+   <fieldset class="learn-settings-group">
+    <legend>Display</legend>
+    <label class="learn-check learn-setting-wide"><input v-model="disableOverlay" type="checkbox"/> Separate score and diagram</label>
+    <label v-if="overlayScore" class="learn-setting-wide"><span class="learn-setting-inline">Score opacity <strong>{{overlayPaper}}%</strong></span><input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
+   </fieldset>
   </div>
   <p v-if="family==='Voice'" class="learn-mic-instructions">{{allowAnyOctave?'Sing the written note in any octave.':'Sing each note in its written octave.'}}</p>
   <p v-else-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
@@ -1000,5 +1014,28 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 }
 @media(max-width:360px){
  .learn-active-bars .learn-pitch-comparison{font-size:19px;gap:2px}
+}
+
+/* Compact, grouped practice settings; scroll without pushing the score out of view. */
+.learn-workspace>.learn-settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));align-items:start;gap:8px;flex:0 0 auto;max-height:55dvh;overflow:auto;overscroll-behavior:contain;padding:10px;box-sizing:border-box}
+.learn-settings-heading{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.learn-settings-heading h3{margin:0;font-size:17px;color:#f0f5f8}
+.learn-settings-heading button{min-height:36px;padding:4px 12px}
+.learn-settings-group{min-width:0;margin:0;padding:7px 9px 9px;border:1px solid #526c7d;border-radius:7px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:7px;background:#223746}
+.learn-settings-group legend{font-size:13px;font-weight:800;color:#c5e9fb;padding:0 4px}
+.learn-settings .learn-settings-range{grid-column:1/-1;display:block}
+.learn-settings-group>label{min-width:0;font-size:13px;line-height:1.25;gap:4px;color:#e4edf3}
+.learn-settings-group>label select{min-height:38px;font-size:13px;margin:0;padding:4px 5px}
+.learn-settings-group .learn-check{min-width:0;min-height:34px;align-self:center;gap:6px}
+.learn-settings-group .learn-check input{flex:0 0 18px;margin:0}
+.learn-settings-group .learn-setting-wide{grid-column:1/-1}
+.learn-setting-inline{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px}
+.learn-settings-group .learn-setting-inline strong,.learn-settings-group .learn-reference-readout strong{font-size:13px;color:#f1d69e}
+.learn-settings-group .learn-reference-readout{justify-content:space-between}
+.learn-settings-group input[type=range]{margin:0;min-height:28px}
+@media(max-width:650px){
+ .learn-workspace>.learn-settings{grid-template-columns:minmax(0,1fr);max-height:58dvh;padding:6px;gap:6px}
+ .learn-settings-group{padding:5px 6px 7px;gap:5px}
+ .learn-settings-group>label select{font-size:14px;min-height:38px}
 }
 </style>
