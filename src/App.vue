@@ -5655,12 +5655,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <EnsembleImportReview v-if="pendingEnsemble.length" :project="project" :files="pendingEnsemble" @apply="applyEnsembleImport" @cancel="closeImportDialog"/>
       <div v-else-if="pending.length" class="import-panel" aria-label="Import track selection">
         <p class="hint">{{pending.length}} part(s) detected. Choose how to apply them.</p>
-        <label>Import as<select v-model="importMode"><option v-if="pendingParsed" value="merge">Align &amp; merge (review before applying)</option><option value="melody">Melody only (legacy)</option><option value="score">Edited full score (legacy positional import)</option></select></label>
+        <label>Import as<select v-model="importMode"><option v-if="pendingParsed&&importContext!=='lead'" value="merge">Align &amp; merge (review before applying)</option><option v-if="importContext==='lead'||importContext==='arrange'" value="melody">Melody, lyrics and chords (positional)</option><option v-if="importContext==='arrange'" value="score">Edited full score (legacy positional import)</option></select></label>
         <MusicXmlMergeReview v-if="importMode==='merge'&&pendingParsed" :project="project" :parsed="pendingParsed" :source-name="pendingSourceName" :initial-instrument="importDestination" @apply="applyMusicXmlMerge" @reference="keepMusicXmlReference" @cancel="closeImportDialog"/>
         <label v-if="importMode==='melody'">Track<select v-model.number="selectedTrack"><option v-for="(track,i) in pending" :key="i" :value="i">{{track.name}} ({{track.notes.length}} notes)</option></select></label>
-        <button v-if="importMode!=='merge'" type="button" class="primary" @click="applyImport">Apply legacy import</button>
+        <button v-if="importMode!=='merge'" type="button" class="primary" @click="applyImport">Apply import</button>
       </div>
-      <p class="hint">MusicXML and MIDI alignment support per-measure transposition, harmony proposals, source-measure remapping, and protected-note editing. The original song remains available for Undo. Use the legacy positional import only for compatible round-trips with matching structure and parts.</p>
+      <p v-if="importContext==='arrange'||importContext==='instrument'" class="hint">MusicXML and MIDI alignment support per-measure transposition, harmony proposals, source-measure remapping, and protected-note editing. The original song remains available for Undo. Use the legacy positional import only for compatible round-trips with matching structure and parts.</p>
       <p v-if="message.startsWith('Import failed')" role="alert" class="import-error">{{message}}</p>
     </div>
     <div class="app-modal-actions"><button type="button" class="secondary" @click="closeImportDialog">Close</button></div>
