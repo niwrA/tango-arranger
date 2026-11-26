@@ -252,3 +252,19 @@ check('new song ensemble reviews multiple files against an independent blank dra
  assert.ok(create.includes('await flushAutosave();stopPlayback();await adoptLocalSong(fresh)'));
  assert.ok(app.includes("if(!open||start!=='ensemble')resetNewEnsemble()"));
 });
+
+check('section insertion and removal preserve score timing and inherit independent settings',()=>{
+ const {insertSectionBoundary,removeSectionBoundary}=load('src/leadSectionBoundary.ts');
+ const p=load('src/music.ts').blankProject({measures:4,beats:4});
+ p.roles.A={Piano:'chords'};p.sectionKeys={A:'Fm'};
+ p.generatedScore={Piano:[{pitch:60,start:5,duration:2}]};p.protectedBars={'Piano:1':true};
+ const split=insertSectionBoundary(p,2);
+ assert.deepEqual(split.bars.map(b=>b.section),['A','A','B','B']);
+ assert.equal(split.sectionKeys.B,'Fm');assert.deepEqual(split.roles.B,p.roles.A);
+ assert.notEqual(split.roles.B,p.roles.A);assert.equal(split.generatedScore,p.generatedScore);
+ assert.equal(split.protectedBars,p.protectedBars);
+ assert.deepEqual(removeSectionBoundary(split,2).bars,p.bars);
+ assert.throws(()=>insertSectionBoundary(p,0),/inside/);
+ assert.throws(()=>removeSectionBoundary(p,0),/after/);
+ assert.ok(app.includes('Insert section boundary here'));
+});
