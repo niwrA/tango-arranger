@@ -5566,7 +5566,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
-  <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'">{{performanceShortTitle}}</div>
+  <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'"><span>{{performanceShortTitle}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='selected'?'play':'primary']" @click="play('selected')" :title="`Play from selected measure ${measureLabel(selectedBar)}`" :aria-label="`Play arrangement from selected measure ${measureLabel(selectedBar)}`" :aria-pressed="playing&&playbackOrigin==='selected'"><AppIcon name="play"/></button>
@@ -5794,7 +5794,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <template v-for="part in performanceCueParts" :key="part.inst">
      <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" :class="{'is-learning':instrumentLearnMode}" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
        <header class="instrument-focus-header">
-         <div class="instrument-focus-title"><small>{{instrumentLearnMode?'Learn':'Instrument focus'}} · {{project.title||'Untitled tango'}}</small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
+         <div class="instrument-focus-title"><small class="focus-title-line"><span>{{instrumentLearnMode?'Learn':'Instrument focus'}} · {{project.title||'Untitled tango'}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
          <div class="instrument-focus-toolbar">
            <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
              <button type="button" :class="{selected:!focusShowsScore&&cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
@@ -8751,4 +8751,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .stage-vocal-rest.is-focused strong{font-size:clamp(60px,20vmin,220px)}
 .stage-vocal-rest.is-focused span{font-size:clamp(18px,3vw,36px)}
 @media(prefers-reduced-motion:reduce){.performance-live .performance-cue-panel.performance-diagram-card.performance-cue-playing{--cue-beat-glow:.13!important}}
+</style>
+
+<style scoped>
+/* Keep the running build visible beside the title on tablet layouts. */
+.title-build{flex:0 0 auto;font-size:11px!important;line-height:1.2;font-weight:650;color:#b8cbd8!important;letter-spacing:0;white-space:nowrap;font-variant-numeric:tabular-nums}
+.performance-live .app-topbar .performance-topbar-song-title{display:flex;align-items:baseline;gap:7px}
+.performance-topbar-song-title>span,.focus-title-line>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.instrument-focus-title .focus-title-line{display:flex;align-items:baseline;gap:7px;min-width:0}
+@media(min-width:761px) and (max-width:1120px){
+ .shell:not(.performance-live)>.app-topbar{grid-template-columns:auto minmax(0,1fr) auto auto auto!important;grid-template-areas:"brand playback files measures more" "song song song song song"!important}
+ .shell:not(.performance-live)>.app-topbar>.brand{display:flex!important;grid-area:brand!important;margin:0;padding:2px 4px;gap:5px}
+ .shell:not(.performance-live)>.app-topbar>.brand .brand-label small{display:block!important;font-size:11px}
+}
 </style>
