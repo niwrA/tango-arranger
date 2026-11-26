@@ -106,3 +106,12 @@ check('performance and capture share compact violin geometry and sounding finger
  assert.ok(app.includes('capture-violin-geometry'));
  assert.ok(app.includes('minmax(44px,'));
 });
+
+check('practice position planner preserves a playable hand position and budgets shift time',()=>{
+ const guide=require('node:fs').readFileSync(path.join(root,'src/stringPositionGuide.ts'),'utf8');
+ assert.ok(guide.includes('planPracticePositions'));
+ assert.ok(guide.includes('prior&&fits(prior,note)'));
+ assert.ok(guide.includes('practiceShiftDurationMs'));
+ assert.ok(diagram.includes('diagram-position-roman'));
+ assert.ok(diagram.includes('boardShift'));
+});

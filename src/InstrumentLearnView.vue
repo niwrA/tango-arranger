@@ -15,7 +15,7 @@ import {slideEvidence,type GestureSample} from './practiceGestures';
 import {alignLearnTake} from './learnTake';
 import {download} from './io';
 import {practiceTargets,bandoneonPracticeHands,practiceAttackDuration,type ChordTarget,type PracticeStaff} from './practiceTargets';
-import {suggestStringMeasurePosition} from './stringPositionGuide';
+import {suggestStringMeasurePosition,planPracticePositions,practiceShiftDurationMs} from './stringPositionGuide';
 import {suggestViolinPosition} from './violinPositions';
 import MeasureRangeControl from './MeasureRangeControl.vue';
 import AppIcon from './AppIcon.vue';
@@ -178,13 +178,19 @@ const bandoneonHands=computed(()=>family.value==='Bandoneon'
 const bandoneonTargetHand=computed<'right'|'left'|undefined>(()=>family.value==='Bandoneon'&&guideNote.value
  ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit)===1?'right':'left':undefined);
 const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value,guideNote.value?.stringMidi):null);
-const bassGuide=computed(()=>family.value==='Contrabass'&&guideMidi.value!==null
- ?suggestStringMeasurePosition('Contrabass',[{pitch:guideMidi.value,stringMidi:guideNote.value?.stringMidi}]):null);
+const practicePositionNotes=computed(()=>targets.value.map(n=>({pitch:targetPitch(n)+props.concertTranspose,start:n.start,duration:noteSoundingDuration(n),stringMidi:n.stringMidi})));
+const practicePositions=computed(()=>family.value==='Violin'||family.value==='Contrabass'?planPracticePositions(family.value,practicePositionNotes.value):[]);
+const positionIndex=computed(()=>guideNote.value?targets.value.indexOf(guideNote.value):Math.min(cursor.value,targets.value.length-1));
+const bassGuide=computed(()=>{
+ const index=positionIndex.value,planned=practicePositions.value[index];
+ if(!planned)return null;
+ if(guideMidi.value!==null&&!planned.fingerings.some(f=>f.pitch===guideMidi.value)&&guideNote.value?.stringGlissando)
+  return suggestStringMeasurePosition(planned.instrument,[{pitch:guideMidi.value,stringMidi:guideNote.value.stringMidi}])??planned;
+ return planned;
+});
+const shiftDuration=computed(()=>practiceShiftDurationMs(practicePositionNotes.value[positionIndex.value-1],practicePositionNotes.value[positionIndex.value],props.bpm));
 const fingeringCue=computed(()=>{
- const violin=violinGuide.value;
- if(violin)return violin.finger===0?'Open '+violin.stringName+' string':
-  `Position ${violin.position} · ${violin.stringName} string · finger ${violin.finger}`;
- const bass=bassGuide.value, fingering=bass?.fingerings[0];
+ const bass=bassGuide.value, fingering=bass?.fingerings.find(f=>f.pitch===guideMidi.value);
  if(bass&&fingering)return fingering.finger==='0'?`Open ${pitchLabel(fingering.openMidi)} string`:
   `Position ${bass.position} · ${pitchLabel(fingering.openMidi)} string · ${fingering.finger==='T'?'thumb':'finger '+fingering.finger}`;
  const hand=bandoneonTargetHand.value;
@@ -659,7 +665,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </div>
    <div v-if="showDiagram" class="learn-diagram">
     <slot name="diagram" :target-pitch="diagramTarget" :current-beat="guideNote?Math.floor(guideNote.start%beatsPerMeasure)+1:1"
-     :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide"
+     :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide" :shift-duration="shiftDuration"
      :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
    </div>
   </div>

@@ -124,3 +124,41 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
  }
  return best;
 }
+
+/** Plan a stable sequence of hand positions. Keep a position while it covers
+ * the next notes; when a shift is needed, prefer a window covering the phrase.
+ * Open strings do not require a hand shift. */
+export function planPracticePositions(instrument:PositionInstrument,notes:readonly PositionNote[]):(StringPositionGuide|null)[]{
+ let prior:StringPositionGuide|null=null;
+ return notes.map((note,index)=>{
+  const upcoming=notes.slice(index,index+5);
+  const fits=(guide:StringPositionGuide,n:PositionNote)=>fingerboardStrings(instrument).some(s=>
+   (n.stringMidi===undefined||n.stringMidi===s.midi)&&fingerAtPosition(instrument,guide.firstFingerOffset,n.pitch-s.midi,guide.thumb)!==null);
+  const covered=(guide:StringPositionGuide)=>upcoming.filter(n=>fits(guide,n)).length;
+  const candidate=suggestStringMeasurePosition(instrument,upcoming);
+  let chosen=prior&&fits(prior,note)?prior:null;
+  if(!chosen)chosen=candidate&&fits(candidate,note)?candidate:suggestStringMeasurePosition(instrument,[note]);
+  if(chosen&&candidate&&prior&&fits(prior,note)&&fits(candidate,note)&&covered(candidate)>covered(prior)+1){
+   const previous=notes[index-1];
+   const gap=previous&&note.start!==undefined&&previous.start!==undefined?note.start-previous.start-(previous.duration??0):0;
+   if(gap>=.125)chosen=candidate;
+  }
+  if(!chosen)return null;
+  const fingerings:PositionFingering[]=[];
+  for(const n of upcoming){
+   const options=fingerboardStrings(instrument).flatMap(s=>{
+    if(n.stringMidi!==undefined&&n.stringMidi!==s.midi)return [];
+    const offset=n.pitch-s.midi,finger=fingerAtPosition(instrument,chosen!.firstFingerOffset,offset,chosen!.thumb);
+    return finger===null?[]:[{pitch:n.pitch,openMidi:s.midi,offset,finger}];
+   });
+   options.sort((a,b)=>(a.finger==='0'?-100:a.offset)-(b.finger==='0'?-100:b.offset));
+   const f=options[0];if(f&&!fingerings.some(x=>x.pitch===f.pitch&&x.openMidi===f.openMidi))fingerings.push(f);
+  }
+  prior={...chosen,fingerings};return prior;
+ });
+}
+export function practiceShiftDurationMs(previous:PositionNote|undefined,next:PositionNote|undefined,bpm:number):number{
+ if(!previous||!next||previous.start===undefined||next.start===undefined||!(bpm>0))return 120;
+ const gap=Math.max(0,next.start-previous.start-(previous.duration??0));
+ return Math.max(75,Math.min(450,gap*60000/bpm||90));
+}

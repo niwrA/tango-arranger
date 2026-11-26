@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from 'vue';
+import {computed,ref,watch,nextTick,onBeforeUnmount} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
 import {fingerboardStrings} from './stringFingerboard';
@@ -9,7 +9,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -80,12 +80,31 @@ const displayedStops=computed(()=>{
  const base=(props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops).filter(offset=>offset>0);
  const explicit=(props.activeStringNotes??[]).flatMap(n=>n.stringMidi===undefined?[]:[n.pitch-n.stringMidi]).filter(n=>n>0);
  const high=family.value==='Violin'&&(props.learn||props.focus)&&base.length&&Math.min(...base)>=5?Array.from({length:3},(_,i)=>Math.max(...base)+i+1).filter(n=>n<=24):[];
+ if(props.learn&&family.value==='Violin'){
+  const first=Math.max(1,props.positionGuide?.firstStop??props.violinPosition?.firstStop??1);
+  return Array.from({length:10},(_,i)=>first+i);
+ }
  return [...new Set([...base,...explicit,...high])].sort((a,b)=>a-b);
 });
 const fingerboardColumns=computed(()=>{
  const offsets=displayedStops.value;
  return {'--stop-count':offsets.length,'--violin-columns':family.value==='Violin'?'minmax(0,1.1fr) '+offsets.map(n=>'minmax(0,'+Math.max(.38,Math.pow(2,-n/12)).toFixed(3)+'fr)').join(' '):undefined};
 });
+const boardShift=ref(0),boardMoving=ref(false);
+let shiftFrame=0;
+let shiftTimer:ReturnType<typeof setTimeout>|undefined;
+watch(()=>displayedStops.value[0],(next,previous)=>{
+ if(!props.learn||next===previous||next===undefined||previous===undefined)return;
+ cancelAnimationFrame(shiftFrame);clearTimeout(shiftTimer);
+ boardMoving.value=false;boardShift.value=Math.max(-55,Math.min(55,(next-previous)*12));
+ void nextTick(()=>{shiftFrame=requestAnimationFrame(()=>{
+  boardMoving.value=true;boardShift.value=0;
+  shiftTimer=setTimeout(()=>boardMoving.value=false,(props.shiftDuration??120)+30);
+ });});
+});
+onBeforeUnmount(()=>{cancelAnimationFrame(shiftFrame);clearTimeout(shiftTimer);});
+const shiftStyle=computed(()=>({'--board-shift':boardShift.value+'%','--board-shift-duration':(boardMoving.value?(props.shiftDuration??120):0)+'ms'}));
+const positionRoman=computed(()=>props.positionGuide?.position??props.violinPosition?.position??'I');
 const positionText=computed(()=>props.positionGuide
  ?'Position '+props.positionGuide.position+' · '+(props.positionGuide.thumb?'thumb':'1st finger')+' '+midiLabel(props.positionGuide.anchorMidi)+' on '+midiLabel(props.positionGuide.anchorStringMidi)+' string'
  :props.violinPosition
@@ -182,7 +201,7 @@ const diagramDescription=computed(()=>{
         <span v-if="pianoPitchesOutOfView"> · {{pianoPitchesOutOfView}} notes outside keyboard</span>
       </span>
     </div>
-   <div v-else-if="isStringInstrument" class="diagram-fingerboard" :style="fingerboardColumns"
+   <div v-else-if="isStringInstrument" class="diagram-fingerboard" :style="{...fingerboardColumns,...shiftStyle}"
      :class="{'diagram-violin-fingerboard':family==='Violin','diagram-bass-fingerboard':family==='Contrabass'&&Boolean(props.positionGuide),'diagram-has-guide':Boolean(props.positionGuide)}"
      :aria-label="family+' open strings and schematic semitone positions'+(props.positionGuide||family==='Violin'?', '+positionText:'')">
      <span v-if="!props.learn&&(!props.focus||!props.positionGuide)&&(family==='Violin'||(family==='Contrabass'&&props.positionGuide))" class="diagram-violin-position"
@@ -198,7 +217,7 @@ const diagramDescription=computed(()=>{
       </span>
      <div v-if="props.learn||props.focus" class="diagram-string-row diagram-stop-header" aria-label="Semitones above open string">
       <span class="diagram-open-heading" :title="positionText">Open · 0</span>
-      <span v-for="offset in displayedStops" :key="offset" :class="{'diagram-position-column':props.positionGuide?offset===props.positionGuide.firstFingerOffset:false}" :title="offset+' semitones above open string · '+positionText">{{offset}}<small v-if="props.positionGuide&&offset===props.positionGuide.firstFingerOffset">{{props.positionGuide.position}} · {{props.positionGuide.thumb?'T':'1'}}</small></span>
+      <span v-for="offset in displayedStops" :key="offset" :class="{'diagram-position-column':props.positionGuide?offset===props.positionGuide.firstFingerOffset:false}" :title="offset+' semitones above open string · '+positionText">{{offset}}<small v-if="props.positionGuide&&offset===props.positionGuide.firstFingerOffset" class="diagram-position-roman">{{positionRoman}}</small></span>
      </div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
        :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
@@ -680,4 +699,18 @@ const diagramDescription=computed(()=>{
 .performance-instrument-diagram .diagram-fingerboard .diagram-open-label.is-measure-note:not(.is-sounding):not(.is-learn-target) strong{color:#202b33}
 .performance-instrument-diagram .diagram-fingerboard .diagram-open-label.is-chord-tone:not(.is-measure-note):not(.is-sounding):not(.is-learn-target){box-shadow:inset 0 0 0 1px #88765c}
 :global(.learn-display-overlay) .performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-chord-tone:not(.is-measure-note):not(.is-sounding):not(.is-learn-target):not(.is-position-anchor){color:#52452f;border-top-color:#88765c}
+</style>
+
+<style scoped>
+/* Stable column count and a directional slide; open strings remain stationary. */
+.performance-instrument-diagram.is-learn .diagram-fingerboard{overflow:hidden}
+.performance-instrument-diagram.is-learn .diagram-string-row>.diagram-string-stop,
+.performance-instrument-diagram.is-learn .diagram-stop-header>span:not(.diagram-open-heading){
+ transform:translateX(var(--board-shift,0%));transition:transform var(--board-shift-duration,0ms) cubic-bezier(.2,.7,.25,1);
+}
+.performance-instrument-diagram.is-learn .diagram-stop-header .diagram-position-column{position:relative;display:flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;overflow:visible;z-index:2}
+.performance-instrument-diagram.is-learn .diagram-stop-header .diagram-position-roman{font-size:clamp(14px,2.2vw,24px);font-weight:900;line-height:1;color:#fff;display:inline-block}
+@media(prefers-reduced-motion:reduce){
+ .performance-instrument-diagram.is-learn .diagram-string-row>.diagram-string-stop,.performance-instrument-diagram.is-learn .diagram-stop-header>span{transform:none!important;transition:none!important}
+}
 </style>
