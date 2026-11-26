@@ -11,8 +11,25 @@ export type EditSelection=
  |{kind:'phrase';measure:number}
  |{kind:'part'};
 export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:{bar:number;beat:number;pitch:number}};
-export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[]};
-export const editNoteKey=(n:Note)=>n.start+':'+n.pitch;
+export type MusicalEditChanges={added:Note[];modified:{before:Note;after:Note}[];deleted:Note[]};
+export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[];changes:MusicalEditChanges};
+const onsetPitchKey=(n:Note)=>n.start+':'+n.pitch;
+export const editNoteKey=(n:Note)=>n.editId?`id:${n.editId}`:onsetPitchKey(n);
+
+/** Legacy notes can share the same onset and pitch, or a copied note ID.
+ * Disambiguate within the part until an edit gives that note its own ID. */
+export function editPartNoteKeys(notes:readonly Note[]):ReadonlyMap<Note,string>{
+ const counts=new Map<string,number>();
+ for(const note of notes){const key=editNoteKey(note);counts.set(key,(counts.get(key)??0)+1);}
+ const occurrences=new Map<string,number>();
+ return new Map(notes.map(note=>{
+  const key=editNoteKey(note);
+  if(counts.get(key)===1)return [note,key];
+  const occurrence=occurrences.get(key)??0;
+  occurrences.set(key,occurrence+1);
+  return [note,`duplicate:${occurrence}:${key}`];
+ }));
+}
 const action=(value:string,label:string,title=label):EditAction=>({value,label,title});
 const roles:Role[]=['melody','harmony','chords','bass','fill','variation','rest'];
 export const editCategories:{id:EditCategory;label:string}[]=[{id:'pitch',label:'Pitch'},{id:'duration',label:'Note value'},{id:'rhythm',label:'Rhythm'},{id:'expression',label:'Style & expression'},{id:'dynamics',label:'Dynamics'},{id:'articulation',label:'Articulation'},{id:'finger',label:'Fingering'},{id:'bow',label:'Bowing'},{id:'position',label:'Position & string'},{id:'timing',label:'Timing'},{id:'structure',label:'Structure'},{id:'role',label:'Role'},{id:'create',label:'Create'}];
@@ -36,11 +53,13 @@ export function musicalEditActions(category:EditCategory,inst:Instrument):EditAc
 }
 function clearExpression(n:Note){delete n.gesture;delete n.slideTo;delete n.approachSlideFrom;delete n.stringGlissando;delete n.bowedTremolo;delete n.pianoGlissando;delete n.vibrato;delete n.swellTo;}
 /** Ranges are half-open in beats. An attack belongs to the range it starts in. */
-export function resolveEditSelection(p:Project,notes:readonly Note[],selection:EditSelection){
+export function resolveEditSelection(p:Project,notes:readonly Note[],selection:EditSelection,rejectStale=true){
  const measureOf=(start:number)=>Math.floor((start+1e-7)/p.beats);
  if(selection.kind==='notes'){
   const keys=new Set(selection.keys);
-  const chosen=notes.filter(note=>keys.has(editNoteKey(note)));
+  const partKeys=editPartNoteKeys(notes);
+  const chosen=notes.filter(note=>keys.has(partKeys.get(note)!));
+  if(rejectStale&&chosen.length!==keys.size)throw Error('Note selection is stale or ambiguous');
   return {notes:chosen,measures:[...new Set(chosen.map(note=>measureOf(note.start)))]};
  }
  let from=0,to=p.bars.length-1;
@@ -81,6 +100,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   for(const bar of bars)if(!activeBars.has(bar))bars.delete(bar);
  }
  const warnings:string[]=[];
+ const transformed=new Map<Note,Note>();
  let next:Project={...p},result:Note[]=[],kept:Note[]=notes.filter(n=>!selected.has(n));
  const range=instrumentRange(inst);
  const bound=(pitch:number)=>Math.max(range[0],Math.min(range[1],pitch));
@@ -99,7 +119,8 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   const overrides={...p.measureRoles};
   if(category==='role'){
    for(const b of bars)overrides[inst+':'+b]=value as Role;
-   return {project:{...p,generatedScore:p.generatedScore??score,measureRoles:overrides},score,keys:chosen.map(editNoteKey),count:chosen.length,description:'Changed role in '+bars.size+' measure(s)',affectedMeasures:[...bars],warnings};
+   const partKeys=editPartNoteKeys(notes);
+   return {project:{...p,generatedScore:p.generatedScore??score,measureRoles:overrides},score,keys:chosen.map(note=>partKeys.get(note)!),count:chosen.length,description:'Changed role in '+bars.size+' measure(s)',affectedMeasures:[...bars],warnings,changes:{added:[],modified:[],deleted:[]}};
   }
   if(value==='generate'){
    for(const b of bars)if(p.protectedBars[inst+':'+b]||notes.some(n=>n.start<(b+1)*beats&&n.start+n.duration>b*beats)){
@@ -158,9 +179,10 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
     if(value==='delete')continue;
     if(value==='split'||value==='repeat'){
      const length=n.duration/2;n.duration=length;delete n.rhythmSource;
-     const tail={...n,start:n.start+length};clearExpression(tail);delete tail.lyric;delete tail.lyric2;result.push(tail);
+     const tail={...n,start:n.start+length};clearExpression(tail);delete tail.editId;delete tail.lyric;delete tail.lyric2;result.push(tail);
     }
    }
+   transformed.set(original,n);
    result.push(n);
   }
  }
@@ -168,21 +190,44 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const combined=[...kept,...result];
  const countByKey=(part:readonly Note[])=>{
   const counts=new Map<string,number>();
-  for(const note of part){const key=editNoteKey(note);counts.set(key,(counts.get(key)??0)+1);}
+  for(const note of part){const key=onsetPitchKey(note);counts.set(key,(counts.get(key)??0)+1);}
   return counts;
  };
  const originalCounts=countByKey(notes);
  for(const [key,count] of countByKey(combined))
   if(count>Math.max(1,originalCounts.get(key)??0))throw Error('Edit would place multiple notes at the same onset and pitch');
+ // Allocate locally and deterministically so direct and preview agree.
+ const existingIds=new Set(notes.flatMap(note=>note.editId?[note.editId]:[]));
+ const usedIds=new Set(kept.flatMap(note=>note.editId?[note.editId]:[]));
+ const nextId=p.nextMusicalEditId??1;
+ const firstId=Number.isSafeInteger(nextId)&&nextId>0?nextId:1;
+ let serial=firstId;
+ for(const note of result){
+  if(!note.editId||usedIds.has(note.editId)){
+   while(existingIds.has(String(serial)))serial++;
+   note.editId=String(serial++);
+  }
+  usedIds.add(note.editId);
+ }
+ if(serial!==firstId)next.nextMusicalEditId=serial;
  let current=score;
  const unchanged=new Set(kept);
  for(const bar of [...bars].sort((a,b)=>a-b)){
   next=replaceInstrumentMeasure(next,current,inst,bar,combined.filter(n=>barOf(n)===bar),unchanged);current=next.generatedScore!;
  }
  const affectedMeasures=new Set(bars);
- for(const note of [...chosen.filter(note=>!unchanged.has(note)),...result]){
+ const removed=notes.filter(note=>!unchanged.has(note));
+ for(const note of [...removed,...result]){
   const last=Math.min(p.bars.length-1,Math.floor((note.start+note.duration-1e-8)/beats));
   for(let bar=barOf(note);bar<=last;bar++)affectedMeasures.add(bar);
  }
- return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:category+' · '+value+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings};
+ const stored=new Map((current[inst]??[]).map(note=>[editNoteKey(note),note]));
+ const storedResult=(note:Note)=>stored.get(editNoteKey(note))!;
+ const modified=new Set(transformed.values());
+ const changes={
+  added:result.filter(note=>!modified.has(note)).map(storedResult),
+  modified:[...transformed].map(([before,after])=>({before,after:storedResult(after)})),
+  deleted:removed.filter(note=>!transformed.has(note))
+ };
+ return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:category+' · '+value+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings,changes};
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
-import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,resolveEditSelection,type EditCategory,type MusicalEditResult,type EditSelection} from './musicalEdit';
+import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditResult,type EditSelection} from './musicalEdit';
 import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -4959,7 +4959,9 @@ const quickDraft=shallowRef<{base:Project;result:MusicalEditResult}|null>(null);
 const quickDisplayScore=computed(()=>quickDraft.value?.result.score??score.value);
 const quickRole=ref<Role|'inherit'>('inherit');
 const quickPitch=ref(72),quickBeat=ref(1);
-const quickNoteKey=editNoteKey;
+const quickSourceKeys=computed(()=>editPartNoteKeys(score.value[noteInst.value]??[]));
+const quickDraftKeys=computed(()=>quickDraft.value?editPartNoteKeys(quickDisplayScore.value[noteInst.value]??[]):undefined);
+const quickNoteKey=(note:Note)=>quickSourceKeys.value.get(note)??quickDraftKeys.value?.get(note)??editNoteKey(note);
 const quickSelection=computed<EditSelection>(()=>{
  const last=Math.max(0,project.value.bars.length-1);
  const clamp=(bar:number)=>Math.max(0,Math.min(bar,last));
@@ -4973,7 +4975,7 @@ const quickSelection=computed<EditSelection>(()=>{
   default:return {kind:'notes',keys:multiNoteMode.value?multiNoteKeys.value:selectedEvent.value?[quickNoteKey(selectedEvent.value)]:[]};
  }
 });
-const resolvedQuickSelection=computed(()=>resolveEditSelection(project.value,score.value[noteInst.value]??[],quickSelection.value));
+const resolvedQuickSelection=computed(()=>resolveEditSelection(project.value,score.value[noteInst.value]??[],quickSelection.value,false));
 const quickSelectedNotes=computed(()=>new Set(resolvedQuickSelection.value.notes));
 const quickSelectionCount=computed(()=>quickScope.value==='notes'?resolvedQuickSelection.value.notes.length:resolvedQuickSelection.value.measures.length);
 const quickCategories=computed(()=>editCategories.filter(c=>musicalEditActions(c.id,noteInst.value).length));
