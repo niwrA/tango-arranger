@@ -195,7 +195,18 @@ const diagramDescription=computed(()=>{
            'is-learn-target':isTargetStop(string.midi,offset),
            'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}"
          :title="midiLabel(string.midi+offset)+(fingerFor(string.midi,string.midi+offset)!==null?' · suggested finger '+fingerFor(string.midi,string.midi+offset):'')">
-         <span v-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)||isPlannedStringPitch(string.midi,string.midi+offset)||isTargetStop(string.midi,offset)">{{fingerFor(string.midi,string.midi+offset)??noteName(string.midi+offset)}}</span>
+         <template v-if="props.learn&&isTargetStop(string.midi,offset)">
+          <svg class="diagram-target-fingerprint" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false">
+           <g stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <path d="M4 16a12 12 0 0 1 24 0c0 5-1 9-3 13"/>
+            <path d="M7 23v-7a9 9 0 0 1 18 0c0 5-1 9-3 13"/>
+            <path d="M10 27c1-4 1-7 1-11a5 5 0 0 1 10 0c0 6-1 10-3 13"/>
+            <path d="M14 29c1-4 1-8 1-13a2 2 0 0 1 4 0c0 6-1 10-2 13"/>
+           </g>
+          </svg>
+          <span class="diagram-target-finger-number" :aria-label="fingerFor(string.midi,string.midi+offset)!==null?'Suggested finger '+fingerFor(string.midi,string.midi+offset):midiLabel(string.midi+offset)">{{fingerFor(string.midi,string.midi+offset)??noteName(string.midi+offset)}}</span>
+         </template>
+         <span v-else-if="isTone(string.midi+offset)||isPlayingPitch(string.midi+offset)||isPlannedStringPitch(string.midi,string.midi+offset)||isTargetStop(string.midi,offset)">{{fingerFor(string.midi,string.midi+offset)??noteName(string.midi+offset)}}</span>
        </span>
      </div>
    </div>
@@ -569,5 +580,31 @@ const diagramDescription=computed(()=>{
 @media(max-width:760px){
  .performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard.diagram-violin-fingerboard .diagram-open-label{height:26px}
  .diagram-fingerboard .diagram-stop-header{font-size:10px}
+}
+
+/* Target cue preserves the fingering supplied by the current position guide. */
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop.is-learn-target,
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-open-label.is-learn-target{
+ isolation:isolate;z-index:10;border-color:#fff!important;
+ box-shadow:inset 0 0 0 1px #8b5519,0 0 0 2px #ffdf86,0 0 12px 3px #ffcf6699!important;
+}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .is-learn-target::after{
+ content:'';position:absolute;inset:-2px;border:2px solid #fff2b8;border-radius:inherit;
+ pointer-events:none;animation:learn-finger-target-pulse 1.45s ease-out infinite;
+}
+.diagram-target-fingerprint{position:absolute;inset:0;width:100%;height:100%;color:#70430d;opacity:.65;pointer-events:none;z-index:0}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop.is-learn-target>.diagram-target-finger-number{
+ position:relative;z-index:1;font-size:clamp(16px,2.5vw,28px);font-weight:900;line-height:1;
+ color:#21180d;text-shadow:0 0 2px #fff4ce,0 0 4px #fff4ce,0 0 5px #fff4ce;
+}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-open-label.is-learn-target>strong{
+ font-size:clamp(15px,2.4vw,27px);font-weight:900;line-height:1;
+}
+@keyframes learn-finger-target-pulse{
+ 0%,100%{transform:scale(1);opacity:.9}
+ 65%{transform:scale(1.12);opacity:.25}
+}
+@media(prefers-reduced-motion:reduce){
+ .performance-instrument-diagram.is-learn .diagram-fingerboard .is-learn-target::after{animation:none}
 }
 </style>
