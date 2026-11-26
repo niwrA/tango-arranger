@@ -2,7 +2,7 @@
 import {computed,ref,watch} from 'vue';
 import {assembleEditionScore} from './editions';
 import {projectInstruments,type Instrument,type Note,type Project} from './music';
-import {createMergePlan,modifyAlignment,previewMerge,chordEstimate,
+import {createMergePlan,modifyAlignment,previewMerge,chordEstimate,accompanimentInstrument,missingAccompanimentMeasures,type AccompanimentRhythm,
  type AlignmentRow,type MergeDecision,type MergeMode,type MergePlan,type ProtectionDecision} from './musicXmlMerge';
 import type {ParsedMusicXml} from './musicXmlImport';
 const props=defineProps<{project:Project;parsed:ParsedMusicXml;sourceName:string}>();
@@ -14,8 +14,17 @@ const detectedPart=()=>{
  return props.parsed.parts.findIndex(p=>p.staffCount>1)>=0?props.parsed.parts.findIndex(p=>p.staffCount>1):0;
 };
 const partIndex=ref(Math.max(0,detectedPart()));
-const instrument=ref<Instrument>(props.sourceName.toLowerCase().includes('violin')?'Violin I':'Piano');
-const mode=ref<MergeMode>('fit');
+const filename=props.sourceName.toLowerCase();
+const suggested=/violin[\s_-]*(?:ii|2)(?![i0-9])/.test(filename)?'Violin II':filename.includes('violin')?'Violin I':/bandoneon[\s_-]*(?:ii|2)(?![i0-9])/.test(filename)?'Bandoneon II':filename.includes('bandoneon')?'Bandoneon I':'Piano';
+const instrument=ref<Instrument>(instruments.value.includes(suggested)?suggested:instruments.value[0]);
+const existing=assembleEditionScore(props.project);
+const blankSong=!props.project.bars.some(b=>b.chord.trim()||b.melody.length)&&!Object.values(existing).some(notes=>notes.length)&&!Object.values(props.project.protectedBars).some(Boolean);
+const mode=ref<MergeMode>(blankSong&&props.parsed.measures.every(m=>Math.abs(m.beats-props.project.beats)<1e-6)?'lead':'fit');
+const advanced=ref(false);
+const confirmedAlignment=ref(false);
+const fill=ref(false);
+const rhythm=ref<AccompanimentRhythm>('four');
+const useSlashes=ref(true);
 const editPage=ref(0);
 const pageSize=10;
 const editing=ref<number|null>(null);
@@ -31,12 +40,16 @@ function rebuild(){
  try{plan.value=createPlan();plan.value.inferredHarmony=inferred.value;error.value='';editPage.value=0;editing.value=null;}
  catch(err){error.value=String(err);}
 }
-watch([mode,instrument,partIndex],rebuild);
-const effectivePlan=computed(()=>({...plan.value,inferredHarmony:inferred.value}));
+watch([mode,instrument,partIndex],()=>{confirmedAlignment.value=false;advanced.value=false;fill.value=false;rebuild();});
+const simple=computed(()=>mode.value!=='reference'&&!(existing[instrument.value]?.length)&&!Object.keys(props.project.protectedBars).some(key=>key.startsWith(instrument.value+':')&&props.project.protectedBars[key]));
+const mismatch=computed(()=>mode.value==='fit'&&props.parsed.parts[partIndex.value]?.measureCount!==props.project.bars.length);
+const hasSlashes=computed(()=>Boolean(props.parsed.parts[partIndex.value]?.slashAttacks?.length));
+const effectivePlan=computed(()=>({...plan.value,inferredHarmony:inferred.value,fillAccompaniment:fill.value&&accompanimentInstrument(instrument.value)?rhythm.value:undefined,useSlashRhythm:useSlashes.value&&hasSlashes.value&&accompanimentInstrument(instrument.value)}));
 const preview=computed(()=>{
  try{return {result:previewMerge(props.project,props.parsed,effectivePlan.value),error:''};}
  catch(err){return {result:null,error:String(err)};}
 });
+const candidateCount=computed(()=>{try{const base=previewMerge(props.project,props.parsed,{...effectivePlan.value,fillAccompaniment:undefined,useSlashRhythm:false});return missingAccompanimentMeasures(base.proposed,instrument.value).length;}catch{return 0;}});
 const total=computed(()=>plan.value.rows.length);
 const pageCount=computed(()=>Math.ceil(total.value/pageSize));
 const rows=computed(()=>plan.value.rows.slice(editPage.value*pageSize,(editPage.value+1)*pageSize));
@@ -125,7 +138,7 @@ function selectSection(value:number){selectedSection.value=value;editPage.value=
 </script>
 <template>
  <section class="xml-merge-review" aria-label="score alignment and merge preview">
-  <div class="xml-merge-header"><strong>Import &amp; Align · Compare / Merge</strong><span>Preview only — no changes until Apply</span></div>
+  <div class="xml-merge-header"><strong>{{simple?'Add instrument part':'Import & Align · Compare / Merge'}}</strong><span>Preview only — no changes until Apply</span></div>
   <div class="xml-merge-stats">
     <span>{{parsed.measureCount}} incoming measures</span>
     <span>{{parsed.parts.length}} source part(s)</span>
@@ -136,8 +149,9 @@ function selectSection(value:number){selectedSection.value=value;editPage.value=
     <label>Import mode<select v-model="mode"><option value="fit">Fit imported part to current song</option><option value="lead">Use imported part as song structure</option><option value="reference">Reference and alignment only</option></select></label>
     <label>Source score part<select v-model.number="partIndex"><option v-for="(part,i) in parsed.parts" :key="part.id" :value="i">{{part.name}} · {{part.notes.length}} notes · {{part.pitchedMeasures}} sounding measures</option></select></label>
     <label>Destination instrument<select v-model="instrument"><option v-for="inst in instruments" :key="inst" :value="inst">{{project.instrumentNames?.[inst]||inst}}</option></select></label>
-    <label class="xml-merge-checkbox"><input v-model="inferred" type="checkbox"/> Propose harmony from source notes (estimated, review required)</label>
+    <label class="xml-merge-checkbox"><input v-model="inferred" type="checkbox"/> Propose missing harmony from source notes (estimated, review required)</label>
   </div>
+  <p v-if="plan.positionalAlignment" class="xml-merge-warning">Positional mapping (measure 1 to measure 1, no automatic transposition). Verify against the original score; recognition errors can shift measures.</p>
   <p class="xml-merge-help">Use the selected source part to propose measure alignment and any available key-signature regions. Existing parts are aligned when evidence permits. A key-signature change never transposes protected notes automatically. Check every low-confidence match before applying.</p>
   <p v-if="mode==='lead'" class="xml-merge-warning">Structural change: the new song will have {{parsed.measureCount}} measures. The complete previous project, protected passages and alternate editions remain recoverable through the saved merge backup. Unmapped edits need review.</p>
   <div v-if="parsed.warnings.length" class="xml-merge-warning" role="status">Score import warnings: {{parsed.warnings.slice(0,3).join('; ')}}</div>
@@ -150,6 +164,14 @@ function selectSection(value:number){selectedSection.value=value;editPage.value=
   </div>
   <div class="xml-merge-warning" v-if="preview.error||error" role="alert">{{preview.error||error}}</div>
   <div v-if="preview.result?.conflicts.length" class="xml-merge-conflicts"><strong>Review warnings</strong><p v-for="(warning,i) in preview.result.conflicts.slice(0,4)" :key="i">{{warning}}</p><small v-if="preview.result.conflicts.length>4">{{preview.result.conflicts.length-4}} additional warnings in preview</small></div>
+  <div v-if="simple" class="xml-merge-help">Import into an empty instrument. Other parts are retained. <button type="button" class="secondary" @click="advanced=!advanced">{{advanced?'Hide alignment details':'Review or edit alignment'}}</button></div>
+  <label v-if="simple&&mismatch" class="xml-merge-warning"><input type="checkbox" v-model="confirmedAlignment"/> I reviewed the differing measure counts and confirm the proposed alignment. Unmapped measures will not be imported.</label>
+  <div v-if="accompanimentInstrument(instrument)" class="xml-merge-config">
+   <label v-if="candidateCount"><span><input type="checkbox" v-model="fill"/> Generate missing upper-staff chords ({{candidateCount}} candidate measures)</span><small>Existing pitches and bassline are preserved. Measures without chords are skipped.</small></label>
+   <label v-if="fill">Accompaniment rhythm<select v-model="rhythm"><option value="four">Marcato on every beat</option><option value="two">Marcato en dos</option><option value="syncopa">Síncopa</option><option value="bass">Follow bass rhythm</option><option value="section">Existing section rhythm</option></select></label>
+   <label v-if="hasSlashes"><span><input type="checkbox" v-model="useSlashes"/> Realize encoded slash rhythms using known harmony</span></label>
+  </div>
+  <template v-if="!simple||advanced">
   <div class="xml-merge-bulk">
     <label>Song section<select :value="selectedSection" @change="selectSection(Number(($event.target as HTMLSelectElement).value))"><option v-for="(span,i) in spans" :key="i" :value="i">{{span.name}} · {{span.start+1}}–{{span.end+1}}</option></select></label>
     <label>Apply note choice to section<select v-model="changesTo"><option value="ours">Keep ours</option><option value="theirs">Use theirs</option><option value="combine">Combine</option></select></label>
@@ -181,11 +203,12 @@ function selectSection(value:number){selectedSection.value=value;editPage.value=
       </tbody>
     </table>
   </div>
-  <p class="xml-merge-help">“Strong” and “Uncertain” describe automated harmonic matches only; neither is a musical correctness guarantee. Source notes and inferred harmonies are not silently forced into protected instrument parts. You can change source measures, local transposition, merge policy, or the protected note pitches before applying.</p>
+  </template>
+  <p v-if="!simple||advanced" class="xml-merge-help">“Strong” and “Uncertain” describe automated harmonic matches only; neither is a musical correctness guarantee. Source notes and inferred harmonies are not silently forced into protected instrument parts. You can change source measures, local transposition, merge policy, or the protected note pitches before applying.</p>
   <div class="xml-merge-actions">
     <button type="button" class="secondary" @click="emit('cancel')">Cancel preview</button>
     <button v-if="mode==='reference'" type="button" class="secondary" @click="emit('reference',effectivePlan)">Save alignment reference</button>
-    <button v-else type="button" class="primary" :disabled="Boolean(preview.error||error)" @click="emit('apply',effectivePlan)">Review &amp; apply merge…</button>
+    <button v-else type="button" class="primary" :disabled="Boolean(preview.error||error)||(simple&&mismatch&&!confirmedAlignment)" @click="emit('apply',effectivePlan)">{{simple?'Import instrument part…':'Review & apply merge…'}}</button>
   </div>
  </section>
 </template>

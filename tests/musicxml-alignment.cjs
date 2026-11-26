@@ -174,3 +174,29 @@ check('contextual edit wizard and bounded iPad orchestration buttons are present
  assert.ok(css.includes('.app-modal.musicxml-merge-modal'));
 });
 console.log(count+' MusicXML import/merge tests passed');
+
+check('sequential empty-part imports default to incoming notes and preserve previous parts and rests',()=>{
+ const old=music.blankProject({measures:4,beats:4});
+ const parsed=xml.parseMusicXmlDetailed(xmlExample());
+ const piano=merge.applyReviewedMerge(old,parsed,merge.createMergePlan(old,parsed,'Piano',0,'fit','piano.xml'));
+ const violinPlan=merge.createMergePlan(piano,parsed,'Violin II',0,'fit','Violin2.xml');
+ assert.equal(violinPlan.rows[0].notes,'theirs');assert.equal(violinPlan.rows[0].shift,0);
+ const next=merge.applyReviewedMerge(piano,parsed,violinPlan);
+ assert.deepEqual(next.generatedScore.Piano,piano.generatedScore.Piano);
+ assert.ok(next.generatedScore['Violin II'].length);
+ assert.ok(next.partEditions.Piano);
+});
+check('missing accompaniment is additive and skips absent harmony',()=>{
+ const old=music.blankProject({measures:2,beats:4});old.bars[0].chord='Dm,A7';
+ const bass=[{pitch:38,start:0,duration:1,xmlStaff:2,source:'imported'},{pitch:45,start:4,duration:1,xmlStaff:2,source:'imported'}];
+ old.generatedScore={Piano:bass};old.importedScore={Piano:bass};old.protectedBars={'Piano:0':true,'Piano:1':true};
+ const result=merge.completeMissingAccompaniment(old,'Piano','four');
+ assert.deepEqual(result.filled,[0]);assert.deepEqual(result.skipped,[1]);
+ assert.deepEqual(result.project.generatedScore.Piano.filter(n=>n.xmlStaff===2),bass);
+ assert.ok(result.project.generatedScore.Piano.some(n=>n.source==='generated'&&n.start===2&&n.pitch%12===1));
+ assert.deepEqual(merge.completeMissingAccompaniment(result.project,'Piano','four').filled,[]);
+});
+check('slash noteheads are rhythmic instructions, not literal pitches',()=>{
+ const parsed=xml.parseMusicXmlDetailed(xmlExample().replace('<duration>2</duration><voice>1</voice>','<duration>2</duration><notehead>slash</notehead><voice>1</voice>'));
+ assert.equal(parsed.parts[0].slashAttacks.length,1);assert.equal(parsed.parts[0].notes.length,15);
+});

@@ -1,6 +1,6 @@
 /** Auditable MusicXML ↔ Tango alignment and non-destructive preview/merge.
  * Harmonies inferred from OMR are suggestions, never authoritative facts. */
-import {chordTones,generate,mergeScores,parseChordSequence,parsePitch,projectInstruments,sectionLetter,transposeChord,
+import {chordAt,chordTones,instrumentRange,partStaffForNote,generate,mergeScores,parseChordSequence,parsePitch,projectInstruments,sectionLetter,transposeChord,
   type Bar,type Instrument,type Note,type Project,type Score} from './music';
 import {assembleEditionScore,snapshotActiveEditions} from './editions';
 import type {ParsedMusicXml,XmlPart,XmlMeasure} from './musicXmlImport';
@@ -17,6 +17,7 @@ export type MergePlan={
   mode:MergeMode;instrument:Instrument;partIndex:number;
   sourceName:string;sourceMeasureCount:number;rows:AlignmentRow[];
   inferredHarmony:boolean;createdAt:string;
+  fillAccompaniment?:AccompanimentRhythm; positionalAlignment?:boolean; useSlashRhythm?:boolean;
 };
 export type MergeBackup={createdAt:string;sourceName:string;project:Project};
 export type MergePreview={proposed:Project;conflicts:string[];matched:number;uncertain:number;changes:number};
@@ -146,7 +147,10 @@ export function createMergePlan(project:Project,parsed:ParsedMusicXml,instrument
  if(!parsed.parts[partIndex])throw Error('Select a valid MusicXML part');
  if(!['fit','lead','reference'].includes(mode))throw Error('Unknown merge mode');
  if(mode==='lead'&&parsed.measures.some(m=>Math.abs(m.beats-project.beats)>1e-6))throw Error('This piano-led import requires the same time signature in all source measures');
- const aligned=sourceAlignment(project,parsed,partIndex);
+ const saved=assembleEditionScore(project);
+ const destinationEmpty=!(saved[instrument]?.length)&&!Object.keys(project.protectedBars).some(key=>key.startsWith(instrument+':')&&project.protectedBars[key]);
+ const positionalAlignment=mode==='fit'&&(destinationEmpty||!project.bars.some(b=>b.chord.trim()));
+ const aligned=positionalAlignment?project.bars.map((_,i)=>({theirs:i<parsed.parts[partIndex].measureCount?i:null,shift:0,confidence:0})):sourceAlignment(project,parsed,partIndex);
  const count=mode==='lead'?parsed.measureCount:project.bars.length;
  const inverse=new Map<number,{ours:number;shift:number;confidence:number}>();
  aligned.forEach((item,ours)=>{
@@ -164,12 +168,12 @@ export function createMergePlan(project:Project,parsed:ParsedMusicXml,instrument
   const confidence=mode==='lead'?inverseMatch?.confidence??0:alignedMatch?.confidence??0;
   const protectedOriginal=ours!==null&&Boolean(project.protectedBars[instrument+':'+ours]);
   return {target,ours,theirs:source??null,shift,confidence,
-   notes:source===null?'ours':mode==='lead'&&!protectedOriginal?'theirs':'ours',
+   notes:source===null?'ours':(mode==='lead'&&!protectedOriginal||mode==='fit'&&destinationEmpty)?'theirs':'ours',
    chords:mode==='lead'&&source!==null?'theirs':'ours',
    protectedAction:'keep'};
  });
  return {mode,instrument,partIndex,sourceName,sourceMeasureCount:parsed.measureCount,rows,
-  inferredHarmony:false,createdAt:new Date().toISOString()};
+  inferredHarmony:false,positionalAlignment,createdAt:new Date().toISOString()};
 }
 export function modifyAlignment(plan:MergePlan,target:number,patch:Partial<Omit<AlignmentRow,'target'>>):MergePlan{
  const row=plan.rows[target];if(!row)throw Error('Unknown target measure');
@@ -198,7 +202,7 @@ function notesForRow(notes:readonly Note[],sourceMeasure:number,start:number,sou
  return notes.filter(n=>n.start>=sourceOffset-1e-7&&n.start<sourceOffset+sourceBeats-1e-7).map(n=>{
   const pitch=n.pitch+shift;
   if(!Number.isInteger(pitch)||pitch<0||pitch>127)throw Error('Transposition moves a note outside MIDI range');
-  return {...clone(n),pitch,start:start+(n.start-sourceOffset),source:'manual' as const};
+  return {...clone(n),pitch,start:start+(n.start-sourceOffset),source:'imported' as const};
  });
 }
 const uniqNotes=(notes:Note[]):Note[]=>{
@@ -232,6 +236,7 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
  const preserved=Object.fromEntries(projectInstruments(copy).map(inst=>[inst,[] as Note[]])) as Score;
  const protectedBars:Record<string,boolean>={};
  let matched=0,uncertain=0,changes=0;
+ if(plan.mode==='fit'&&parsed.parts[plan.partIndex].measureCount!==original.bars.length)conflicts.push('Source and destination measure counts differ; verify alignment and any omitted source measures.');
  const source=parsed.parts[plan.partIndex];
  for(const row of plan.rows){
   const {target,ours,theirs,shift}=row;
@@ -245,8 +250,8 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
   const incoming=theirs===null?undefined:parsed.measures[theirs];
   const oursNotes=was?.melody.map(n=>({...clone(n),start:n.start,source:'manual' as const}))??[];
   const incomingChord=theirs===null?'':parsed.chords[theirs]||(
-    plan.inferredHarmony?chordEstimate(parsed,theirs,plan.partIndex).chord:'');
-  if(row.chords==='theirs'||row.chords==='combine'){
+    plan.inferredHarmony?chordEstimate(parsed,theirs,-1).chord:'');
+  if(row.chords==='theirs'||row.chords==='combine'||(plan.inferredHarmony&&plan.mode==='fit'&&!was?.chord?.trim())){
    const next=incomingChord?(plan.mode==='fit'&&shift?incomingChord.split(',').map(c=>transposeChord(c,shift)).join(','):incomingChord):'';
    if(next){
     dest.chord=row.chords==='combine'&&was?.chord?was.chord:next;
@@ -270,6 +275,7 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
     }
     return next;
    });
+   if(wasProtected)protectedBars[inst+':'+target]=true;
    if(!segment.length)continue;
    const collected=preserved[inst];
    collected.push(...segment);
@@ -286,7 +292,7 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
   let selected=chosen;
   if(row.notes==='theirs'){
    if(incomingNotes.length)selected=incomingNotes;
-   else if(theirs!==null){selected=[];conflicts.push('Measure '+(target+1)+': incoming part contains only rests');}
+   else if(theirs!==null){selected=[];if(chosen.length)conflicts.push('Measure '+(target+1)+': incoming rests replace existing notes');}
   }else if(row.notes==='combine')selected=uniqNotes([...chosen,...incomingNotes]);
   if((row.notes==='theirs'||row.notes==='combine')&&theirs===null)conflicts.push('Measure '+(target+1)+': no matched source measure');
   if(row.notesOverride)selected=chosen;
@@ -294,7 +300,7 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
   // transpose, or "theirs" decision. Ours is retained after key changes.
   if(row.notes==='ours'&&!row.notesOverride&&ours===null)selected=[];
   result[plan.instrument].push(...selected);
-  if((selected.length&&row.notes!=='ours')||row.notesOverride||row.protectedAction==='transpose'){
+  if((theirs!==null&&row.notes==='theirs')||(selected.length&&row.notes==='combine')||row.notesOverride||row.protectedAction==='transpose'){
    protectedBars[plan.instrument+':'+target]=true;
    changes++;
   }else if(ours!==null&&copy.protectedBars[plan.instrument+':'+ours])protectedBars[plan.instrument+':'+target]=true;
@@ -303,7 +309,7 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
  // transitions are not auto-shortened; warn so musicians can correct them.
  for(const inst of projectInstruments(copy)){
   if(inst===plan.instrument)continue;
-  result[inst]=uniqNotes(preserved[inst]);
+  result[inst]=plan.mode==='fit'&&plan.rows.every(row=>row.protectedAction!=='transpose')?clone(savedScore[inst]??[]):uniqNotes(preserved[inst]);
  }
  const remapped:Project={...copy,bars,
   ...(plan.mode==='lead'?{
@@ -315,7 +321,7 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
     violinMarcatoBeats:{},violinArpeggioDirections:{}
   }:{}),
   protectedBars,
-  generatedScore:result,importedScore:clone(result),baseScore:undefined,partEditions:undefined,
+  generatedScore:result,importedScore:plan.mode==='fit'?{...copy.importedScore,[plan.instrument]:clone(result[plan.instrument])}:clone(result),baseScore:undefined,partEditions:plan.mode==='fit'?copy.partEditions:undefined,
   importMergeBackup:undefined
  };
  // Unmatched original measures and all inactive difficulty editions are kept
@@ -328,7 +334,20 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
   }
  }
  if(plan.mode==='reference')return {proposed:copy,conflicts,matched,uncertain,changes:0};
- return {proposed:remapped,conflicts,matched,uncertain,changes};
+ let proposed=remapped;
+ if(plan.fillAccompaniment||plan.useSlashRhythm){
+  const rhythms:Record<number,{beat:number;duration:number}[]>={};
+  if(plan.useSlashRhythm)for(const row of plan.rows){
+   if(row.theirs===null||row.notes==='ours')continue;
+   const measure=parsed.measures[row.theirs];
+   const attacks=(source.slashAttacks??[]).filter(n=>n.staff===1&&n.start>=measure.offset&&n.start<measure.offset+measure.beats).map(n=>({beat:n.start-measure.offset,duration:n.duration}));
+   if(attacks.length)rhythms[row.target]=attacks;
+  }
+  const completed=completeMissingAccompaniment(proposed,plan.instrument,plan.fillAccompaniment??'four',0,bars.length-1,rhythms,!plan.fillAccompaniment);
+  proposed=completed.project;changes+=completed.filled.length;
+  if(completed.skipped.length)conflicts.push('No reliable chord supplied for accompaniment in '+completed.skipped.length+' measures');
+ }
+ return {proposed:plan.mode==='fit'?snapshotActiveEditions(proposed):proposed,conflicts,matched,uncertain,changes};
 }
 export function applyReviewedMerge(original:Project,parsed:ParsedMusicXml,plan:MergePlan):Project{
  if(plan.mode==='reference')throw Error('Reference-only mode does not modify the arrangement');
@@ -342,4 +361,55 @@ export function undoReviewedMerge(project:Project):Project{
  const backup=project.importMergeBackup;
  if(!backup)throw Error('No MusicXML merge backup available');
  return clone(backup.project);
+}
+export type AccompanimentRhythm='four'|'two'|'syncopa'|'bass'|'section';
+export function accompanimentInstrument(inst:Instrument){return /^(Piano|Bandoneon)/i.test(inst);}
+const staffOf=(n:Note,p:Project,inst:Instrument)=>n.xmlStaff===1||n.xmlStaff===2?n.xmlStaff:partStaffForNote(n,inst,p.pianoSplitPitch??60);
+export function missingAccompanimentMeasures(p:Project,inst:Instrument,from=0,to=p.bars.length-1){
+ if(!accompanimentInstrument(inst))return [];
+ const notes=assembleEditionScore(p)[inst]??[];
+ return p.bars.flatMap((_,i)=>{
+  if(i<from||i>to)return [];
+  const active=notes.filter(n=>n.start<(i+1)*p.beats-1e-7&&n.start+n.duration>i*p.beats+1e-7);
+  return active.some(n=>staffOf(n,p,inst)===2)&&!active.some(n=>staffOf(n,p,inst)===1)?[i]:[];
+ });
+}
+/** Explicit, additive completion. Never modifies imported pitches or other parts. */
+export function completeMissingAccompaniment(p:Project,inst:Instrument,rhythm:AccompanimentRhythm='four',from=0,to=p.bars.length-1,slashRhythms:Record<number,{beat:number;duration:number}[]>={},slashOnly=false){
+ const saved=snapshotActiveEditions(p),score=assembleEditionScore(saved),notes=score[inst]??[];
+ const filled:number[]=[],skipped:number[]=[],added:Note[]=[];
+ if(!accompanimentInstrument(inst)||!projectInstruments(p).includes(inst))return {project:p,filled,skipped};
+ const candidates=new Set([...(!slashOnly?missingAccompanimentMeasures(p,inst,from,to):[]),...Object.keys(slashRhythms).map(Number)]);
+ const fresh=rhythm==='section'?generate(p)[inst]??[]:[];
+ for(const i of [...candidates].sort((a,b)=>a-b)){
+  if(i<from||i>to||!p.bars[i])continue;
+  const bar=p.bars[i],offset=i*p.beats;
+  if(!bar.chord.trim()||!/^([A-Ga-g][#b]?)/.test(bar.chord.trim())){skipped.push(i);continue;}
+  const active=notes.filter(n=>n.start<offset+p.beats-1e-7&&n.start+n.duration>offset+1e-7);
+  const upper=active.filter(n=>staffOf(n,p,inst)===1);
+  const bass=active.filter(n=>staffOf(n,p,inst)===2&&n.start>=offset);
+  const beats=rhythm==='two'?[0,Math.floor(p.beats/2)]:rhythm==='syncopa'?[0,1.5,Math.max(2,p.beats-1)].filter(b=>b<p.beats):rhythm==='bass'?[...new Set(bass.map(n=>n.start-offset))]:rhythm==='section'?[...new Set(fresh.filter(n=>n.start>=offset&&n.start<offset+p.beats&&staffOf(n,p,inst)===1).map(n=>n.start-offset))]:Array.from({length:p.beats},(_,b)=>b);
+  const attacks=slashRhythms[i]??beats.map(beat=>({beat,duration:Math.min(.75,p.beats-beat)}));
+  let count=0;
+  for(const {beat,duration} of attacks){
+   if(beat<0||beat>=p.beats||duration<=0)continue;
+   const start=offset+beat,len=Math.min(duration,p.beats-beat);
+   if(upper.some(n=>n.start<start+len-1e-7&&n.start+n.duration>start+1e-7))continue;
+   const chord=chordAt(bar.chord,p.beats,beat);
+   if(!/^[A-Ga-g][#b]?/.test(chord))continue;
+   const [lo,hi]=instrumentRange(inst),floor=Math.max(lo,p.pianoSplitPitch??60),ceiling=Math.min(hi,floor+15);
+   const pitches=chordTones(chord).map(pc=>floor+((pc-floor%12+12)%12)).filter(n=>n<=ceiling);
+   if(pitches.length<2)continue;
+   for(const pitch of pitches)added.push({pitch,start,duration:len,gate:.75,velocity:72,xmlStaff:1,source:'generated'});
+   count++;
+  }
+  if(count)filled.push(i);
+ }
+ if(!added.length)return {project:p,filled,skipped};
+ const combined=[...notes,...added].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+ const protectedBars={...saved.protectedBars};for(const i of filled)protectedBars[inst+':'+i]=true;
+ // Store the mixed measure intact because legacy protection is measure-level.
+ const imported=[...(saved.importedScore?.[inst]??[]).filter(n=>!filled.includes(Math.floor(n.start/p.beats))),...combined.filter(n=>filled.includes(Math.floor(n.start/p.beats)))];
+ const project=snapshotActiveEditions({...saved,generatedScore:{...score,[inst]:combined},importedScore:{...saved.importedScore,[inst]:imported},protectedBars});
+ return {project,filled,skipped};
 }

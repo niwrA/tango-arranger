@@ -30,7 +30,7 @@ import MusicXmlMergeReview from './MusicXmlMergeReview.vue';
 import CompleteScoreImportReview from './CompleteScoreImportReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
-import {chordEstimate,applyReviewedMerge,undoReviewedMerge,previewMerge,type MergePlan} from './musicXmlMerge';
+import {chordEstimate,applyReviewedMerge,undoReviewedMerge,previewMerge,completeMissingAccompaniment,accompanimentInstrument,type AccompanimentRhythm,type MergePlan} from './musicXmlMerge';
 import type {PolySynth,Synth} from 'tone';
 import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
@@ -3660,6 +3660,17 @@ async function importFile(e:Event){
 }
 function applyImport(){if(!pending.value.length||importMode.value==='merge')return;if(importMode.value==='melody'){if(pendingChords.value.length)pendingChords.value.forEach((c,i)=>{if(c?.trim()&&project.value.bars[i])project.value.bars[i].chord=c;});if(pendingKeys.value.length){project.value.sectionKeys??={};const assigned=new Set<string>();pendingKeys.value.forEach((key,i)=>{const sec=project.value.bars[i]?.section;if(sec&&key&&!assigned.has(sec)){project.value.sectionKeys![sec]=key;assigned.add(sec);}});}const notes=pending.value[selectedTrack.value]?.notes??[];const needed=Math.ceil((Math.max(0,...notes.map(n=>n.start+n.duration)))/project.value.beats);while(project.value.bars.length<needed)project.value.bars.push({chord:'',melody:[],section:project.value.bars.at(-1)?.section??'A'});project.value.bars.forEach((b,i)=>b.melody=notes.filter(n=>Math.floor(n.start/project.value.beats)===i).map(n=>({...n,start:n.start-i*project.value.beats})));message.value=`Imported ${notes.length} melody notes. Set chords and sections, then generate.`;}else{project.value.importedScore=transposeScore(scoreFromParts(pending.value),-(project.value.transposeSemitones??0));let count=0;for(const inst of INSTRUMENTS)for(let b=0;b<project.value.bars.length;b++){const old=(project.value.generatedScore?.[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===b).map(n=>[n.pitch,n.start,n.duration]);const incoming=(project.value.importedScore[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===b).map(n=>[n.pitch,n.start,n.duration]);if(JSON.stringify(old)!==JSON.stringify(incoming)){setProtected(inst,b,true);count++;}}message.value=`Imported edited score; ${count} instrument-measures marked protected. Review before regenerating.`;}pending.value=[];pendingChords.value=[];pendingKeys.value=[];importDialogOpen.value=false;}
 
+function fillMissingPart(inst:Instrument){
+ try{
+  const choice=window.prompt('Generate missing upper-staff chords in selected measures '+overviewStart.value+'–'+overviewEnd.value+'. Rhythm: four, two, syncopa, bass, section','four');
+  if(choice===null)return;
+  if(!['four','two','syncopa','bass','section'].includes(choice))throw Error('Choose four, two, syncopa, bass or section');
+  const result=completeMissingAccompaniment(project.value,inst,choice as AccompanimentRhythm,overviewStart.value-1,overviewEnd.value-1);
+  if(!result.filled.length){message.value='No eligible measures with known harmony. '+result.skipped.length+' measures lack chords.';return;}
+  if(!window.confirm('Generate upper-staff chords in measures '+result.filled.map(i=>i+1).join(', ')+'? Existing notes are preserved. '+result.skipped.length+' measures without chords are skipped.'))return;
+  project.value=result.project;message.value='Completed '+result.filled.length+' measures for '+inst+'.';
+ }catch(error){message.value='Accompaniment generation failed: '+String(error);}
+}
 async function applyMusicXmlMerge(plan:MergePlan){
  const parsed=pendingParsed.value;
  if(!parsed)return;
@@ -6200,7 +6211,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label>Instrument difficulty edition<select :value="instrumentDifficulty(instrumentContext!)" @change="switchDifficultyEdition(instrumentContext!,($event.target as HTMLSelectElement).value as Difficulty);closeInstrumentContext()">
       <option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(instrumentContext!,level)}}</option>
     </select></label>
-    <div class="instrument-context-edition-actions"><button type="button" class="secondary" @click="regenerateCurrentEdition(instrumentContext!);closeInstrumentContext()">↻ Regenerate selected edition</button><button type="button" class="secondary" @click="exportDifficultyEditionPack();closeInstrumentContext()">Export all editions (.zip)</button></div>
+    <div class="instrument-context-edition-actions"><button type="button" class="secondary" @click="regenerateCurrentEdition(instrumentContext!);closeInstrumentContext()">↻ Regenerate selected edition</button><button v-if="accompanimentInstrument(instrumentContext!)" type="button" class="secondary" @click="fillMissingPart(instrumentContext!);closeInstrumentContext()">Generate missing upper-staff chords in selected measures</button><button type="button" class="secondary" @click="exportDifficultyEditionPack();closeInstrumentContext()">Export all editions (.zip)</button></div>
     <small>Tap an instrument icon, or long-press or right-click its label, to open this menu. Use Shift+F10 or the menu key with a keyboard.</small>
   </div>
 </div></Teleport>

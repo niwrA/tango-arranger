@@ -8,7 +8,7 @@ export type XmlMeasure={
   mode:'major'|'minor'|null;keyChanged:boolean;rehearsal?:string;
   chords:{beat:number;symbol:string}[];
 };
-export type XmlPart={id:string;name:string;notes:Note[];staffCount:number;measureCount:number;pitchedMeasures:number};
+export type XmlPart={id:string;name:string;notes:Note[];staffCount:number;measureCount:number;pitchedMeasures:number;slashAttacks?:{start:number;duration:number;staff:number}[]};
 export type ParsedMusicXml={
   parts:XmlPart[];chords:string[];keys:string[];measures:XmlMeasure[];measureCount:number;
   warnings:string[];title:string;
@@ -102,6 +102,7 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
   let divisions=1,beats=4,beatType=4,fifths:number|null=null,mode:'major'|'minor'|null=null,offset=0,staves=1,transpose=0;
   let hasKey=false;
   const notes:Note[]=[];
+  const slashAttacks:{start:number;duration:number;staff:number}[]=[];
   let pitchedMeasures=0;
   for(const [mIndex,measure] of measures.entries()){
    let cursor=0,maxPosition=0,lastStart=0,hadPitch=false;
@@ -150,7 +151,9 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
     const duration=isGrace?0:numeric(child,'duration',0)/divisions;
     const start=isChord?lastStart:cursor;
     const pitch=parsePitch(child);
-    if(pitch!==null&&duration>0){
+    const slash=value(child,'notehead')==='slash';
+    if(slash&&duration>0&&!isChord)slashAttacks.push({start:offset+start,duration,staff:numeric(child,'staff',1)});
+    if(!slash&&pitch!==null&&duration>0){
       const tiedStart=descendants(child,'tie').some(t=>t.getAttribute('type')==='stop');
       const art=descendants(child,'articulations')[0];
       const marcato=Boolean(art&&descendants(art,'accent').length);
@@ -175,7 +178,7 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
    if(partIndex===0)reference.push({number:mIndex+1,offset,beats:length,beatType,keyFifths:fifths,mode,keyChanged,rehearsal,chords:harmonies});
    offset+=length;
   }
-  parts.push({id,name:names.get(id)||'Part '+(partIndex+1),notes,staffCount:staves,measureCount:measures.length,pitchedMeasures});
+  parts.push({id,name:names.get(id)||'Part '+(partIndex+1),notes,staffCount:staves,measureCount:measures.length,pitchedMeasures,slashAttacks});
  }
  const count=Math.max(...parts.map(p=>p.measureCount));
  if(parts.some(p=>p.measureCount!==count))warnings.push('Parts differ in measure count; check alignment before merging');
