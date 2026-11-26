@@ -650,7 +650,7 @@ const performanceChordBeats=computed(()=>({
  next:stageMeasureChords(performanceBar.value+1),
  nextMeasure:Math.min(project.value.bars.length,performanceBar.value+2)
 }));
-const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+noteSoundingDuration(n)>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
+const performanceParts=computed(()=>projectInstruments(project.value).map(inst=>{const bar=performanceBar.value,beat=performanceBeat.value;const notes=score.value[inst]??[];const sounding=notes.some(n=>n.start<=beat+0.0001&&n.start+(n.stringGlissando?.beats??noteSoundingDuration(n))>beat);return {inst,role:effectiveRole(inst,bar),sounding};}));
 /** Harmonic timeline tracks intra-measure chord changes instead of assuming one chord per bar. */
 const performanceHarmony=computed(()=>{
  const p=project.value,bar=performanceBar.value,current=p.bars[bar],localBeat=((performanceBeat.value%p.beats)+p.beats)%p.beats;
@@ -677,20 +677,20 @@ const roleCueHarmony=computed(()=>{
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
  const notes=score.value[part.inst]??[];
- const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
+ const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+(n.stringGlissando?.beats??noteSoundingDuration(n))>bar*p.beats);
  const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
  const liveBeat=performanceBeat.value;
  const activeStringNotes=playing.value?notes.filter(n=>n.start<=liveBeat&&n.start+(n.stringGlissando?.beats??noteSoundingDuration(n))>liveBeat).map(n=>n.stringGlissando?{...n,pitch:Math.round(stringPitchAtBeat(n,liveBeat))}:n):[];
  const activePitches=playing.value?(notes.some(n=>n.stringGlissando)?[...new Set(activeStringNotes.map(n=>n.pitch))]:soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration)):[];
  // Keep the violin chart at one suggested hand position per measure rather
  // than jumping to another string position on every note attack.
- const measureNotes=notes.filter(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
+ const measureNotes=notes.filter(n=>n.start<(bar+1)*p.beats&&n.start+(n.stringGlissando?.beats??noteSoundingDuration(n))>bar*p.beats);
  const measurePitches=measureNotes.flatMap(n=>n.stringGlissando?[n.pitch,n.pitch+n.stringGlissando.interval]:[n.pitch]);
  const nextRangePitches=notes.filter(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats).map(n=>n.pitch);
  const registerPitches=[...measurePitches,...(nextBar===bar?[]:nextRangePitches)];
  // Retain legacy one-note suggestion as fallback for diagram consumers.
  const violinMeasurePitches=instrumentFamily(part.inst)==='Violin'
-  ?measureNotes.map(n=>n.pitch)
+  ?measurePitches
   :[];
  const violinPosition=violinMeasurePitches.length?suggestViolinPosition(Math.max(...violinMeasurePitches)):null;
  // Pick a stable hand position for the entire measure, also for contrabass.
@@ -737,7 +737,7 @@ const performanceVocalCue=computed(()=>{
 const stagePlaybackBpm=computed(()=>Math.round(arrangementCountingIn.value?effectivePlaybackBpm.value:performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value));
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
-const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[]),...(n.stringGlissando?[n.pitch+n.stringGlissando.interval]:[])]);
+const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+(n.stringGlissando?.beats??n.duration)>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[]),...(n.stringGlissando?[n.pitch+n.stringGlissando.interval]:[])]);
  const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes,slices:splitAtMeasureBoundaries(notes,beats,first,length)};});
 const performanceGesturePaths=computed(()=>{
  const window=performanceRoll.value;if(!window)return [];

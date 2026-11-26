@@ -59,7 +59,7 @@ export function pianoGlissandoPitches(start:number,target:number,keys:'white'|'b
 }
 export function pianoPlaybackNotes(notes:readonly Note[],transpose=0):Note[]{
  const attacks:Note[]=[];
- const pedals=notes.filter(n=>n.pianoPedalBeats&&n.pianoPedalBeats>0).map(n=>({start:n.start,end:n.start+n.pianoPedalBeats!})).sort((a,b)=>a.start-b.start);
+ const pedals=notes.filter(n=>n.pianoPedalBeats&&n.pianoPedalBeats>0).map(n=>({start:n.start+(n.pianoPedalOffset??0),end:n.start+(n.pianoPedalOffset??0)+n.pianoPedalBeats!})).sort((a,b)=>a.start-b.start);
  for(const n of notes){
   const g=n.pianoGlissando;
   const pitches=g?pianoGlissandoPitches(n.pitch+transpose,n.pitch+g.interval+transpose,g.keys).map(p=>p-transpose):[];
