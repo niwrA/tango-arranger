@@ -1,3 +1,15 @@
+## Current product direction — intelligent musical editing and composition
+
+The immediate product goal is to evolve Tango Arranger from an arrangement generator with a note editor into an integrated composition, arrangement, notation and practice environment. The ordered implementation backlog and desktop validation handoff are maintained in [PROJECT-BOARD.MD](PROJECT-BOARD.MD); that priority order supersedes older feature sequencing in this historical document.
+
+- Score and note grid are equal editing surfaces, with synchronized selection, musical viewport and preview state; split view is supported. Preserve surface-specific gestures and detailed inspectors.
+- Select, Create and Erase share one contextual, instrument-aware command system. Preview is independent of interaction mode; audition, commit/cancel and atomic undo/redo use the same musical edit result.
+- Local role-aware composition, musical brushes and intelligent transformations should reuse the arrangement engine's harmony, rhythm, technique, difficulty and register knowledge. Generation must not implicitly change arrangement roles or overwrite existing material.
+- Distinguish written and sounding pitch/duration, notation and playback expression, and selection, preview, playback and Tutor feedback. Keep instrument-specific constraints, manual assignments and protected difficulty editions intact.
+- The initial shared editing infrastructure and split/audition iteration shipped in commits [14eefaad](https://github.com/niwrA/tango-arranger/commit/14eefaad) and [892e9ea](https://github.com/niwrA/tango-arranger/commit/892e9ea). Build, regression and device acceptance remain to be established locally; advanced graphical editing, overlays, brushes, optimization and expressive transformations remain planned.
+
+---
+
 ## v5.5.3 - Lyrics export and alignment follow-up
 
 - Multi-measure lyric alignment option in the Note Editor, beginning at the selected measure; syllables and underscore-reserved melisma notes follow chronological note onsets.
