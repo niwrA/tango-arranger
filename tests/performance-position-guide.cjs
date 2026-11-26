@@ -115,3 +115,20 @@ check('practice position planner preserves a playable hand position and budgets 
  assert.ok(diagram.includes('diagram-position-roman'));
  assert.ok(diagram.includes('boardShift'));
 });
+
+check('violin practice uses adjacent strings rather than extreme shifts for ordinary string hints',()=>{
+ const notes=[76,79,81,83,79,76,78,81].map((pitch,index)=>({pitch,start:index*.5,duration:.5,stringMidi:55}));
+ const route=pos.planPracticePositions('Violin',notes);
+ assert.ok(route.every(g=>g&&g.position==='I'));
+ assert.ok(route.every((g,i)=>g.fingerings[0].pitch===notes[i].pitch));
+ assert.ok(route.every(g=>g.fingerings[0].openMidi>=69));
+});
+check('explicit slide string remains respected',()=>{
+ const route=pos.planPracticePositions('Violin',[{pitch:76,stringMidi:62,lockString:true}]);
+ assert.equal(route[0].fingerings[0].openMidi,62);
+});
+check('open string between stopped notes does not force a position reset',()=>{
+ const route=pos.planPracticePositions('Violin',[{pitch:86},{pitch:76},{pitch:86}]);
+ assert.equal(route[0].position,route[1].position);
+ assert.equal(route[1].position,route[2].position);
+});

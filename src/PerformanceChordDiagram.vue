@@ -221,7 +221,7 @@ const diagramDescription=computed(()=>{
      </div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
        :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
-       <span class="diagram-open-label" :class="{'is-sounding':isPlayingStringPitch(string.midi,string.midi),'is-measure-note':isPlannedStringPitch(string.midi,string.midi),'is-chord-tone':isTone(string.midi),'is-learn-target':isTarget(string.midi)}"
+       <span class="diagram-open-label" :class="{'is-sounding':isPlayingStringPitch(string.midi,string.midi),'is-measure-note':isPlannedStringPitch(string.midi,string.midi),'is-chord-tone':isTone(string.midi),'is-learn-target':isTarget(string.midi)&&(!props.positionGuide||isPlannedStringPitch(string.midi,string.midi))}"
          :title="'Open '+string.name+(props.positionGuide?' · '+stringAnchorLabel(string.midi):'')">
          <strong>{{string.name}}</strong><small v-if="props.positionGuide">{{stringAnchorLabel(string.midi)}}</small>
        </span>

@@ -19,7 +19,7 @@ export interface StringPositionGuide {
  anchorStringMidi:number;
  anchorMidi:number;
 }
-export interface PositionNote {pitch:number;start?:number;duration?:number;stringMidi?:number}
+export interface PositionNote {pitch:number;start?:number;duration?:number;stringMidi?:number;lockString?:boolean}
 type Position={label:string;first:number;thumb?:boolean};
 const violin:Position[]=[
  {label:'I',first:2},{label:'II',first:4},{label:'III',first:5},
@@ -129,6 +129,7 @@ export function suggestStringMeasurePosition(instrument:PositionInstrument,raw:r
  * the next notes; when a shift is needed, prefer a window covering the phrase.
  * Open strings do not require a hand shift. */
 export function planPracticePositions(instrument:PositionInstrument,notes:readonly PositionNote[]):(StringPositionGuide|null)[]{
+ if(instrument==='Violin')return planViolinPractice(notes);
  let prior:StringPositionGuide|null=null;
  return notes.map((note,index)=>{
   const upcoming=notes.slice(index,index+5);
@@ -161,4 +162,57 @@ export function practiceShiftDurationMs(previous:PositionNote|undefined,next:Pos
  if(!previous||!next||previous.start===undefined||next.start===undefined||!(bpm>0))return 120;
  const gap=Math.max(0,next.start-previous.start-(previous.duration??0));
  return Math.max(75,Math.min(450,gap*60000/bpm||90));
+}
+
+/** Global minimum-cost route across string and position alternatives. Ordinary
+ * string hints are preferences, not commands to make an extreme shift.
+ * Captured/explicit slides can require a particular string. */
+function planViolinPractice(notes:readonly PositionNote[]):(StringPositionGuide|null)[]{
+ type State={ordinal:number;f:PositionFingering;cost:number;prev:number};
+ const strings=fingerboardStrings('Violin');
+ const layers:State[][]=[];
+ for(let i=0;i<notes.length;i++){
+  const n=notes[i],previous=notes[i-1],prior=layers[i-1]??[];
+  const gap=previous&&n.start!==undefined&&previous.start!==undefined?Math.max(0,n.start-previous.start-(previous.duration??0)):0;
+  const states:State[]=[];
+  for(let ordinal=0;ordinal<violin.length;ordinal++){
+   const p=violin[ordinal];
+   for(const string of strings){
+    if(n.lockString&&n.stringMidi!==undefined&&n.stringMidi!==string.midi)continue;
+    const offset=n.pitch-string.midi,finger=fingerAtPosition('Violin',p.first,offset);
+    if(finger===null)continue;
+    const f={pitch:n.pitch,openMidi:string.midi,offset,finger};
+    const local=ordinal*.85+Math.max(0,ordinal-2)*3+(finger==='0'?0:offset*.15)+(n.stringMidi!==undefined&&n.stringMidi!==string.midi?2:0);
+    let cost=local,prev=-1;
+    if(prior.length){
+     cost=Infinity;
+     for(let k=0;k<prior.length;k++){
+      const old=prior[k],distance=Math.abs(p.first-violin[old.ordinal].first);
+      const shift=distance?(12+distance*4)/(1+Math.min(2,gap)*1.5):0;
+      const crossing=Math.abs(strings.findIndex(s=>s.midi===old.f.openMidi)-strings.findIndex(s=>s.midi===string.midi))*.9;
+      const total=old.cost+local+shift+crossing;
+      if(total<cost){cost=total;prev=k;}
+     }
+    }
+    states.push({ordinal,f,cost,prev});
+   }
+  }
+  layers.push(states);
+ }
+ const route:(State|null)[]=Array(notes.length).fill(null);
+ for(let i=layers.length-1;i>=0;){
+  const layer=layers[i];if(!layer.length){i--;continue;}
+  let k=layer.reduce((best,s,index)=>s.cost<layer[best].cost?index:best,0);
+  while(i>=0&&k>=0&&layers[i][k]){const state:State=layers[i][k];route[i]=state;k=state.prev;i--;}
+ }
+ return route.map((state,index)=>{
+  if(!state)return null;
+  const p=violin[state.ordinal],firstStop=Math.max(1,p.first-1);
+  const fingerings=[state.f];
+  for(const next of route.slice(index+1,index+5)){
+   if(!next||next.ordinal!==state.ordinal)break;
+   if(!fingerings.some(f=>f.pitch===next.f.pitch))fingerings.push(next.f);
+  }
+  return {instrument:'Violin',position:p.label,ordinal:state.ordinal,firstFingerOffset:p.first,firstStop,lastStop:firstStop+7,thumb:false,fingerings,anchorStringMidi:state.f.openMidi,anchorMidi:state.f.openMidi+p.first};
+ });
 }

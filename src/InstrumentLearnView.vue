@@ -178,9 +178,17 @@ const bandoneonHands=computed(()=>family.value==='Bandoneon'
 const bandoneonTargetHand=computed<'right'|'left'|undefined>(()=>family.value==='Bandoneon'&&guideNote.value
  ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit)===1?'right':'left':undefined);
 const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value,guideNote.value?.stringMidi):null);
-const practicePositionNotes=computed(()=>targets.value.map(n=>({pitch:targetPitch(n)+props.concertTranspose,start:n.start,duration:noteSoundingDuration(n),stringMidi:n.stringMidi})));
+const practicePositionNotes=computed(()=>targets.value.map(n=>({pitch:targetPitch(n)+props.concertTranspose,start:n.start,duration:noteSoundingDuration(n),stringMidi:n.stringMidi,lockString:Boolean(n.stringGlissando||n.approachSlideFrom!==undefined||n.slideTo!==undefined)})));
 const practicePositions=computed(()=>family.value==='Violin'||family.value==='Contrabass'?planPracticePositions(family.value,practicePositionNotes.value):[]);
-const positionIndex=computed(()=>guideNote.value?targets.value.indexOf(guideNote.value):Math.min(cursor.value,targets.value.length-1));
+const positionIndex=computed(()=>{
+ if(guideNote.value)return targets.value.indexOf(guideNote.value);
+ if(demoBeat.value!==null){
+  const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
+  const next=targets.value.findIndex(n=>n.start>beat);
+  return next<0?targets.value.length-1:Math.max(0,next-1);
+ }
+ return Math.min(cursor.value,targets.value.length-1);
+});
 const bassGuide=computed(()=>{
  const index=positionIndex.value,planned=practicePositions.value[index];
  if(!planned)return null;
