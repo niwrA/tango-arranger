@@ -115,13 +115,35 @@ check('ensemble activity remains fixed throughout each measure instead of toggli
 });
 check('harmonic cues follow intra-measure changes and current measure beats',()=>{
  const section=app.slice(app.indexOf('const performanceHarmony=computed('),app.indexOf('function performanceDynamic('));
- assert.ok(section.includes('chordAt(current?.chord'));
- assert.ok(section.includes('parseChordSequence(p.bars[i].chord,p.beats)'));
- assert.ok(section.includes('nextChordMeasure'));
+ assert.ok(section.includes('stageHarmonyAt(p,bar,localBeat)'));
+ for(const binding of ['chord:cue.current','nextChord:cue.next','nextChordMeasure:cue.nextMeasure','nextChordBeat:cue.nextBeat'])
+  assert.ok(section.includes(binding),binding);
  assert.ok(app.includes('const performanceChordBeats=computed('));
  assert.ok(app.includes('return symbol;'));
  assert.ok(app.includes("if(symbol===previous)return '–'"));
- assert.ok(app.includes(':chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"'));
+ assert.match(app,/<PerformanceChordDiagram[^>]*:chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"/);
+ assert.match(app,/<PerformanceRoleCues[^>]*:chord="performanceHarmony.chord" :next-chord="roleCueHarmony.chord"/);
+});
+check('stage harmony follows actual chord changes, transposition and score boundaries',()=>{
+ const musicSource=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
+ const musicJs=ts.transpileModule(musicSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+ const musicMod={exports:{}};
+ vm.runInNewContext(`(function(require,module,exports){${musicJs}\n})`,{console})(
+  (_module)=>({}),musicMod,musicMod.exports
+ );
+ const {stageHarmonyAt}=musicMod.exports;
+ const project={beats:4,sectionKeys:{A:'C'},bars:[
+  {section:'A',chord:'C,G7'},{section:'A',chord:'G7'},{section:'A',chord:'Am'}
+ ]};
+ const cue=(p,bar,beat)=>JSON.parse(JSON.stringify(stageHarmonyAt(p,bar,beat)));
+ assert.deepEqual(cue(project,0,0),{current:'C',next:'G7',sameBar:true,nextMeasure:1,nextBeat:3});
+ assert.deepEqual(cue(project,0,1.99),{current:'C',next:'G7',sameBar:true,nextMeasure:1,nextBeat:3});
+ assert.deepEqual(cue(project,0,2),{current:'G7',next:'G7',sameBar:false,nextMeasure:2,nextBeat:1});
+ assert.deepEqual(cue(project,1,3),{current:'G7',next:'Am',sameBar:false,nextMeasure:3,nextBeat:1});
+ assert.deepEqual(cue(project,2,3),{current:'Am',next:'—',sameBar:false,nextMeasure:null,nextBeat:null});
+ assert.deepEqual(cue({...project,transposeSemitones:2},0,0),{current:'D',next:'A7',sameBar:true,nextMeasure:1,nextBeat:3});
+ const repeated={...project,bars:[{section:'A',chord:'C,C,G7,G7'},...project.bars.slice(1)]};
+ assert.deepEqual(cue(repeated,0,0),{current:'C',next:'G7',sameBar:true,nextMeasure:1,nextBeat:3});
 });
 check('upright stage cards retain reduced-motion option',()=>{
  assert.ok(app.includes('container-name:performance-parts'));
