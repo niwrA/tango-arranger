@@ -67,8 +67,16 @@ check('compact header keeps song selection visible alongside overflow and groupe
  assert.ok(app.includes('.app-topbar .topbar-compact-actions{display:flex'));
  assert.ok(app.includes('class="topbar-compact-actions"'));
  assert.ok(app.includes('class="files-organized-panel"')||app.includes('files-organized-panel'));
- for(const token of ['exportXml','exportMxl','exportMscz()','exportDifficultyEditionPack','exportAbcLead','exportForMobileSheets','saveProject(project)','importDialogOpen=true'])
-  assert.ok(app.includes(token),token);
+ const file=app.split('class="topbar-menu song-menu"')[1].split('class="topbar-group topbar-arrange"')[0];
+ for(const token of ['exportXml','exportMxl','exportMscz()','exportDifficultyEditionPack','exportAbcLead','exportForMobileSheets','saveProject(project)',"openContextImport('project')"])
+  assert.ok(file.includes(token),token);
+ assert.doesNotMatch(app,/class="topbar-menu files-menu"/);
+ for(const context of ['lead','arrange','instrument']){
+  const action="openContextImport('"+context+"'";
+  assert.ok(app.includes(action),action);
+  assert.ok(!file.includes(action),action+' must remain outside File');
+ }
+ assert.match(app,/function openContextImport\([^\n]*importDialogOpen\.value=true/);
 });
 check('global status is error-only; dynamics editor exposes direct paint, scope and tone level',()=>{
  assert.ok(app.includes('&& actionableError" class="topbar-status topbar-error-only"'));
