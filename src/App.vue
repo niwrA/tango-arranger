@@ -485,6 +485,7 @@ const waitingForSingerCue=ref(false);
 const arrangementCountIn=ref((()=>{try{return localStorage.getItem('tango-arrangement-count-in')!=='false';}catch{return true;}})());
 watch(arrangementCountIn,value=>{try{localStorage.setItem('tango-arrangement-count-in',String(value));}catch{/* Storage unavailable. */}});
 const arrangementCountingIn=ref(false);
+const performanceTransportBeat=ref(0);
 const pickupBeats=computed(()=>openingPickupBeats(project.value));
 function measureLabel(index:number){return index===0&&pickupBeats.value?'Pickup':String(index+1-(pickupBeats.value?1:0));}
 const pickupStartBeat=computed(()=>pickupBeats.value?project.value.beats-pickupBeats.value:0);
@@ -610,6 +611,10 @@ const performanceBar=computed(()=>Math.min(Math.max(0,project.value.bars.length-
 watch(performanceBar,bar=>{if(performanceMode.value){try{localStorage.setItem('tango-last-performance-measure',String(bar));}catch{/* Storage disabled. */}}});
 const performanceSection=computed(()=>performanceBar.value===0&&pickupBeats.value?'':project.value.bars[performanceBar.value]?.section??'A');
 const performanceMeasureBeat=computed(()=>performanceBeat.value%project.value.beats+1);
+// Keep the score on the requested measure during the audible preparatory bar.
+const focusPulsePosition=computed(()=>playing.value&&arrangementCountingIn.value?Math.max(0,performanceTransportBeat.value-playbackStartBeat.value):performanceBeat.value);
+const focusPulseBeat=computed(()=>Math.floor(focusPulsePosition.value%project.value.beats)+1);
+const focusPulseGlow=computed(()=>playing.value?(.12+.55*Math.pow(1-focusPulsePosition.value%1,2.4)).toFixed(3):'0');
 const performanceScoreFrom=1;
 const performanceScoreTo=computed(()=>project.value.bars.length);
 const performanceScoreNotes=computed(()=>{
@@ -758,7 +763,7 @@ const performanceGesturePaths=computed(()=>{
 });
 function performanceSeek(bar:number){const next=Math.max(0,Math.min(project.value.bars.length-1,bar));selectedBar.value=next;if(playing.value&&playbackOrigin.value){void play('selected',false);}else performanceBeat.value=next===0&&pickupBeats.value?project.value.beats-pickupBeats.value:next*project.value.beats;}
 let performanceTicker:ReturnType<typeof setInterval>|undefined;
-watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}if(isPlaying&&Tone&&playbackOrigin.value){performanceTicker=setInterval(()=>{if(!playing.value||!Tone)return;const transport=Tone.getTransport();performanceBeat.value=Math.min(project.value.bars.length*project.value.beats-0.001,Math.max(selectedArrangementStartBeat,playbackStartBeat.value+transport.ticks/transport.PPQ));},50);}});
+watch(playing,(isPlaying)=>{if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}if(isPlaying&&Tone&&playbackOrigin.value){performanceTicker=setInterval(()=>{if(!playing.value||!Tone)return;const transport=Tone.getTransport();performanceTransportBeat.value=playbackStartBeat.value+transport.ticks/transport.PPQ;performanceBeat.value=Math.min(project.value.bars.length*project.value.beats-0.001,Math.max(selectedArrangementStartBeat,performanceTransportBeat.value));},50);}});
 const sections=computed(()=>[...new Set(project.value.bars.map(b=>b.section))]);const chosenSection=ref('A');const majorKeys=MAJOR_KEYS;const minorKeys=MINOR_KEYS;
 // Status is event-driven: dismissing a message keeps it hidden until the text changes.
 watch(message,(next,previous)=>{if(next!==previous){statusVisible.value=true;statusDismissed.value=false;}});
@@ -3913,6 +3918,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
   const window=arrangementPlaybackWindow(project.value.bars.length,project.value.beats,project.value.bpm,startMeasure,pickupBeats.value,withCountIn);
   const {countInBeats,transportStartBeat}=window;
   performanceBeat.value=selectedArrangementStartBeat=window.startBeat;
+  performanceTransportBeat.value=transportStartBeat;
   playbackStartBeat.value=transportStartBeat;
   try{
     Tone=await startAudioFromGesture();
@@ -4009,7 +4015,7 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
     await prepareSamples(kind==='lead'?['Piano']:[instrument??overviewInstrument.value]);
     if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=effectivePlaybackBpm.value;
-    playbackStartBeat.value=selectedArrangementStartBeat=startBeat;performanceBeat.value=startBeat;
+    playbackStartBeat.value=selectedArrangementStartBeat=startBeat;performanceBeat.value=startBeat;performanceTransportBeat.value=startBeat;
     
     let count=0;
     if(kind==='lead'){
@@ -5781,6 +5787,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
                     <span class="playback-speed-bpm">{{Math.round(project.bpm*speed)}} BPM <b v-if="rehearsalSpeed===speed" aria-label="Selected">✓</b></span>
                   </button>
                 </div>
+                <label class="playback-speed-note"><input type="checkbox" v-model="arrangementCountIn"/> One-measure count-in</label>
                 <span class="playback-speed-note">Rehearsal only · the written BPM is unchanged.</span>
               </div>
             </details>
@@ -5795,9 +5802,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <div v-if="instrumentLearnMode" id="practice-recording-beat" class="instrument-focus-recording-beat"></div>
        </header>
        <div v-if="!instrumentLearnMode" class="instrument-focus-status" aria-live="off">
-         <span>Measure <strong>{{performanceBar+1}}</strong> / {{project.bars.length}}</span>
-         <span>Beat <strong>{{Math.floor(performanceMeasureBeat)}}</strong> / {{project.beats}}</span>
-         <span>Chord <strong>{{performanceHarmony.chord||'–'}}</strong></span>
+         <span>Measure <strong>{{measureLabel(performanceBar)}}</strong> / {{project.bars.length-(pickupBeats?1:0)}}</span>
          <span>{{Math.round(effectivePlaybackBpm)}} BPM · {{rehearsalSpeed}}×</span>
          <span v-if="!part.vocalRest&&(focusShowsScore||cardShowsDiagram(part.inst))" class="instrument-focus-dynamics-inline" :aria-label="'Dynamics now '+part.dynamics+(part.hasNextMeasure&&part.nextDynamics!==part.dynamics?', next '+part.nextDynamics:'')">
            <span class="instrument-focus-dynamic-chip" :style="{'--dyn-alpha':stageDynamicAlpha(part.dynamics)}">Dynamic <strong>{{part.dynamics}}</strong></span>
@@ -5807,6 +5812,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
            <button type="button" :class="{selected:focusMonitorMode==='solo'}" :aria-pressed="focusMonitorMode==='solo'" :aria-label="'Hear only '+part.display" :title="'Solo '+part.display" @click="setFocusMonitorMode('solo')"><AppIcon name="headphones"/><span>Solo</span></button>
            <button type="button" :class="{selected:focusMonitorMode==='mute'}" :aria-pressed="focusMonitorMode==='mute'" :aria-label="'Mute '+part.display+' and hear other instruments'" :title="'Mute '+part.display" @click="setFocusMonitorMode('mute')"><AppIcon name="volume-x"/><span>Mute</span></button>
          </div>
+       </div>
+       <div v-if="!instrumentLearnMode" class="instrument-focus-pulse" :class="{'is-count-in':arrangementCountingIn}" :style="{'--focus-pulse-glow':focusPulseGlow}">
+         <div class="instrument-focus-pulse-label">
+           <small v-if="arrangementCountingIn" role="status">Count-in · starting at M{{measureLabel(performanceBar)}}</small>
+           <small v-else>Beat · {{stagePlaybackBpm}} BPM</small>
+           <strong>{{focusPulseBeat}} / {{project.beats}}</strong>
+         </div>
+         <div class="instrument-focus-pulse-beats" aria-label="Beat pulse">
+           <span v-for="beat in project.beats" :key="beat" :class="{'is-current':beat===focusPulseBeat,'is-downbeat':beat===1}">{{beat}}</span>
+         </div>
+         <div class="instrument-focus-harmony"><small>Current chord</small><strong>{{performanceHarmony.chord||'–'}}</strong><span v-if="roleCueHarmony.chord&&roleCueHarmony.chord!=='—'">Next {{roleCueHarmony.chord}}</span></div>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
          <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
@@ -7953,6 +7969,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .instrument-focus-toolbar button:disabled{opacity:.5;cursor:default}
 .instrument-focus-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:10px 15px;border:1px solid #506777;border-radius:12px;background:#203344;font-size:clamp(13px,1.3vw,17px);font-variant-numeric:tabular-nums}
 .instrument-focus-status strong{color:#ffdaa0;font-size:1.25em}
+.instrument-focus-pulse{display:flex;align-items:center;gap:clamp(8px,2vw,24px);padding:8px 14px;flex:0 0 auto;border:1px solid #607b8e;border-radius:12px;background:#203344;box-shadow:inset 0 0 25px rgb(245 194 124 / var(--focus-pulse-glow,0));font-variant-numeric:tabular-nums}
+.instrument-focus-pulse-label,.instrument-focus-harmony{display:flex;flex-direction:column;min-width:0;gap:2px}
+.instrument-focus-pulse-label small,.instrument-focus-harmony small{font-size:clamp(11px,1.2vw,15px);color:#c9dce8}
+.instrument-focus-pulse-label strong,.instrument-focus-harmony strong{color:#ffe0ac;font-size:clamp(25px,4vw,52px);line-height:1.05;font-weight:850}
+.instrument-focus-harmony{flex:0 1 auto;text-align:right}
+.instrument-focus-harmony span{font-size:clamp(11px,1.3vw,18px);color:#c9dce8}
+.instrument-focus-pulse-beats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px;flex:1 1 0;min-width:0}
+.instrument-focus-pulse-beats span{display:grid;place-items:center;min-height:clamp(34px,6dvh,64px);border-radius:8px;border:1px solid #607b8e;background:#172936;color:#c9dce8;font-size:clamp(18px,3vw,36px);font-weight:800}
+.instrument-focus-pulse-beats .is-current{background:#f5c27c;color:#142430;border-color:#ffe1b2;box-shadow:0 0 15px rgb(245 194 124 / var(--focus-pulse-glow,0))}
+.instrument-focus-pulse-beats .is-current.is-downbeat{border:2px solid #fff2d8}
+.instrument-focus-pulse.is-count-in{border-color:#f5c27c;background:#344332}
+@media(max-width:600px){.instrument-focus-pulse{padding:6px;gap:6px}.instrument-focus-pulse-beats{gap:3px}.instrument-focus-pulse-label small,.instrument-focus-harmony small{font-size:10px}.instrument-focus-harmony span{font-size:10px}}
 .instrument-focus-content{display:flex;justify-content:center;align-items:stretch;flex:1 1 auto;min-height:0}
 .instrument-focus-score-content{flex-direction:column;justify-content:flex-start;align-items:stretch;gap:8px}
 .instrument-focus-score-content>.score-preview{width:100%;max-width:none;box-sizing:border-box;align-self:center;flex:1 1 0;min-height:0;display:flex;flex-direction:column}

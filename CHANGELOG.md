@@ -1,3 +1,8 @@
+## Instrument focus rhythm and harmony (2026-11-26)
+
+- Show a transport-synchronized count-in and large numbered beat pulse in every performance focus view, keeping the score on the selected starting measure.
+- Show large current and upcoming harmony for bass and other focused instruments, and expose the existing count-in toggle in the focus speed menu.
+
 ## Contrabass fingering refinements (2026-11-26)
 
 - Prefer open strings and first-finger stops in tango bass accompaniment, retain 1–2–4 lower-position coverage, avoid unnecessary thumb positions and keep repeated pitch suggestions consistent.
