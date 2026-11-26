@@ -209,3 +209,27 @@ check('ensemble import aligns multiple assigned parts atomically',()=>{
  assert.equal(merge.undoReviewedMerge(result.project).bars.length,4);
  assert.throws(()=>ensemble.ensemblePreview(original,[sources[0],sources[0]],0,false,false),/different destination/);
 });
+
+check('longest ensemble anchors retain every shorter source measure and note',()=>{
+ const ensemble=load('src/ensembleImport.ts'),parsed=xml.parseMusicXmlDetailed(xmlExample());
+ const short={...parsed,measureCount:3,measures:parsed.measures.slice(0,3),chords:parsed.chords.slice(0,3),parts:parsed.parts.map(p=>({...p,measureCount:3,notes:p.notes.filter(n=>n.start<12)}))};
+ const sources=[{name:'piano',parsed:short,partIndex:0,instrument:'Piano'},{name:'bass',parsed,partIndex:0,instrument:'Contrabass'},{name:'violin',parsed,partIndex:0,instrument:'Violin I'}];
+ assert.equal(ensemble.longestEnsembleReference(sources),1);
+ const result=ensemble.ensemblePreview(music.blankProject({measures:1,beats:4}),sources,0,false,false);
+ assert.equal(result.project.bars.length,4);
+ assert.deepEqual(result.mappings[1].mapping,[0,1,2,3]);
+ assert.deepEqual(result.mappings[2].mapping,[0,1,2,3]);
+ assert.deepEqual(result.mappings[0].mapping.filter(x=>x!==null),[0,1,2]);
+ assert.equal(result.project.generatedScore.Piano.filter(n=>n.source==='imported').length,short.parts[0].notes.length);
+});
+check('explicit ties sustain through barlines without merging ordinary repeated attacks or other voices',()=>{
+ const {tiedPlaybackNotes,playbackNotesInRange}=load('src/arrangementPlayback.ts');
+ const notes=[{pitch:60,start:3,duration:1,xmlStaff:1,xmlVoice:'1'},{pitch:60,start:4,duration:2,xmlStaff:1,xmlVoice:'1',xmlTieContinuation:true},{pitch:60,start:6,duration:1,xmlStaff:1,xmlVoice:'1'},{pitch:60,start:4,duration:1,xmlStaff:2,xmlVoice:'2',xmlTieContinuation:true}];
+ const merged=tiedPlaybackNotes(notes);
+ assert.equal(merged.length,3);assert.equal(merged[0].duration,3);
+ assert.ok(Math.abs(music.noteSoundingDuration(merged[0])-2.8)<1e-7);
+ assert.equal(notes[0].duration,1);
+ const resumed=playbackNotesInRange(notes,4,5);
+ assert.equal(resumed[0].start,4);assert.equal(resumed[0].duration,1);
+ assert.equal(resumed[0].gate,1);
+});

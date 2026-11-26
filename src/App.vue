@@ -70,7 +70,7 @@ import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} f
 import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
-import {arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,type PlaybackOrigin} from './arrangementPlayback';
+import {arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,type PlaybackOrigin} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
@@ -1534,8 +1534,8 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
       const currentScore=score.value;
        if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
       for(const inst of INSTRUMENTS){
-        const events=measureLoopEvents(currentScore[inst]??[],b,project.value.beats,project.value.bpm,
-          playbackTranspose,project.value.expressionRanges??[],inst,project.value);
+        const events=measureLoopEvents(playbackNotesInRange(currentScore[inst]??[],first*project.value.beats,(last+1)*project.value.beats),b,project.value.beats,project.value.bpm,
+          playbackTranspose,project.value.expressionRanges??[],inst,project.value,true);
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
@@ -3913,7 +3913,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
     let noteCount=0,firstAttack=Infinity;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
     // This is a guide tone, not sung or synthesized speech.
-    for(const inst of projectInstruments(project.value)){for(const n of score.value[inst]??[]){
+    for(const inst of projectInstruments(project.value)){for(const n of playbackNotesInRange(score.value[inst]??[],window.startBeat,project.value.bars.length*project.value.beats)){
       // Musical tick positions preserve event timing when rehearsal speed is
       // changed mid-performance (unlike precomputed absolute seconds).
       const seconds=arrangementEventTime(n.start,window);
@@ -4001,7 +4001,7 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
       }
     }else{
       const inst=instrument??overviewInstrument.value;
-      for(const n of score.value[inst]??[]){
+      for(const n of playbackNotesInRange(score.value[inst]??[],startBeat,(to+1)*beats)){
         if(n.start<startBeat-1e-7||n.start>=(to+1)*beats)continue;
         const cueBeat=n.start-startBeat;
         const durationBeats=noteSoundingDuration(n);
@@ -4046,7 +4046,7 @@ async function toggleNoteLoop(){
       const bar=range.from+(loopPass++%(range.to-range.from+1));
       Tone.getDraw().schedule(()=>{if(session===noteLoopSession&&noteLoopPlaying.value)noteLoopMeasure.value=bar;},time);
       // Read the current score at the start of every pass, including manual edits.
-      const events=measureLoopEvents(practiceScore.value[noteInst.value]??[],bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value);
+      const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
       for(const event of events){
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));

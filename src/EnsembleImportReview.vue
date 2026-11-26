@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import {computed,ref} from 'vue';
 import {projectInstruments,type Project} from './music';
-import {ensemblePreview,suggestEnsembleInstrument,type EnsembleSource} from './ensembleImport';
+import {ensemblePreview,suggestEnsembleInstrument,longestEnsembleReference,type EnsembleSource} from './ensembleImport';
 import type {ParsedMusicXml} from './musicXmlImport';
 const props=defineProps<{project:Project;files:{name:string;parsed:ParsedMusicXml}[];busy?:boolean;applyLabel?:string}>();
 const emit=defineEmits<{apply:[project:Project];cancel:[]}>();
 const roster=projectInstruments(props.project);
 const sources=ref<EnsembleSource[]>(props.files.flatMap(file=>file.parsed.parts.map((part,partIndex)=>({name:file.name,parsed:file.parsed,partIndex,instrument:suggestEnsembleInstrument(file.name+' '+part.name,roster)}))));
-const reference=ref(Math.max(0,sources.value.findIndex(s=>s.instrument.startsWith('Piano'))));
+const reference=ref(Math.max(0,longestEnsembleReference(sources.value)));
 const infer=ref(false),fill=ref(false),review=ref(false),confirmed=ref(false);
 const overrides=ref<Record<string,number|null>>({});
 const preview=computed(()=>{try{return {result:ensemblePreview(props.project,sources.value,reference.value,infer.value,fill.value,overrides.value),error:''};}catch(e){return {result:null,error:String(e)};}});
@@ -23,7 +23,8 @@ function edit(index:number,target:number,event:Event){const raw=(event.target as
    <small>{{source.parsed.parts[source.partIndex].measureCount}} measures · {{source.parsed.parts[source.partIndex].notes.length}} notes</small>
    <label>Destination instrument<select v-model="source.instrument" @change="invalidate"><option value="">Choose instrument</option><option v-for="inst in roster" :key="inst" :value="inst">{{project.instrumentNames?.[inst]||inst}}</option></select></label>
   </div>
-  <label>Reference score<select v-model.number="reference" @change="invalidate"><option v-for="(source,index) in sources" :key="index" :value="index">{{source.name}} · {{source.instrument||source.parsed.parts[source.partIndex].name}}</option></select></label>
+  <p class="hint">Longest parts establish a shared timeline. Shorter parts are matched against their combined harmony and bass; no source measure may be dropped.</p>
+  <label>Reference score (longest parts only)<select v-model.number="reference" @change="invalidate"><option v-for="(source,index) in sources" :key="index" :value="index" :disabled="source.parsed.parts[source.partIndex].measureCount<sources[longestEnsembleReference(sources)].parsed.parts[sources[longestEnsembleReference(sources)].partIndex].measureCount">{{source.name}} · {{source.instrument||source.parsed.parts[source.partIndex].name}}</option></select></label>
   <label><input v-model="infer" type="checkbox" @change="confirmed=false"/> Infer missing harmony from combined parts (estimates)</label>
   <label><input v-model="fill" type="checkbox" @change="confirmed=false"/> Generate missing upper-staff chords using available harmony</label>
   <p v-if="preview.error" role="alert">{{preview.error}}</p>
