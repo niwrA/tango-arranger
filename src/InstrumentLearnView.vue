@@ -534,7 +534,13 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      <div class="learn-bar-content"><span>Note length<span v-if="current"> · {{Math.round(requiredHoldMs)}} ms</span></span><strong>{{Math.round(heldProgress*100)}}%</strong></div>
     </div>
     <div class="learn-live-feedback" :class="{'is-flat':intonationFeedback==='Too low','is-sharp':intonationFeedback==='Too high','is-correct':intonationFeedback==='In tune'}" role="status">
-     <div class="learn-bar-content"><span>Pitch feedback</span><strong>{{intonationFeedback}}</strong><span>{{cents!==null&&detectedPitchMatches?(cents>0?'+':'')+cents+'¢':'—'}}</span></div>
+     <div class="learn-bar-content"><span>Pitch feedback</span>
+      <template v-if="intonationFeedback==='Different note'">
+       <strong class="learn-pitch-comparison"><span>{{targetMidi===null?'—':pitchLabel(targetMidi)}}</span><span aria-hidden="true"> / </span><span class="learn-pitch-mismatch">{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</span></strong>
+       <span>Expected / Detected</span>
+      </template>
+      <template v-else><strong>{{intonationFeedback}}</strong><span>{{cents!==null&&detectedPitchMatches?(cents>0?'+':'')+cents+'¢':'—'}}</span></template>
+     </div>
      <div class="learn-live-pitch-scale" role="meter" aria-label="Pitch deviation from expected note" aria-valuemin="-50" aria-valuemax="50" :aria-valuenow="cents!==null&&detectedPitchMatches?Math.max(-50,Math.min(50,cents)):undefined" :aria-valuetext="cents!==null&&detectedPitchMatches?cents+' cents':intonationFeedback" :class="{'has-pitch':cents!==null&&detectedPitchMatches}">
       <div class="learn-live-pitch-window" :style="{left:(50-tolerance)+'%',width:(2*tolerance)+'%'}"></div>
       <div class="learn-live-pitch-center"></div>
@@ -984,6 +990,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-active-bars>.learn-live-feedback{flex-direction:column;gap:0;padding:0 6px 4px}
 .learn-active-bars>.learn-live-feedback .learn-bar-content{padding:4px 0;gap:1px}
 .learn-active-bars>.learn-live-feedback.is-correct{border-color:#69d5a1}
+.learn-pitch-comparison{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:0 3px}
+.learn-pitch-mismatch{color:#ffb79b}
 .learn-live-pitch-scale{position:relative;flex:1 0 16px;min-height:16px;max-height:36px;border-radius:5px;background:linear-gradient(90deg,#b34b46 0%,#b58a42 25%,#38865d 50%,#b58a42 75%,#b34b46 100%);opacity:.45;overflow:hidden}
 .learn-live-pitch-scale.has-pitch{opacity:1}
 .learn-live-pitch-window{position:absolute;inset-block:0;border-inline:1px dashed #e1f5e8;background:#d3ffe51a}
