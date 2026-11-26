@@ -1,7 +1,7 @@
 import {transposeTangoGesture,type TangoGesture} from './tangoGestures';
-import {noteSoundingDuration,noteSoundingVelocity,type Note,type ExpressionRange,type Instrument,type Project,measureDynamicVelocity,melodyDuckingFactor,DYNAMIC_VELOCITIES} from './music';
+import {noteSoundingDuration,stringGlissandoPlayback,noteSoundingVelocity,type Note,type ExpressionRange,type Instrument,type Project,measureDynamicVelocity,melodyDuckingFactor,DYNAMIC_VELOCITIES} from './music';
 
-export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture};
+export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo']};
 /** Build one instrument-measure's loop events, preserving absolute-score note positions.
  * Times are relative to the selected measure. The sounding gate, not the written
  * note duration, controls audio. Long tails are clipped at the loop boundary. */
@@ -12,7 +12,8 @@ export function measureLoopEvents(notes:readonly Note[],measureIndex:number,beat
   if(!Number.isFinite(transpose))throw Error('Invalid transposition');
   const start=measureIndex*beats,secondsPerBeat=60/bpm;
   return notes.filter(n=>n.start>=start-1e-7&&n.start<start+beats-1e-7)
-    .map(n=>{
+    .map(raw=>{
+      const n=raw.stringGlissando?stringGlissandoPlayback(raw,raw.start,allowSustainAcrossMeasures?Infinity:start+beats):raw;
       const offset=Math.max(0,n.start-start);
       const soundingBeats=allowSustainAcrossMeasures?noteSoundingDuration(n):Math.min(noteSoundingDuration(n),beats-offset);
       const matching=instrument?ranges.filter(r=>r.instrument===instrument&&n.start>=(r.startMeasure*beats+(r.startBeat??0))&&n.start<(r.endMeasure*beats+(r.endBeat??beats))):[];
@@ -33,6 +34,7 @@ export function measureLoopEvents(notes:readonly Note[],measureIndex:number,beat
         velocity:startVelocity,
         ...(n.slideTo!==undefined?{slideTo:Math.max(0,Math.min(127,n.slideTo+transpose))}:{}),
         ...(n.gesture?{gesture:transposeTangoGesture(n.gesture,transpose)}:{}),
+        ...(n.bowedTremolo?{bowedTremolo:n.bowedTremolo}:{}),
         ...(n.swellTo!==undefined||matching.length?{endVelocity}:{}),
       };
     }).sort((a,b)=>a.onsetSeconds-b.onsetSeconds||a.pitch-b.pitch);

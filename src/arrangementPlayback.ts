@@ -1,4 +1,4 @@
-import {noteSoundingDuration,type Note} from './music';
+import {noteSoundingDuration,stringGlissandoPlayback,type Note} from './music';
 /** Convert a selected song measure into a transport-relative playback window. */
 export type PlaybackOrigin='beginning'|'selected';
 export interface ArrangementPlaybackWindow {
@@ -87,6 +87,7 @@ export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infi
  const tied=tiedPlaybackNotes(notes);
  const sounding=tied.some(n=>n.pianoGlissando||n.pianoPedalBeats)?pianoPlaybackNotes(tied,transpose):tied;
  return sounding.flatMap(n=>{
+  if(n.stringGlissando){if(n.start>=end-1e-7||n.start+n.stringGlissando.beats<=start+1e-7)return [];return [stringGlissandoPlayback(n,start,end)];}
   const audibleEnd=n.start+noteSoundingDuration(n);
   if(audibleEnd<=start+1e-7||n.start>=end-1e-7)return [];
   if(n.start>=start&&n.start+n.duration<=end)return [n];

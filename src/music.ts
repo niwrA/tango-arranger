@@ -61,7 +61,20 @@ export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
 export type PianoGlissando={interval:number;keys:'white'|'black'|'chromatic';beats:number};
-export type Note = { pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+export type StringGlissando={interval:number;beats:number};
+export type BowedTremolo={strokes:1|2|3;rateHz?:number};
+export type Note = { stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+/** Convert a linked glissando to a playback-only contour. */
+export function stringGlissandoPlayback(note:Note,from=note.start,to=Infinity):Note{
+ const gliss=note.stringGlissando;
+ if(!gliss)return note;
+ const start=Math.max(from,note.start),end=Math.min(to,note.start+gliss.beats);
+ if(end<=start)return {...note,stringGlissando:undefined};
+ const pitchAt=(beat:number)=>note.pitch+gliss.interval*(beat-note.start)/gliss.beats;
+ const pitch=pitchAt(start),target=pitchAt(end);
+ return {...note,pitch,start,duration:end-start,gate:1,stringGlissando:undefined,
+  gesture:{kind:'portamento',contour:gliss.interval>0?'up':'down',points:[{at:0,pitch},{at:1,pitch:target}]}};
+}
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
   staccato:0.28,marcato_staccato:0.58,legato:0.94
@@ -1469,6 +1482,8 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
   if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const offset=barIndex*p.beats,hi=offset+p.beats,range=instrumentRange(inst);
   const edited=notes.map(n=>{
+    if(n.stringGlissando){const g=n.stringGlissando;if(!['Violin','Contrabass'].includes(instrumentFamily(inst))||n.technique==='pizzicato'||n.gesture||n.slideTo!==undefined||n.approachSlideFrom!==undefined||!Number.isInteger(g.interval)||!g.interval||n.pitch+g.interval<range[0]||n.pitch+g.interval>range[1]||!Number.isFinite(g.beats)||g.beats<=0||n.start+g.beats>p.bars.length*p.beats+1e-7)throw Error('Invalid bowed glissando endpoint or duration');}
+    if(n.bowedTremolo&&(!['Violin','Contrabass'].includes(instrumentFamily(inst))||n.technique==='pizzicato'||![1,2,3].includes(n.bowedTremolo.strokes)||n.bowedTremolo.rateHz!==undefined&&(!Number.isFinite(n.bowedTremolo.rateHz)||n.bowedTremolo.rateHz<4||n.bowedTremolo.rateHz>24)))throw Error('Invalid bowed tremolo');
     if(n.pianoGlissando){const g=n.pianoGlissando;if(instrumentFamily(inst)!=='Piano'||!Number.isInteger(g.interval)||!g.interval||n.pitch+g.interval<21||n.pitch+g.interval>108||!['white','black','chromatic'].includes(g.keys)||!Number.isFinite(g.beats)||g.beats<=0||n.start+g.beats>p.bars.length*p.beats+1e-7)throw Error('Invalid piano glissando endpoint or duration');}
     if(n.pianoPedalBeats!==undefined&&(instrumentFamily(inst)!=='Piano'||!Number.isFinite(n.pianoPedalBeats)||n.pianoPedalBeats<=0||n.start+n.pianoPedalBeats>p.bars.length*p.beats+1e-7))throw Error('Invalid piano pedal duration');
     if(n.gesture){if(n.slideTo!==undefined)throw Error('Use either a legacy slide or an expressive gesture, not both');validateGesture(n,inst,n.gesture,range);}

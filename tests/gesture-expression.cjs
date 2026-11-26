@@ -123,3 +123,22 @@ check('pizzicato persists across measures and rests, with arco only on return to
  assert.equal((xml.match(/<sound pizzicato="yes"\/>/g)||[]).length,1);
  assert.equal((xml.match(/<sound pizzicato="no"\/>/g)||[]).length,1);
 });
+
+check('linked bowed glissando uses explicit time and preserves independent tremolo',()=>{
+ const note={...violin,duration:1,stringGlissando:{interval:-5,beats:2},bowedTremolo:{strokes:3,rateHz:14}};
+ const rendered=music.stringGlissandoPlayback(note,.5,1.5);
+ assert.equal(rendered.pitch,70.75);
+ assert.equal(rendered.duration,1);
+ assert.equal(rendered.gesture.points[1].pitch,68.25);
+ assert.equal(rendered.bowedTremolo.strokes,3);
+ assert.equal(note.duration,1);
+ const events=measure.measureLoopEvents([note],0,4,120,2,[],'Violin I',undefined,true);
+ assert.equal(events[0].durationSeconds,1);
+ assert.equal(events[0].gesture.points[1].pitch,69);
+ assert.equal(events[0].bowedTremolo.rateHz,14);
+ const p=music.blankProject({sections:1,measuresPerSection:2});
+ const xml=io.exportMusicXml(p,{'Violin I':[note,{pitch:67,start:2,duration:1}]},{onlyInstrument:'Violin I'});
+ assert.match(xml,/<glissando type="start"/);
+ assert.match(xml,/<glissando type="stop"/);
+ assert.match(xml,/<tremolo type="single">3<\/tremolo>/);
+});

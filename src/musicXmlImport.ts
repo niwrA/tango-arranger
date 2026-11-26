@@ -102,6 +102,9 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
   let divisions=1,beats=4,beatType=4,fifths:number|null=null,mode:'major'|'minor'|null=null,offset=0,staves=1,transpose=0;
   let hasKey=false;
   const notes:Note[]=[];
+  const glissStarts=new Map<string,Note>();
+  const isPiano=/piano|keyboard/i.test(names.get(id)??'');
+  const isBowed=/violin|viola|cello|violoncello|contrabass|double bass/i.test(names.get(id)??'');
   const slashAttacks:{start:number;duration:number;staff:number}[]=[];
   let pitchedMeasures=0;
   for(const [mIndex,measure] of measures.entries()){
@@ -159,7 +162,7 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
       const marcato=Boolean(art&&descendants(art,'accent').length);
       const staccato=Boolean(art&&descendants(art,'staccato').length);
       const legato=Boolean(art&&descendants(art,'tenuto').length);
-      notes.push({
+      const note:Note={
        pitch:pitch+transpose,start:Math.round((offset+start)*1e6)/1e6,
        duration:Math.round(duration*1e6)/1e6,source:'imported',
        ...(marcato?{accent:true,articulation:'marcato_staccato' as const}:staccato?{articulation:'staccato' as const}:legato?{articulation:'legato' as const}:{}),
@@ -167,7 +170,24 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
        ...(tiedStart?{xmlTieContinuation:true}:{}),
        xmlStaff:numeric(child,'staff',1),
        xmlVoice:value(child,'voice')||'1'
-      } as Note);
+      };
+      if(isBowed){
+       const trem=descendants(child,'tremolo').find(t=>!t.getAttribute('type')||t.getAttribute('type')==='single');
+       const strokes=Number(trem?.textContent);
+       if(strokes===1||strokes===2||strokes===3)note.bowedTremolo={strokes};
+      }
+      for(const mark of [...descendants(child,'glissando'),...descendants(child,'slide')]){
+       const key=mark.localName+':'+(mark.getAttribute('number')||'1')+':'+note.xmlVoice+(isPiano?'':':'+note.xmlStaff);
+       if(mark.getAttribute('type')==='stop'){
+        const from=glissStarts.get(key);glissStarts.delete(key);
+        if(from&&note.start>from.start&&note.pitch!==from.pitch){
+         const interval=note.pitch-from.pitch,beats=note.start-from.start;
+         if(isPiano)from.pianoGlissando={interval,beats,keys:'white'};
+         else if(isBowed)from.stringGlissando={interval,beats};
+        }
+       }else if(mark.getAttribute('type')==='start')glissStarts.set(key,note);
+      }
+      notes.push(note);
       hadPitch=true;
     }
     if(!isChord&&!isGrace){lastStart=cursor;cursor+=duration;maxPosition=Math.max(maxPosition,cursor);}
