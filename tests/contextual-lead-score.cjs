@@ -13,7 +13,7 @@ check('score notes preserved under orchestration',()=>{assert.match(arrange,/cla
 check('score details closed by default',()=>assert.doesNotMatch(arrange,/<details class="control-fold score-review-details" open/));
 check('score details preserve protection',()=>assert.match(arrange,/@change="setProtected\(entry.inst,selectedBar/));
 check('score details preserve instrument note editor',()=>assert.match(arrange,/@click="openNoteEditor\(entry.inst,selectedBar\)"/));
-check('MusicXML export still in Files',()=>assert.match(app,/class="topbar-menu files-menu"[\s\S]*?@click="exportXml"/));
+check('MusicXML export in File',()=>{const file=app.split('class="topbar-menu song-menu"')[1].split('class="topbar-group topbar-arrange"')[0];assert.match(file,/@click="exportXml"/);});
 check('no distant selected measure form',()=>assert.doesNotMatch(lead,/Selected measure controls/));
 check('lead editor follows selected card inside grid',()=>{assert.match(lead,/<template v-for="offset in span.measures"/);assert.match(lead,/class="lead-measure-editor"/);assert.match(lead,/selectedBar===span.start\+offset-1&&leadMeasureEditorOpen/)});
 check('lead editor only one selected measure',()=>assert.match(lead,/v-if="selectedBar===span.start\+offset-1&&leadMeasureEditorOpen"/));
