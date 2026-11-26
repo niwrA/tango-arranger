@@ -7,7 +7,8 @@ import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
 import {instrumentFamily,partStaffForNote,noteSoundingDuration,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensitivityThresholdDb} from './learnPitch';
-import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,type PitchFrame} from './pitchPostprocess';
+import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,hasLikelyVibrato,type PitchFrame} from './pitchPostprocess';
+import {slideEvidence,type GestureSample} from './practiceGestures';
 import {alignLearnTake} from './learnTake';
 import {download} from './io';
 import {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt,practiceAttackDuration,type ChordTarget,type PracticeStaff} from './practiceTargets';
@@ -116,7 +117,20 @@ const requiredHoldMs=computed(()=>{
  return holdMs.value;
 });
 const heldProgress=ref(0);
+const slideSpec=computed(()=>{
+ const n=current.value,m=targetMidi.value;
+ if(!n||m===null)return null;
+ if(n.stringGlissando)return {start:m,end:m+n.stringGlissando.interval,durationMs:n.stringGlissando.beats*60000/props.bpm};
+ if(n.approachSlideFrom!==undefined)return {start:n.approachSlideFrom+props.concertTranspose,end:m,durationMs:requiredHoldMs.value};
+ return null;
+});
+const gestureStatus=ref('');
+let gestureTrace:GestureSample[]=[];
+let gestureNote:Note|null=null;
+function clearGesture(){gestureTrace=[];gestureStatus.value='';}
+
 const intonationFeedback=computed(()=>{
+ if(gestureStatus.value&&!autoTuner.value)return gestureStatus.value;
  if(!listening.value||cents.value===null||detectedMidi.value===null)return 'Waiting for note';
  if(!detectedPitchMatches.value)return 'Different note';
  if(cents.value < -tolerance.value)return 'Too low';
@@ -251,12 +265,12 @@ watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
 });
 function moveCursor(direction:number){
  cursor.value=Math.max(0,Math.min(targets.value.length,cursor.value+direction));
- stableSince=0;heldProgress.value=0;armed=false;accepted.value=false;
+ stableSince=0;heldProgress.value=0;armed=false;accepted.value=false;clearGesture();
 }
 function restart(){
  clearTimeout(repeatTimer);
  completedTargets.value.clear();
- cursor.value=0;stableSince=0;heldProgress.value=0;armed=true;accepted.value=false;
+ cursor.value=0;stableSince=0;heldProgress.value=0;armed=true;accepted.value=false;clearGesture();
 }
 function stopDemo(){
  clearTimeout(demoTimer);
@@ -403,7 +417,7 @@ async function startMicrophone(){
   const analysisHalfWindowMs=500*meter.fftSize/input.context.sampleRate;
   const tick=(time:number)=>{
    if(id!==generation||!listening.value)return;
-   if(time-lastAnalyzed>=55){
+   if(time-lastAnalyzed>=(!take&&!autoTuner.value&&(slideSpec.value||current.value?.vibrato)?28:55)){
     lastAnalyzed=time;
     meter.getFloatTimeDomainData(samples);
     let rms2=0;
@@ -421,6 +435,8 @@ async function startMicrophone(){
     frequency.value=reading?.frequency??null;
     const midi=reading?practiceMidi(reading.frequency,referenceHz.value):null;
     detectedMidi.value=midi!==null&&reading&&reading.clarity>=0.7?Math.round(midi):null;
+    if(gestureNote!==current.value){gestureNote=current.value;clearGesture();}
+    if(take||autoTuner.value||demoPlaying.value||time<demoTailUntil)clearGesture();
     if(take){
      const beat=(time-take.startMs)/take.msPerBeat;
      const sampleBeat=beat-analysisHalfWindowMs/take.msPerBeat;
@@ -443,6 +459,37 @@ async function startMicrophone(){
      const last=targets.value.at(-1);
      const lastCents=last&&reading?deviationCents(reading.frequency,targetPitch(last)+props.concertTranspose,referenceHz.value,allowAnyOctave.value):null;
      if(detectedMidi.value===null||lastCents===null||Math.abs(lastCents)>tolerance.value)armed=true;
+    }
+    else if(slideSpec.value||current.value.vibrato){
+     const note=current.value,spec=slideSpec.value;
+     if(!reading||reading.clarity<.65||midi===null){
+      if(gestureTrace.length&&time-gestureTrace[gestureTrace.length-1].time>150){clearGesture();heldProgress.value=0;armed=true;accepted.value=false;}
+     }else{
+      if(!armed&&(spec?Math.abs(midi-spec.start)<=.35:Math.abs(midi-targetMidi.value!)>1)){armed=true;accepted.value=false;clearGesture();}
+      if(armed){
+       const windowMs=spec?Math.max(700,spec.durationMs*2.5):Math.max(900,requiredHoldMs.value);
+       if(gestureTrace.length&&time-gestureTrace[gestureTrace.length-1].time>150)clearGesture();
+       gestureTrace.push({time,pitch:midi});
+       gestureTrace=gestureTrace.filter(f=>time-f.time<=windowMs);
+       let complete=false;
+       if(spec){
+        const evidence=slideEvidence(gestureTrace,spec,tolerance.value);
+        heldProgress.value=evidence.progress;gestureStatus.value=evidence.progress>0?'Glissando':'Start slide';complete=evidence.complete;
+       }else{
+        const near=gestureTrace.filter(f=>Math.abs(f.pitch-targetMidi.value!)<=.85);
+        const elapsed=near.length?time-near[0].time:0;
+        heldProgress.value=Math.min(.95,elapsed/Math.max(500,requiredHoldMs.value));
+        gestureStatus.value='Vibrato';
+        complete=near.length>=12&&near.length===gestureTrace.length&&elapsed>=Math.min(1000,Math.max(500,requiredHoldMs.value))&&hasLikelyVibrato(near.map(f=>({time:f.time/1000,pitch:f.pitch})));
+        if(Math.abs(midi-targetMidi.value!)>.85){clearGesture();heldProgress.value=0;}
+       }
+       if(complete){
+        accepted.value=true;heldProgress.value=1;stableSince=0;armed=false;gestureStatus.value=spec?'Glissando OK':'Vibrato OK';
+        completedTargets.value.add(note);
+        if(autoAdvance.value&&cursor.value<targets.value.length){cursor.value++;clearGesture();}
+       }
+      }
+     }
     }
     else if(detectedMidi.value===null||!nearTarget.value){
      stableSince=0;armed=true;accepted.value=false;

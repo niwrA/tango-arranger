@@ -79,9 +79,13 @@ const stops=[0,1,2,3,4,5,6,7];
 const displayedStops=computed(()=>{
  const base=(props.positionGuide?positionWindow(props.positionGuide):family.value==='Violin'?violinStopOffsets(props.violinPosition??null):stops).filter(offset=>offset>0);
  const explicit=(props.activeStringNotes??[]).flatMap(n=>n.stringMidi===undefined?[]:[n.pitch-n.stringMidi]).filter(n=>n>0);
- return [...new Set([...base,...explicit])].sort((a,b)=>a-b);
+ const high=family.value==='Violin'&&props.learn&&base.length&&Math.min(...base)>=5?Array.from({length:3},(_,i)=>Math.max(...base)+i+1).filter(n=>n<=24):[];
+ return [...new Set([...base,...explicit,...high])].sort((a,b)=>a-b);
 });
-const fingerboardColumns=computed(()=>({'--stop-count':displayedStops.value.length}));
+const fingerboardColumns=computed(()=>{
+ const offsets=displayedStops.value;
+ return {'--stop-count':offsets.length,'--violin-columns':family.value==='Violin'&&props.learn?'minmax(0,1.1fr) '+offsets.map(n=>'minmax(0,'+Math.max(.38,Math.pow(2,-n/12)).toFixed(3)+'fr)').join(' '):undefined};
+});
 const positionText=computed(()=>props.positionGuide
  ?'Position '+props.positionGuide.position+' · '+(props.positionGuide.thumb?'thumb':'1st finger')+' '+midiLabel(props.positionGuide.anchorMidi)+' on '+midiLabel(props.positionGuide.anchorStringMidi)+' string'
  :props.violinPosition
@@ -176,7 +180,7 @@ const diagramDescription=computed(()=>{
    <div v-else-if="isStringInstrument" class="diagram-fingerboard" :style="fingerboardColumns"
      :class="{'diagram-violin-fingerboard':family==='Violin','diagram-bass-fingerboard':family==='Contrabass'&&Boolean(props.positionGuide),'diagram-has-guide':Boolean(props.positionGuide)}"
      :aria-label="family+' open strings and schematic semitone positions'+(props.positionGuide||family==='Violin'?', '+positionText:'')">
-     <span v-if="family==='Violin'||(family==='Contrabass'&&props.positionGuide)" class="diagram-violin-position"
+     <span v-if="!props.learn&&(family==='Violin'||(family==='Contrabass'&&props.positionGuide))" class="diagram-violin-position"
        :title="'Schematic suggestion: '+positionText">
        <template v-if="props.learn">
         <span class="diagram-hand-position-main" :key="props.positionGuide?.position??props.violinPosition?.position??'first'">
@@ -188,8 +192,8 @@ const diagramDescription=computed(()=>{
        <template v-else>{{positionText}}</template>
       </span>
      <div v-if="props.learn" class="diagram-string-row diagram-stop-header" aria-label="Semitones above open string">
-      <span class="diagram-open-heading">Open · 0</span>
-      <span v-for="offset in displayedStops" :key="offset" :title="offset+' semitones above open string'">{{offset}}</span>
+      <span class="diagram-open-heading" :title="positionText">Open · 0</span>
+      <span v-for="offset in displayedStops" :key="offset" :class="{'diagram-position-column':props.positionGuide?offset===props.positionGuide.firstFingerOffset:false}" :title="offset+' semitones above open string · '+positionText">{{offset}}<small v-if="props.positionGuide&&offset===props.positionGuide.firstFingerOffset">{{props.positionGuide.position}} · {{props.positionGuide.thumb?'T':'1'}}</small></span>
      </div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
        :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
@@ -634,4 +638,11 @@ const diagramDescription=computed(()=>{
 }
 @keyframes learn-position-arrival{from{opacity:.45;transform:translateX(-3px)}to{opacity:1;transform:translateX(0)}}
 @media(prefers-reduced-motion:reduce){.diagram-hand-position-main{animation:none}}
+
+/* Geometric semitone spacing on the violin; position anchor shares the header. */
+.performance-instrument-diagram.is-learn .diagram-violin-fingerboard .diagram-string-row{grid-template-columns:var(--violin-columns)}
+.performance-instrument-diagram.is-learn .diagram-stop-header .diagram-position-column{color:#e2f6ff;background:#23465b;border-radius:4px;box-shadow:inset 0 -2px #83c6e7}
+.diagram-position-column small{display:block;font-size:10px;line-height:1.1}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop:not(.is-learn-target):not(.is-position-anchor):not(.is-sounding){filter:saturate(.55);opacity:.62}
+:global(.learn-display-overlay) .performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop:not(.is-learn-target):not(.is-position-anchor):not(.is-sounding){filter:none;opacity:1}
 </style>
