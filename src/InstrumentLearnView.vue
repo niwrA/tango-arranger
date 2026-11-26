@@ -522,10 +522,13 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     <strong class="learn-tuner-pitch">{{autoTuner?'Auto tuner':'Intonation'}} · {{autoTuner?(autoTunerMidi===null?'—':pitchLabel(autoTunerMidi)):(current?pitchLabel(targetMidi??current.pitch):'—')}}</strong>
     <span class="learn-tuner-cents" :class="{'learn-in-tune':tunerInTune}">{{displayedCents===null?'—':(displayedCents>0?'+':'')+displayedCents+'¢'}}</span>
    </div>
-   <div v-if="listening&&!demoPlaying" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
+   <div v-if="listening&&!demoPlaying&&autoTuner" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
     <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
    </div>
    <div v-if="listening&&!demoPlaying&&!autoTuner" class="learn-active-bars">
+    <div class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
+     <div class="learn-bar-content"><span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong></div>
+    </div>
     <div class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100">
      <span class="learn-hold-fill" aria-hidden="true" :style="{width:(heldProgress*100)+'%'}"></span>
      <div class="learn-bar-content"><span>Note length<span v-if="current"> · {{Math.round(requiredHoldMs)}} ms</span></span><strong>{{Math.round(heldProgress*100)}}%</strong></div>
@@ -966,11 +969,12 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 @media(max-width:700px){.learn-tuner-title .learn-tuner-pitch{flex-basis:9.5em;width:9.5em}}
 
 /* Large live practice indicators; keep the compact chromatic meter intact. */
-.learn-active-bars{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:6px;min-width:0}
-.learn-active-bars>.learn-hold-track,.learn-active-bars>.learn-live-feedback{position:relative;grid-column:auto;display:flex;align-items:stretch;min-width:0;min-height:76px;height:auto;overflow:hidden;border:1px solid #526c7d;border-radius:8px;background:#253b4b;box-sizing:border-box}
+.learn-active-bars{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:6px;min-width:0}
+.learn-active-bars>.learn-hold-track,.learn-active-bars>.learn-live-feedback,.learn-active-bars>.learn-detected-pitch{position:relative;grid-column:auto;display:flex;align-items:stretch;align-self:stretch;padding:0;min-width:0;min-height:clamp(96px,12dvh,136px);height:auto;overflow:hidden;border:1px solid #526c7d;border-radius:8px;background:#253b4b;box-sizing:border-box}
 .learn-active-bars .learn-hold-fill{position:absolute;inset:0 auto 0 0;height:100%;background:#39765f}
 .learn-bar-content{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px;text-align:center;overflow-wrap:anywhere;color:#e6eff6;font-size:12px;font-variant-numeric:tabular-nums}
 .learn-bar-content>strong{font-size:clamp(18px,2.5vw,26px);line-height:1.15;color:inherit}
+.learn-active-bars>.learn-detected-pitch.pitch-matched{background:#235447;border-color:#8ad9af}
 .learn-active-bars>.learn-live-feedback.is-flat{background:#294d75;border-color:#83bfff}
 .learn-active-bars>.learn-live-feedback.is-sharp{background:#713e34;border-color:#ff9e85}
 .learn-active-bars>.learn-live-feedback.is-correct{background:#255d46;border-color:#69d5a1}
