@@ -8843,3 +8843,25 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .note-editor-section .note-toolbar-transport>.measure-range-control :deep(select){font-size:12px;padding-inline:3px}
 }
 </style>
+
+<style scoped>
+/* One physical baseline for the edition selector, measure selectors,
+   section picker, arrows, loop and editor actions in landscape focus. */
+.note-editor-section .note-unified-toolbar{--note-control-height:42px;align-items:flex-end}
+.note-editor-section .note-unified-toolbar .note-toolbar-transport{align-items:flex-end}
+.note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control{--range-control-height:var(--note-control-height);align-self:flex-end;margin:0}
+.note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control :deep(label){display:grid;grid-template-rows:14px var(--note-control-height);gap:3px;margin:0!important;padding:0!important;align-self:end;line-height:14px}
+.note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control :deep(label>select),
+.note-editor-section .note-unified-toolbar .note-toolbar-part>label>select{
+ height:var(--note-control-height);min-height:var(--note-control-height);max-height:var(--note-control-height);box-sizing:border-box;margin:0!important;align-self:end;
+}
+.note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control :deep(.range-arrow),
+.note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control :deep(.section-range-dropdown),
+.note-editor-section .note-unified-toolbar .note-toolbar-transport>.note-loop-toggle,
+.note-editor-section .note-unified-toolbar .note-toolbar-actions>button{
+ height:var(--note-control-height);min-height:var(--note-control-height);max-height:var(--note-control-height);box-sizing:border-box;margin:0;align-self:end;
+}
+.note-editor-section .note-unified-toolbar .note-toolbar-part>label{grid-template-rows:14px var(--note-control-height);gap:3px;line-height:14px;padding:0;margin:0}
+.note-editor-section .note-unified-toolbar .note-toolbar-actions{align-self:flex-end;align-items:flex-end}
+.note-editor-section .note-unified-toolbar .note-toolbar-part .note-focus-identity{align-self:end;min-height:var(--note-control-height);display:flex;align-items:center}
+</style>

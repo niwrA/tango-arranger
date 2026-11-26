@@ -46,3 +46,37 @@ function chooseSong(){emit('change',1,total());}
 .measure-range-control.is-compact label select{max-width:140px}
 @media(max-width:620px){.measure-range-control,.measure-range-control.is-compact{gap:3px;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto}.measure-range-control label{flex:1 1 80px}.measure-range-control label select{max-width:none;font-size:12px}.measure-range-control .range-arrow{width:36px;max-width:36px;min-width:36px;flex-basis:36px}.measure-range-control.is-compact label{flex:1 1 75px}}
 </style>
+
+<style scoped>
+/* Explicit label and input rows prevent inherited editor label padding,
+   margins and flex alignment from offsetting the actual controls. */
+.measure-range-control{
+ --range-control-height:40px;
+ grid-template-rows:14px var(--range-control-height);
+ row-gap:3px;align-items:end;
+}
+.measure-range-control>label{
+ display:grid;grid-template-rows:14px var(--range-control-height);
+ grid-row:1/3;align-self:end;align-items:end;gap:3px;
+ margin:0;padding:0;line-height:14px;min-height:0;
+}
+.measure-range-control>label>select{
+ display:block;height:var(--range-control-height);min-height:var(--range-control-height);
+ max-height:var(--range-control-height);margin:0;align-self:end;box-sizing:border-box;
+}
+.measure-range-control>.range-arrow,
+.measure-range-control>:deep(.section-range-picker){
+ grid-row:2;align-self:end;margin:0;box-sizing:border-box;
+}
+.measure-range-control>.range-arrow,
+.measure-range-control :deep(.section-range-dropdown){
+ height:var(--range-control-height);min-height:var(--range-control-height);
+ max-height:var(--range-control-height);box-sizing:border-box;
+}
+.measure-range-control>.range-arrow:first-child{grid-column:1}
+.measure-range-control>label:nth-child(2){grid-column:2}
+.measure-range-control>:deep(.section-range-picker){grid-column:3}
+.measure-range-control>label:nth-of-type(2){grid-column:4}
+.measure-range-control>.range-arrow:nth-child(5){grid-column:5}
+.measure-range-control>.range-presets{grid-row:3}
+</style>
