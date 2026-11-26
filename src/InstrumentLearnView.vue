@@ -67,7 +67,7 @@ function activeSectionRange(measure:number):[number,number]{
 const initialRange=activeSectionRange(props.initialMeasure);
 const from=ref(initialRange[0]);
 const to=ref(initialRange[1]);
-const disableOverlay=ref(false);
+const disableOverlay=ref(true);
 const referenceHz=computed(()=>props.referenceHz);
 const sensitivity=ref(100);
 const inputDb=ref<number|null>(null);
@@ -560,7 +560,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </fieldset>
    <fieldset class="learn-settings-group">
     <legend>Display</legend>
-    <label class="learn-check learn-setting-wide"><input v-model="disableOverlay" type="checkbox"/> Separate score and diagram</label>
+    <label class="learn-check learn-setting-wide"><input v-model="disableOverlay" type="checkbox"/> Disable overlay · separate score and diagram</label>
     <label v-if="overlayScore" class="learn-setting-wide"><span class="learn-setting-inline">Score opacity <strong>{{overlayPaper}}%</strong></span><input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
    </fieldset>
   </div>
@@ -1084,4 +1084,36 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
  .learn-settings-group{padding:5px 6px 7px;gap:5px}
  .learn-settings-group>label select{font-size:14px;min-height:38px}
 }
+</style>
+
+<style scoped>
+/* Keep the score as the full-size foreground and the diagram as a compact
+   backing layer at the bottom, rather than stretching the diagram to the score. */
+.learn-display-overlay>.learn-diagram{
+ align-self:end;align-items:flex-end;justify-content:center;height:auto;min-height:0;
+ max-height:100%;padding:3px 6px;overflow:hidden;
+}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn){
+ height:auto;min-height:0;width:100%;max-width:none;align-self:end;justify-content:flex-end;
+ padding:0;gap:2px;
+}
+.learn-display-overlay>.learn-diagram :deep(.diagram-visual-stage){
+ flex:0 0 auto;height:auto;min-height:0;align-items:flex-end;
+}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){
+ height:auto;min-height:0;max-height:none;flex:0 0 auto;width:100%;
+ grid-auto-rows:auto;align-content:end;justify-content:flex-end;gap:2px;padding:3px;
+}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-row){
+ min-height:0;height:clamp(20px,3.2dvh,30px);gap:3px;flex:0 0 auto;
+}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-stop-header){
+ height:16px;min-height:16px;line-height:16px;
+}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop),
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-open-label){
+ height:100%;min-height:0;max-height:100%;
+}
+.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
+.learn-display-overlay>.learn-diagram :deep(.diagram-open-label strong){font-size:clamp(12px,2.2dvh,22px)}
 </style>
