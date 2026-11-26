@@ -31,7 +31,7 @@ import EnsembleImportReview from './EnsembleImportReview.vue';
 import CompleteScoreImportReview from './CompleteScoreImportReview.vue';
 import {parseMusicXmlDetailed,type ParsedMusicXml} from './musicXmlImport';
 import {readScoreImport} from './scoreImport';
-import {chordEstimate,applyReviewedMerge,undoReviewedMerge,previewMerge,completeMissingAccompaniment,accompanimentInstrument,type AccompanimentRhythm,type MergePlan} from './musicXmlMerge';
+import {chordEstimate,simplifyTangoStudyHarmony,applyReviewedMerge,undoReviewedMerge,previewMerge,completeMissingAccompaniment,accompanimentInstrument,type AccompanimentRhythm,type MergePlan} from './musicXmlMerge';
 import type {PolySynth,Synth} from 'tone';
 import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
@@ -177,6 +177,7 @@ async function chooseSongFromPicker(event:Event){
       const response=await fetch(url);
       if(!response.ok)throw Error('Example archive unavailable ('+response.status+')');
       const study=await loadProject(new File([await response.blob()],'tigre-viejo.tango.zip',{type:'application/zip'}));
+      simplifyTangoStudyHarmony(study);
       await adoptLocalSong(study);
       active.value='arrange';
       message.value=`Opened a new editable copy of ${study.title} (${study.bars.length} measures).`;

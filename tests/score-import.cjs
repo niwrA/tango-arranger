@@ -5,7 +5,7 @@ const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
 const {parseMidiDetailed}=load('src/scoreImport.ts');
 const {blankProject}=load('src/music.ts');
-const {createMergePlan,previewMerge}=load('src/musicXmlMerge.ts');
+const {createMergePlan,previewMerge,chordEstimate,simplifyTangoStudyHarmony}=load('src/musicXmlMerge.ts');
 const app=fs.readFileSync('src/App.vue','utf8');
 let n=0;function check(name,fn){fn();n++;console.log('PASS '+name);}
 function example(timeSignature=[4,4]){
@@ -81,3 +81,23 @@ console.log(n+' unified score import checks passed');
  for(const fragment of ['tigre-viejo-bowed-expression.tango.zip?url','await loadProject(','await adoptLocalSong(study)','await flushAutosave()'])assert.ok(branch.includes(fragment),fragment);
  console.log('PASS bundled Tigre Viejo ZIP loads with expression and opens as a new local copy');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+check('tango inference does not label a passing major seventh as maj7',()=>{
+ const parsed={chords:[''],measures:[{offset:0,beats:4}],parts:[{notes:[{pitch:45,start:0,duration:2},{pitch:57,start:0,duration:2},{pitch:61,start:0,duration:2},{pitch:64,start:0,duration:2},{pitch:68,start:1.75,duration:.25}]}]};
+ assert.equal(chordEstimate(parsed,0,0).chord,'A');
+ parsed.chords[0]='Amaj7';
+ assert.equal(chordEstimate(parsed,0,0).chord,'Amaj7');
+});
+check('functional dominant sevenths remain inferable',()=>{
+ const parsed={chords:[''],measures:[{offset:0,beats:4}],parts:[{notes:[45,57,61,64,67].map(pitch=>({pitch,start:0,duration:2}))}]};
+ assert.equal(chordEstimate(parsed,0,0).chord,'A7');
+});
+check('Tigre study cleanup retains slot timing, inversions, and score notes',()=>{
+ const project={bars:[{chord:'Amaj7/E,A7,Dm'},{chord:'Fmaj7'},{chord:'Bdim7,E7'}],generatedScore:{'Violin I':[{pitch:68,start:0,duration:1}]}};
+ const before=JSON.stringify(project.generatedScore);
+ assert.equal(simplifyTangoStudyHarmony(project),2);
+ assert.equal(project.bars[0].chord,'A/E,A7,Dm');
+ assert.equal(project.bars[1].chord,'F');
+ assert.equal(project.bars[2].chord,'Bdim7,E7');
+ assert.equal(JSON.stringify(project.generatedScore),before);
+});

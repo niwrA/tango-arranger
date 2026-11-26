@@ -38,10 +38,19 @@ const notePitchClasses=(notes:readonly Note[],start:number,end:number):number[]=
   return bins;
 };
 const candidateQualities:[string,number[]][]=[
-  ['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],['maj7',[0,4,7,11]],
+  ['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],
   ['m7',[0,3,7,10]],['dim',[0,3,6]],['dim7',[0,3,6,9]],
   ['m7b5',[0,3,6,10]],['aug',[0,4,8]]
 ];
+/** Conservative cleanup for the bundled inferred-harmony study only. Preserve roots, inversions, rhythm slots and all actual notes. */
+export function simplifyTangoStudyHarmony(project:Project):number{
+ let changed=0;
+ for(const bar of project.bars){
+  const chord=bar.chord.replace(/(^|,)(\s*)([A-G][#b]?)(?:maj7|ma7|M7|Δ7?)(?=\s*(?:\/|,|$))/g,'$1$2$3');
+  if(chord!==bar.chord){bar.chord=chord;changed++;}
+ }
+ return changed;
+}
 const noteNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
 export type ChordEstimate={chord:string;confidence:number;explicit:boolean};
 /** Only an explanatory inference. A bass line is not proof of a chord root. */
@@ -61,7 +70,12 @@ export function chordEstimate(parsed:ParsedMusicXml,measure:number,partIndex:num
   const pcs=steps.map(step=>mod(root+step));
   const contained=pcs.reduce((sum,pc)=>sum+hist[pc],0)/total;
   const coverage=pcs.filter(pc=>hist[pc]>0).length/pcs.length;
-  const score=.67*contained+.22*coverage+.11*(bassPc===root?1:0)-Math.max(0,pcs.length-3)*.01;
+  // Traditional tango prior: triads and functional dominant/diminished
+  // harmony first. A passing melody note is not enough to name an extension.
+  const penalty=quality==='m7'?.065:quality==='m7b5'?.035:quality==='aug'?.035:quality==='dim7'?.015:quality==='7'?.012:0;
+  const extension=pcs.length>3?hist[pcs[3]]/total:0;
+  const weakExtension=pcs.length>3&&extension<.09?.06:0;
+  const score=.67*contained+.22*coverage+.11*(bassPc===root?1:0)-penalty-weakExtension;
   weights.push({chord:noteNames[root]+quality,score});
  }
  weights.sort((a,b)=>b.score-a.score);
