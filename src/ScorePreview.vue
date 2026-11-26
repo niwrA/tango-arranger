@@ -237,25 +237,45 @@ const rangeMode=ref(false);
 const selectedMeasures=ref<[number,number]|null>(null);
 let rangePointer:number|null=null,rangeAnchor=0,rangeX=0,rangeY=0,rangeMoved=false,rangeHeld=false;
 let rangeTimer:ReturnType<typeof setTimeout>|undefined;
-function measureAt(x:number,y:number):number|null{
- const container=host.value;if(!container)return null;
- const groups=[...container.querySelectorAll<SVGGElement>('g[id^="osmd-m"]')];
- for(const group of groups){
-  const match=/^osmd-m(\d+)-/.exec(group.id);if(!match)continue;
-  const rect=group.getBoundingClientRect();
-  if(x>=rect.left&&x<=rect.right&&y>=rect.top-12&&y<=rect.bottom+12){
-   const measure=Number(match[1])+1;
-   if(measure>=displayedRange.value.first&&measure<=displayedRange.value.last)return measure;
+let rangeWasSelected=false;
+function scoreMeasureGroups():{group:SVGGElement;measure:number}[]{
+ const container=host.value;if(!container)return [];
+ const groups=new Map<SVGGElement,number>();
+ for(let measure=displayedRange.value.first;measure<=displayedRange.value.last;measure++){
+  for(const staff of osmd?.GraphicSheet?.MeasureList[measure-1]??[]){
+   const group=staff?.getSVGGElement();
+   if(group&&container.contains(group))groups.set(group,measure);
   }
+ }
+ container.querySelectorAll<SVGGElement>('g[id^="osmd-m"]').forEach(group=>{
+  const match=/^osmd-m(\d+)-/.exec(group.id);
+  if(match&&!groups.has(group))groups.set(group,Number(match[1])+1);
+ });
+ return [...groups].map(([group,measure])=>({group,measure})).filter(({measure})=>measure>=displayedRange.value.first&&measure<=displayedRange.value.last);
+}
+function measureAt(x:number,y:number):number|null{
+ for(const {group,measure} of scoreMeasureGroups()){
+  const rect=group.getBoundingClientRect();
+  if(x>=rect.left&&x<=rect.right&&y>=rect.top-12&&y<=rect.bottom+12)return measure;
  }
  return null;
 }
 function paintRange(){
  const range=selectedMeasures.value;
- host.value?.querySelectorAll<SVGGElement>('g[id^="osmd-m"]').forEach(g=>{
-  const m=/^osmd-m(\d+)-/.exec(g.id),n=m?Number(m[1])+1:0;
-  g.classList.toggle('score-range-selected',!!range&&n>=range[0]&&n<=range[1]);
- });
+ host.value?.querySelectorAll('.score-range-fill').forEach(node=>node.remove());
+ for(const {group,measure} of scoreMeasureGroups()){
+  const selected=!!range&&measure>=range[0]&&measure<=range[1];
+  group.classList.toggle('score-range-selected',selected);
+  if(!selected)continue;
+  const bounds=group.getBBox();
+  if(!bounds.width||!bounds.height)continue;
+  const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('class','score-range-fill');
+  rect.setAttribute('x',String(bounds.x-2));rect.setAttribute('y',String(bounds.y-5));
+  rect.setAttribute('width',String(bounds.width+4));rect.setAttribute('height',String(bounds.height+10));
+  rect.setAttribute('rx','4');rect.setAttribute('pointer-events','none');
+  group.insertBefore(rect,group.firstChild);
+ }
 }
 function chooseRange(first:number,last:number){selectedMeasures.value=[Math.min(first,last),Math.max(first,last)];paintRange();}
 function applyRange(edit=false){
@@ -266,6 +286,8 @@ function applyRange(edit=false){
 function rangeDown(event:PointerEvent){
  if(!rangeMode.value||event.button!==0)return;
  const m=measureAt(event.clientX,event.clientY);if(m===null)return;
+ rangeWasSelected=!!selectedMeasures.value&&m>=selectedMeasures.value[0]&&m<=selectedMeasures.value[1];
+ if(!selectedMeasures.value)chooseRange(m,m);
  rangePointer=event.pointerId;rangeAnchor=m;rangeX=event.clientX;rangeY=event.clientY;rangeMoved=false;rangeHeld=false;
  host.value?.setPointerCapture(event.pointerId);
  clearTimeout(rangeTimer);
@@ -285,7 +307,7 @@ function rangeUp(event:PointerEvent){
  clearTimeout(rangeTimer);rangePointer=null;
  if(rangeHeld||rangeMoved)return;
  const r=selectedMeasures.value;
- if(r&&rangeAnchor>=r[0]&&rangeAnchor<=r[1])applyRange();else chooseRange(rangeAnchor,rangeAnchor);
+ if(rangeWasSelected&&r&&rangeAnchor>=r[0]&&rangeAnchor<=r[1])applyRange();else chooseRange(rangeAnchor,rangeAnchor);
 }
 function cancelRange(){clearTimeout(rangeTimer);rangePointer=null;}
 watch(rangeMode,enabled=>{if(!enabled){selectedMeasures.value=null;paintRange();cancelRange();}});
@@ -435,7 +457,7 @@ onBeforeUnmount(()=>{
       <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
       <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
     </div>
-    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
+    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><span class="score-range-status" role="status">Measures {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</span><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
     <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode}" :aria-busy="loading"
@@ -474,12 +496,12 @@ onBeforeUnmount(()=>{
 }
 .score-appearance-control{display:flex;justify-content:flex-end;margin-bottom:4px}
 .score-appearance-control button{font-size:.72rem;padding:3px 8px}
-.score-preview-themed{background:var(--panel,#1a232c);color:var(--text,#e8e9ec);border-color:var(--border,#35414c)}
-.score-preview-themed .score-preview-canvas :deep(svg){color:var(--text,#e8e9ec);fill:currentColor}
+.score-preview-themed{background:var(--panel,#1a232c);color:var(--score-ink,#e7c38e);border-color:var(--border,#35414c)}
+.score-preview-themed .score-preview-canvas :deep(svg){color:var(--score-ink,#e7c38e);fill:currentColor}
 .score-preview-themed .score-preview-canvas :deep(svg text),.score-preview-themed .score-preview-canvas :deep(svg tspan){fill:currentColor!important}
-.score-preview-themed .score-preview-canvas :deep([fill="black"]),.score-preview-themed .score-preview-canvas :deep([fill="#000"]),.score-preview-themed .score-preview-canvas :deep([fill="#000000"]){fill:var(--text,#e8e9ec)}
-.score-preview-themed .score-preview-canvas :deep([stroke="black"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000000"]){stroke:var(--text,#e8e9ec)}
-.score-preview-themed .score-preview-canvas :deep(.score-notehead),.score-preview-themed .score-preview-canvas :deep(.score-notehead [fill]){fill:var(--text,#e8e9ec)}
+.score-preview-themed .score-preview-canvas :deep([fill="black"]),.score-preview-themed .score-preview-canvas :deep([fill="#000"]),.score-preview-themed .score-preview-canvas :deep([fill="#000000"]){fill:var(--score-ink,#e7c38e)}
+.score-preview-themed .score-preview-canvas :deep([stroke="black"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000"]),.score-preview-themed .score-preview-canvas :deep([stroke="#000000"]){stroke:var(--score-ink,#e7c38e)}
+.score-preview-themed .score-preview-canvas :deep(.score-notehead),.score-preview-themed .score-preview-canvas :deep(.score-notehead [fill]){fill:var(--score-ink,#e7c38e)}
 .score-preview-themed .score-preview-canvas :deep(.score-note-completed),.score-preview-themed .score-preview-canvas :deep(.score-note-completed [fill]){fill:#6ec5b2}
 .score-preview-themed .score-preview-canvas :deep(.score-note-playing),.score-preview-themed .score-preview-canvas :deep(.score-note-playing [fill]){fill:#8fbbff}
 .score-preview-themed .score-preview-canvas :deep(.score-note-selected),.score-preview-themed .score-preview-canvas :deep(.score-note-selected [fill]),.score-preview-themed .score-preview-canvas :deep(.score-notehead:focus-visible),.score-preview-themed .score-preview-canvas :deep(.score-notehead:focus-visible [fill]){fill:var(--accent,#e7c38e)}
@@ -491,4 +513,23 @@ onBeforeUnmount(()=>{
 .score-range-mode{touch-action:none;cursor:crosshair;user-select:none}
 .score-preview-canvas :deep(.score-range-selected){filter:drop-shadow(0 0 3px #319db7);outline:2px solid #319db7;outline-offset:2px}
 .score-appearance-control{display:flex;flex-wrap:wrap;gap:4px}
+</style>
+
+<style scoped>
+.score-preview-themed{--score-ink:#e7c38e}
+.score-preview-themed .score-preview-canvas :deep(svg [fill="rgb(0, 0, 0)"]),
+.score-preview-themed .score-preview-canvas :deep(svg [fill="rgb(0,0,0)"]),
+.score-preview-themed .score-preview-canvas :deep(svg [fill="#000000ff"]),
+.score-preview-themed .score-preview-canvas :deep(svg .vf-accidental),
+.score-preview-themed .score-preview-canvas :deep(svg .vf-accidental path),
+.score-preview-themed .score-preview-canvas :deep(svg .vf-keysignature path),
+.score-preview-themed .score-preview-canvas :deep(svg .vf-keysignature text),
+.score-preview-themed .score-preview-canvas :deep(svg .vf-timesignature path){fill:var(--score-ink)!important;color:var(--score-ink)!important}
+.score-preview-themed .score-preview-canvas :deep(svg [stroke="rgb(0, 0, 0)"]),
+.score-preview-themed .score-preview-canvas :deep(svg [stroke="rgb(0,0,0)"]){stroke:var(--score-ink)}
+.score-preview-canvas :deep(.score-range-selected){filter:none;outline:none}
+.score-preview-canvas :deep(.score-range-fill){fill:#319db7!important;fill-opacity:.18;stroke:#16778e!important;stroke-width:1.5;vector-effect:non-scaling-stroke}
+.score-preview-themed .score-preview-canvas :deep(.score-range-fill){fill:#69d5d9!important;fill-opacity:.18;stroke:#69d5d9!important}
+.score-range-status{font-size:12px;font-weight:750;align-self:center;color:inherit}
+.score-appearance-control button[aria-pressed="true"]{border-color:#69b7c9}
 </style>
