@@ -6058,10 +6058,10 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
   <div class="about-content-columns">
   <div class="about-grid">
-    <article class="editor"><h2>Start with your song</h2><p>Enter a melody and chords in the Lead Sheet, or import MIDI or MusicXML. Define sections, measure counts, keys and your ensemble in Structure, Keys &amp; Ensemble.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
-    <article class="editor"><h2>Arrange the orchestra</h2><p>Build a custom ensemble, generate parts, plan phrases and assign roles, styles, figures and articulations by section or measure. Use Transpose &amp; Adapt to preview playable registers and coordinate phrase shifts across instruments.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
+    <article class="editor"><h2>Start with your song</h2><p>Choose File → New song to start with an empty arrangement, a complete score, separate instrument files, or lyrics and chords. In an existing song, use Import lead sheet to bring in melody, lyrics and harmony. Define form, keys and ensemble in Structure, Keys &amp; Ensemble.</p><button class="secondary" type="button" @click="active='lead'">Open Lead Sheet →</button></article>
+    <article class="editor"><h2>Arrange the orchestra</h2><p>Build a custom ensemble, generate parts, plan phrases and assign roles, styles, figures and articulations by section or measure. Use Transpose &amp; Adapt to preview playable registers and coordinate phrase shifts across instruments. In Orchestration → Tools, import or merge parts with alignment review, or use an instrument’s context menu to preselect its destination.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration →</button></article>
     <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, durations, lyrics, dynamics and expressive gestures. Record notes and rhythms, audition samples, and loop a measure range or whole section.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
-    <article class="editor"><h2>Listen, save and export</h2><p>Play and rehearse arrangements with instrument diagrams, karaoke, microphone pitch feedback and tuning tools. Save songs locally, download .tango.json backups and export MuseScore scores.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
+    <article class="editor"><h2>Listen, save and export</h2><p>Play and rehearse arrangements with instrument diagrams, karaoke, microphone pitch feedback and tuning tools. Use File to open, save, duplicate or delete songs, download portable .tango.zip or .tango.json projects, and export MusicXML, MuseScore, ABC, MobileSheets bundles or difficulty editions.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
   <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appDisplayVersion}} · Dated development updates and versioned history are loaded from CHANGELOG.md.</p>
     <div class="release-outline">
@@ -6079,7 +6079,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <p class="hint">For the full technical history and verification notes, see CHANGELOG.md in the repository.</p>
   </div>
   </div>
-  <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; export a .tango.json backup to transfer them between devices.</p>
+  <p class="hint">Tango Arranger is an experimental arranging tool. Generated parts are starting points for musical editing, not historically verified transcriptions of individual orchestras. Songs are saved in this browser; use File to save a portable .tango.zip or .tango.json backup to transfer them between devices.</p>
 </section>
 <section v-if="active==='structure'" class="structure-tab">
 <nav class="structure-subtabs" role="tablist" aria-label="Structure workspace sections">

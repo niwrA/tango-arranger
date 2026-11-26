@@ -1,3 +1,11 @@
+## Contextual import and consolidated File menu (2026-11-26)
+
+- Consolidated project opening, local saving, duplication, portable backups and notation exports under File; removed the separate Import / Export toolbar menu.
+- Moved lead-sheet import into the Lead sheet workspace and score/ensemble merge and merge undo into Orchestration tools.
+- Added instrument-context import with destination preselection in the existing alignment review; retained the new-song wizard and export formats.
+- Updated the About workflow overview to explain where project operations and musical imports now belong.
+- Build and browser verification remain outstanding.
+
 ## Section shortcuts and ensemble-aware transposition (2026-11-25)
 
 - Organize About into collapsed major feature deliveries and daily development summaries, with expandable detail and a historical archive.
