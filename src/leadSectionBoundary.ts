@@ -29,7 +29,7 @@ export function insertSectionBoundary(project:Project,measure:number):Project{
  roles:copy(project.roles)??{},
  pianoFigures:copy(project.pianoFigures),pianoFigureVariation:copy(project.pianoFigureVariation),
  violinMarcatoBeats:copy(project.violinMarcatoBeats),violinArpeggioDirections:copy(project.violinArpeggioDirections),
- orchestration:project.orchestration?{...project.orchestration,violin:copy(project.orchestration.violin),bandoneon:copy(project.orchestration.bandoneon),contrabass:copy(project.orchestration.contrabass)}:undefined,
+ orchestration:project.orchestration?{...project.orchestration,violin:copy(project.orchestration.violin)??{},bandoneon:copy(project.orchestration.bandoneon)??{},contrabass:copy(project.orchestration.contrabass)}:undefined,
  expression:project.expression?{...project.expression,sections:copy(project.expression.sections)??{}}:undefined};
 }
 export function removeSectionBoundary(project:Project,measure:number):Project{
