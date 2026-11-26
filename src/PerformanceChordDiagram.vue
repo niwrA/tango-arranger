@@ -95,7 +95,12 @@ function fingerFor(openMidi:number,midi:number):string|null{
  const match=props.positionGuide?.fingerings.find(f=>f.openMidi===openMidi&&f.pitch===midi);
  return match?.finger??null;
 }
-function isPlannedStringPitch(openMidi:number,midi:number){return fingerFor(openMidi,midi)!==null;}
+function isPlannedStringPitch(openMidi:number,midi:number){
+ if(props.positionGuide)return fingerFor(openMidi,midi)!==null;
+ if(!props.measurePitches?.includes(midi))return false;
+ if(family.value==='Violin')return suggestViolinPosition(midi)?.openMidi===openMidi;
+ return openStrings.value.some(string=>string.midi===openMidi)&&midi===openMidi;
+}
 function stringAnchorLabel(openMidi:number){
  const guide=props.positionGuide;
  return guide?(guide.thumb?'T':'1')+'='+midiLabel(openMidi+guide.firstFingerOffset):'';
@@ -128,7 +133,7 @@ const extraUnmappedCount=computed(()=>Math.max(0,unmappedSoundingPitches.value.l
 const livePitchesLabel=computed(()=>unmappedSoundingPitches.value.map(midiLabel).join(' · '));
 const diagramDescription=computed(()=>{
  if(family.value==='Piano')return 'Measure-following piano · bass notes blue, upper notes amber, sounding notes highlighted';
- if(isStringInstrument.value)return 'Open strings + chromatic positions · schematic';
+ if(isStringInstrument.value)return 'Open strings + chromatic positions · schematic; amber filled notes are planned for this measure, outlined notes are chord references, turquoise notes are sounding';
  if(family.value==='Bandoneon')return 'Chord tones · no button fingering inferred';
  if(family.value==='Trumpet'||family.value==='Clarinet')return 'Concert pitches · transpose for written part';
  return 'Concert-pitch targets · not fingerings';
@@ -197,7 +202,7 @@ const diagramDescription=computed(()=>{
      </div>
      <div v-for="string in openStrings" :key="string.midi" class="diagram-string-row"
        :class="{'diagram-guided-string-row':Boolean(props.positionGuide)}">
-       <span class="diagram-open-label" :class="{'is-sounding':isPlayingStringPitch(string.midi,string.midi),'is-learn-target':isTarget(string.midi)}"
+       <span class="diagram-open-label" :class="{'is-sounding':isPlayingStringPitch(string.midi,string.midi),'is-measure-note':isPlannedStringPitch(string.midi,string.midi),'is-chord-tone':isTone(string.midi),'is-learn-target':isTarget(string.midi)}"
          :title="'Open '+string.name+(props.positionGuide?' · '+stringAnchorLabel(string.midi):'')">
          <strong>{{string.name}}</strong><small v-if="props.positionGuide">{{stringAnchorLabel(string.midi)}}</small>
        </span>
@@ -660,4 +665,19 @@ const diagramDescription=computed(()=>{
 .performance-instrument-diagram.is-focus:not(.is-learn) .diagram-fingerboard.diagram-has-guide{padding-top:clamp(6px,1vw,16px)}
 .performance-instrument-diagram.is-focus:not(.is-learn) .diagram-stop-header{flex:0 0 auto;min-height:20px;font-size:12px;text-align:center;color:#b8ccd9}
 .performance-instrument-diagram.is-focus:not(.is-learn) .diagram-stop-header small{font-size:10px}
+</style>
+
+<style scoped>
+/* Separate the written part from harmonic reference notes, even when both
+   share the same pitch. Active practice/playback and anchors take precedence. */
+.performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-chord-tone:not(.is-measure-note):not(.is-sounding):not(.is-learn-target):not(.is-position-anchor){
+ background:transparent;color:#c3a77e;border-top-color:#88765c;box-shadow:inset 0 0 0 1px #88765c;opacity:.78;filter:none;
+}
+.performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-measure-note:not(.is-sounding):not(.is-learn-target):not(.is-position-anchor),
+.performance-instrument-diagram .diagram-fingerboard .diagram-open-label.is-measure-note:not(.is-sounding):not(.is-learn-target){
+ background:#d9ad67;color:#202b33;border-color:#f1cf95;box-shadow:inset 0 0 0 1px #f1cf95;opacity:1;filter:none;
+}
+.performance-instrument-diagram .diagram-fingerboard .diagram-open-label.is-measure-note:not(.is-sounding):not(.is-learn-target) strong{color:#202b33}
+.performance-instrument-diagram .diagram-fingerboard .diagram-open-label.is-chord-tone:not(.is-measure-note):not(.is-sounding):not(.is-learn-target){box-shadow:inset 0 0 0 1px #88765c}
+:global(.learn-display-overlay) .performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-chord-tone:not(.is-measure-note):not(.is-sounding):not(.is-learn-target):not(.is-position-anchor){color:#52452f;border-top-color:#88765c}
 </style>
