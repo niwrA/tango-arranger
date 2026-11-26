@@ -6,35 +6,36 @@
 - Updated the About workflow overview to explain where project operations and musical imports now belong.
 - Build and browser verification remain outstanding.
 
-## Section shortcuts and ensemble-aware transposition (2026-11-25)
+## [Feature] Ensemble-aware adaptive transposition (2026-11-25)
 
-- Organize About into collapsed major feature deliveries and daily development summaries, with expandable detail and a historical archive.
-- Align karaoke notes, chords and lyrics to musical time; default string capture to two octaves and respect recorded string identity in fingering guides.
-- Add a persistent optional theme-colored score preview.
-
-- Expand large-screen ensemble performance layout and default to two-octave recording fingerboards on wide screens; preserve explicit string choice for keyboard-accessible fingerboard input.
-
-- Add compact triplet snap and duration choices to the Notes editor and preserve fractional-third timing in MusicXML export.
-
-- Recover empty practice editions from stored Advanced notes even when imported source tags are missing.
-
-- Prefer first-position violin fingering in Easy imported editions, reduce rapid passing notes conservatively, and correct harmony lookup argument order.
-
-- Improve imported violin editions with melodic contour, fingering-cost and harmony-aware voice selection, preserve syncopations and simple open-string double stops; infer missing chord symbols from ensemble evidence on complete-score import.
-
-- Derive simplified practice editions from imported advanced parts, preserving the original and recovering empty unedited alternatives.
-
-- Remove three below-range Violin II recognition artifacts from the bundled Hasta Siempre Amor score; show a responsive full-arrangement score with system following in Performance focus.
-
-- Expand Note Editor pitch bounds to include existing imported and adapted notes, even when their stored pitches exceed the sounding instrument range.
-
-- Keep pitch labels and time headers visible while scrolling the note grid; use native two-axis touch scrolling instead of custom horizontal panning.
-
-- Align the five measure-range controls in a compact row, including the section selector, with responsive toolbar grouping.
-
-- Select a whole section from measure-range controls using buttons or a compact dropdown. Manual start-measure changes update the displayed section without automatically selecting its full range.
 - Preview the destination key of the opening section for each transposition interval, preserving major or minor mode.
 - Choose automatic, whole-part, phrase, individual-note or exact register strategies per instrument. Phrase optimization uses score boundaries, rests and ties, melodic intervals, instrument tessitura and ensemble crossing/unison penalties.
+
+## [Feature] Imported difficulty editions and violin fingering (2026-11-25)
+
+- Recover empty practice editions from stored Advanced notes even when imported source tags are missing.
+- Prefer first-position violin fingering in Easy imported editions, reduce rapid passing notes conservatively, and correct harmony lookup argument order.
+- Improve imported violin editions with melodic contour, fingering-cost and harmony-aware voice selection, preserve syncopations and simple open-string double stops; infer missing chord symbols from ensemble evidence on complete-score import.
+- Derive simplified practice editions from imported advanced parts, preserving the original and recovering empty unedited alternatives.
+
+## [Feature] Synchronized karaoke and performance score following (2026-11-25)
+
+- Align karaoke notes, chords and lyrics to musical time; default string capture to two octaves and respect recorded string identity in fingering guides.
+- Add a persistent optional theme-colored score preview.
+- Expand large-screen ensemble performance layout and default to two-octave recording fingerboards on wide screens; preserve explicit string choice for keyboard-accessible fingerboard input.
+- Remove three below-range Violin II recognition artifacts from the bundled Hasta Siempre Amor score; show a responsive full-arrangement score with system following in Performance focus.
+
+## [Feature] Note editor navigation and rhythmic precision (2026-11-25)
+
+- Add compact triplet snap and duration choices to the Notes editor and preserve fractional-third timing in MusicXML export.
+- Expand Note Editor pitch bounds to include existing imported and adapted notes, even when their stored pitches exceed the sounding instrument range.
+- Keep pitch labels and time headers visible while scrolling the note grid; use native two-axis touch scrolling instead of custom horizontal panning.
+- Align the five measure-range controls in a compact row, including the section selector, with responsive toolbar grouping.
+- Select a whole section from measure-range controls using buttons or a compact dropdown. Manual start-measure changes update the displayed section without automatically selecting its full range.
+
+## About, release history and verification (2026-11-25)
+
+- Organize About into collapsed major feature deliveries and daily development summaries, with expandable detail and a historical archive.
 - Updated About to display dated development notes as well as numbered releases. The existing package version remains unchanged; deployed builds retain their commit identifier.
 - Build and browser acceptance of these latest changes remain to be verified.
 
