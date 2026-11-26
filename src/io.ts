@@ -793,7 +793,17 @@ export async function exportEditionPrintPack(p:Project):Promise<Blob>{
  return zip.generateAsync({type:'blob',mimeType:'application/zip',compression:'DEFLATE'});
 }
 
-export async function saveProject(p:Project){
+export async function exportProjectZip(p:Project):Promise<Blob>{
+ const zip=new JSZip();
+ zip.file('project.json',JSON.stringify(snapshotActiveEditions(p)));
+ return zip.generateAsync({type:'blob',mimeType:'application/zip',compression:'DEFLATE',compressionOptions:{level:6}});
+}
+export async function saveProject(p:Project,compressed=false){
+ if(compressed){
+  const blob=await exportProjectZip(p);
+  download(blob,(p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()||'tango')+'.tango.zip','application/zip');
+  return;
+ }
   // Native projects are JSON so mobile document pickers recognize the file type.
   // The project object already includes its generated and imported scores.
   download(JSON.stringify(snapshotActiveEditions(p),null,2),p.title.replace(/[^a-z0-9-]+/gi,'-').toLowerCase()+'.tango.json','application/json');

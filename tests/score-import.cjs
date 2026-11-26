@@ -50,3 +50,16 @@ check('both score formats use the same import review in new and existing songs',
  assert.ok(!app.includes('pending.value=importMidi(await file.arrayBuffer())'));
 });
 console.log(n+' unified score import checks passed');
+
+(async()=>{
+ const {exportProjectZip,loadProject}=load('src/io.ts');
+ const {snapshotActiveEditions}=load('src/editions.ts');
+ const project=blankProject({measures:4,beats:4});project.title='Compressed backup';
+ const zip=await exportProjectZip(project);
+ const restored=await loadProject({arrayBuffer:()=>zip.arrayBuffer()});
+ const expected=JSON.parse(JSON.stringify(snapshotActiveEditions(project)));
+ assert.deepEqual(restored,expected);
+ assert.ok(zip.size<JSON.stringify(expected,null,2).length);
+ assert.ok(app.includes('.tango.zip'));assert.ok(app.includes('saveCompressedProject'));
+ console.log('PASS compressed native project round trip');
+})().catch(error=>{console.error(error);process.exitCode=1;});
