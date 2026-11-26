@@ -1,3 +1,7 @@
+## Tigre Viejo example (2026-11-26)
+
+- Offer the bundled Tigre Viejo bowed-expression project in the Example songs picker, opening a fresh editable local copy with its imported score and expression intact.
+
 ## Instrument focus rhythm and harmony (2026-11-26)
 
 - Show a transport-synchronized count-in and large numbered beat pulse in every performance focus view, keeping the score on the selected starting measure.

@@ -169,6 +169,20 @@ async function adoptLocalSong(p:Project){
 async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
+  if(id==='__example_tigre_viejo__'){
+    select.value=localSongId.value;
+    try{
+      await flushAutosave();
+      const {default:url}=await import('./presets/tigre-viejo-bowed-expression.tango.zip?url');
+      const response=await fetch(url);
+      if(!response.ok)throw Error('Example archive unavailable ('+response.status+')');
+      const study=await loadProject(new File([await response.blob()],'tigre-viejo.tango.zip',{type:'application/zip'}));
+      await adoptLocalSong(study);
+      active.value='arrange';
+      message.value=`Opened a new editable copy of ${study.title} (${study.bars.length} measures).`;
+    }catch(error){message.value=`Could not open built-in song: ${String(error)}`;}
+    return;
+  }
   if(id==='__example_pequena_2__'||id==='__example_la_melodia__'||id==='__example_hasta_siempre__'){
     select.value=localSongId.value;
     try{
@@ -5566,7 +5580,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_tigre_viejo__">＋ Tigre Viejo — bowed expression (new copy)</option><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
     <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
