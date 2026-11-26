@@ -114,7 +114,7 @@ test('arrangement playback waits for bounded sample loading before starting',()=
 test('piano dynamic envelopes retain the piano voice in both playback modes',()=>{
  const render=app.slice(app.indexOf('function renderArrangementNote('),app.indexOf('let synth:PolySynth|null=null;'));
  assert.match(render,/!inst.toLowerCase\(\).includes\('piano'\)/);
- assert.match(render,/triggerInstrument\(inst,event.pitch,duration,time,velocity\/127,n.technique\)/);
+ assert.match(render,/triggerInstrument\(inst,event.pitch,duration,time,velocity\/127,technique\)/);
  assert.match(app,/renderArrangementNote\(inst,n,event,defaultDuration,time,focusGain\)/);
  assert.match(app,/if\(event\)renderArrangementNote\(inst,n,event,/);
 });
