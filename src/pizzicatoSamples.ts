@@ -19,3 +19,11 @@ export function usesPizzicatoBank(inst:string,technique?:'arco'|'pizzicato'):boo
  const name=inst.toLowerCase();
  return name.includes('violin')?technique==='pizzicato':name.includes('bass')&&technique!=='arco';
 }
+
+/** Explicit note markings win; otherwise inherit the orchestration's violin style. */
+export function resolveStringTechnique(inst:string,explicit:'arco'|'pizzicato'|undefined,style?:string,hasBowGesture=false):'arco'|'pizzicato'|undefined{
+ if(explicit)return explicit;
+ if(hasBowGesture)return 'arco';
+ if(inst.toLowerCase().includes('violin')&&(style==='pizzicato'||style==='pizzicato_arpeggio'))return 'pizzicato';
+ return undefined;
+}

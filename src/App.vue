@@ -51,7 +51,7 @@ import {noteGridViewport,NOTE_GRID_CELL_PX,NOTE_GRID_LABEL_PX,type NoteGridViewp
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent} from './expressiveAudio';
-import {pizzicatoBank,usesPizzicatoBank} from './pizzicatoSamples';
+import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
@@ -3918,11 +3918,12 @@ function triggerInstrument(inst:string,pitch:number,duration:number,time:number,
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1){
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
+ const technique=resolveStringTechnique(inst,n.technique,violinTechnique(inst as Instrument,Math.floor(n.start/project.value.beats)),Boolean(n.stringGlissando||n.bowedTremolo||n.gesture||n.slideTo!==undefined||n.approachSlideFrom!==undefined));
  // Piano dynamics affect the attack; a held piano string cannot crescendo.
  // Never substitute a triangle oscillator for a piano merely due to a wedge.
- if(!inst.toLowerCase().includes('piano')&&!usesPizzicatoBank(inst,n.technique)&&(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)){
+ if(!inst.toLowerCase().includes('piano')&&!usesPizzicatoBank(inst,technique)&&(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)){
   playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
- }else triggerInstrument(inst,event.pitch,duration,time,velocity/127,n.technique);
+ }else triggerInstrument(inst,event.pitch,duration,time,velocity/127,technique);
 }
 let synth:PolySynth|null=null;
 async function testAudio(){

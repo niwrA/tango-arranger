@@ -1,3 +1,7 @@
+## Violin pizzicato routing (2026-11-26)
+
+- Inherit the orchestration pizzicato style when an imported violin note has no explicit technique, preserving explicit arco and bowed gestures. All thirteen upstream violin WAV anchors were verified.
+
 ## Commit-only build label (2026-11-26)
 
 - Show the running commit in the header and About view instead of the package version. Local Vite builds resolve Git HEAD when no CI build SHA is supplied; builds without metadata are identified as unknown rather than displaying a stale release number.
