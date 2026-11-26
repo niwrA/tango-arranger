@@ -4328,7 +4328,7 @@
     ],
     "Violin II": [
       {
-        "pitch": 50,
+        "pitch": 62,
         "start": 4,
         "duration": 4,
         "source": "imported",
@@ -4532,7 +4532,7 @@
         "xmlVoice": "57"
       },
       {
-        "pitch": 52,
+        "pitch": 64,
         "start": 40,
         "duration": 4,
         "source": "imported",
@@ -4714,7 +4714,7 @@
         "xmlVoice": "57"
       },
       {
-        "pitch": 52,
+        "pitch": 64,
         "start": 72,
         "duration": 4,
         "source": "imported",
@@ -20597,7 +20597,7 @@
     ],
     "Violin II": [
       {
-        "pitch": 50,
+        "pitch": 62,
         "start": 4,
         "duration": 4,
         "source": "imported",
@@ -20801,7 +20801,7 @@
         "xmlVoice": "57"
       },
       {
-        "pitch": 52,
+        "pitch": 64,
         "start": 40,
         "duration": 4,
         "source": "imported",
@@ -20983,7 +20983,7 @@
         "xmlVoice": "57"
       },
       {
-        "pitch": 52,
+        "pitch": 64,
         "start": 72,
         "duration": 4,
         "source": "imported",
@@ -36830,7 +36830,7 @@
     ],
     "Violin II": [
       {
-        "pitch": 50,
+        "pitch": 62,
         "start": 4,
         "duration": 4,
         "source": "imported",
@@ -37034,7 +37034,7 @@
         "xmlVoice": "57"
       },
       {
-        "pitch": 52,
+        "pitch": 64,
         "start": 40,
         "duration": 4,
         "source": "imported",
@@ -37216,7 +37216,7 @@
         "xmlVoice": "57"
       },
       {
-        "pitch": 52,
+        "pitch": 64,
         "start": 72,
         "duration": 4,
         "source": "imported",
@@ -56607,7 +56607,7 @@
       "advanced": {
         "notes": [
           {
-            "pitch": 50,
+            "pitch": 62,
             "start": 4,
             "duration": 4,
             "source": "imported",
@@ -56811,7 +56811,7 @@
             "xmlVoice": "57"
           },
           {
-            "pitch": 52,
+            "pitch": 64,
             "start": 40,
             "duration": 4,
             "source": "imported",
@@ -56993,7 +56993,7 @@
             "xmlVoice": "57"
           },
           {
-            "pitch": 52,
+            "pitch": 64,
             "start": 72,
             "duration": 4,
             "source": "imported",
@@ -58343,7 +58343,7 @@
         ],
         "importedNotes": [
           {
-            "pitch": 50,
+            "pitch": 62,
             "start": 4,
             "duration": 4,
             "source": "imported",
@@ -58547,7 +58547,7 @@
             "xmlVoice": "57"
           },
           {
-            "pitch": 52,
+            "pitch": 64,
             "start": 40,
             "duration": 4,
             "source": "imported",
@@ -58729,7 +58729,7 @@
             "xmlVoice": "57"
           },
           {
-            "pitch": 52,
+            "pitch": 64,
             "start": 72,
             "duration": 4,
             "source": "imported",
