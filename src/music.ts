@@ -1537,10 +1537,8 @@ export function replaceInstrumentNoteAcrossMeasures(p:Project,current:Score,inst
   next=replaceInstrumentMeasure(next,next.generatedScore??current,inst,targetBar,target);
   return next;
 }
-/** Combine two selected attacks into one written note spanning their full extent. */
-export function mergeInstrumentNotes(p:Project,current:Score,inst:Instrument,one:Note,two:Note):{project:Project;note:Note}{
-  const notes=current[inst]??[];
-  if(one===two||!notes.includes(one)||!notes.includes(two))throw Error('Select two different notes in the same part');
+/** Combine two attacks without changing the score. */
+export function combineNoteAttacks(one:Note,two:Note):Note{
   const [first,second]=one.start<=two.start?[one,two]:[two,one];
   if(Math.abs(first.start-second.start)<1e-8&&first.pitch!==second.pitch)
     throw Error('Select successive notes to merge pitches from separate attacks');
@@ -1563,6 +1561,15 @@ export function mergeInstrumentNotes(p:Project,current:Score,inst:Instrument,one
     merged[position]=startsInside?(endsInside?'middle':'end'):(endsInside?'begin':'single');
     merged[extend]=second[extend];
   }
+  return merged;
+}
+/** Combine two selected attacks into one written note spanning their full extent. */
+export function mergeInstrumentNotes(p:Project,current:Score,inst:Instrument,one:Note,two:Note):{project:Project;note:Note}{
+  const notes=current[inst]??[];
+  if(one===two||!notes.includes(one)||!notes.includes(two))throw Error('Select two different notes in the same part');
+  const [first,second]=one.start<=two.start?[one,two]:[two,one];
+  const merged=combineNoteAttacks(first,second);
+  const end=merged.start+merged.duration;
   const barOf=(note:Note)=>Math.floor((note.start+1e-8)/p.beats);
   const from=barOf(first),to=barOf(second);
   const remaining=notes.filter(n=>n!==one&&n!==two);

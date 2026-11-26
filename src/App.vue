@@ -43,7 +43,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayBuild=appBuildId||'unknown build';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -4956,11 +4956,14 @@ watch(noteEditorTab,tab=>{if(tab!=='notes'&&tab!=='score')quickSplit.value=false
 const quickPreview=ref((()=>{try{return localStorage.getItem('tango-musical-edit-preview')!=='false';}catch{return true;}})());
 watch(quickPreview,v=>{try{localStorage.setItem('tango-musical-edit-preview',String(v));}catch{}});
 const quickDraft=shallowRef<{base:Project;result:MusicalEditResult}|null>(null);
-const quickDisplayScore=computed(()=>quickDraft.value?.result.score??score.value);
+const quickDisplayScore=computed(()=>{
+ const result=quickDraft.value?.result;
+ return result?adaptTransposedScore(result.score,result.project):score.value;
+});
 const quickRole=ref<Role|'inherit'>('inherit');
 const quickPitch=ref(72),quickBeat=ref(1);
-const quickSourceKeys=computed(()=>editPartNoteKeys(score.value[noteInst.value]??[]));
-const quickDraftKeys=computed(()=>quickDraft.value?editPartNoteKeys(quickDisplayScore.value[noteInst.value]??[]):undefined);
+const quickSourceKeys=computed(()=>editPartNoteKeys(sourceScore.value[noteInst.value]??[],score.value[noteInst.value]??[]));
+const quickDraftKeys=computed(()=>quickDraft.value?editPartNoteKeys(quickDraft.value.result.score[noteInst.value]??[],quickDisplayScore.value[noteInst.value]??[]):undefined);
 const quickNoteKey=(note:Note)=>quickSourceKeys.value.get(note)??quickDraftKeys.value?.get(note)??editNoteKey(note);
 const quickSelection=computed<EditSelection>(()=>{
  const last=Math.max(0,project.value.bars.length-1);
@@ -4975,8 +4978,12 @@ const quickSelection=computed<EditSelection>(()=>{
   default:return {kind:'notes',keys:multiNoteMode.value?multiNoteKeys.value:selectedEvent.value?[quickNoteKey(selectedEvent.value)]:[]};
  }
 });
-const resolvedQuickSelection=computed(()=>resolveEditSelection(project.value,score.value[noteInst.value]??[],quickSelection.value,false));
-const quickSelectedNotes=computed(()=>new Set(resolvedQuickSelection.value.notes));
+const resolvedQuickSelection=computed(()=>resolveEditSelection(project.value,sourceScore.value[noteInst.value]??[],quickSelection.value,false));
+const quickSelectedNotes=computed(()=>{
+ const chosen=new Set(resolvedQuickSelection.value.notes);
+ const displayed=score.value[noteInst.value]??[];
+ return new Set((sourceScore.value[noteInst.value]??[]).flatMap((note,i)=>chosen.has(note)&&displayed[i]?[displayed[i]]:[]));
+});
 const quickSelectionCount=computed(()=>quickScope.value==='notes'?resolvedQuickSelection.value.notes.length:resolvedQuickSelection.value.measures.length);
 const quickCategories=computed(()=>editCategories.filter(c=>musicalEditActions(c.id,noteInst.value).length));
 const quickNoteActions=computed(()=>musicalEditActions(quickNoteCategory.value,noteInst.value));
@@ -5012,7 +5019,7 @@ async function auditionQuickDraft(){
   output.connect(context.destination);
   quickAuditionOutput=output;
   quickAuditionPlaying.value=true;
-  const notes=playbackNotesInRange(draft.result.score[inst]??[],from,to,transpose);
+  const notes=playbackNotesInRange(quickDisplayScore.value[inst]??[],from,to,transpose);
   for(const note of notes){
    const onset=Math.max(0,(note.start-from)*seconds);
    transport.scheduleOnce(time=>{
@@ -5039,14 +5046,15 @@ function commitQuickDraft(){
 }
 function applyQuickNote(value:string,entry?:{bar:number;beat:number;pitch:number},override?:EditSelection,category=quickNoteCategory.value){
  try{
+  if(quickDraft.value)throw Error('Apply or cancel the current preview first');
   const base=project.value;
-  if(score.value!==sourceScore.value)throw Error('Turn off adaptive register transposition before editing this score');
   const selection=override??quickSelection.value;
   if(category==='create'&&value==='replace'&&!quickPreview.value&&!window.confirm('Replace the written notes in the selected measures?'))return;
-  const result=executeMusicalEdit({project:base,score:score.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined)},category,value);
+  const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined)},category,value);
   quickDraft.value={base,result};
   if(!quickPreview.value)commitQuickDraft();
- }catch(error){message.value='Musical edit rejected: '+String(error);}
+  return true;
+ }catch(error){message.value='Musical edit rejected: '+String(error);return false;}
 }
 function insertFromScore(bar:number,beat:number,pitch:number){
  if(quickDraft.value)return;
@@ -5070,13 +5078,8 @@ function chooseMergeTarget(note:Note){
 function mergeSelectedNotes(){
  const first=mergeAnchor.value,second=mergeTarget.value;
  if(!first||!second)return;
- try{
-  const merged=mergeInstrumentNotes(project.value,score.value,noteInst.value,first,second);
-  project.value=merged.project;
-  activateGridMeasure(Math.floor((merged.note.start+1e-8)/project.value.beats));
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===merged.note.pitch&&n.start===merged.note.start&&n.duration===merged.note.duration);
-  message.value='Merged two notes.';
- }catch(error){message.value='Could not merge notes: '+String(error);}
+ const selection:EditSelection={kind:'notes',keys:[quickNoteKey(first),quickNoteKey(second)]};
+ if(applyQuickNote('merge',undefined,selection,'structure'))cancelNoteMerge();
 }
 function selectNoteForEdit(note:Note,index:number){
  if(multiNoteMode.value){toggleQuickNote(note);return;}
@@ -6831,7 +6834,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'||quickSplit" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft?(quickDraft.result.score[noteInst]??[]).filter(n=>quickDraft?.result.keys.includes(quickNoteKey(n))):multiNoteMode||quickScope!=='notes'?resolvedQuickSelection.notes:undefined"  :entry-mode="quickMode==='create'&&!quickDraft" @insert-at="insertFromScore" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
+    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft?(quickDisplayScore[noteInst]??[]).filter(n=>quickDraft?.result.keys.includes(quickNoteKey(n))):multiNoteMode||quickScope!=='notes'?Array.from(quickSelectedNotes):undefined"  :entry-mode="quickMode==='create'&&!quickDraft" @insert-at="insertFromScore" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">

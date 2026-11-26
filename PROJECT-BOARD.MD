@@ -45,15 +45,16 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 - Vue runtime checks exercise the actual handlers for Score/Grid selection, a common preview score, direct versus preview Apply, Cancel, in-place stale draft invalidation, and one-step undo/redo. A compressed project round trip verifies edited notes and protections. The transport now cancels scheduled draft events when stopping.
 - `npm run test:regression` passed all 84 invoked scripts, including 85 checks in `tests/regression.cjs`. All nine additional scripts from the hosted workflow passed locally. The starting command stopped at a stale custom TypeScript loader, and the initial independent sweep found 43 failing scripts. Several suites now use the shared domain loader and local TypeScript CLI. Assertion updates follow documented changes, including the written eighth-note default for marcato and staccato.
 - Headless desktop Chrome passed a local smoke check for startup, Split view with the same staged note rendered in Score and Grid, Cancel, Apply, Undo and Redo. The smoke check used programmatic DOM clicks. Desktop pointer and keyboard gestures, real audio audition, physical iPad Safari and Apple Pencil, visual MuseScore, and musician acceptance are outstanding.
-- The automated P0 baseline is established. Shared commands currently reject edits while adaptive register transposition is active to avoid writing its derived pitches back into the project. P1.1 progress is tracked below.
+- The automated P0 baseline is established. P1.1 progress is tracked below.
 
 #### TA-EDIT-CORE in progress
 
 - Commands accept note, measure, phrase, instrument part, and half-open beat ranges. The toolbar exposes current phrase and entire part. Phrase selection follows the active plan or the same suggested phrase boundaries. Beat ranges are available to the domain for future gestures.
 - Transactions report affected measures and explain the protected or occupied measures skipped by Fill. Note edits within a broad selection leave its empty measures alone.
 - Automated editing tests cover the new scopes and skipped-measure reporting. The Chrome smoke check also verified switching between phrase and part scope.
-- Shared commands can select legacy unisons independently. Edited notes retain persistent IDs when moving, and splitting allocates a new ID for the added attack. Transactions expose the added, modified and deleted notes for future overlays. Score engraving still merges some unisons visually, and the separate merge inspector has yet to move onto the shared command path.
-- Editing with adaptive register transposition, tied-note group semantics, and a full audit of existing inspector and drag paths remain open.
+- Shared commands can select legacy unisons independently. Edited notes retain persistent IDs when moving, and splitting allocates a new ID for the added attack. Transactions expose the added, modified and deleted notes for future overlays. Score engraving still merges some unisons visually.
+- Shared edits now map adapted display notes back to their written notes and preview the derived score. The Merge inspector uses the same preview, commit and undo path as the toolbar. Tests cover independent unison selection, stable IDs, stale keys, cross-measure lyric merges, and preserving original pitches while editing an adapted view.
+- General tied-note group semantics and a full audit of existing inspector and drag paths remain open.
 
 Existing backlog entries below remain valid where not superseded.
 

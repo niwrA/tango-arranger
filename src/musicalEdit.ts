@@ -1,4 +1,4 @@
-import {chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
+import {chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,combineNoteAttacks,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
 import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhythmEditor';
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
 import {createPhrasePlan,phraseAt} from './phrasePlan';
@@ -18,16 +18,17 @@ export const editNoteKey=(n:Note)=>n.editId?`id:${n.editId}`:onsetPitchKey(n);
 
 /** Legacy notes can share the same onset and pitch, or a copied note ID.
  * Disambiguate within the part until an edit gives that note its own ID. */
-export function editPartNoteKeys(notes:readonly Note[]):ReadonlyMap<Note,string>{
+export function editPartNoteKeys(notes:readonly Note[],displayed=notes):ReadonlyMap<Note,string>{
+ if(notes.length!==displayed.length)throw Error('The displayed part does not match the written part');
  const counts=new Map<string,number>();
  for(const note of notes){const key=editNoteKey(note);counts.set(key,(counts.get(key)??0)+1);}
  const occurrences=new Map<string,number>();
- return new Map(notes.map(note=>{
+ return new Map(notes.map((note,index)=>{
   const key=editNoteKey(note);
-  if(counts.get(key)===1)return [note,key];
+  if(counts.get(key)===1)return [displayed[index],key];
   const occurrence=occurrences.get(key)??0;
   occurrences.set(key,occurrence+1);
-  return [note,`duplicate:${occurrence}:${key}`];
+  return [displayed[index],`duplicate:${occurrence}:${key}`];
  }));
 }
 const action=(value:string,label:string,title=label):EditAction=>({value,label,title});
@@ -46,7 +47,7 @@ export function musicalEditActions(category:EditCategory,inst:Instrument):EditAc
  case 'bow':return bowed?[action('down','𝆪','Down-bow'),action('up','𝆫','Up-bow'),action('alternate','↕','Alternate bows'),action('arco','arco'),action('pizzicato','pizz.'),action('clear','Clear')]:[];
  case 'position':return bowed?['I','II','III','IV','V','VI','VII','VIII','IX'].map(v=>action(v,v,'Hand position '+v)).concat((family==='Violin'?[55,62,69,76]:[28,33,38,43]).map((v,i)=>action('string:'+v,(family==='Violin'?['G','D','A','E']:['E','A','D','G'])[i],'Assign string')),action('clear','Auto')):[];
  case 'timing':return [action('-.25','← ¼','Earlier'),action('.25','¼ →','Later'),action('quantize','Grid','Quantize to quarter beat'),action('short','Short','Shorten sounding length'),action('full','Full','Full sounding length')];
- case 'structure':return [action('delete','Delete'),action('split','Split'),action('repeat','Repeat')];
+ case 'structure':return [action('delete','Delete'),action('split','Split'),action('repeat','Repeat'),action('merge','Merge','Merge two selected notes')];
  case 'role':return roles.map(v=>action(v,v));
  case 'create':return [action('generate','Fill empty measures'),action('replace','Replace with role'),action('insert','Insert note')];
  }
@@ -73,6 +74,8 @@ export function resolveEditSelection(p:Project,notes:readonly Note[],selection:E
  }else{
   if(selection.kind==='measures')({from,to}=selection);
   if(selection.kind==='phrase'){
+   if(!Number.isInteger(selection.measure)||selection.measure<0||selection.measure>=p.bars.length)
+    throw Error('Phrase selection is outside the song');
    const phrase=phraseAt(p,selection.measure)??createPhrasePlan(p,p.articulation?.phraseBars??8).phrases.find(item=>item.startMeasure<=selection.measure&&item.endMeasure>=selection.measure);
    if(!phrase)throw Error('Phrase selection is outside the song');
    from=phrase.startMeasure;
@@ -138,6 +141,11 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  }else if(category==='rhythm'){
   if(!chosen.length)throw Error('Select notes or measures containing notes');
   for(const b of bars)result.push(...retimeMeasure(chosen,inst,b,beats,rhythmSlots(value as RhythmPreset,beats,inst,p.profile),'rhythm',p.pianoSplitPitch??60,undefined,value as RhythmPreset));
+ }else if(category==='structure'&&value==='merge'){
+  if(sorted.length!==2)throw Error('Select exactly two notes to merge');
+  const merged=combineNoteAttacks(sorted[0],sorted[1]);
+  transformed.set(sorted[0],merged);
+  result.push(merged);
  }else{
   if(!chosen.length)throw Error('Select notes first');
   for(const [index,original] of sorted.entries()){
@@ -179,7 +187,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
     if(value==='delete')continue;
     if(value==='split'||value==='repeat'){
      const length=n.duration/2;n.duration=length;delete n.rhythmSource;
-     const tail={...n,start:n.start+length};clearExpression(tail);delete tail.editId;delete tail.lyric;delete tail.lyric2;result.push(tail);
+     const tail={...n,start:n.start+length};clearExpression(tail);delete tail.editId;delete tail.xmlTieContinuation;delete tail.lyric;delete tail.lyric2;result.push(tail);
     }
    }
    transformed.set(original,n);

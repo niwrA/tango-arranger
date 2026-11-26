@@ -1,14 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
-const cp=require('node:child_process');
-let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
-const Module=require('node:module');
-const previous=Module._extensions['.ts'];
-Module._extensions['.ts']=(mod,filename)=>mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,filename);
-let m;
-try{m=require('../src/music.ts');}finally{if(previous)Module._extensions['.ts']=previous;else delete Module._extensions['.ts'];}
+const m=require('./load-domain.cjs').createDomainLoader()('src/music.ts');
 const p=m.demoProject();
 const base=m.generate(p);
 const inst='Violin I';
@@ -31,7 +24,7 @@ assert.equal(changed.importedScore[inst][0].pitch,65);
 assert.equal(protectedProject.importedScore[inst][0].pitch,55);
 const app=fs.readFileSync(path.join(__dirname,'../src/App.vue'),'utf8');
 assert.match(app,/__example_hasta_siempre__/);
-assert.match(app,/h asta-siempre-amor\.json\?raw/.source.replace('h asta','hasta'));
+assert.match(app,/hasta-siempre-amor\.json\?raw/);
 assert.match(app,/planRegisterTransposition/);
 const twoNotes={...base,[inst]:[{pitch:55,start:0,duration:1},{pitch:59,start:1,duration:1}]};
 const whole=m.planRegisterTransposition(twoNotes,p,-2,{[inst]:{strategy:'whole',octaves:12}});
