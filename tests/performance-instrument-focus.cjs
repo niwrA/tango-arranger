@@ -40,6 +40,14 @@ check('only focus class enlarges diagrams; normal fixed-height cards remain',()=
  assert.ok(app.includes('height:270px!important;min-height:270px!important;max-height:270px!important'));
  assert.ok(app.includes('position:fixed;inset:0;z-index:2000'));
 });
+check('focus count-in holds the score measure but displays the transport pulse and large harmony',()=>{
+ assert.ok(app.includes('performanceTransportBeat.value=transportStartBeat'));
+ assert.ok(app.includes('Math.max(selectedArrangementStartBeat,performanceTransportBeat.value)'));
+ assert.ok(app.includes('performanceTransportBeat.value-playbackStartBeat.value'));
+ const modal=app.slice(app.indexOf('class="instrument-focus-overlay"'),app.indexOf(' </section>\n<div v-else class="layout">',app.indexOf('class="instrument-focus-overlay"')));
+ for(const fragment of ['instrument-focus-pulse','Count-in · starting at M','beat===focusPulseBeat','instrument-focus-harmony','Current chord','v-model="arrangementCountIn"'])assert.ok(modal.includes(fragment),fragment);
+ assert.ok(app.includes('.instrument-focus-harmony strong'));
+});
 console.log(count+' focus-view checks passed');
 
 check('performance score follows the complete arrangement in a flexible viewport',()=>{
