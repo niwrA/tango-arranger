@@ -4,6 +4,9 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'ov
 
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
+import {buildPracticePreview,loadPreviewBank,renderPracticePreview} from './practicePreviewAudio';
+import {stringPitchAtBeat,type Project} from './music';
+import {usesPizzicatoBank} from './pizzicatoSamples';
 import {instrumentFamily,partStaffForNote,noteSoundingDuration,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensitivityThresholdDb} from './learnPitch';
@@ -11,7 +14,7 @@ import {DEFAULT_PITCH_POSTPROCESS,reprocessPitchFrames,hasLikelyVibrato,type Pit
 import {slideEvidence,type GestureSample} from './practiceGestures';
 import {alignLearnTake} from './learnTake';
 import {download} from './io';
-import {practiceTargets,bandoneonPracticeHands,practiceNotesSoundingAt,practiceAttackDuration,type ChordTarget,type PracticeStaff} from './practiceTargets';
+import {practiceTargets,bandoneonPracticeHands,practiceAttackDuration,type ChordTarget,type PracticeStaff} from './practiceTargets';
 import {suggestStringMeasurePosition} from './stringPositionGuide';
 import {suggestViolinPosition} from './violinPositions';
 import MeasureRangeControl from './MeasureRangeControl.vue';
@@ -24,7 +27,7 @@ const props=defineProps<{
  instrument:Instrument;songTitle:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
  initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;display:PracticeDisplay;
- grandStaff:boolean;staffSplit:number;
+ grandStaff:boolean;staffSplit:number;project?:Project;audioEngine?:'samples'|'synth';resolveTechnique?:(note:Note)=>Note['technique'];
 }>();
 const emit=defineEmits<{(event:'exit'):void;(event:'update:display',display:PracticeDisplay):void}>();
 const layout=computed({
@@ -160,12 +163,13 @@ const diagramNotes=computed(()=>{
 });
 const scoreDemoNotes=computed(()=>{
  if(demoBeat.value===null)return [];
- return practiceNotesSoundingAt(targets.value,(from.value-1)*props.beatsPerMeasure+demoBeat.value,targetPitch);
+ const beat=(from.value-1)*props.beatsPerMeasure+demoBeat.value;
+ return targets.value.filter(n=>n.start<=beat&&beat<n.start+(n.stringGlissando?.beats??practiceAttackDuration(targets.value,n,previewDuration.value==='tango'?noteSoundingDuration(n):n.duration,targetPitch)));
 });
 const guideNote=computed(()=>demoPlaying.value?scoreDemoNotes.value.at(-1)??null:current.value);
-const guideMidi=computed(()=>guideNote.value?targetPitch(guideNote.value)+props.concertTranspose:null);
+const guideMidi=computed(()=>guideNote.value?Math.round(demoBeat.value!==null&&guideNote.value.stringGlissando?stringPitchAtBeat(guideNote.value,(from.value-1)*props.beatsPerMeasure+demoBeat.value):targetPitch(guideNote.value))+props.concertTranspose:null);
 const diagramTranspose=computed(()=>['Violin','Contrabass','Bandoneon'].includes(family.value)?props.concertTranspose:0);
-const diagramTarget=computed(()=>guideNote.value?targetPitch(guideNote.value)+diagramTranspose.value:null);
+const diagramTarget=computed(()=>guideMidi.value===null?null:guideMidi.value-props.concertTranspose+diagramTranspose.value);
 const diagramPitches=computed(()=>[...new Set(diagramNotes.value
  .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(point=>point.pitch)??[])])
  .map(pitch=>pitch+diagramTranspose.value))]);
@@ -293,21 +297,16 @@ async function listenToNotes(){
   const secondsPerBeat=60/props.bpm;
   const rangeStart=(from.value-1)*props.beatsPerMeasure;
   const rangeEnd=to.value*props.beatsPerMeasure;
-  const start=ctx.currentTime+0.04;
-  for(const note of targets.value){
-   const at=start+(note.start-rangeStart)*secondsPerBeat;
-   const soundingBeats=practiceAttackDuration(targets.value,note,previewDuration.value==='tango'?noteSoundingDuration(note):note.duration,targetPitch);
-   const end=at+Math.max(0.01,Math.min(rangeEnd-note.start,soundingBeats)*secondsPerBeat);
-   const fade=Math.min(0.035,(end-at)/3);
-   const tone=ctx.createOscillator(),gain=ctx.createGain();
-   tone.type='triangle';tone.frequency.value=expectedFrequency(targetPitch(note)+props.concertTranspose,referenceHz.value);
-   gain.gain.setValueAtTime(0,at);
-   gain.gain.linearRampToValueAtTime(0.08,at+fade);
-   gain.gain.setValueAtTime(0.08,end-fade);
-   gain.gain.linearRampToValueAtTime(0,end);
-   tone.connect(gain);gain.connect(ctx.destination);tone.start(at);tone.stop(end);
-   tone.onended=()=>{tone.disconnect();gain.disconnect();};
-  }
+  const selected=targets.value.map(note=>({...note,pitch:targetPitch(note),technique:props.resolveTechnique?.(note)??note.technique}));
+  const events=buildPracticePreview(selected,rangeStart,rangeEnd,props.bpm,props.beatsPerMeasure,props.concertTranspose,previewDuration.value==='written',props.instrument,props.project);
+  const sampleMode=props.audioEngine!=='synth';
+  const [ordinary,pizzicato]=sampleMode?await Promise.all([
+   loadPreviewBank(ctx,props.instrument),
+   events.some(e=>usesPizzicatoBank(props.instrument,e.technique))?loadPreviewBank(ctx,props.instrument,true):Promise.resolve([])
+  ]):[[],[]];
+  if(demoAudio!==ctx)return;
+  const start=ctx.currentTime+0.06;
+  for(const event of events)renderPracticePreview(ctx,event,start+event.onsetSeconds,props.instrument,referenceHz.value,ordinary,pizzicato);
   const followDemo=()=>{
    if(demoAudio!==ctx)return;
    demoBeat.value=(ctx.currentTime-start)/secondsPerBeat;
