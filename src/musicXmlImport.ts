@@ -103,6 +103,8 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
   let hasKey=false;
   const notes:Note[]=[];
   const glissStarts=new Map<string,Note>();
+  const octaveMarks:{beat:number;staff:number;number:string;shift:number|null}[]=[];
+  const pedalMarks:{beat:number;type:string}[]=[];
   const isPiano=/piano|keyboard/i.test(names.get(id)??'');
   const isBowed=/violin|viola|cello|violoncello|contrabass|double bass/i.test(names.get(id)??'');
   const slashAttacks:{start:number;duration:number;staff:number}[]=[];
@@ -138,7 +140,17 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
     }
     if(child.localName==='direction'){
       const mark=descendants(child,'rehearsal')[0]?.textContent?.trim();
-      if(mark)rehearsal=mark;continue;
+      if(mark)rehearsal=mark;
+      const beat=offset+cursor+numeric(child,'offset')/divisions,staff=numeric(child,'staff',1);
+      for(const el of descendants(child,'octave-shift')){
+       const type=el.getAttribute('type'),size=Number(el.getAttribute('size')||8);
+       if(type==='up'||type==='down'||type==='stop')octaveMarks.push({beat,staff,number:el.getAttribute('number')||'1',shift:type==='stop'?null:(type==='down'?-1:1)*12*Math.max(1,Math.round((size-1)/7))});
+      }
+      if(isPiano)for(const el of descendants(child,'pedal')){
+       const type=el.getAttribute('type')||'';
+       if(['start','stop','change','resume','discontinue'].includes(type))pedalMarks.push({beat,type});
+      }
+      continue;
     }
     if(child.localName==='backup'){cursor=Math.max(0,cursor-numeric(child,'duration')/divisions);lastStart=cursor;continue;}
     if(child.localName==='forward'){cursor+=numeric(child,'duration')/divisions;maxPosition=Math.max(cursor,maxPosition);continue;}
@@ -198,6 +210,27 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
    if(partIndex===0)reference.push({number:mIndex+1,offset,beats:length,beatType,keyFifths:fifths,mode,keyChanged,rehearsal,chords:harmonies});
    offset+=length;
   }
+  // MusicXML pitch already includes ottava: preserve the engraving shift only.
+  octaveMarks.sort((a,b)=>a.beat-b.beat);
+  for(const note of notes){
+   const active=new Map<string,number>();
+   for(const mark of octaveMarks){if(mark.beat>note.start+1e-7)break;if(mark.staff!==(note.xmlStaff??1))continue;if(mark.shift===null)active.delete(mark.number);else active.set(mark.number,mark.shift);}
+   const shift=[...active.values()].reduce((sum,n)=>sum+n,0);if(shift)note.xmlOctaveShift=shift;
+  }
+  const sortedNotes=[...notes].sort((a,b)=>a.start-b.start);
+  let pedalStart:number|undefined;
+  const closePedal=(end:number)=>{
+   if(pedalStart===undefined||end<=pedalStart)return;
+   const begin=pedalStart;
+   const anchor=sortedNotes.filter(n=>n.start<=begin+1e-7).at(-1)??sortedNotes[0];
+   if(anchor&&!anchor.pianoPedalBeats){anchor.pianoPedalOffset=begin-anchor.start;anchor.pianoPedalBeats=end-begin;}
+   else warnings.push(id+': pedal span could not be attached to a unique note');
+  };
+  for(const mark of pedalMarks.sort((a,b)=>a.beat-b.beat)){
+   if(mark.type==='stop'||mark.type==='change'||mark.type==='discontinue'){closePedal(mark.beat);pedalStart=undefined;}
+   if(mark.type==='start'||mark.type==='change'||mark.type==='resume'){if(pedalStart!==undefined)closePedal(mark.beat);pedalStart=mark.beat;}
+  }
+  if(pedalStart!==undefined)closePedal(offset);
   parts.push({id,name:names.get(id)||'Part '+(partIndex+1),notes,staffCount:staves,measureCount:measures.length,pitchedMeasures,slashAttacks});
  }
  const count=Math.max(...parts.map(p=>p.measureCount));

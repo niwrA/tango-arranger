@@ -1,3 +1,9 @@
+## [Feature] Bowed glissando and tremolo (2026-11-26)
+
+- Independent timed string glissandi and measured or unmeasured bowed tremolo; editable destination, duration and bow rate.
+- Preserve MusicXML glissando endpoints, tremolo, octave-shift engraving and piano pedal directions; follow slide pitches in Performance.
+- Synthesized bow articulation and browser/MuseScore acceptance remain to be verified.
+
 ## Contextual import and consolidated File menu (2026-11-26)
 
 - Consolidated project opening, local saving, duplication, portable backups and notation exports under File; removed the separate Import / Export toolbar menu.

@@ -44,7 +44,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -679,12 +679,13 @@ const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const notes=score.value[part.inst]??[];
  const playingInMeasure=notes.some(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
  const nextMeasureHasNotes=nextBar!==bar&&notes.some(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats);
- const activePitches=playing.value?soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration):[];
- const activeStringNotes=playing.value?notes.filter(n=>n.start<=performanceBeat.value&&n.start+noteSoundingDuration(n)>performanceBeat.value):[];
+ const liveBeat=performanceBeat.value;
+ const activeStringNotes=playing.value?notes.filter(n=>n.start<=liveBeat&&n.start+(n.stringGlissando?.beats??noteSoundingDuration(n))>liveBeat).map(n=>n.stringGlissando?{...n,pitch:Math.round(stringPitchAtBeat(n,liveBeat))}:n):[];
+ const activePitches=playing.value?(notes.some(n=>n.stringGlissando)?[...new Set(activeStringNotes.map(n=>n.pitch))]:soundingPitchesAtBeat(notes,performanceBeat.value,noteSoundingDuration)):[];
  // Keep the violin chart at one suggested hand position per measure rather
  // than jumping to another string position on every note attack.
  const measureNotes=notes.filter(n=>n.start<(bar+1)*p.beats&&n.start+noteSoundingDuration(n)>bar*p.beats);
- const measurePitches=measureNotes.map(n=>n.pitch);
+ const measurePitches=measureNotes.flatMap(n=>n.stringGlissando?[n.pitch,n.pitch+n.stringGlissando.interval]:[n.pitch]);
  const nextRangePitches=notes.filter(n=>n.start<(nextBar+1)*p.beats&&n.start+noteSoundingDuration(n)>nextBar*p.beats).map(n=>n.pitch);
  const registerPitches=[...measurePitches,...(nextBar===bar?[]:nextRangePitches)];
  // Retain legacy one-note suggestion as fallback for diagram consumers.
@@ -736,17 +737,17 @@ const performanceVocalCue=computed(()=>{
 const stagePlaybackBpm=computed(()=>Math.round(arrangementCountingIn.value?effectivePlaybackBpm.value:performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value));
 const performanceMelodyPart=computed<Instrument|null>(()=>{const bar=performanceBar.value;const roster=projectInstruments(project.value);const candidates=roster.filter(inst=>effectiveRole(inst,bar)==='melody');return candidates.find(inst=>(score.value[inst]??[]).some(n=>Math.floor(n.start/project.value.beats)===bar))??candidates[0]??null;});
 const performanceDisplayedPart=computed(()=>performanceFocus.value??performanceMelodyPart.value);
-const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[])]);
+const performanceRoll=computed(()=>{const inst=performanceDisplayedPart.value;if(!inst)return null;const beats=project.value.beats;const first=Math.max(0,performanceBar.value-1)*beats;const length=beats*4;const notes=(score.value[inst]??[]).filter(n=>n.start<first+length&&n.start+n.duration>first);const pitches=notes.flatMap(n=>[n.pitch,...(n.gesture?.points.map(p=>p.pitch)??[]),...(n.gesture?.partner?.map(p=>p.pitch)??[]),...(n.slideTo!==undefined?[n.slideTo]:[]),...(n.stringGlissando?[n.pitch+n.stringGlissando.interval]:[])]);
  const low=Math.max(24,Math.min(84,...pitches)-2);const high=Math.min(108,Math.max(low+12,...pitches)+2);return {first,length,low,high,notes,slices:splitAtMeasureBoundaries(notes,beats,first,length)};});
 const performanceGesturePaths=computed(()=>{
  const window=performanceRoll.value;if(!window)return [];
  const paths:{id:string;points:string;partner:boolean;kind:string}[]=[];
  window.notes.forEach((n,i)=>{
-  const lines=n.gesture?[n.gesture.points,...(n.gesture.partner?[n.gesture.partner]:[])]:n.slideTo!==undefined?
+  const lines=n.stringGlissando?[[{at:0,pitch:n.pitch},{at:1,pitch:n.pitch+n.stringGlissando.interval}]]:n.gesture?[n.gesture.points,...(n.gesture.partner?[n.gesture.partner]:[])]:n.slideTo!==undefined?
     [[{at:0,pitch:n.pitch},{at:1,pitch:n.slideTo}]]:[];
   lines.forEach((points,j)=>{
    const coords=points.map(pt=>{
-    const x=(n.start+pt.at*n.duration-window.first)/window.length*1000;
+    const x=(n.start+pt.at*(n.stringGlissando?.beats??n.duration)-window.first)/window.length*1000;
     const y=(1-(pt.pitch-window.low)/(window.high-window.low+1))*1000;
     return x.toFixed(2)+','+y.toFixed(2);
    }).join(' ');
@@ -4128,7 +4129,7 @@ function auditionEvent(note:Note){
       slideTo:note.slideTo===undefined?undefined:note.slideTo+(project.value.transposeSemitones??0),
       gesture:note.gesture?transposeTangoGesture(note.gesture,project.value.transposeSemitones??0):undefined,
       durationSeconds:Math.max(0.025,noteSoundingDuration(note)*60/project.value.bpm),
-      velocity:noteSoundingVelocity(note),endVelocity:note.swellTo,bowedTremolo:note.bowedTremolo
+      velocity:noteSoundingVelocity(note),endVelocity:note.swellTo,bowedTremolo:note.bowedTremolo,bowedStrokeCount:note.bowedTremolo?.mode==='measured'?noteSoundingDuration(note)*2**note.bowedTremolo.strokes:undefined
     },Tone.now());}).catch(error=>{message.value=`Expressive audition unavailable: ${String(error)}`;});
   }else void auditionPitch(note.pitch,noteSoundingVelocity(note),noteSoundingDuration(note)*60/project.value.bpm);
 }
@@ -5447,7 +5448,7 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   }catch(error){message.value=`Note edit rejected: ${String(error)}`;}
 }
 
-function updateBowedExpression(field:'target'|'beats'|'tremolo'|'rate',raw:string){
+function updateBowedExpression(field:'target'|'beats'|'tremolo'|'rate'|'mode',raw:string){
  const old=selectedEvent.value;if(!old)return;
  const next:Note={...old};
  try{
@@ -5455,7 +5456,8 @@ function updateBowedExpression(field:'target'|'beats'|'tremolo'|'rate',raw:strin
    if(!raw)delete next.stringGlissando;
    else{next.stringGlissando={interval:Number(raw)-old.pitch,beats:old.stringGlissando?.beats??Math.min(old.duration,project.value.bars.length*project.value.beats-old.start)};delete next.gesture;delete next.slideTo;delete next.approachSlideFrom;next.technique='arco';}
   }else if(field==='beats'&&old.stringGlissando)next.stringGlissando={...old.stringGlissando,beats:Number(raw)};
-  else if(field==='tremolo'){if(raw==='0')delete next.bowedTremolo;else{next.bowedTremolo={strokes:Number(raw) as 1|2|3,rateHz:old.bowedTremolo?.rateHz};next.technique='arco';}}
+  else if(field==='tremolo'){if(raw==='0')delete next.bowedTremolo;else{next.bowedTremolo={strokes:Number(raw) as 1|2|3,rateHz:old.bowedTremolo?.rateHz,mode:old.bowedTremolo?.mode};next.technique='arco';}}
+  else if(field==='mode'&&old.bowedTremolo)next.bowedTremolo={...old.bowedTremolo,mode:raw==='measured'?'measured':'unmeasured'};
   else if(field==='rate'&&old.bowedTremolo)next.bowedTremolo={...old.bowedTremolo,rateHz:Number(raw)};
   project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,noteMeasure.value.map((n,i)=>i===noteSelected.value?next:n));
   noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
@@ -7054,7 +7056,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         </select></label>
         <label v-if="selectedEvent.stringGlissando">Time to destination (quarter beats)<input type="number" min="0.125" step="0.125" :value="selectedEvent.stringGlissando.beats" @change="updateBowedExpression('beats',($event.target as HTMLInputElement).value)"/></label>
         <label>Bowed tremolo<select :value="selectedEvent.bowedTremolo?.strokes??0" @change="updateBowedExpression('tremolo',($event.target as HTMLSelectElement).value)"><option :value="0">None</option><option :value="1">One slash</option><option :value="2">Two slashes</option><option :value="3">Three slashes</option></select></label>
-        <label v-if="selectedEvent.bowedTremolo">Bow strokes per second (playback)<input type="number" min="4" max="24" step="1" :value="selectedEvent.bowedTremolo.rateHz??14" @change="updateBowedExpression('rate',($event.target as HTMLInputElement).value)"/></label>
+        <label v-if="selectedEvent.bowedTremolo">Tremolo timing<select :value="selectedEvent.bowedTremolo.mode??'unmeasured'" @change="updateBowedExpression('mode',($event.target as HTMLSelectElement).value)"><option value="unmeasured">Unmeasured · free speed</option><option value="measured">Measured · rhythmic subdivision</option></select></label>
+        <label v-if="selectedEvent.bowedTremolo&&selectedEvent.bowedTremolo.mode!=='measured'">Bow strokes per second (playback)<input type="number" min="4" max="24" step="1" :value="selectedEvent.bowedTremolo.rateHz??14" @change="updateBowedExpression('rate',($event.target as HTMLInputElement).value)"/></label>
         <small>Glissando and tremolo can coexist; the written note is not subdivided.</small>
       </div>
       <div v-if="slideSupported" class="tango-gesture-editor" aria-label="Tango gestures">

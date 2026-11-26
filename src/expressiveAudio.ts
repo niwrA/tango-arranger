@@ -1,7 +1,7 @@
 /** Native Web Audio: multi-point pitch trajectories, double sirenas and swells. */
 import type {Note} from './music';
 import type {TangoGesture,GesturePoint} from './tangoGestures';
-export type ExpressiveEvent={pitch:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo']};
+export type ExpressiveEvent={pitch:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number};
 export function playExpressiveEvent(ctx:AudioContext,event:ExpressiveEvent,when:number):void {
  if(!Number.isFinite(event.durationSeconds)||event.durationSeconds<=0)return;
  const start=Math.max(ctx.currentTime+0.002,when),end=start+event.durationSeconds;
@@ -32,7 +32,7 @@ export function playExpressiveEvent(ctx:AudioContext,event:ExpressiveEvent,when:
   const bow=event.bowedTremolo?ctx.createGain():undefined;
   if(bow){
    gain.connect(bow);bow.connect(ctx.destination);
-   const rate=Math.max(4,Math.min(24,event.bowedTremolo?.rateHz??14)),period=1/rate;
+   const rate=event.bowedStrokeCount!==undefined?Math.max(.1,event.bowedStrokeCount/event.durationSeconds):Math.max(4,Math.min(24,event.bowedTremolo?.rateHz??14)),period=1/rate;
    bow.gain.setValueAtTime(.12,start);
    for(let t=start;t<end;t+=period){
     bow.gain.setValueAtTime(.12,t);

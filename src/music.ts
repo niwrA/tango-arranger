@@ -62,8 +62,8 @@ export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
 export type PianoGlissando={interval:number;keys:'white'|'black'|'chromatic';beats:number};
 export type StringGlissando={interval:number;beats:number};
-export type BowedTremolo={strokes:1|2|3;rateHz?:number};
-export type Note = { stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+export type BowedTremolo={strokes:1|2|3;rateHz?:number;mode?:'measured'|'unmeasured'};
+export type Note = { xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
 /** Convert a linked glissando to a playback-only contour. */
 export function stringGlissandoPlayback(note:Note,from=note.start,to=Infinity):Note{
  const gliss=note.stringGlissando;
@@ -74,6 +74,11 @@ export function stringGlissandoPlayback(note:Note,from=note.start,to=Infinity):N
  const pitch=pitchAt(start),target=pitchAt(end);
  return {...note,pitch,start,duration:end-start,gate:1,stringGlissando:undefined,
   gesture:{kind:'portamento',contour:gliss.interval>0?'up':'down',points:[{at:0,pitch},{at:1,pitch:target}]}};
+}
+/** Instantaneous sounding pitch of a linked slide; score pitches remain integer. */
+export function stringPitchAtBeat(n:Note,beat:number):number{
+ const g=n.stringGlissando;
+ return g?n.pitch+g.interval*Math.max(0,Math.min(1,(beat-n.start)/g.beats)):n.pitch;
 }
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
