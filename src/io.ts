@@ -157,7 +157,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
       ?[original,{...n,noteheadColor,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]
       :[original];
   });
-  const events=notationNotes.map(n=>({noteheadColor:n.noteheadColor,gesture:n.gesture,bowedTremolo:n.bowedTremolo,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
+  const events=notationNotes.map(n=>({noteheadColor:n.noteheadColor,gesture:n.gesture,bowedTremolo:n.bowedTremolo,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,xmlTieContinuation:n.xmlTieContinuation,xmlVoice:n.xmlVoice,xmlStaff:n.xmlStaff,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
@@ -224,9 +224,10 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const latest=sources.reduce((a,b)=>a.originStart>=b.originStart?a:b);
         // Clipping a bar must not turn an incoming sustain into a new attack.
         // Conversely, a genuine repeated note at the same pitch breaks the tie.
-        const tieStop=latest.originStart<begin;
-        const reattack=notationNotes.some(n=>n.pitch===pitch&&Math.abs(Math.round((n.start-offset)*DIV/quantum)*quantum-endSegment)<1e-7&&Math.round((n.start-offset)*DIV/quantum)*quantum>latest.originStart);
-        const tieStart=latest.originEnd>endSegment&&!reattack;
+        const tieStop=latest.originStart<begin||active.some(n=>n.pitch===pitch&&n.xmlTieContinuation&&n.start===begin);
+        const continuesTie=notationNotes.some(n=>n.pitch===pitch&&n.xmlTieContinuation&&n.xmlVoice===latest.xmlVoice&&n.xmlStaff===latest.xmlStaff&&Math.abs(notationTick(n.start)-notationTick(offset+endSegment/DIV))<1e-7);
+        const reattack=notationNotes.some(n=>n.pitch===pitch&&!n.xmlTieContinuation&&Math.abs(Math.round((n.start-offset)*DIV/quantum)*quantum-endSegment)<1e-7&&Math.round((n.start-offset)*DIV/quantum)*quantum>latest.originStart);
+        const tieStart=(latest.originEnd>endSegment&&!reattack)||continuesTie;
         const ties=`${tieStop?'<tie type="stop"/>':''}${tieStart?'<tie type="start"/>':''}`;
         const isAttack=!tieStop;
         if(isAttack&&j===0){
