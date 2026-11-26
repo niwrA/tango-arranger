@@ -18,9 +18,18 @@ check('normal score playback does not clip sustained note duration at the measur
  const end=app.indexOf('// Contextual previews',start);
  const section=app.slice(start,end);
  assert.ok(section.includes('const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)'));
- assert.ok(section.includes('durationSeconds:defaultDuration'));
- assert.ok(section.includes('triggerInstrument(inst,event.pitch,defaultDuration'));
- assert.ok(section.includes('n.technique'));
+ assert.ok(section.includes('renderArrangementNote(inst,n,event,defaultDuration,time,focusGain)'));
+ const renderer=app.slice(app.indexOf('function renderArrangementNote('),app.indexOf('let synth:PolySynth|null=null;'));
+ assert.ok(renderer.includes('durationSeconds:duration'));
+ assert.ok(renderer.includes('triggerInstrument(inst,event.pitch,duration,time,velocity/127,n.technique)'));
+ // Exercise the shared renderer with a sustained note and an expressive piano note.
+ const body=renderer.slice(renderer.indexOf('{\n')+2,renderer.lastIndexOf('}'));
+ const calls=[];
+ const render=new Function('inst','n','event','duration','time','focusGain','focusInstrumentAudible','usesPizzicatoBank','playExpressiveEvent','triggerInstrument','Tone',body.replace(' as AudioContext',''));
+ const run=(inst,n,event)=>render(inst,n,event,3.25,10,1,()=>true,()=>false,(_ctx,e)=>calls.push(['expressive',e.durationSeconds]),(_inst,_pitch,duration,_time,_velocity,technique)=>calls.push(['instrument',duration,technique]),{getContext:()=>({rawContext:{}})});
+ run('Violin I',{technique:'arco'},{pitch:76,velocity:80,slideTo:79});
+ run('Piano',{}, {pitch:60,velocity:80,endVelocity:100});
+ assert.deepEqual(calls,[['expressive',3.25],['instrument',3.25,undefined]]);
 });
 check('bowed violin uses sustained synth fallback while pizzicato may keep short sample attacks',()=>{
  assert.ok(app.includes("const bowedViolin=inst.toLowerCase().includes('violin')&&technique!=='pizzicato';"));
