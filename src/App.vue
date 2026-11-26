@@ -8823,3 +8823,23 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .capture-fingerboard-grid.capture-violin-geometry .capture-fingerboard-key:not(.selected):not(.is-held){background:#202e39;color:#b8cbd8;border-color:#435767}
 .capture-fingerboard-grid.capture-violin-geometry .capture-fingerboard-key.selected{outline:2px solid #f4cc85;outline-offset:-2px}
 </style>
+
+<style scoped>
+/* Measure controls are a compact, contiguous group at every editor width. */
+.note-editor-section .note-unified-toolbar .note-toolbar-transport{flex:0 1 auto;max-width:100%;align-items:end;justify-content:flex-start;gap:6px;flex-wrap:wrap}
+.note-editor-section .note-toolbar-transport>.measure-range-control{flex:0 1 auto;width:max-content;max-width:100%;grid-template-columns:36px minmax(0,112px) minmax(0,auto) minmax(0,112px) 36px;justify-content:start;gap:5px}
+.note-editor-section .note-toolbar-transport>.measure-range-control :deep(.range-arrow){width:36px;min-width:36px;max-width:36px;justify-self:center}
+.note-editor-section .note-toolbar-transport>.measure-range-control :deep(label){width:100%;font-size:11px}
+.note-editor-section .note-toolbar-transport>.measure-range-control :deep(select){min-height:40px}
+.note-editor-section .note-toolbar-transport>.measure-range-control :deep(.section-range-dropdown){min-height:40px}
+.note-editor-section .note-toolbar-transport>.note-loop-toggle{flex:0 0 auto;min-height:40px}
+@media(max-width:880px){
+ .note-editor-section .note-unified-toolbar .note-toolbar-transport{flex:1 1 100%;max-width:100%}
+}
+@media(max-width:480px){
+ .note-editor-section .note-toolbar-transport>.measure-range-control{grid-template-columns:32px minmax(0,1fr) minmax(0,auto) minmax(0,1fr) 32px;flex:1 1 230px;gap:3px}
+ .note-editor-section .note-toolbar-transport>.measure-range-control :deep(.range-arrow){width:32px;min-width:32px;max-width:32px}
+ .note-editor-section .note-toolbar-transport>.measure-range-control :deep(label){font-size:10px}
+ .note-editor-section .note-toolbar-transport>.measure-range-control :deep(select){font-size:12px;padding-inline:3px}
+}
+</style>

@@ -37,12 +37,12 @@ function chooseSong(){emit('change',1,total());}
 .measure-range-control{display:grid;grid-template-columns:auto minmax(0,120px) auto minmax(0,120px) auto;align-items:end;gap:5px;min-width:0}
 .measure-range-control label{display:flex;flex-direction:column;gap:3px;flex:1 1 105px;min-width:0;font-size:11px;color:#d4e3eb;white-space:nowrap}
 .measure-range-control label select{width:100%;min-width:0;max-width:160px;min-height:38px;box-sizing:border-box;font-size:13px;padding:4px 6px}
-.measure-range-control .range-arrow{min-width:38px;min-height:40px;padding:5px 8px;flex:0 0 38px}
+.measure-range-control .range-arrow{width:38px;max-width:38px;justify-self:center;min-width:38px;min-height:40px;padding:5px 8px;flex:0 0 38px}
 .measure-range-control .range-presets{display:flex;flex-wrap:wrap;align-items:center;gap:5px;grid-column:1/-1}
 .measure-range-control .range-presets button{min-height:35px;padding:5px 9px;font-size:12px}
 .measure-range-control.is-compact{grid-template-columns:auto minmax(0,96px) auto minmax(0,96px) auto}
 .measure-range-control :deep(.section-range-picker){align-self:end}
 .measure-range-control :deep(.section-range-dropdown){min-height:38px;box-sizing:border-box}
 .measure-range-control.is-compact label select{max-width:140px}
-@media(max-width:620px){.measure-range-control,.measure-range-control.is-compact{gap:3px;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto}.measure-range-control label{flex:1 1 80px}.measure-range-control label select{max-width:none;font-size:12px}.measure-range-control .range-arrow{min-width:36px;flex-basis:36px}.measure-range-control.is-compact label{flex:1 1 75px}}
+@media(max-width:620px){.measure-range-control,.measure-range-control.is-compact{gap:3px;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto}.measure-range-control label{flex:1 1 80px}.measure-range-control label select{max-width:none;font-size:12px}.measure-range-control .range-arrow{width:36px;max-width:36px;min-width:36px;flex-basis:36px}.measure-range-control.is-compact label{flex:1 1 75px}}
 </style>

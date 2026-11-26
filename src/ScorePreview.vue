@@ -533,3 +533,31 @@ onBeforeUnmount(()=>{
 .score-range-status{font-size:12px;font-weight:750;align-self:center;color:inherit}
 .score-appearance-control button[aria-pressed="true"]{border-color:#69b7c9}
 </style>
+
+<style scoped>
+/* VexFlow emits some glyphs with inline paint (including dark navy), rather
+   than the black attributes used by the staff. Normalize actual SVG ink,
+   retaining intentional no-fill/no-stroke geometry and live note colours. */
+.score-preview-themed .score-preview-canvas :deep(svg path:not([fill="none"]):not(.score-range-fill)),
+.score-preview-themed .score-preview-canvas :deep(svg circle:not([fill="none"])),
+.score-preview-themed .score-preview-canvas :deep(svg ellipse:not([fill="none"])),
+.score-preview-themed .score-preview-canvas :deep(svg polygon:not([fill="none"])),
+.score-preview-themed .score-preview-canvas :deep(svg use:not([fill="none"])){
+ fill:var(--score-ink)!important;
+}
+.score-preview-themed .score-preview-canvas :deep(svg [stroke]:not([stroke="none"]):not([stroke="transparent"]):not(.score-range-fill)){
+ stroke:var(--score-ink)!important;
+}
+.score-preview-themed .score-preview-canvas :deep(.score-notehead),
+.score-preview-themed .score-preview-canvas :deep(.score-notehead path){fill:var(--score-ink)!important}
+.score-preview-themed .score-preview-canvas :deep(.score-note-completed),
+.score-preview-themed .score-preview-canvas :deep(.score-note-completed path),
+.score-preview-themed .score-preview-canvas :deep(.score-note-completed [fill]){fill:#6ec5b2!important}
+.score-preview-themed .score-preview-canvas :deep(.score-note-playing),
+.score-preview-themed .score-preview-canvas :deep(.score-note-playing path),
+.score-preview-themed .score-preview-canvas :deep(.score-note-playing [fill]){fill:#8fbbff!important}
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected),
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected path),
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected [fill]){fill:#ffd166!important;stroke:var(--note-feedback-color,#c98b3b)!important}
+.score-preview-themed .score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#6ec5b2!important}
+</style>
