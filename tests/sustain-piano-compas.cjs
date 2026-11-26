@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
-const m=load('src/music.ts'),sustain=load('src/sampleSustain.ts');
+const m=load('src/music.ts'),sustain=load('src/sampleSustain.ts'),open=load('src/openSampleBanks.ts');
 const root=path.resolve(__dirname,'..');
 let count=0;function check(name,fn){fn();count++;console.log('PASS '+name);}
 check('long acoustic violin notes use a sustaining voice, short pizzicato attacks keep sample',()=>{
@@ -21,13 +21,24 @@ check('other sustaining voices have synth fallback; piano remains percussive',()
 });
 check('sample routing applies only to tone generation; note timing is unchanged',()=>{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
- assert.ok(app.includes("audioEngine.value==='samples'&&!bowedViolin&&!needsSustainingSynth(inst,duration)"));
+ assert.ok(app.includes("canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined"));
+ assert.ok(app.includes("usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst)"));
  assert.ok(app.includes("instrumentSynth(inst).triggerAttackRelease"));
  assert.ok(app.includes("sampler.triggerAttackRelease"));
  assert.ok(app.includes('playbackDuration(event.durationSeconds,rehearsalSpeed.value)'));
  assert.ok(app.includes('captureKeySynth?.triggerRelease('));
  assert.ok(app.includes('ensureCaptureKeySynth().triggerAttack('));
  assert.ok(app.includes('sustain:0.85,release:0.25'));
+});
+check('CC0 arco banks use original pitch anchors and bounded finite playback',()=>{
+ assert.equal(open.arcoBank('Violin I').urls.E4,'LLVln_ArcoVib_E4_f.wav');
+ assert.equal(open.arcoBank('Contrabass').urls['D#1'],'eb1_vl3_down.wav');
+ assert.equal(open.arcoBank('Bandoneon I'),undefined);
+ assert.equal(open.arcoBank('Piano'),undefined);
+ assert.equal(open.canUseArcoSample('Violin I',1),true);
+ assert.equal(open.canUseArcoSample('Violin I',3),false);
+ assert.equal(open.canUseArcoSample('Contrabass',2),false);
+ assert.equal(open.canUseArcoSample('Violin I',NaN),false);
 });
 function make(beats,profile='traditional'){
  const p=m.blankProject({sections:1,measuresPerSection:2,beats,bpm:120});

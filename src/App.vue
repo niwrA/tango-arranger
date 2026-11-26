@@ -54,6 +54,7 @@ import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as planne
 import {playExpressiveEvent} from './expressiveAudio';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
+import {arcoBank,canUseArcoSample} from './openSampleBanks';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
@@ -3916,7 +3917,7 @@ function sampleName(inst:string):string{
  return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'harmonium':n.includes('voice')?'harmonium':'piano';
 }
 function loadSamples(inst:string,pizzicato=false):Promise<boolean>{
- const bank=pizzicato?pizzicatoBank(inst):undefined;
+ const bank=pizzicato?pizzicatoBank(inst):arcoBank(inst);
  if(pizzicato&&!bank)return Promise.resolve(true);
  const players=pizzicato?pizzicatoPlayers:samplePlayers,key=inst+(pizzicato?':pizzicato':'');
  if(players.has(inst))return Promise.resolve(true);
@@ -3925,7 +3926,7 @@ function loadSamples(inst:string,pizzicato=false):Promise<boolean>{
   let finished=false;
   let player:InstanceType<typeof Tone.Sampler>|undefined;
   const finish=(ok:boolean)=>{if(finished)return;finished=true;clearTimeout(timeout);if(ok&&player)players.set(inst,player);else player?.dispose();resolve(ok);};
-  const timeout=setTimeout(()=>finish(false),7000);
+  const timeout=setTimeout(()=>finish(false),bank&&!pizzicato?15000:7000);
   try{
    player=new Tone.Sampler({urls:bank?.urls??(sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:sampleName(inst)==='harmonium'?{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}),baseUrl:bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
    player.volume.value=-5+instrumentGainDb(inst);
@@ -3941,10 +3942,8 @@ async function prepareSamples(instruments:string[]){
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
  if(!focusInstrumentAudible(inst))return;
- // Finite violin sample tails cannot sustain a bow stroke. Explicit pizzicato
- // remains a percussive sample until separate style banks are licensed.
- const bowedViolin=inst.toLowerCase().includes('violin')&&technique!=='pizzicato';
- const sampler=audioEngine.value==='samples'&&usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst)??(inst.toLowerCase().includes('bass')?samplePlayers.get(inst):undefined):audioEngine.value==='samples'&&!bowedViolin&&!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
+ // Never substitute a bowed sample for missing pizzicato, or vice versa.
+ const sampler=audioEngine.value!=='samples'?undefined:usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst):arcoBank(inst)?(canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined):!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
  if(sampler)sampler.triggerAttackRelease(Tone.Frequency(pitch,'midi').toNote(),duration,time,velocity);
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }
