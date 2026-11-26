@@ -200,10 +200,12 @@ check('printable leadsheet keeps adjacent chord symbols separated from lyrics',(
  assert.ok(!rendered.includes('Fm[C7'),rendered);
  assert.ok(!rendered.includes('careFm]'),rendered);
 });
-check('visible application version includes deployed commit identifier',()=>{
- assert.ok(app.includes('appDisplayVersion'));
+check('visible application build identifies the running commit without release version',()=>{
  assert.ok(app.includes('VITE_APP_BUILD_SHA'));
- assert.ok(app.includes('v{{appDisplayVersion}}'));
+ assert.ok(app.includes('runningAppBuild.slice(0,7)'));
+ assert.ok(app.includes('{{appDisplayBuild}}'));
+ assert.ok(!app.includes('appDisplayVersion'));
+ assert.ok(!app.includes('version as appVersion'));
 });
 check('vocal phrase selection follows measure gaps and section boundaries',()=>{
  const {vocalPhrases}=load('src/vocalPhraseAlignment.ts');

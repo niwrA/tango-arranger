@@ -36,12 +36,10 @@ import type {PolySynth,Synth} from 'tone';
 import {startAudioFromGesture} from './toneSession';
 // Tone.js is loaded only after the first user audio gesture.
 let Tone:typeof import('tone');
-import {version as appVersion} from '../package.json';
-// A release version changes only when package.json is updated. Identify each
-// deployed build separately so users can verify which commit is running.
+// The commit identifies the JavaScript actually running, not the latest remote build.
 const runningAppBuild=import.meta.env.VITE_APP_BUILD_SHA||'';
 const appBuildId=runningAppBuild.slice(0,7);
-const appDisplayVersion=appBuildId?`${appVersion}+${appBuildId}`:appVersion;
+const appDisplayBuild=appBuildId||'unknown build';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,mergeInstrumentNotes,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
@@ -5566,7 +5564,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
-  <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small>v{{appDisplayVersion}}</small></span></button>
+  <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'">{{performanceShortTitle}}</div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -6124,7 +6122,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </Teleport>
 
 <section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
-  <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Version {{appDisplayVersion}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
+  <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Commit {{appDisplayBuild}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
   <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
   <div class="about-content-columns">
   <div class="about-grid">
@@ -6133,7 +6131,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <article class="editor"><h2>Refine individual notes</h2><p>Edit pitches, durations, lyrics, dynamics and expressive gestures. Record notes and rhythms, audition samples, and loop a measure range or whole section.</p><button class="secondary" type="button" @click="active='notes'">Open Note Editor →</button></article>
     <article class="editor"><h2>Listen, save and export</h2><p>Play and rehearse arrangements with instrument diagrams, karaoke, microphone pitch feedback and tuning tools. Use File to open, save, duplicate or delete songs, download portable .tango.zip or .tango.json projects, and export MusicXML, MuseScore, ABC, MobileSheets bundles or difficulty editions.</p><button class="secondary" type="button" @click="active='arrange'">Open Orchestration &amp; score details →</button></article>
   </div>
-  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">App version: v{{appDisplayVersion}} · Dated development updates and versioned history are loaded from CHANGELOG.md.</p>
+  <div class="editor about-releases"><h2>Release notes</h2><p class="muted">Build commit: {{appDisplayBuild}} · Dated development updates and versioned history are loaded from CHANGELOG.md.</p>
     <div class="release-outline">
       <h3 class="release-group-heading">Major features</h3>
       <details v-for="release in majorReleases" :key="release.id" class="release-entry release-point">

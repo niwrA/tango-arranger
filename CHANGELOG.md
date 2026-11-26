@@ -1,3 +1,7 @@
+## Commit-only build label (2026-11-26)
+
+- Show the running commit in the header and About view instead of the package version. Local Vite builds resolve Git HEAD when no CI build SHA is supplied; builds without metadata are identified as unknown rather than displaying a stale release number.
+
 ## Acoustic pizzicato samples (2026-11-26)
 
 - Dedicated CC0 solo violin pizzicato (VSCO 2 CE) and upright bass pizzicato (Karoryfer Meatbass), loaded from upstream WAV files with original pitch anchors.
