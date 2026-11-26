@@ -5,7 +5,7 @@ import {projectInstruments,type Instrument,type Note,type Project} from './music
 import {createMergePlan,modifyAlignment,previewMerge,chordEstimate,accompanimentInstrument,missingAccompanimentMeasures,type AccompanimentRhythm,
  type AlignmentRow,type MergeDecision,type MergeMode,type MergePlan,type ProtectionDecision} from './musicXmlMerge';
 import type {ParsedMusicXml} from './musicXmlImport';
-const props=defineProps<{project:Project;parsed:ParsedMusicXml;sourceName:string}>();
+const props=defineProps<{project:Project;parsed:ParsedMusicXml;sourceName:string;initialInstrument?:Instrument}>();
 const emit=defineEmits<{'apply':[plan:MergePlan];'cancel':[]; 'reference':[plan:MergePlan]}>();
 const instruments=computed(()=>projectInstruments(props.project));
 const detectedPart=()=>{
@@ -16,7 +16,7 @@ const detectedPart=()=>{
 const partIndex=ref(Math.max(0,detectedPart()));
 const filename=props.sourceName.toLowerCase();
 const suggested=/violin[\s_-]*(?:ii|2)(?![i0-9])/.test(filename)?'Violin II':filename.includes('violin')?'Violin I':/bandoneon[\s_-]*(?:ii|2)(?![i0-9])/.test(filename)?'Bandoneon II':filename.includes('bandoneon')?'Bandoneon I':'Piano';
-const instrument=ref<Instrument>(instruments.value.includes(suggested)?suggested:instruments.value[0]);
+const instrument=ref<Instrument>(props.initialInstrument&&instruments.value.includes(props.initialInstrument)?props.initialInstrument:instruments.value.includes(suggested)?suggested:instruments.value[0]);
 const existing=assembleEditionScore(props.project);
 const blankSong=!props.project.bars.some(b=>b.chord.trim()||b.melody.length)&&!Object.values(existing).some(notes=>notes.length)&&!Object.values(props.project.protectedBars).some(Boolean);
 const mode=ref<MergeMode>(blankSong&&props.parsed.measures.every(m=>Math.abs(m.beats-props.project.beats)<1e-6)?'lead':'fit');
