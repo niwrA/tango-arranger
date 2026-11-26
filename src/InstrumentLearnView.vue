@@ -998,4 +998,16 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-live-pitch-center{position:absolute;inset-block:0;left:50%;width:1px;background:#e1f5e8}
 .learn-live-pitch-marker{position:absolute;inset-block:0;width:5px;max-width:100%;border:1px solid #fff;border-radius:2px;box-shadow:0 0 4px #000;box-sizing:border-box;transform:translateX(-50%);transition:left 65ms linear,background-color 65ms linear}
 .learn-live-pitch-ends{display:flex;justify-content:space-between;gap:2px;color:#c5d5df;font-size:10px;line-height:1.2;font-variant-numeric:tabular-nums}
+
+/* Compact live feedback on phones; retain accessible labels without visual clutter. */
+@media(max-width:650px), (max-height:500px) and (pointer:coarse){
+ .learn-active-bars{gap:4px}
+ .learn-active-bars>.learn-hold-track,.learn-active-bars>.learn-live-feedback,.learn-active-bars>.learn-detected-pitch{min-height:52px}
+ .learn-active-bars .learn-bar-content{padding:3px;gap:0}
+ .learn-active-bars .learn-bar-content>span,.learn-active-bars .learn-live-pitch-ends{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .learn-active-bars .learn-bar-content>strong{font-size:clamp(14px,4vw,18px)}
+ .learn-active-bars>.learn-live-feedback{padding:0 4px 4px}
+ .learn-active-bars>.learn-live-feedback .learn-bar-content{padding:3px 0}
+ .learn-active-bars .learn-live-pitch-scale{flex:0 0 12px;min-height:12px;max-height:12px}
+}
 </style>
