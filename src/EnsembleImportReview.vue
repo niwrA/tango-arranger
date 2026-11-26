@@ -3,7 +3,7 @@ import {computed,ref} from 'vue';
 import {projectInstruments,type Project} from './music';
 import {ensemblePreview,suggestEnsembleInstrument,type EnsembleSource} from './ensembleImport';
 import type {ParsedMusicXml} from './musicXmlImport';
-const props=defineProps<{project:Project;files:{name:string;parsed:ParsedMusicXml}[]}>();
+const props=defineProps<{project:Project;files:{name:string;parsed:ParsedMusicXml}[];busy?:boolean;applyLabel?:string}>();
 const emit=defineEmits<{apply:[project:Project];cancel:[]}>();
 const roster=projectInstruments(props.project);
 const sources=ref<EnsembleSource[]>(props.files.flatMap(file=>file.parsed.parts.map((part,partIndex)=>({name:file.name,parsed:file.parsed,partIndex,instrument:suggestEnsembleInstrument(file.name+' '+part.name,roster)}))));
@@ -43,7 +43,7 @@ function edit(index:number,target:number,event:Event){const raw=(event.target as
    </div>
    <label><input v-model="confirmed" type="checkbox"/> I reviewed alignment, omitted measures and replacement of assigned parts.</label>
   </template>
-  <div class="ensemble-actions"><button type="button" class="secondary" @click="emit('cancel')">Cancel</button><button type="button" class="primary" :disabled="!preview.result||!confirmed" @click="preview.result&&emit('apply',preview.result.project)">Import ensemble</button></div>
+  <div class="ensemble-actions"><button type="button" class="secondary" @click="emit('cancel')">Cancel</button><button type="button" class="primary" :disabled="!preview.result||!confirmed||busy" @click="preview.result&&emit('apply',preview.result.project)">{{applyLabel||'Import ensemble'}}</button></div>
  </section>
 </template>
 <style scoped>

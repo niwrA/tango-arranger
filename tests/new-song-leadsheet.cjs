@@ -227,7 +227,7 @@ check('recorded phrase alignment is monotonic, editable, and supports melisma',(
  assert.ok(app.includes('vocalAlignmentPreview'));
  assert.ok(app.includes('Object.assign(note,lyricAssignments'));
 });
-check('new song wizard exposes three starting methods and a MusicXML review',()=>{
+check('new song wizard exposes starting methods and a MusicXML review',()=>{
  assert.ok(app.includes("newSongStart==='lead'"));
  assert.ok(app.includes("newSongStart==='score'"));
  assert.ok(app.includes('createSongFromLeadSheet'));
@@ -236,3 +236,19 @@ check('new song wizard exposes three starting methods and a MusicXML review',()=
  assert.ok(app.includes('importDialogOpen.value=true'));
 });
 console.log(count+' new song import wizard checks passed');
+
+check('new song ensemble reviews multiple files against an independent blank draft before adoption',()=>{
+ assert.ok(app.includes("newSongStart==='ensemble'"));
+ assert.ok(app.includes('Import multiple instrument files'));
+ assert.match(app,/<input type="file" multiple[^>]*@change="previewNewEnsemble"/);
+ assert.match(app,/<EnsembleImportReview[^>]*:project="newEnsembleDraft"[^>]*@apply="createSongFromEnsemble"/);
+ const draft=app.slice(app.indexOf('const newEnsembleDraft='),app.indexOf('async function previewNewEnsemble'));
+ assert.ok(draft.includes('blankProject('));
+ const preview=app.slice(app.indexOf('async function previewNewEnsemble'),app.indexOf('async function createSongFromEnsemble'));
+ assert.ok(preview.includes('Promise.all(files.map'));
+ assert.ok(!preview.includes('adoptLocalSong'));
+ assert.ok(!preview.includes('project.value='));
+ const create=app.slice(app.indexOf('async function createSongFromEnsemble'),app.indexOf('const newLeadSheetText='));
+ assert.ok(create.includes('await flushAutosave();stopPlayback();await adoptLocalSong(fresh)'));
+ assert.ok(app.includes("if(!open||start!=='ensemble')resetNewEnsemble()"));
+});

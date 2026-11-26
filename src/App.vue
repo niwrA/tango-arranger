@@ -2649,9 +2649,44 @@ const overviewTechnique=ref<'inherit'|ViolinTechnique>('inherit');
 const overviewBassTechnique=ref<'inherit'|BassTechnique>('inherit');
 const overviewNotice=ref('');
 const newSongOpen=ref(false);
-const newSongStart=ref<'blank'|'lead'|'score'|'complete'>('blank');
+const newSongStart=ref<'blank'|'lead'|'score'|'complete'|'ensemble'>('blank');
 const completeScorePreview=ref<import('./musicXmlImport').ParsedMusicXml|null>(null);
 const completeScoreSource=ref('');
+const newEnsembleFiles=ref<{name:string;parsed:ParsedMusicXml}[]>([]);
+const newEnsembleError=ref('');
+const newEnsembleBusy=ref(false);
+let newEnsembleRequest=0;
+function resetNewEnsemble(){
+ newEnsembleRequest++;newEnsembleFiles.value=[];newEnsembleError.value='';newEnsembleBusy.value=false;
+}
+watch([newSongOpen,newSongStart],([open,start])=>{if(!open||start!=='ensemble')resetNewEnsemble();},{flush:'sync'});
+const newEnsembleDraft=computed<Project|null>(()=>{
+ if(!newEnsembleFiles.value.length)return null;
+ const first=newEnsembleFiles.value[0].parsed;
+ return setProjectRoster(blankProject({title:newSongTitle.value.trim()||first.title||'Untitled Tango',beats:first.measures[0].beats,bpm:newSongBpm.value,sections:1,measuresPerSection:1}),getDefaultRoster());
+});
+async function previewNewEnsemble(event:Event){
+ const input=event.target as HTMLInputElement,files=Array.from(input.files??[]);input.value='';
+ if(!files.length)return;
+ resetNewEnsemble();const request=newEnsembleRequest;newEnsembleBusy.value=true;
+ try{
+  if(files.length<2)throw Error('Select at least two instrument files together');
+  const parsed=await Promise.all(files.map(async file=>({name:file.name,parsed:(await readScoreImport(file)).parsed})));
+  const beats=parsed[0].parsed.measures[0]?.beats;
+  if(![2,3,4].includes(beats)||parsed.some(f=>!f.parsed.parts.length||f.parsed.measureCount<1||f.parsed.measureCount>512||f.parsed.measures.some(m=>Math.abs(m.beats-beats)>1e-6)))throw Error('All files must contain 1–512 measures and share a constant 2/4, 3/4 or 4/4 meter');
+  if(request===newEnsembleRequest)newEnsembleFiles.value=parsed;
+ }catch(error){if(request===newEnsembleRequest)newEnsembleError.value=String(error);}
+ finally{if(request===newEnsembleRequest)newEnsembleBusy.value=false;}
+}
+async function createSongFromEnsemble(fresh:Project){
+ if(newEnsembleBusy.value||!newSongOpen.value||newSongStart.value!=='ensemble')return;
+ newEnsembleBusy.value=true;
+ try{
+  await flushAutosave();stopPlayback();await adoptLocalSong(fresh);
+  active.value='arrange';message.value='Created a new song from the ensemble. The previous song remains in your local library.';
+ }catch(error){newEnsembleError.value='Cannot create ensemble song: '+String(error);}
+ finally{newEnsembleBusy.value=false;}
+}
 const newLeadSheetText=ref('');
 const newLeadSheetError=ref('');
 const newLeadMeasuresPerLine=ref(0);
@@ -5760,10 +5795,12 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button type="button" :class="newSongStart==='lead'?'primary':'secondary'" :aria-pressed="newSongStart==='lead'" @click="newSongStart='lead'">Paste a leadsheet</button>
     <button type="button" :class="newSongStart==='score'?'primary':'secondary'" :aria-pressed="newSongStart==='score'" @click="newSongStart='score'">Import MusicXML / MIDI</button>
     <button type="button" :class="newSongStart==='complete'?'primary':'secondary'" :aria-pressed="newSongStart==='complete'" @click="newSongStart='complete'">Import complete score</button>
+    <button type="button" :class="newSongStart==='ensemble'?'primary':'secondary'" :aria-pressed="newSongStart==='ensemble'" @click="newSongStart='ensemble'">Import multiple instrument files</button>
   </div>
   <p class="muted" v-if="newSongStart==='blank'">Start with an empty lead sheet: no demo melody, chord symbols or generated accompaniment. Set the sections and measure counts before creating the song.</p>
   <p class="muted" v-else-if="newSongStart==='lead'">Paste chord-over-lyrics or inline [D]chords. Section headings such as [Verse] or [Chorus] create editable section starts. One lyric line initially occupies one provisional measure; adjust boundaries before or after creation.</p>
   <p class="muted" v-else-if="newSongStart==='complete'">Import all MusicXML parts into a new independent roster, listen to individual parts and review section boundaries before creating the song.</p>
+  <p class="muted" v-else-if="newSongStart==='ensemble'">Select separate instrument files for the same song, assign parts and review alignment before creating a new song. Your current song stays unchanged.</p>
   <p class="muted" v-else>Choose a MusicXML or MIDI score. Both use the same measure-aware review for notes, transposition, protected edits and optional chord suggestions. MIDI does not reliably encode lyrics or explicit chords.</p>
   <div v-if="newSongStart==='blank'">
   <div class="two"><label>Song title<input v-model="newSongTitle" placeholder="Untitled Tango"/></label><label>Number of sections (A, B, C…)<input v-model.number="newSongSections" type="number" min="1" max="26"/></label></div>
@@ -5774,6 +5811,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   <div class="two"><label>Time signature<select v-model.number="newSongBeats"><option :value="4">4/4 — Tango</option><option :value="3">3/4 — Vals</option><option :value="2">2/4 — Milonga / historical notation</option></select></label><label>Tempo (quarter notes/min)<input v-model.number="newSongBpm" type="number" min="40" max="240"/></label></div>
   <div class="overview-actions"><button type="button" class="primary" @click="createBlankSong">Create blank song</button><button type="button" class="secondary" @click="newSongOpen=false">Keep current project</button></div>
   <p class="hint">Your current song stays in the local library. A new, independently autosaved song is created even if its title is still Untitled Tango.</p>
+  </div>
+  <div v-else-if="newSongStart==='ensemble'" class="new-song-ensemble-import">
+   <div class="two"><label>Song title<input v-model="newSongTitle" :disabled="newEnsembleBusy"/></label><label>Tempo (BPM)<input v-model.number="newSongBpm" type="number" min="40" max="240" :disabled="newEnsembleBusy"/></label></div>
+   <label class="file-picker">Choose multiple MusicXML / MIDI instrument files<input type="file" multiple accept=".xml,.musicxml,.mid,.midi" :disabled="newEnsembleBusy" @change="previewNewEnsemble"/></label>
+   <p v-if="newEnsembleBusy" role="status">Working…</p>
+   <p v-if="newEnsembleError" role="alert">{{newEnsembleError}}</p>
+   <EnsembleImportReview v-if="newEnsembleDraft" :project="newEnsembleDraft" :files="newEnsembleFiles" :busy="newEnsembleBusy" apply-label="Create song from ensemble" @apply="createSongFromEnsemble" @cancel="resetNewEnsemble"/>
+   <p class="hint">The reference score determines the number of measures. The destination instruments come from your default ensemble roster. Nothing is saved until you create the song.</p>
   </div>
   <div v-else-if="newSongStart==='complete'">
    <label>Tempo (BPM) <input v-model.number="newSongBpm" type="number" min="40" max="240"/></label>
