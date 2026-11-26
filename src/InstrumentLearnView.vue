@@ -27,7 +27,7 @@ const props=defineProps<{
  instrument:Instrument;songTitle:string;notes:Note[];beatsPerMeasure:number;totalMeasures:number;
  measures:ReadonlyArray<{section:string}>;
  initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;display:PracticeDisplay;
- grandStaff:boolean;staffSplit:number;project?:Project;audioEngine?:'samples'|'synth';resolveTechnique?:(note:Note)=>Note['technique'];
+ initialPracticeRange?:[number,number];initialPracticeMeasure?:number;grandStaff:boolean;staffSplit:number;project?:Project;audioEngine?:'samples'|'synth';resolveTechnique?:(note:Note)=>Note['technique'];
 }>();
 const emit=defineEmits<{(event:'exit'):void;(event:'update:display',display:PracticeDisplay):void}>();
 const layout=computed({
@@ -64,7 +64,7 @@ function activeSectionRange(measure:number):[number,number]{
  while(last+1<props.measures.length&&props.measures[last+1]?.section===section)last++;
  return [first+1,last+1];
 }
-const initialRange=activeSectionRange(props.initialMeasure);
+const initialRange=props.initialPracticeRange??activeSectionRange(props.initialMeasure);
 const from=ref(initialRange[0]);
 const to=ref(initialRange[1]);
 const disableOverlay=ref(true);
@@ -242,6 +242,11 @@ function setRange(start:number,end:number){
  from.value=first;to.value=last;
 }
 watch(()=>props.instrument,()=>{stopMicrophone();cursor.value=0;setRange(...activeSectionRange(props.initialMeasure));});
+if(props.initialPracticeMeasure!==undefined){
+ const beat=(props.initialPracticeMeasure-1)*props.beatsPerMeasure;
+ const index=targets.value.findIndex(n=>n.start>=beat);
+ if(index>=0)cursor.value=index;
+}
 let stream:MediaStream|null=null;
 let audio:AudioContext|null=null;
 let source:MediaStreamAudioSourceNode|null=null;
@@ -636,7 +641,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      </span>
     </div>
     <div v-if="showScore" class="learn-score-panel">
-     <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" />
+     <slot name="score" :from="from" :to="to" :measure="scoreMeasure" :expected="demoPlaying?undefined:current??undefined" :completed="scoreCompleted" :playing="scoreDemoNotes" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :set-range="setRange" />
      <small class="learn-score-legend">
       <template v-if="demoPlaying">Listening · measure {{scoreMeasure}}</template>
       <template v-else-if="current">Expected: {{pitchLabel(targetMidi??current.pitch)}} · completed notes in green</template>

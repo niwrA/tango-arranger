@@ -22,7 +22,7 @@ const props=withDefaults(defineProps<{
   followMeasure?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
-const emit=defineEmits<{select:[note:Note];edit:[]}>();
+const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number]}>();
 
 const host=ref<HTMLElement|null>(null);
 const scoreAppearanceKey='tango-score-appearance';
@@ -233,7 +233,64 @@ function chooseHead(head:SVGElement){
   if(note){setTabStop(head);emit('select',note);}
 }
 
+const rangeMode=ref(false);
+const selectedMeasures=ref<[number,number]|null>(null);
+let rangePointer:number|null=null,rangeAnchor=0,rangeX=0,rangeY=0,rangeMoved=false,rangeHeld=false;
+let rangeTimer:ReturnType<typeof setTimeout>|undefined;
+function measureAt(x:number,y:number):number|null{
+ const container=host.value;if(!container)return null;
+ const groups=[...container.querySelectorAll<SVGGElement>('g[id^="osmd-m"]')];
+ for(const group of groups){
+  const match=/^osmd-m(\d+)-/.exec(group.id);if(!match)continue;
+  const rect=group.getBoundingClientRect();
+  if(x>=rect.left&&x<=rect.right&&y>=rect.top-12&&y<=rect.bottom+12){
+   const measure=Number(match[1])+1;
+   if(measure>=displayedRange.value.first&&measure<=displayedRange.value.last)return measure;
+  }
+ }
+ return null;
+}
+function paintRange(){
+ const range=selectedMeasures.value;
+ host.value?.querySelectorAll<SVGGElement>('g[id^="osmd-m"]').forEach(g=>{
+  const m=/^osmd-m(\d+)-/.exec(g.id),n=m?Number(m[1])+1:0;
+  g.classList.toggle('score-range-selected',!!range&&n>=range[0]&&n<=range[1]);
+ });
+}
+function chooseRange(first:number,last:number){selectedMeasures.value=[Math.min(first,last),Math.max(first,last)];paintRange();}
+function applyRange(edit=false){
+ const range=selectedMeasures.value;if(!range)return;
+ clearTimeout(rangeTimer);rangeMode.value=false;selectedMeasures.value=null;paintRange();
+ if(edit)emit('editRange',...range);else emit('range',...range);
+}
+function rangeDown(event:PointerEvent){
+ if(!rangeMode.value||event.button!==0)return;
+ const m=measureAt(event.clientX,event.clientY);if(m===null)return;
+ rangePointer=event.pointerId;rangeAnchor=m;rangeX=event.clientX;rangeY=event.clientY;rangeMoved=false;rangeHeld=false;
+ host.value?.setPointerCapture(event.pointerId);
+ clearTimeout(rangeTimer);
+ rangeTimer=setTimeout(()=>{
+  rangeHeld=true;
+  const r=selectedMeasures.value;if(!r||m<r[0]||m>r[1])chooseRange(m,m);
+  applyRange(true);
+ },550);
+}
+function rangeMove(event:PointerEvent){
+ if(rangePointer!==event.pointerId)return;
+ if(Math.hypot(event.clientX-rangeX,event.clientY-rangeY)>7){rangeMoved=true;clearTimeout(rangeTimer);}
+ if(rangeMoved){const m=measureAt(event.clientX,event.clientY);if(m!==null)chooseRange(rangeAnchor,m);}
+}
+function rangeUp(event:PointerEvent){
+ if(rangePointer!==event.pointerId)return;
+ clearTimeout(rangeTimer);rangePointer=null;
+ if(rangeHeld||rangeMoved)return;
+ const r=selectedMeasures.value;
+ if(r&&rangeAnchor>=r[0]&&rangeAnchor<=r[1])applyRange();else chooseRange(rangeAnchor,rangeAnchor);
+}
+function cancelRange(){clearTimeout(rangeTimer);rangePointer=null;}
+watch(rangeMode,enabled=>{if(!enabled){selectedMeasures.value=null;paintRange();cancelRange();}});
 function onScoreClick(event:MouseEvent){
+  if(rangeMode.value||rangeMoved||rangeHeld){rangeMoved=false;rangeHeld=false;return;}
   const head=eventHead(event);
   if(head)chooseHead(head);
 }
@@ -272,7 +329,7 @@ function renderRange(){
         layoutFrame=requestAnimationFrame(draw);
         return;
       }
-      bindNoteheads();
+      bindNoteheads();paintRange();
     }catch(cause){error.value=`Could not render this part: ${String(cause)}`;}
     loading.value=false;
   };
@@ -362,7 +419,7 @@ onMounted(()=>{
 
 onBeforeUnmount(()=>{
   window.removeEventListener('tango-score-appearance',syncScoreAppearance);
-  generation++;
+  generation++;cancelRange();
   if(contentTimer)clearTimeout(contentTimer);
   if(layoutTimer)clearTimeout(layoutTimer);
   cancelAnimationFrame(layoutFrame);
@@ -378,11 +435,11 @@ onBeforeUnmount(()=>{
       <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
       <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
     </div>
-    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
+    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
-    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure}" :aria-busy="loading"
-      :tabindex="followMeasure?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':undefined" @click="onScoreClick" @keydown="onScoreKey" />
+    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode}" :aria-busy="loading"
+      :tabindex="followMeasure?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':undefined" @pointerdown="rangeDown" @pointermove="rangeMove" @pointerup="rangeUp" @pointercancel="cancelRange" @lostpointercapture="cancelRange" @click="onScoreClick" @keydown="onScoreKey" />
   </section>
 </template>
 
@@ -428,4 +485,10 @@ onBeforeUnmount(()=>{
 .score-preview-themed .score-preview-canvas :deep(.score-note-selected),.score-preview-themed .score-preview-canvas :deep(.score-note-selected [fill]),.score-preview-themed .score-preview-canvas :deep(.score-notehead:focus-visible),.score-preview-themed .score-preview-canvas :deep(.score-notehead:focus-visible [fill]){fill:var(--accent,#e7c38e)}
 .score-preview-themed .score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#6ec5b2}
 .score-preview-themed .score-preview-error{color:#ee8f70}
+</style>
+
+<style scoped>
+.score-range-mode{touch-action:none;cursor:crosshair;user-select:none}
+.score-preview-canvas :deep(.score-range-selected){filter:drop-shadow(0 0 3px #319db7);outline:2px solid #319db7;outline-offset:2px}
+.score-appearance-control{display:flex;flex-wrap:wrap;gap:4px}
 </style>

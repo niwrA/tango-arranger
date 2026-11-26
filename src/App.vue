@@ -313,6 +313,7 @@ function enterNoteFocusMode(){
   void nextTick(()=>noteEditorRegion.value?.querySelector<HTMLButtonElement>('.note-focus-close')?.focus({preventScroll:true}));
 }
 function exitNoteFocusMode(){
+  if(returnFromScoreEdit())return;
   if(noteLoopPlaying.value)stopNoteLoop();
   noteFocusMode.value=false;noteFocusMore.value=false;noteDetailsPopup.value=false;
   void nextTick(()=>noteEditorRegion.value?.querySelector<HTMLButtonElement>('.note-focus-enter')?.focus({preventScroll:true}));
@@ -568,6 +569,7 @@ function setPerformanceCardMode(inst:Instrument,mode:'diagram'|'cues'){
  performanceCardModes.value={...performanceCardModes.value,[inst]:mode};
 }
 function openPerformanceInstrument(inst:Instrument,event:MouseEvent){
+ focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=undefined;
  performanceExpandTrigger=event.currentTarget as HTMLElement;
  instrumentLearnMode.value=false;
  performanceScoreView.value='off';
@@ -630,6 +632,9 @@ const focusPulsePosition=computed(()=>playing.value&&arrangementCountingIn.value
 const focusPulseBeat=computed(()=>Math.floor(focusPulsePosition.value%project.value.beats)+1);
 const focusPulseGlow=computed(()=>playing.value?(.12+.55*Math.pow(1-focusPulsePosition.value%1,2.4)).toFixed(3):'0');
 const performanceScoreFrom=1;
+const focusScoreRange=ref<[number,number]|null>(null);
+const resumedPracticeRange=ref<[number,number]|undefined>();
+const resumedPracticeMeasure=ref<number|undefined>();
 const performanceScoreTo=computed(()=>project.value.bars.length);
 const performanceScoreNotes=computed(()=>{
  const inst=performanceExpandedInstrument.value;
@@ -3617,6 +3622,7 @@ function onMapCellEnter(inst:Instrument,i:number,event:KeyboardEvent){
 /** The map's single click edits orchestration; a double click or Enter opens exact notes. */
 function openMapCellNotes(inst:Instrument,i:number){focusOverview(inst,i);openNoteEditor(inst,i);}
 function returnToMap(){
+  if(returnFromScoreEdit())return;
   noteFocusMode.value=false;noteFocusMore.value=false;
   const inst=noteInst.value,i=selectedBar.value;
   focusOverview(inst,i);active.value='arrange';
@@ -4977,6 +4983,24 @@ function finishMeasureHeaderDrag(event:PointerEvent){
   shiftNoteVisibleRange(steps);
 }
 function cancelMeasureHeaderDrag(){measureHeaderDrag.value=null;}
+let scoreEditReturn:{active:typeof active.value;instrument:Instrument|null;learn:boolean;view:typeof performanceScoreView.value;range?:[number,number];measure?:number;bar:number;focus:boolean}|null=null;
+function editScoreRange(inst:Instrument,first:number,last:number,practiceRange?:[number,number],measure?:number){
+ scoreEditReturn={active:active.value,instrument:performanceExpandedInstrument.value,learn:instrumentLearnMode.value,view:performanceScoreView.value,range:practiceRange,measure,bar:performanceBar.value,focus:noteFocusMode.value};
+ stopPlayback();performanceMode.value=false;
+ openNoteEditor(inst,first-1);setNoteEditorMeasureRange(first,last);noteEditorTab.value='notes';enterNoteFocusMode();
+}
+function returnFromScoreEdit(){
+ const saved=scoreEditReturn;if(!saved)return false;scoreEditReturn=null;
+ stopPlayback();noteFocusMode.value=false;noteFocusMore.value=false;noteDetailsPopup.value=false;
+ active.value=saved.active;
+ if(saved.instrument){
+  resumedPracticeRange.value=saved.range;resumedPracticeMeasure.value=saved.measure;
+  performanceMode.value=true;performanceView.value='ensemble';performanceExpandedInstrument.value=saved.instrument;
+  performanceScoreView.value=saved.view;instrumentLearnMode.value=saved.learn;selectedBar.value=saved.bar;
+ }else{noteEditorTab.value='score';noteFocusMode.value=saved.focus;}
+ return true;
+}
+function selectFocusScoreRange(first:number,last:number){stopPlayback();focusScoreRange.value=[first,last];selectedBar.value=first-1;}
 function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=selectedBar.value){
   // Navigation updates the active loop without interrupting playback for the same instrument.
   const keepFocusLoop=noteLoopPlaying.value&&inst===noteInst.value;
@@ -5857,17 +5881,17 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
          <div class="instrument-focus-harmony"><small>Current chord</small><strong>{{performanceHarmony.chord||'–'}}</strong><span v-if="roleCueHarmony.chord&&roleCueHarmony.chord!=='—'">Next {{roleCueHarmony.chord}}</span></div>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :project="project" :audio-engine="audioEngine" :resolve-technique="(note)=>resolveStringTechnique(part.inst,note.technique,violinTechnique(part.inst,Math.floor(note.start/project.beats)),Boolean(note.stringGlissando||note.bowedTremolo||note.gesture||note.slideTo!==undefined||note.approachSlideFrom!==undefined||note.vibrato))" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="performanceBar+1" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
-           <template #score="{from,to,measure,expected,completed,playing,feedbackProgress,feedbackState}">
-             <ScorePreview :project="project" :score="practiceScore" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" :feedback-progress="feedbackProgress" :feedback-state="feedbackState" expanded follow-measure :interactive="false" />
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :project="project" :audio-engine="audioEngine" :resolve-technique="(note)=>resolveStringTechnique(part.inst,note.technique,violinTechnique(part.inst,Math.floor(note.start/project.beats)),Boolean(note.stringGlissando||note.bowedTremolo||note.gesture||note.slideTo!==undefined||note.approachSlideFrom!==undefined||note.vibrato))" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="resumedPracticeMeasure??performanceBar+1" :initial-practice-range="resumedPracticeRange" :initial-practice-measure="resumedPracticeMeasure" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
+           <template #score="{from,to,measure,expected,completed,playing,feedbackProgress,feedbackState,setRange}">
+             <ScorePreview :project="project" :score="practiceScore" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" :feedback-progress="feedbackProgress" :feedback-state="feedbackState" expanded follow-measure :interactive="false" @range="setRange" @edit-range="(first,last)=>editScoreRange(part.inst,first,last,[from,to],measure)" />
            </template>
            <template #diagram="{targetPitch,currentBeat,showTargetLabel,feedbackProgress,feedbackState,measurePitches,bassGuide,violinGuide,shiftDuration,bandoneonHands,bandoneonTargetHand}"><PerformanceChordDiagram focus learn :show-target-label="showTargetLabel" :target-pitch="targetPitch" :feedback-progress="feedbackProgress" :feedback-state="feedbackState" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="currentBeat" :active-pitches="[]" :dim-unplayed-chord-tones="false" :measure-pitches="measurePitches" :split-pitch="pianoSplit" :violin-position="violinGuide" :position-guide="bassGuide" :shift-duration="shiftDuration" :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/></template>
          </InstrumentLearnView>
          <template v-else>
          <div v-if="part.vocalRest" class="stage-vocal-rest is-focused"><strong>{{part.vocalEntranceMeasure===null?'Finished':part.vocalEntranceMeasure-(performanceBar+1)}}</strong><span>{{part.vocalEntranceMeasure===null?'No further entrance':'Measures until entrance · M'+part.vocalEntranceMeasure}}</span></div>
          <ScorePreview v-else-if="focusShowsScore" :project="project" :score="score" :instrument="part.inst"
-           :from-measure="performanceScoreFrom" :to-measure="performanceScoreTo"
-           :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" expanded follow-measure :interactive="false" />
+           :from-measure="focusScoreRange?.[0]??performanceScoreFrom" :to-measure="focusScoreRange?.[1]??performanceScoreTo"
+           :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" expanded follow-measure :interactive="false" @range="selectFocusScoreRange" @edit-range="(first,last)=>editScoreRange(part.inst,first,last)" />
          <PianoFocusView v-if="!part.vocalRest && performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
            :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="performanceScoreView==='both'?performanceScoreView='score':flipPerformanceCard(part.inst)"/>
@@ -6625,7 +6649,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="selectedEvent" @select="selectScoreNote" @edit="editScoreSelection" />
+    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="selectedEvent" @select="selectScoreNote" @edit="editScoreSelection" @range="setNoteEditorMeasureRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
