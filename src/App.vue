@@ -1935,6 +1935,31 @@ function captureViolinFingerMove(event:PointerEvent){
   if(Tone)monitorCapturePitch(pitch);
  }
 }
+/** A touch owns successive keyboard attacks until release. */
+function capturePianoKeyMove(event:PointerEvent){
+ const held=heldCaptureKeys.get(event.pointerId);
+ if(!held||held.stringMidi!==undefined)return;
+ const key=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLButtonElement>('.capture-piano-key[data-pitch]');
+ if(!key||key.disabled)return;
+ const pitch=Number(key.dataset.pitch);if(!Number.isInteger(pitch))return;
+ const old=held.pitch;
+ if(pitch===old){
+  // Pressure-capable pointers can brighten/soften the monitored sound;
+  // ordinary capacitive touch may only report a fixed pressure.
+  if(event.pressure>0&&event.pressure!==.5&&captureKeySynth)
+   captureKeySynth.volume.rampTo(-19+event.pressure*12,.06);
+  return;
+ }
+ const now=captureRecording.value?captureElapsedBeats():-1;
+ if(captureRecording.value&&held.started>=0&&now>=held.started){
+  recordInstrumentCapture({startBeat:held.started,durationBeats:now-held.started,pitch:old});
+  prepareInstrumentCapture(now);
+ }
+ held.pitch=pitch;held.started=now;capturePitch.value=pitch;
+ updateCaptureHeldDisplay();releaseCaptureMonitorPitch(old);
+ if(Tone)monitorCapturePitch(pitch);
+ captureLastExpression.value='Keyboard sweep · '+midiName(pitch);
+}
 function releaseCapturePianoKey(event:PointerEvent){
  const held=heldCaptureKeys.get(event.pointerId);
  if(!held)return;
@@ -4906,6 +4931,53 @@ function shiftPianoRegister(staff:'treble'|'bass',semitones:number){
   else pianoBassCenter.value=Math.max(lo+8,Math.min(Math.min(hi,pianoSplit.value-1)-8,pianoBassCenter.value+semitones));
 }
 const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
+const multiNoteMode=ref(false);
+const multiNoteKeys=ref<string[]>([]);
+const quickNoteCategory=ref('articulation');
+const quickBowed=computed(()=>['Violin','Contrabass'].includes(instrumentFamily(noteInst.value)));
+const quickNoteKey=(n:Note)=>n.start+':'+n.pitch;
+function quickNoteSelected(n:Note){return multiNoteMode.value?multiNoteKeys.value.includes(quickNoteKey(n)):selectedEvent.value===n;}
+function toggleQuickNote(n:Note){
+ const key=quickNoteKey(n);
+ multiNoteKeys.value=multiNoteKeys.value.includes(key)?multiNoteKeys.value.filter(k=>k!==key):[...multiNoteKeys.value,key];
+}
+watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];});
+watch(quickBowed,bowed=>{if(!bowed)quickNoteCategory.value='articulation';});
+const quickNoteActions=computed(()=>{
+ if(quickNoteCategory.value==='finger')return ['0','1','2','3','4',...(noteInst.value==='Contrabass'?['T']:[])].map(v=>({value:v,label:v,title:v==='0'?'Open string':v==='T'?'Thumb':'Finger '+v}));
+ if(quickNoteCategory.value==='position')return ['I','II','III','IV','V','VI','VII','VIII','IX'].map(v=>({value:v,label:v,title:'Hand position '+v}));
+ if(quickNoteCategory.value==='bow')return [{value:'down',label:'𝆪',title:'Down-bow'},{value:'up',label:'𝆫',title:'Up-bow'},{value:'arco',label:'arco',title:'Bowed'},{value:'pizzicato',label:'pizz.',title:'Pizzicato'}];
+ return [{value:'staccato',label:'•',title:'Staccato'},{value:'marcato_staccato',label:'>',title:'Accent / marcato'},{value:'legato',label:'—',title:'Legato'},{value:'vibrato',label:'vib.',title:'Vibrato'}].filter(v=>v.value!=='vibrato'||instrumentFamily(noteInst.value)==='Violin');
+});
+function applyQuickNote(value:string){
+ const keys=new Set(multiNoteMode.value?multiNoteKeys.value:selectedEvent.value?[quickNoteKey(selectedEvent.value)]:[]);
+ if(!keys.size)return;
+ const original=score.value,inst=noteInst.value;
+ const notes=original[inst]??[];
+ const selected=notes.filter(n=>keys.has(quickNoteKey(n)));
+ const bars=[...new Set(selected.map(n=>Math.floor((n.start+1e-7)/project.value.beats)))];
+ let next=project.value,current=original;
+ try{
+  for(const bar of bars){
+   const edited=notes.filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===bar).map(n=>{
+    if(!keys.has(quickNoteKey(n)))return n;
+    const out={...n};
+    if(quickNoteCategory.value==='finger'){if(value)out.finger=value as Note['finger'];else delete out.finger;}
+    else if(quickNoteCategory.value==='position'){if(value)out.handPosition=value;else delete out.handPosition;}
+    else if(quickNoteCategory.value==='bow'){
+     if(value==='up'||value==='down')out.bowDirection=value;
+     else if(value==='arco'||value==='pizzicato'){out.technique=value;if(value==='pizzicato'){delete out.bowDirection;delete out.bowedTremolo;delete out.stringGlissando;delete out.approachSlideFrom;delete out.slideTo;delete out.vibrato;delete out.gesture;delete out.swellTo;}}
+     else delete out.bowDirection;
+    }else if(value==='vibrato')out.vibrato=true;
+    else if(value){out.articulation=value as Note['articulation'];out.accent=value==='marcato_staccato';}
+    else{delete out.articulation;delete out.accent;delete out.vibrato;}
+    return out;
+   });
+   next=replaceInstrumentMeasure(next,current,inst,bar,edited);current=next.generatedScore!;
+  }
+  project.value=next;message.value='Updated '+selected.length+' selected note(s).';
+ }catch(error){message.value='Note edit rejected: '+String(error);}
+}
 const mergeAnchor=shallowRef<Note>();
 const mergeTarget=shallowRef<Note>();
 const mergeFirstPitch=computed(()=>{
@@ -4929,20 +5001,23 @@ function mergeSelectedNotes(){
  }catch(error){message.value='Could not merge notes: '+String(error);}
 }
 function selectNoteForEdit(note:Note,index:number){
+ if(multiNoteMode.value){toggleQuickNote(note);return;}
  if(mergeAnchor.value){chooseMergeTarget(note);return;}
  selectNoteEvent(index);
 }
 function startGridNoteDrag(event:PointerEvent,note:Note){
- if(mergeAnchor.value)return;
+ if(mergeAnchor.value||multiNoteMode.value)return;
  activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
  beginNoteDrag(event,note.pitch,note.start%project.value.beats);
 }
 function selectGridNote(note:Note){
+ if(multiNoteMode.value){toggleQuickNote(note);return;}
  if(mergeAnchor.value){chooseMergeTarget(note);return;}
  activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
  noteBarClick(note.pitch,note.start%project.value.beats);
 }
 function selectScoreNote(note:Note){
+  if(multiNoteMode.value){toggleQuickNote(note);return;}
   if(!(score.value[noteInst.value]??[]).includes(note))return;
   const measure=Math.floor((note.start+1e-7)/project.value.beats);
   if(measure<0||measure>=project.value.bars.length)return;
@@ -6642,6 +6717,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <span v-if="noteFocusMode&&noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
+  <div v-if="noteEditorTab==='notes'||noteEditorTab==='score'" class="note-quick-tools" role="group" aria-label="Quick note markings">
+   <button type="button" class="secondary" :aria-pressed="multiNoteMode" @click="multiNoteMode=!multiNoteMode;multiNoteKeys=[]">{{multiNoteMode?'Done selecting':'Select notes'}}</button>
+   <span class="quick-note-count" role="status">{{multiNoteMode?multiNoteKeys.length:selectedEvent?1:0}} selected</span>
+   <label><select v-model="quickNoteCategory" aria-label="Quick edit type"><option value="articulation">Articulation</option><option v-if="quickBowed" value="finger">Fingering</option><option v-if="quickBowed" value="bow">Bowing</option><option v-if="quickBowed" value="position">Hand position</option></select></label>
+   <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="multiNoteMode?!multiNoteKeys.length:!selectedEvent" @click="applyQuickNote(action.value)">{{action.label}}</button>
+   <button type="button" class="secondary" :disabled="multiNoteMode?!multiNoteKeys.length:!selectedEvent" @click="applyQuickNote('')">Clear</button>
+  </div>
   <div class="note-subtabs" role="tablist" aria-label="Instrument note editor tools" @keydown="handleNoteTabKey">
     <button id="note-tab-notes" type="button" role="tab" :aria-selected="noteEditorTab==='notes'" :tabindex="noteEditorTab==='notes'?0:-1" aria-controls="note-panel-notes" :class="{selected:noteEditorTab==='notes'}" @click="setNoteEditorTab('notes')">Edit</button>
     <button id="note-tab-score" type="button" role="tab" :aria-selected="noteEditorTab==='score'" :tabindex="noteEditorTab==='score'?0:-1" aria-controls="note-panel-score" :class="{selected:noteEditorTab==='score'}" @click="setNoteEditorTab('score')">Score</button>
@@ -6650,7 +6732,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="selectedEvent" @select="selectScoreNote" @edit="editScoreSelection" @range="setNoteEditorMeasureRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
+    <ScorePreview v-if="noteEditorTab==='score'" :project="project" :score="score" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="selectedEvent" :completed-notes="multiNoteMode?(score[noteInst]??[]).filter(n=>quickNoteSelected(n)):undefined" @select="selectScoreNote" @edit="editScoreSelection" @range="setNoteEditorMeasureRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
@@ -6772,7 +6854,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <label class="capture-setting-check"><input type="checkbox" v-model="vocalAlignmentEnabled"/> Align lyrics on Apply</label>
       </div>
     <template v-if="captureInputSource==='instrument'">
-      <span v-if="captureLastExpression&&captureInputLayout==='fingerboard'" class="capture-violin-expression" role="status">{{captureLastExpression}}</span>
+      <span class="capture-violin-expression" role="status">{{captureLastExpression||"\u00a0"}}</span>
     <template v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length">
      <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin'),'capture-large-instrument':captureLargeView}" role="group" :aria-label="`Playable ${noteInst} string positions`">
       <div class="capture-fingerboard-grid" :class="{'capture-violin-geometry':noteInst.startsWith('Violin')}" :style="{'--capture-fret-columns':captureFrets.length,'--capture-violin-columns':'58px '+captureFrets.map(fret=>'minmax(44px,'+Math.max(.38,Math.pow(2,-fret/12)).toFixed(3)+'fr)').join(' ')}">
@@ -6797,7 +6879,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
     </template>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView,'capture-real-piano':noteInst==='Piano'}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><div class="capture-keybed" :style="noteInst==='Piano'?{minWidth:captureAutoFit?'100%':(capturePianoGeometry.span*44)+'px'}:undefined"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :style="noteInst==='Piano'?capturePianoGeometry.positions[pitch]:undefined" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView,'capture-real-piano':noteInst==='Piano'}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><div class="capture-keybed" :style="noteInst==='Piano'?{minWidth:captureAutoFit?'100%':(capturePianoGeometry.span*44)+'px'}:undefined"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :style="noteInst==='Piano'?capturePianoGeometry.positions[pitch]:undefined" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :data-pitch="pitch" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointermove.prevent="capturePianoKeyMove($event)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div></div>
 
       <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
     </template>
@@ -7048,7 +7130,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         <template v-for="barIndex in noteGridMeasures" :key="barIndex">
           <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
         </template></div>
-        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':selectedEvent===n,'note-merge-selected':mergeAnchor===n||mergeTarget===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="startGridNoteDrag($event,n)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="selectGridNote(n)" :aria-pressed="mergeAnchor?mergeAnchor===n||mergeTarget===n:selectedEvent===n"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="noteInst.startsWith('Voice')" class="note-bar-label note-bar-lyric" :title="(lyricVerse===1?n.lyric:n.lyric2)||'No lyric assigned'">{{(lyricVerse===1?n.lyric:n.lyric2)?.trim()||((lyricVerse===1?n.melisma:n.melisma2)?'—':'♪')}}</span><span v-else-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
+        <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':quickNoteSelected(n),'note-merge-selected':mergeAnchor===n||mergeTarget===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="{left:(Math.max(n.start,focusVisibleMeasures[0]*project.beats)-focusVisibleMeasures[0]*project.beats)/(project.beats*focusVisibleMeasures.length)*100+'%',width:(Math.min(n.start+n.duration,(focusVisibleMeasures[focusVisibleMeasures.length-1]+1)*project.beats)-Math.max(n.start,focusVisibleMeasures[0]*project.beats))/(project.beats*focusVisibleMeasures.length)*100+'%'}" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="startGridNoteDrag($event,n)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="selectGridNote(n)" :aria-pressed="mergeAnchor?mergeAnchor===n||mergeTarget===n:quickNoteSelected(n)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="noteInst.startsWith('Voice')" class="note-bar-label note-bar-lyric" :title="(lyricVerse===1?n.lyric:n.lyric2)||'No lyric assigned'">{{(lyricVerse===1?n.lyric:n.lyric2)?.trim()||((lyricVerse===1?n.melisma:n.melisma2)?'—':'♪')}}</span><span v-else-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.finger??""}}{{n.bowDirection==="down"?" 𝆪":n.bowDirection==="up"?" 𝆫":""}}{{n.finger||n.bowDirection?" · ":""}}{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
       </div>
     </div>
   </div>
@@ -8864,4 +8946,15 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-editor-section .note-unified-toolbar .note-toolbar-part>label{grid-template-rows:14px var(--note-control-height);gap:3px;line-height:14px;padding:0;margin:0}
 .note-editor-section .note-unified-toolbar .note-toolbar-actions{align-self:flex-end;align-items:flex-end}
 .note-editor-section .note-unified-toolbar .note-toolbar-part .note-focus-identity{align-self:end;min-height:var(--note-control-height);display:flex;align-items:center}
+</style>
+
+<style scoped>
+.capture-violin-expression{display:block;box-sizing:border-box;height:22px;min-height:22px;line-height:18px;padding:2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
+.capture-piano-key{touch-action:none;user-select:none;-webkit-user-select:none}
+.note-quick-tools{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:4px 6px;background:#192c39;border-bottom:1px solid #405665}
+.note-quick-tools label{margin:0;padding:0}
+.note-quick-tools select,.note-quick-tools button{height:36px;min-height:36px;margin:0;padding:4px 8px;font-size:12px;box-sizing:border-box}
+.note-quick-tools button[aria-pressed="true"]{border-color:#e7c38e;color:#e7c38e}
+.note-quick-tools .quick-note-action{min-width:36px;font-size:19px;font-weight:800}
+.quick-note-count{font-size:12px;color:#b8cbd8}
 </style>

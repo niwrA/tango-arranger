@@ -257,7 +257,9 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const fermataXml=fermata&&j===0&&i===points.length-2&&at+elapsed+dur===barTicks?'<fermata type="upright"/>':'';
         const glissXml=isAttack?glissMarks.filter(mark=>mark.note.pitch===pitch&&Math.abs(mark.note.start-(offset+begin/DIV))<1e-5&&notes.includes(mark.note)).map(mark=>`<glissando type="${mark.type}" number="${mark.number}" line-type="solid">${mark.type==='start'?'gliss.':''}</glissando>`).join(''):'';
         const tremoloXml=isAttack&&(latest.bowedTremolo||latest.gesture?.tremolo)?`<ornaments><tremolo type="single">${latest.bowedTremolo?.strokes??3}</tremolo></ornaments>`:'';
-        const notations=(tieStop||tieStart||articulationMarks||fermataXml||glissXml||tremoloXml||(j===0&&tupletMarks))?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${fermataXml}${j===0?tupletMarks:''}${articulationMarks}${glissXml}${tremoloXml}</notations>`:'';
+        const technicalMarks=isAttack?((latest.finger!==undefined?'<fingering>'+esc(latest.finger)+'</fingering>':'')+(latest.bowDirection==='up'?'<up-bow/>':latest.bowDirection==='down'?'<down-bow/>':'')):'';
+        const technicalXml=technicalMarks?'<technical>'+technicalMarks+'</technical>':'';
+        const notations=(tieStop||tieStart||articulationMarks||fermataXml||glissXml||tremoloXml||technicalXml||(j===0&&tupletMarks))?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${fermataXml}${j===0?tupletMarks:''}${articulationMarks}${glissXml}${tremoloXml}${technicalXml}</notations>`:'';
         // A collapsed unison with the same onset can represent several source
         // events. Leave that head unmarked so the editor never guesses.
         const color=latest.noteheadColor;

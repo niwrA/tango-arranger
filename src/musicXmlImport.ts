@@ -184,6 +184,10 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
        xmlVoice:value(child,'voice')||'1'
       };
       if(isBowed){
+       const finger=value(child,'fingering');
+       if(['0','1','2','3','4','T'].includes(finger))note.finger=finger as Note['finger'];
+       if(descendants(child,'up-bow').length)note.bowDirection='up';
+       else if(descendants(child,'down-bow').length)note.bowDirection='down';
        const trem=descendants(child,'tremolo').find(t=>!t.getAttribute('type')||t.getAttribute('type')==='single');
        const strokes=Number(trem?.textContent);
        if(strokes===1||strokes===2||strokes===3)note.bowedTremolo={strokes};
