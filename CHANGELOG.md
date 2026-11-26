@@ -1,3 +1,8 @@
+## Consistent piano playback (2026-11-26)
+
+- Wait for bounded sample preparation before full arrangement playback, as in instrument preview.
+- Share note rendering between orchestration preview and arrangement playback; piano dynamics retain the sampled piano attack instead of switching to a generic expressive oscillator.
+
 ## Tigre Viejo example (2026-11-26)
 
 - Offer the bundled Tigre Viejo bowed-expression project in the Example songs picker, opening a fresh editable local copy with its imported score and expression intact.

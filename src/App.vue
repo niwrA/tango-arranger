@@ -3907,6 +3907,16 @@ function triggerInstrument(inst:string,pitch:number,duration:number,time:number,
  if(sampler)sampler.triggerAttackRelease(Tone.Frequency(pitch,'midi').toNote(),duration,time,velocity);
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }
+// Both orchestra and isolated preview use the same instrument renderer.
+function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1){
+ if(!focusInstrumentAudible(inst))return;
+ const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
+ // Piano dynamics affect the attack; a held piano string cannot crescendo.
+ // Never substitute a triangle oscillator for a piano merely due to a wedge.
+ if(!inst.toLowerCase().includes('piano')&&(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)){
+  playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
+ }else triggerInstrument(inst,event.pitch,duration,time,velocity/127,n.technique);
+}
 let synth:PolySynth|null=null;
 async function testAudio(){
   try{
@@ -3938,10 +3948,12 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession)return;
     synth??=new Tone.PolySynth(Tone.Synth).toDestination();
-    // Network sample preloading must never block the transport. Notes use the
-    // synth fallback until optional samples are available.
-    if(audioEngine.value==='samples')void prepareSamples(projectInstruments(project.value))
-      .catch(error=>{sampleStatus.value='Sample loading failed: '+String(error);});
+    // Start with the same sample readiness as instrument preview. The loader
+    // has a bounded timeout; a failed instrument can still use its fallback.
+    if(audioEngine.value==='samples'){
+      audioStatus.value='Loading instrument samples…';
+      await prepareSamples(projectInstruments(project.value));
+    }
     if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;
     transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
@@ -3974,12 +3986,9 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
         const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value);
-        const defaultVelocity=noteSoundingVelocity(n);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
-        if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:defaultDuration,velocity:Math.max(1,Math.round(event.velocity*focusGain)),endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
-        else triggerInstrument(inst,event.pitch,defaultDuration,time,Math.max(1,Math.round((event.velocity||defaultVelocity)*focusGain))/127,n.technique);
+        renderArrangementNote(inst,n,event,defaultDuration,time,focusGain);
       },whenTicks);
     }}
     if(!noteCount){audioStatus.value=`No notes to play from measure ${window.startMeasure+1}`;message.value=`Nothing to play from measure ${window.startMeasure+1}. Choose an earlier measure, enter notes or generate the orchestra.`;return;}
@@ -4053,9 +4062,10 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
       for(const n of playbackNotesInRange(score.value[inst]??[],startBeat,(to+1)*beats,project.value.transposeSemitones??0)){
         if(n.start<startBeat-1e-7||n.start>=(to+1)*beats)continue;
         const cueBeat=n.start-startBeat;
-        const durationBeats=noteSoundingDuration(n);
-        const pitch=n.pitch+(project.value.transposeSemitones??0);
-        transport.schedule(t=>triggerInstrument(inst,pitch,Math.max(0.04,durationBeats*60/effectivePlaybackBpm.value),t,noteSoundingVelocity(n)/127),beatOffsetTicks(cueBeat,transport.PPQ));
+        transport.schedule(t=>{
+          const event=measureLoopEvents([n],Math.floor(n.start/beats),beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value,true)[0];
+          if(event)renderArrangementNote(inst,n,event,Math.max(.025,soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)),t);
+        },beatOffsetTicks(cueBeat,transport.PPQ));
         count++;
       }
     }

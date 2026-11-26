@@ -103,10 +103,19 @@ test('stopping microphone does not close the shared Tone output context',()=>{
  assert.doesNotMatch(stop,/microphoneContext\.close\(/);
  assert.match(app,/Tone\.getContext\(\)\.rawContext as AudioContext/);
 });
-test('arrangement playback does not await network sample loading',()=>{
+test('arrangement playback waits for bounded sample loading before starting',()=>{
  const begin=app.indexOf('async function play(');const end=app.indexOf('async function previewPart(',begin);
  const play=app.slice(begin,end);
- assert.doesNotMatch(play,/await prepareSamples\(/);
- assert.match(play,/transport\.start\(\)/);
+ assert.match(play,/await prepareSamples\(/);
+ assert.ok(play.indexOf('await prepareSamples(')<play.indexOf('transport.start()'));
+ assert.match(app,/setTimeout\(\(\)=>finish\(false\),7000\)/);
+ assert.match(play,/if\(session!==noteLoopSession\)return;/);
+});
+test('piano dynamic envelopes retain the piano voice in both playback modes',()=>{
+ const render=app.slice(app.indexOf('function renderArrangementNote('),app.indexOf('let synth:PolySynth|null=null;'));
+ assert.match(render,/!inst.toLowerCase\(\).includes\('piano'\)/);
+ assert.match(render,/triggerInstrument\(inst,event.pitch,duration,time,velocity\/127,n.technique\)/);
+ assert.match(app,/renderArrangementNote\(inst,n,event,defaultDuration,time,focusGain\)/);
+ assert.match(app,/if\(event\)renderArrangementNote\(inst,n,event,/);
 });
 console.log(`${count} pitch postprocess and recovery checks passed`);
