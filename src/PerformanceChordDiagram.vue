@@ -177,7 +177,16 @@ const diagramDescription=computed(()=>{
      :class="{'diagram-violin-fingerboard':family==='Violin','diagram-bass-fingerboard':family==='Contrabass'&&Boolean(props.positionGuide),'diagram-has-guide':Boolean(props.positionGuide)}"
      :aria-label="family+' open strings and schematic semitone positions'+(props.positionGuide||family==='Violin'?', '+positionText:'')">
      <span v-if="family==='Violin'||(family==='Contrabass'&&props.positionGuide)" class="diagram-violin-position"
-       :title="'Schematic suggestion: '+positionText">{{positionText}}</span>
+       :title="'Schematic suggestion: '+positionText">
+       <template v-if="props.learn">
+        <span class="diagram-hand-position-main" :key="props.positionGuide?.position??props.violinPosition?.position??'first'">
+         {{props.positionGuide?'Position '+props.positionGuide.position:props.violinPosition?.finger===0?'Open string':props.violinPosition?'Position '+props.violinPosition.position:'First position'}}
+        </span>
+        <span v-if="props.positionGuide" class="diagram-hand-position-detail">{{props.positionGuide.thumb?'Thumb':'Finger 1'}} · {{midiLabel(props.positionGuide.anchorMidi)}} · {{midiLabel(props.positionGuide.anchorStringMidi)}} string</span>
+        <span v-else-if="props.violinPosition" class="diagram-hand-position-detail">{{props.violinPosition.stringName}} string<span v-if="props.violinPosition.finger!==0"> · Finger {{props.violinPosition.finger}}</span></span>
+       </template>
+       <template v-else>{{positionText}}</template>
+      </span>
      <div v-if="props.learn" class="diagram-string-row diagram-stop-header" aria-label="Semitones above open string">
       <span class="diagram-open-heading">Open · 0</span>
       <span v-for="offset in displayedStops" :key="offset" :title="offset+' semitones above open string'">{{offset}}</span>
@@ -193,6 +202,7 @@ const diagramDescription=computed(()=>{
            'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),
            'is-measure-note':isPlannedStringPitch(string.midi,string.midi+offset),
            'is-learn-target':isTargetStop(string.midi,offset),
+           'is-position-anchor':props.learn&&!!props.positionGuide&&string.midi===props.positionGuide.anchorStringMidi&&string.midi+offset===props.positionGuide.anchorMidi,
            'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}"
          :title="midiLabel(string.midi+offset)+(fingerFor(string.midi,string.midi+offset)!==null?' · suggested finger '+fingerFor(string.midi,string.midi+offset):'')">
          <template v-if="props.learn&&isTargetStop(string.midi,offset)">
@@ -607,4 +617,19 @@ const diagramDescription=computed(()=>{
 @media(prefers-reduced-motion:reduce){
  .performance-instrument-diagram.is-learn .diagram-fingerboard .is-learn-target::after{animation:none}
 }
+
+/* A distinct, steady hand-position cue, subordinate to the amber active note. */
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-violin-position{
+ position:static;display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:2px 10px;
+ height:auto;min-height:30px;padding:3px 8px;box-sizing:border-box;
+ border:1px solid #83c6e7;border-left:4px solid #83c6e7;border-radius:6px;
+ background:#23465b;color:#e2f6ff;white-space:normal;text-align:left;line-height:1.2;
+}
+.diagram-hand-position-main{font-size:clamp(17px,2.2vw,26px);font-weight:900;color:#fff;animation:learn-position-arrival .65s ease-out}
+.diagram-hand-position-detail{font-size:clamp(11px,1.3vw,16px);font-weight:700;color:#c5e9fb}
+.performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop.is-position-anchor:not(.is-learn-target){
+ outline:2px solid #83c6e7;outline-offset:-2px;background-color:#24495e;color:#e2f6ff;opacity:1;
+}
+@keyframes learn-position-arrival{from{opacity:.45;transform:translateX(-3px)}to{opacity:1;transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){.diagram-hand-position-main{animation:none}}
 </style>
