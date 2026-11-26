@@ -114,21 +114,24 @@ check('rhythm workflow has one range used by capture, Apply and A/B audio',()=>{
  assert.ok(!part.includes('v-model.number="captureTo"'));
  assert.ok(app.includes("active.value==='notes'?noteLoopFrom.value:rhythmStart.value"));
 });
-check('top bar keeps Performance visible and separates file operations from Import/Export',()=>{
+check('top bar keeps Performance visible and consolidates project operations in File',()=>{
  const header=app.slice(app.indexOf('<header class="app-topbar">'),app.indexOf('</header>'));
  const song=header.slice(header.indexOf('class="topbar-group topbar-song"'),header.indexOf('class="topbar-group topbar-arrange"'));
- const transfers=header.slice(header.indexOf('class="topbar-group topbar-files"'),header.indexOf('class="topbar-compact-actions"'));
- const overflow=header.slice(header.indexOf('class="topbar-menu compact-workspace-menu"'),header.indexOf('class="topbar-group topbar-options"'));
+ const overflow=header.slice(header.indexOf('class="topbar-menu compact-workspace-menu"'));
  assert.ok(header.includes('performance-topbar-button'));
  assert.ok(header.includes('song-tempo-edit'));
  assert.ok(header.includes('setSongBpm'));
- for(const x of ['newSongOpen=true','saveNow','duplicateLocalSong','deleteCurrentLocalSong'])assert.ok(song.includes(x),x);
- assert.ok(!song.includes('importDialogOpen=true'),'Import is not a file operation');
- assert.ok(transfers.includes('importDialogOpen=true'),'Import is grouped with export');
+ for(const x of ['newSongOpen=true','saveNow','duplicateLocalSong','deleteCurrentLocalSong',"openContextImport('project')",'exportXml','saveCompressedProject'])assert.ok(song.includes(x),x);
+ assert.ok(!header.includes('class="topbar-group topbar-files"'),'Standalone transfer menu is removed');
+ for(const context of ['lead','arrange','instrument']){
+  const action="openContextImport('"+context+"'";
+  assert.ok(app.includes(action),'Missing contextual import '+context);
+  assert.ok(!header.includes(action),'Musical imports belong to workspaces');
+ }
  assert.ok(!overflow.includes('duplicateLocalSong'));
  assert.ok(!overflow.includes('saveNow'));
  assert.ok(!overflow.includes('performanceMode=true'));
- assert.ok(header.includes('aria-label="Import and export"'));
+ assert.ok(header.includes('aria-label="File operations"'));
  assert.ok(header.includes('topbar-measure-tools'));
 });
 check('empty note cells scroll natively in both directions without changing note gestures',()=>{
