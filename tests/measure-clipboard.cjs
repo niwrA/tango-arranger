@@ -200,8 +200,12 @@ check('taskbar workflow keeps manually typed destination when copying and suppli
  assert.ok(start>=0&&stop>start);
  const body=app.slice(start,stop);
  assert.ok(!body.includes('measurePasteAt.value='),'Copy selected must not rewrite manually entered destination');
- for(const fragment of ['measure-tools-backdrop','measure-tools-dialog','measure-tools-validation','measure-tools-feedback','Preview move','Confirm {{measurePending}}','topbar-measure-tools','File · Current song','Import / Export','moveMeasureRange('])
+ for(const fragment of ['measure-tools-backdrop','measure-tools-dialog','measure-tools-validation','measure-tools-feedback','Preview move','Confirm {{measurePending}}','topbar-measure-tools','File · Current song','moveMeasureRange('])
   assert.ok(app.includes(fragment),fragment);
+ const file=app.split('class="topbar-menu song-menu"')[1].split('class="topbar-group topbar-arrange"')[0];
+ assert.ok(file.includes("openContextImport('project')"));
+ assert.ok(file.includes('exportXml'));
+ assert.ok(!app.includes('class="topbar-menu files-menu"'));
  assert.ok(!app.includes('<section v-if="['+"'lead','arrange','rhythm','notes'"+'].includes(active)" class="measure-edit-shell"'),'Measure editing should not occupy full page');
 });
 
