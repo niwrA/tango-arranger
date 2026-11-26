@@ -233,3 +233,19 @@ check('explicit ties sustain through barlines without merging ordinary repeated 
  assert.equal(resumed[0].start,4);assert.equal(resumed[0].duration,1);
  assert.equal(resumed[0].gate,1);
 });
+
+check('piano expression expands discrete attacks and pedal extends audio without altering notation',()=>{
+ const {pianoGlissandoPitches,playbackNotesInRange}=load('src/arrangementPlayback.ts');
+ assert.deepEqual(pianoGlissandoPitches(60,72,'white'),[60,62,64,65,67,69,71,72]);
+ assert.deepEqual(pianoGlissandoPitches(72,60,'black'),[72,70,68,66,63,61,60]);
+ const notes=[{pitch:60,start:0,duration:1,pianoGlissando:{interval:12,keys:'white',beats:1},pianoPedalBeats:3},{pitch:72,start:1,duration:1}];
+ const played=playbackNotesInRange(notes,0,4);
+ assert.equal(played.length,8);assert.equal(played[0].pitch,60);assert.equal(played.at(-1).pitch,72);
+ assert.equal(played[0].start+music.noteSoundingDuration(played[0]),3);
+ assert.equal(notes[0].duration,1);
+ const p=music.blankProject({measures:2,beats:4});
+ const score={Piano:notes};
+ const output=load('src/io.ts').exportMusicXml(p,score,{onlyInstrument:'Piano'});
+ assert.match(output,/<glissando type="start"/);assert.match(output,/<glissando type="stop"/);
+ assert.match(output,/<pedal type="start"/);assert.match(output,/<pedal type="stop"/);
+});

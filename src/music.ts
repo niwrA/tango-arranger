@@ -60,7 +60,8 @@ export type Role = 'melody'|'harmony'|'chords'|'bass'|'fill'|'variation'|'rest';
 export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 /** duration is the written rhythmic value. gate optionally overrides the sounding
  * fraction (0 < gate <= 1), without changing MusicXML note/rest durations. */
-export type Note = { leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+export type PianoGlissando={interval:number;keys:'white'|'black'|'chromatic';beats:number};
+export type Note = { pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
 /** Tango playback heuristics, not universal performance prescriptions. */
 export const ARTICULATION_GATES:Readonly<Record<Exclude<Articulation,'auto'>,number>>={
   staccato:0.28,marcato_staccato:0.58,legato:0.94
@@ -1468,6 +1469,8 @@ export function replaceInstrumentMeasure(p:Project,current:Score,inst:Instrument
   if(!projectInstruments(p).includes(inst)||!p.bars[barIndex])throw Error('Invalid instrument or measure');
   const offset=barIndex*p.beats,hi=offset+p.beats,range=instrumentRange(inst);
   const edited=notes.map(n=>{
+    if(n.pianoGlissando){const g=n.pianoGlissando;if(instrumentFamily(inst)!=='Piano'||!Number.isInteger(g.interval)||!g.interval||n.pitch+g.interval<21||n.pitch+g.interval>108||!['white','black','chromatic'].includes(g.keys)||!Number.isFinite(g.beats)||g.beats<=0||n.start+g.beats>p.bars.length*p.beats+1e-7)throw Error('Invalid piano glissando endpoint or duration');}
+    if(n.pianoPedalBeats!==undefined&&(instrumentFamily(inst)!=='Piano'||!Number.isFinite(n.pianoPedalBeats)||n.pianoPedalBeats<=0||n.start+n.pianoPedalBeats>p.bars.length*p.beats+1e-7))throw Error('Invalid piano pedal duration');
     if(n.gesture){if(n.slideTo!==undefined)throw Error('Use either a legacy slide or an expressive gesture, not both');validateGesture(n,inst,n.gesture,range);}
     if(n.gate!==undefined&&(!Number.isFinite(n.gate)||n.gate<=0||n.gate>1))throw Error('Note gate must be between 0 (exclusive) and 1');
     if(n.slideTo!==undefined&&(!Number.isInteger(n.slideTo)||n.slideTo<range[0]||n.slideTo>range[1]||inst==='Piano'||n.technique==='pizzicato'))throw Error('Slide unsupported for this instrument, technique or pitch range');

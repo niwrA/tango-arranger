@@ -51,8 +51,42 @@ export function tiedPlaybackNotes(notes:readonly Note[]):Note[]{
  return result;
 }
 /** A selected playback range can begin inside a sustained note. */
-export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infinity):Note[]{
- return tiedPlaybackNotes(notes).flatMap(n=>{
+export function pianoGlissandoPitches(start:number,target:number,keys:'white'|'black'|'chromatic'):number[]{
+ if(!Number.isInteger(start)||!Number.isInteger(target)||start<21||start>108||target<21||target>108||start===target)return [];
+ const direction=Math.sign(target-start),white=[0,2,4,5,7,9,11],result=[start];
+ for(let pitch=start+direction;pitch!==target;pitch+=direction)if(keys==='chromatic'||(keys==='white')===white.includes(pitch%12))result.push(pitch);
+ return [...result,target];
+}
+export function pianoPlaybackNotes(notes:readonly Note[],transpose=0):Note[]{
+ const attacks:Note[]=[];
+ const pedals=notes.filter(n=>n.pianoPedalBeats&&n.pianoPedalBeats>0).map(n=>({start:n.start,end:n.start+n.pianoPedalBeats!})).sort((a,b)=>a.start-b.start);
+ for(const n of notes){
+  const g=n.pianoGlissando;
+  const pitches=g?pianoGlissandoPitches(n.pitch+transpose,n.pitch+g.interval+transpose,g.keys).map(p=>p-transpose):[];
+  if(!g||pitches.length<2){attacks.push({...n});continue;}
+  const step=g.beats/(pitches.length-1);
+  for(let i=0;i<pitches.length;i++){
+   const pitch=pitches[i],start=n.start+i*step;
+   if(i>0&&notes.some(other=>other!==n&&other.pitch===pitch&&Math.abs(other.start-start)<1e-5))continue;
+   attacks.push({...n,pianoGlissando:undefined,pianoPedalBeats:undefined,pitch,start,duration:i===pitches.length-1?Math.min(.25,step):step,gate:.85,xmlTieContinuation:undefined});
+  }
+ }
+ const sorted=attacks.sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+ for(const n of sorted){
+  const release=n.start+noteSoundingDuration(n);
+  const active=pedals.filter(p=>p.start<=release+1e-7&&p.end>release+1e-7).at(-1);
+  if(!active)continue;
+  const nextAttack=sorted.find(other=>other.pitch===n.pitch&&other.start>n.start+1e-7);
+  const nextChange=pedals.find(p=>p.start>active.start+1e-7&&p.start<active.end);
+  const end=Math.min(active.end,nextChange?.start??Infinity,nextAttack?.start??Infinity);
+  if(end>release){n.duration=Math.max(n.duration,end-n.start);n.gate=(end-n.start)/n.duration;}
+ }
+ return sorted;
+}
+export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infinity,transpose=0):Note[]{
+ const tied=tiedPlaybackNotes(notes);
+ const sounding=tied.some(n=>n.pianoGlissando||n.pianoPedalBeats)?pianoPlaybackNotes(tied,transpose):tied;
+ return sounding.flatMap(n=>{
   const audibleEnd=n.start+noteSoundingDuration(n);
   if(audibleEnd<=start+1e-7||n.start>=end-1e-7)return [];
   if(n.start>=start&&n.start+n.duration<=end)return [n];

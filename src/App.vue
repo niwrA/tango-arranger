@@ -1534,7 +1534,7 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
       const currentScore=score.value;
        if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
       for(const inst of INSTRUMENTS){
-        const events=measureLoopEvents(playbackNotesInRange(currentScore[inst]??[],first*project.value.beats,(last+1)*project.value.beats),b,project.value.beats,project.value.bpm,
+        const events=measureLoopEvents(playbackNotesInRange(currentScore[inst]??[],first*project.value.beats,(last+1)*project.value.beats,playbackTranspose),b,project.value.beats,project.value.bpm,
           playbackTranspose,project.value.expressionRanges??[],inst,project.value,true);
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
@@ -2498,6 +2498,7 @@ function noteAttackMark(n:Note):string{
 function gestureText(n:Note):string{
  return [n.approachSlideFrom!==undefined?'port. '+midiName(n.approachSlideFrom)+' → '+midiName(n.pitch):'',
  n.gesture?gestureLabel(n.gesture):n.slideTo!==undefined?'slide → '+midiName(n.slideTo):'',
+ n.pianoGlissando?'gliss. → '+midiName(n.pitch+n.pianoGlissando.interval):'',n.pianoPedalBeats?'Ped. '+n.pianoPedalBeats+' beats':'',
  n.vibrato?'vibrato':''].filter(Boolean).join(' · ');
 }
 function gestureMini(n:Note,voice:'primary'|'partner'='primary'):string{
@@ -3913,7 +3914,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
     let noteCount=0,firstAttack=Infinity;
     // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
     // This is a guide tone, not sung or synthesized speech.
-    for(const inst of projectInstruments(project.value)){for(const n of playbackNotesInRange(score.value[inst]??[],window.startBeat,project.value.bars.length*project.value.beats)){
+    for(const inst of projectInstruments(project.value)){for(const n of playbackNotesInRange(score.value[inst]??[],window.startBeat,project.value.bars.length*project.value.beats,project.value.transposeSemitones??0)){
       // Musical tick positions preserve event timing when rehearsal speed is
       // changed mid-performance (unlike precomputed absolute seconds).
       const seconds=arrangementEventTime(n.start,window);
@@ -4001,7 +4002,7 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
       }
     }else{
       const inst=instrument??overviewInstrument.value;
-      for(const n of playbackNotesInRange(score.value[inst]??[],startBeat,(to+1)*beats)){
+      for(const n of playbackNotesInRange(score.value[inst]??[],startBeat,(to+1)*beats,project.value.transposeSemitones??0)){
         if(n.start<startBeat-1e-7||n.start>=(to+1)*beats)continue;
         const cueBeat=n.start-startBeat;
         const durationBeats=noteSoundingDuration(n);
@@ -4046,7 +4047,7 @@ async function toggleNoteLoop(){
       const bar=range.from+(loopPass++%(range.to-range.from+1));
       Tone.getDraw().schedule(()=>{if(session===noteLoopSession&&noteLoopPlaying.value)noteLoopMeasure.value=bar;},time);
       // Read the current score at the start of every pass, including manual edits.
-      const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
+      const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats,project.value.transposeSemitones??0),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
       for(const event of events){
         if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
@@ -4088,6 +4089,11 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
 }
 function auditionEvent(note:Note){
   if(!auditionEnabled.value)return;
+  if(note.pianoGlissando||note.pianoPedalBeats){
+    void startAudioFromGesture().then(tone=>{Tone=tone;const transpose=project.value.transposeSemitones??0,seconds=60/project.value.bpm;
+      for(const attack of playbackNotesInRange([note],note.start,Infinity,transpose))triggerInstrument(noteInst.value,attack.pitch+transpose,noteSoundingDuration(attack)*seconds,Tone.now()+(attack.start-note.start)*seconds,noteSoundingVelocity(attack)/127);
+    }).catch(error=>{message.value='Piano audition unavailable: '+String(error);});return;
+  }
   if(note.gesture||note.slideTo!==undefined||note.swellTo!==undefined){
     void startAudioFromGesture().then(tone=>{Tone=tone;playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{
       pitch:note.pitch+(project.value.transposeSemitones??0),
@@ -5327,6 +5333,27 @@ const selectedStringSuggestion=computed(()=>{
  const string=noteStringRows.value.filter(s=>s.midi<=note.pitch).sort((a,b)=>Number(b.midi===note.stringMidi)-Number(a.midi===note.stringMidi)||b.midi-a.midi)[0];
  return string?{stringMidi:string.midi,position:'',finger:(string.midi===note.pitch?'0':'1') as '0'|'1'}:null;
 });
+function updatePianoExpression(field:'target'|'keys'|'beats'|'pedal',raw:string){
+ const old=selectedEvent.value;if(!old||instrumentFamily(noteInst.value)!=='Piano')return;
+ const events=noteMeasure.value.map(n=>({...n})),next={...old};
+ const remaining=project.value.bars.length*project.value.beats-old.start;
+ try{
+  if(field==='pedal'){
+   const beats=Number(raw);if(!Number.isFinite(beats)||beats<0||beats>remaining)throw Error('Pedal duration must fit within the song');
+   if(beats===0)delete next.pianoPedalBeats;else next.pianoPedalBeats=beats;
+  }else if(field==='target'&&raw==='')delete next.pianoGlissando;
+  else{
+   const g={...(old.pianoGlissando??{interval:old.pitch<=96?12:-12,keys:'white' as const,beats:Math.min(old.duration,remaining)})};
+   if(field==='target')g.interval=Number(raw)-old.pitch;
+   if(field==='keys')g.keys=raw as typeof g.keys;
+   if(field==='beats')g.beats=Number(raw);
+   next.pianoGlissando=g;
+  }
+  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events.map((n,i)=>i===noteSelected.value?next:n));
+  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
+  message.value='Piano expression saved as a protected edit.';
+ }catch(error){message.value=String(error);}
+}
 function updateSelectedFingering(field:'stringMidi'|'handPosition'|'finger',raw:string){
  if(!selectedEvent.value)return;
  const notes=noteMeasure.value.map(n=>({...n}));
@@ -6973,6 +7000,18 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
        <label v-if="noteInst.startsWith('Violin')"><input type="checkbox" :checked="selectedEvent.vibrato??false" @change="updateSelectedNote('vibrato',String(($event.target as HTMLInputElement).checked))"/> Mark vibrato (notation only)</label>
        <label v-if="slideSupported">Slide to pitch (MIDI)<select :value="selectedEvent.slideTo??'inherit'" @change="updateSelectedNote('slideTo',($event.target as HTMLSelectElement).value)"><option value="inherit">No slide</option><option v-for="pitch in Array.from({length:noteCtx.range[1]-noteCtx.range[0]+1},(_,i)=>i+noteCtx.range[0])" :key="pitch" :value="pitch">{{displayPitch(pitch)}} ({{pitch}})</option></select></label>
 
+      <div v-if="instrumentFamily(noteInst)==='Piano'" class="tango-gesture-editor" aria-label="Piano glissando and sustain pedal">
+        <h4>Piano expression</h4>
+        <label>Glissando destination<select :value="selectedEvent.pianoGlissando?selectedEvent.pitch+selectedEvent.pianoGlissando.interval:''" @change="updatePianoExpression('target',($event.target as HTMLSelectElement).value)">
+          <option value="">None</option><option v-for="pitch in Array.from({length:88},(_,i)=>21+i)" :key="pitch" :value="pitch" :disabled="pitch===selectedEvent.pitch">{{displayPitch(pitch)}}</option>
+        </select></label>
+        <template v-if="selectedEvent.pianoGlissando">
+          <label>Keyboard sweep<select :value="selectedEvent.pianoGlissando.keys" @change="updatePianoExpression('keys',($event.target as HTMLSelectElement).value)"><option value="white">White keys</option><option value="black">Black keys</option><option value="chromatic">Chromatic</option></select></label>
+          <label>Time to destination (quarter beats)<input type="number" min="0.125" step="0.125" :value="selectedEvent.pianoGlissando.beats" @change="updatePianoExpression('beats',($event.target as HTMLInputElement).value)"/></label>
+        </template>
+        <label>Sustain pedal from this note (quarter beats, 0 = off)<input type="number" min="0" step="0.25" :value="selectedEvent.pianoPedalBeats??0" @change="updatePianoExpression('pedal',($event.target as HTMLInputElement).value)"/></label>
+        <small class="hint">The sweep may cross both staves. A new pedal marking releases and re-engages an existing pedal. Written note lengths remain unchanged.</small>
+      </div>
       <div v-if="slideSupported" class="tango-gesture-editor" aria-label="Tango gestures">
         <label>Expressive gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)">
           <option value="">No special gesture</option>
