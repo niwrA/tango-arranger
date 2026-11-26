@@ -526,9 +526,6 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
    </div>
    <div v-if="listening&&!demoPlaying&&!autoTuner" class="learn-active-bars">
-    <div class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
-     <div class="learn-bar-content"><span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong></div>
-    </div>
     <div class="learn-hold-track" role="progressbar" aria-label="Correct pitch held for required duration" :aria-valuenow="Math.round(heldProgress*100)" aria-valuemin="0" aria-valuemax="100">
      <span class="learn-hold-fill" aria-hidden="true" :style="{width:(heldProgress*100)+'%'}"></span>
      <div class="learn-bar-content"><span>Note length<span v-if="current"> · {{Math.round(requiredHoldMs)}} ms</span></span><strong>{{Math.round(heldProgress*100)}}%</strong></div>
@@ -980,34 +977,28 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-tuner-title{justify-content:flex-start}
 @media(max-width:700px){.learn-tuner-title .learn-tuner-pitch{flex-basis:9.5em;width:9.5em}}
 
-/* Large live practice indicators; keep the compact chromatic meter intact. */
-.learn-active-bars{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:6px;min-width:0}
-.learn-active-bars>.learn-hold-track,.learn-active-bars>.learn-live-feedback,.learn-active-bars>.learn-detected-pitch{position:relative;grid-column:auto;display:flex;align-items:stretch;align-self:stretch;padding:0;min-width:0;min-height:clamp(96px,12dvh,136px);height:auto;overflow:hidden;border:1px solid #526c7d;border-radius:8px;background:#253b4b;box-sizing:border-box}
+/* Two compact, full-height feedback bars with text over the live fills. */
+.learn-active-bars{--live-bar-height:clamp(44px,6dvh,68px);grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;min-width:0}
+.learn-active-bars>.learn-hold-track,.learn-active-bars>.learn-live-feedback{position:relative;grid-column:auto;display:flex;align-items:stretch;align-self:stretch;padding:0;gap:0;min-width:0;height:var(--live-bar-height);overflow:hidden;border:1px solid #526c7d;border-radius:7px;background:#253b4b;box-sizing:border-box}
 .learn-active-bars .learn-hold-fill{position:absolute;inset:0 auto 0 0;height:100%;background:#39765f}
-.learn-bar-content{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px;text-align:center;overflow-wrap:anywhere;color:#e6eff6;font-size:12px;font-variant-numeric:tabular-nums}
-.learn-bar-content>strong{font-size:clamp(18px,2.5vw,26px);line-height:1.15;color:inherit}
-.learn-active-bars>.learn-detected-pitch.pitch-matched{background:#235447;border-color:#8ad9af}
-.learn-active-bars>.learn-live-feedback{flex-direction:column;gap:0;padding:0 6px 4px}
-.learn-active-bars>.learn-live-feedback .learn-bar-content{padding:4px 0;gap:1px}
+.learn-bar-content{position:relative;z-index:2;flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:0 3px;text-align:center;color:#fff;font-variant-numeric:tabular-nums;pointer-events:none;text-shadow:0 1px 3px #101820,0 0 4px #101820}
+.learn-bar-content>strong{font-size:calc(var(--live-bar-height)*.76);line-height:1;font-weight:800;white-space:nowrap;color:inherit}
+.learn-active-bars .learn-bar-content>span,.learn-live-pitch-ends{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .learn-active-bars>.learn-live-feedback.is-correct{border-color:#69d5a1}
-.learn-pitch-comparison{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:0 3px}
-.learn-pitch-mismatch{color:#ffb79b}
-.learn-live-pitch-scale{position:relative;flex:1 0 16px;min-height:16px;max-height:36px;border-radius:5px;background:linear-gradient(90deg,#b34b46 0%,#b58a42 25%,#38865d 50%,#b58a42 75%,#b34b46 100%);opacity:.45;overflow:hidden}
+.learn-pitch-comparison{display:flex;align-items:center;justify-content:center;gap:3px}
+.learn-pitch-mismatch{color:#ffcfb9}
+.learn-live-pitch-scale{position:absolute;inset:0;border-radius:inherit;background:linear-gradient(90deg,#963e39 0%,#987335 25%,#30744e 50%,#987335 75%,#963e39 100%);opacity:.4;overflow:hidden}
 .learn-live-pitch-scale.has-pitch{opacity:1}
 .learn-live-pitch-window{position:absolute;inset-block:0;border-inline:1px dashed #e1f5e8;background:#d3ffe51a}
 .learn-live-pitch-center{position:absolute;inset-block:0;left:50%;width:1px;background:#e1f5e8}
-.learn-live-pitch-marker{position:absolute;inset-block:0;width:5px;max-width:100%;border:1px solid #fff;border-radius:2px;box-shadow:0 0 4px #000;box-sizing:border-box;transform:translateX(-50%);transition:left 65ms linear,background-color 65ms linear}
-.learn-live-pitch-ends{display:flex;justify-content:space-between;gap:2px;color:#c5d5df;font-size:10px;line-height:1.2;font-variant-numeric:tabular-nums}
-
-/* Compact live feedback on phones; retain accessible labels without visual clutter. */
+.learn-live-pitch-marker{position:absolute;inset-block:0;width:6px;max-width:100%;border:1px solid #fff;border-radius:2px;box-shadow:0 0 4px #000;box-sizing:border-box;transform:translateX(-50%);transition:left 65ms linear,background-color 65ms linear}
+.learn-active-bars>.learn-live-feedback .learn-bar-content>strong:not(.learn-pitch-comparison){font-size:calc(var(--live-bar-height)*.48)}
 @media(max-width:650px), (max-height:500px) and (pointer:coarse){
- .learn-active-bars{gap:4px}
- .learn-active-bars>.learn-hold-track,.learn-active-bars>.learn-live-feedback,.learn-active-bars>.learn-detected-pitch{min-height:52px}
- .learn-active-bars .learn-bar-content{padding:3px;gap:0}
- .learn-active-bars .learn-bar-content>span,.learn-active-bars .learn-live-pitch-ends{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
- .learn-active-bars .learn-bar-content>strong{font-size:clamp(14px,4vw,18px)}
- .learn-active-bars>.learn-live-feedback{padding:0 4px 4px}
- .learn-active-bars>.learn-live-feedback .learn-bar-content{padding:3px 0}
- .learn-active-bars .learn-live-pitch-scale{flex:0 0 12px;min-height:12px;max-height:12px}
+ .learn-active-bars{--live-bar-height:30px;gap:4px}
+ .learn-active-bars .learn-bar-content>strong{font-size:23px}
+ .learn-active-bars>.learn-live-feedback .learn-bar-content>strong:not(.learn-pitch-comparison){font-size:16px}
+}
+@media(max-width:360px){
+ .learn-active-bars .learn-pitch-comparison{font-size:19px;gap:2px}
 }
 </style>
