@@ -54,7 +54,7 @@ import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as planne
 import {playExpressiveEvent} from './expressiveAudio';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
-import {arcoBank,canUseArcoSample} from './openSampleBanks';
+import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
@@ -3916,8 +3916,8 @@ function sampleName(inst:string):string{
  const n=inst.toLowerCase();
  return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'harmonium':n.includes('voice')?'harmonium':'piano';
 }
-function loadSamples(inst:string,pizzicato=false):Promise<boolean>{
- const bank=pizzicato?pizzicatoBank(inst):arcoBank(inst);
+function loadSamples(inst:string,pizzicato=false,legacyPiano=false):Promise<boolean>{
+ const bank=pizzicato?pizzicatoBank(inst):arcoBank(inst)??(!legacyPiano&&openPianoAvailable?openPianoBank(inst,import.meta.env.BASE_URL):undefined);
  if(pizzicato&&!bank)return Promise.resolve(true);
  const players=pizzicato?pizzicatoPlayers:samplePlayers,key=inst+(pizzicato?':pizzicato':'');
  if(players.has(inst))return Promise.resolve(true);
@@ -3932,11 +3932,16 @@ function loadSamples(inst:string,pizzicato=false):Promise<boolean>{
    player.volume.value=-5+instrumentGainDb(inst);
   }catch{finish(false);}
  });
- samplePending.set(key,promise);void promise.then(ok=>{if(!ok)samplePending.delete(key);});return promise;
+ const result=promise.then(ok=>{if(!ok){samplePending.delete(key);if(!pizzicato&&!legacyPiano&&openPianoAvailable&&openPianoBank(inst,import.meta.env.BASE_URL))return loadSamples(inst,false,true);}return ok;});
+ samplePending.set(key,result);return result;
 }
+let openPianoAvailable=false;
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
  sampleStatus.value='Loading samples…';
+ if(instruments.some(inst=>inst.toLowerCase().includes('piano'))&&!openPianoAvailable){
+  try{const response=await fetch(import.meta.env.BASE_URL+'samples/open-piano/manifest.json',{signal:AbortSignal.timeout(2000)});const manifest=response.ok?await response.json():null;openPianoAvailable=manifest?.source==='VCSL Steinway B'&&manifest?.version===1;}catch{ /* optional assets: retain legacy piano */ }
+ }
  const results=await Promise.all(instruments.flatMap(inst=>[loadSamples(inst),...(pizzicatoBank(inst)?[loadSamples(inst,true)]:[])]));
  sampleStatus.value=results.every(Boolean)?'Sampled instruments ready':results.some(Boolean)?'Some samples unavailable; using synth fallback':'Samples unavailable; using synth fallback';
 }

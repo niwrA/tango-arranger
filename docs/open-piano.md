@@ -1,0 +1,5 @@
+# Optional CC0 piano bank
+
+Run `node scripts/prepare-open-piano.mjs` from the repository with Node 20+ and ffmpeg (libmp3lame). This downloads 14 verified source anchors from [VCSL Steinway B](https://github.com/sgossner/VCSL), pinned to c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e, and encodes 128 kbps MP3s into public/samples/open-piano. A manifest is published only after successful conversion. CC0-1.0 ([license](https://github.com/sgossner/VCSL/blob/master/LICENSE)). Source recordings retain their original pitch labels; pitch accuracy and audible quality still need checking. The first bank uses a single velocity layer and six-semitone anchor spacing; no pedal or release samples. No normalization is applied.
+
+The application checks for the optional manifest and retains the existing piano when absent or when loading fails. Generated audio is not yet committed. Run the preparation script before a build to test the new bank. Test loading, tuning, note tails, dynamics and iPad playback before deploying.

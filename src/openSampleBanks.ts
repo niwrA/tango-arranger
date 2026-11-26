@@ -19,3 +19,12 @@ export function arcoBank(inst:string){
 export function canUseArcoSample(inst:string,duration:number):boolean{
  return Number.isFinite(duration)&&duration>0&&duration<=(inst.toLowerCase().includes('violin')?2:inst.toLowerCase().includes('bass')?1.2:0);
 }
+
+/** VCSL Steinway B, CC0; generated compact MP3 assets (see scripts/prepare-open-piano.mjs).
+ * One middle dynamic layer, close microphone, no sustain pedal.
+ */
+export const pianoAnchors=['A#0','E1','A#1','E2','A#2','E3','A#3','E4','A#4','E5','A#5','E6','A#6','E7'] as const;
+export function openPianoBank(inst:string,baseUrl:string){
+ if(!inst.toLowerCase().includes('piano'))return undefined;
+ return {baseUrl:baseUrl+'samples/open-piano/',urls:Object.fromEntries(pianoAnchors.map(p=>[p,p.replace('#','s')+'.mp3']))};
+}

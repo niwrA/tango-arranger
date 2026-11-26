@@ -35,6 +35,9 @@ check('CC0 arco banks use original pitch anchors and bounded finite playback',()
  assert.equal(open.arcoBank('Contrabass').urls['D#1'],'eb1_vl3_down.wav');
  assert.equal(open.arcoBank('Bandoneon I'),undefined);
  assert.equal(open.arcoBank('Piano'),undefined);
+ assert.equal(open.openPianoBank('Piano','/').urls['A#0'],'As0.mp3');
+ assert.equal(open.openPianoBank('Piano','/app/').baseUrl,'/app/samples/open-piano/');
+ assert.equal(open.openPianoBank('Bandoneon I','/'),undefined);
  assert.equal(open.canUseArcoSample('Violin I',1),true);
  assert.equal(open.canUseArcoSample('Violin I',3),false);
  assert.equal(open.canUseArcoSample('Contrabass',2),false);
