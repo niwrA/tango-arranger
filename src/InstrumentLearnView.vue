@@ -1089,33 +1089,33 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 <style scoped>
 /* Keep the score as the full-size foreground and the diagram as a compact
    backing layer at the bottom, rather than stretching the diagram to the score. */
-.learn-display-overlay>.learn-diagram{
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram{
  align-self:end;align-items:flex-end;justify-content:center;height:auto;min-height:0;
  max-height:100%;padding:3px 6px;overflow:hidden;
 }
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn){
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn){
  height:auto;min-height:0;width:100%;max-width:none;align-self:end;justify-content:flex-end;
  padding:0;gap:2px;
 }
-.learn-display-overlay>.learn-diagram :deep(.diagram-visual-stage){
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.diagram-visual-stage){
  flex:0 0 auto;height:auto;min-height:0;align-items:flex-end;
 }
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){
  height:auto;min-height:0;max-height:none;flex:0 0 auto;width:100%;
  grid-auto-rows:auto;align-content:end;justify-content:flex-end;gap:2px;padding:3px;
 }
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-row){
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-row){
  min-height:0;height:clamp(20px,3.2dvh,30px);gap:3px;flex:0 0 auto;
 }
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-stop-header){
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-stop-header){
  height:16px;min-height:16px;line-height:16px;
 }
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop),
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-open-label){
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop),
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-open-label){
  height:100%;min-height:0;max-height:100%;
 }
-.learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
-.learn-display-overlay>.learn-diagram :deep(.diagram-open-label strong){font-size:clamp(12px,2.2dvh,22px)}
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
+:is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.diagram-open-label strong){font-size:clamp(12px,2.2dvh,22px)}
 </style>
 
 <style scoped>
@@ -1136,5 +1136,17 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
  .learn-tuner.is-live-practice .learn-mic-row small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
  .learn-tuner.is-live-practice .learn-bar-content>strong{font-size:25px}
  .learn-tuner.is-live-practice .learn-live-feedback .learn-bar-content>strong:not(.learn-pitch-comparison){font-size:18px}
+}
+</style>
+
+<style scoped>
+/* In split mode the score takes the remaining height; the diagram only
+   takes its intrinsic compact height. Keep wide landscape splits side by side. */
+.learn-display-combined{grid-template-rows:minmax(180px,1fr) auto}
+.learn-display-combined>.learn-diagram{align-self:end}
+.learn-display-combined :deep(.diagram-measure-chords),
+.learn-display-combined :deep(.diagram-upcoming-measure){display:none}
+@media(min-width:900px) and (orientation:landscape){
+ .learn-display-combined{grid-template-rows:minmax(0,1fr)}
 }
 </style>
