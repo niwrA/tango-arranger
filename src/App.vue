@@ -3705,6 +3705,8 @@ async function importFile(e:Event){
     pendingEnsemble.value=[];
     pending.value=[];pendingChords.value=[];pendingKeys.value=[];
     pendingParsed.value=null;pendingSourceName.value='';pendingSourceXml.value='';
+    if(importContext.value==='project'&&!/\.tango(?:\.json|\.zip)?$/i.test(file.name))throw Error('Choose a portable Tango project');
+    if(importContext.value!=='project'&&/\.tango(?:\.json|\.zip)?$/i.test(file.name))throw Error('Open portable projects from File');
     if(files.length>1){
       if(files.some(f=>/\.tango(?:\.json|\.zip)?$/i.test(f.name)))throw Error('Choose score files only for ensemble import');
       pendingEnsemble.value=await Promise.all(files.map(async f=>({name:f.name,parsed:(await readScoreImport(f)).parsed})));
@@ -3717,7 +3719,7 @@ async function importFile(e:Event){
       const result=await readScoreImport(file),parsed=result.parsed;
       pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=result.sourceXml;
       pending.value=parsed.parts.map(part=>({name:part.name,notes:part.notes}));
-      pendingChords.value=parsed.chords;pendingKeys.value=parsed.keys;importMode.value='merge';
+      pendingChords.value=parsed.chords;pendingKeys.value=parsed.keys;importMode.value=importContext.value==='lead'?'melody':'merge';
       message.value=`Parsed ${parsed.measureCount} measures and ${parsed.parts.length} ${result.format.toUpperCase()} part(s). Review alignment, protected notes and optional harmony suggestions before applying.`;
     }
     if(pending.value.length)importDialogOpen.value=true;
@@ -3780,7 +3782,10 @@ function revertMusicXmlMerge(){
  }catch(error){message.value='Unable to restore merge backup: '+String(error);}
 }
 function closeSongSettings(){projectDrawerOpen.value=false;}
-function closeImportDialog(){pendingEnsemble.value=[];importDialogOpen.value=false;pending.value=[];pendingChords.value=[];pendingKeys.value=[];pendingParsed.value=null;pendingSourceName.value='';pendingSourceXml.value='';}
+const importContext=ref<'project'|'lead'|'arrange'|'instrument'>('arrange');
+const importDestination=ref<Instrument>();
+function openContextImport(context:typeof importContext.value,destination?:Instrument){closeImportDialog();importContext.value=context;importDestination.value=destination;importMode.value=context==='lead'?'melody':'merge';selectedTrack.value=0;importDialogOpen.value=true;}
+function closeImportDialog(){importContext.value='arrange';importDestination.value=undefined;pendingEnsemble.value=[];importDialogOpen.value=false;pending.value=[];pendingChords.value=[];pendingKeys.value=[];pendingParsed.value=null;pendingSourceName.value='';pendingSourceXml.value='';}
 function trapModalTab(event:KeyboardEvent){
   if(event.key!=='Tab')return;
   const root=event.currentTarget as HTMLElement;
@@ -5540,38 +5545,25 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
         <div class="files-action-group">
           <strong class="files-group-title">File · Current song</strong>
-          <button type="button" class="secondary" @click="newSongOpen=true"><AppIcon name="file-plus-2"/> New blank song…</button>
-          <label>Open a saved song
+          <button type="button" class="secondary" @click="newSongOpen=true"><AppIcon name="file-plus-2"/> New song…</button>
+          <button type="button" class="secondary" @click="openContextImport('project')">Open project file…</button>
+           <label>Open locally saved song…
             <select aria-label="Open song from local library" :value="localSongId" :disabled="!libraryReady" @change="openLocalSong(($event.target as HTMLSelectElement).value);($event.target as HTMLSelectElement).closest('details.topbar-menu')?.removeAttribute('open')">
               <option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option>
             </select>
           </label>
           <button type="button" class="secondary" :disabled="!libraryReady" @click="saveNow"><AppIcon name="save"/> Save current song</button>
           <button type="button" class="secondary" :disabled="!libraryReady" @click="duplicateLocalSong"><AppIcon name="copy"/> Duplicate current song</button>
-          <button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song…</button>
+
         </div>
         <div class="files-action-group">
           <strong class="files-group-title">Local storage &amp; backups</strong>
           <p class="files-group-help">Songs are saved in this browser. Export a portable backup to move a project to another device.</p>
-          <button type="button" class="secondary" @click="saveCompressedProject"><AppIcon name="archive"/> Download project backup (.tango.zip)</button>
-          <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Download project backup (.tango.json)</button>
+          <button type="button" class="secondary" @click="saveCompressedProject"><AppIcon name="archive"/> Save as compressed project (.tango.zip)</button>
+          <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Save as JSON (.tango.json)</button>
           <span v-if="/fail|unavailable|error/i.test(saveStatus)" class="header-save-status" role="alert">{{saveStatus}}</span>
-        </div>
-      </div>
-    </details>
-  </div>
-  <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
-  <div v-if="!performanceMode" class="topbar-group topbar-files" role="group" aria-label="Import and export">
-    <details class="topbar-menu files-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
-      <summary class="icon-action files-summary" title="Import and export songs and notation" aria-label="Import and export"><AppIcon name="arrow-left-right"/><span class="files-label">Import / Export</span><AppIcon name="chevron-down"/></summary>
-      <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Import and export">
-        <div class="files-action-group">
-          <strong class="files-group-title">Import</strong>
-          <button type="button" class="secondary" @click="importDialogOpen=true"><AppIcon name="upload"/> Import project, MusicXML or MIDI…</button>
-          <button v-if="project.importMergeBackup" type="button" class="secondary" @click="revertMusicXmlMerge"><AppIcon name="refresh-cw"/> Undo last MusicXML merge</button>
-        </div>
-        <div class="files-action-group">
-          <strong class="files-group-title">Export · Notation software</strong>
+         </div>
+         <details class="files-action-group"><summary>Export…</summary>
           <button type="button" class="secondary" @click="exportXml"><AppIcon name="file-down"/> MusicXML (.musicxml)</button>
           <button type="button" class="secondary" @click="exportMxl"><AppIcon name="file-down"/> Compressed MusicXML (.mxl)</button>
           <button type="button" class="secondary" @click="exportMscz()"><AppIcon name="file-down"/> MuseScore (.mscz) · experimental</button>
@@ -5582,20 +5574,16 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
             </select>
           </label>
           <button type="button" class="secondary" @click="exportDifficultyEditionPack"><AppIcon name="file-down"/> Difficulty editions (.zip)</button>
-        </div>
-        <div class="files-action-group">
-          <strong class="files-group-title">Export · Players &amp; print</strong>
           <button type="button" class="secondary" @click="exportAbcLead"><AppIcon name="file-down"/> ABC lead sheet</button>
           <button type="button" class="secondary" @click="exportForMobileSheets"><AppIcon name="file-down"/> MobileSheets parts (.zip)</button>
-        </div>
-        <div class="files-action-group">
-          <strong class="files-group-title">Export · Project exchange</strong>
-          <button type="button" class="secondary" @click="saveCompressedProject"><AppIcon name="archive"/> Portable project (.tango.zip)</button>
-          <button type="button" class="secondary" @click="saveProject(project)"><AppIcon name="archive"/> Portable project (.tango.json)</button>
+         </details>
+         <div class="files-action-group">
+          <button type="button" class="secondary danger" :disabled="!libraryReady" @click="deleteCurrentLocalSong"><AppIcon name="trash"/> Delete current song…</button>
         </div>
       </div>
     </details>
   </div>
+  <div v-if="!performanceMode" class="topbar-group topbar-arrange" role="group" aria-label="Orchestration generation"><button class="primary icon-action generate-action" type="button" title="Generate or regenerate orchestra; preserve protected manual measures" aria-label="Generate orchestra" @click="regenerate"><AppIcon name="refresh-cw"/><span class="generate-label">Generate</span></button></div>
   <div v-if="!performanceMode&&['lead','arrange','rhythm','notes'].includes(active)" class="topbar-group topbar-measure-tools" role="group" aria-label="Editing operations">
     <button type="button" class="icon-action measure-taskbar-trigger" :class="measurePanelOpen?'primary':'secondary'" title="Measure tools · copy, paste and move" aria-label="Open measure copy, paste and move tools" :aria-expanded="measurePanelOpen" @click="toggleMeasureEditTools"><AppIcon name="clipboard-copy"/><span class="measure-tool-label">Measures</span></button>
   </div>
@@ -5661,14 +5649,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 <div v-if="importDialogOpen" class="app-modal-backdrop" @click.self="closeImportDialog" @keydown.esc.stop.prevent="closeImportDialog" @keydown.tab="trapModalTab">
   <section id="import-workflow-modal" class="app-modal" :class="{'musicxml-merge-modal':(importMode==='merge'&&pendingParsed)||pendingEnsemble.length}" role="dialog" aria-modal="true" aria-labelledby="import-workflow-title">
-    <div class="app-modal-heading"><div><h2 id="import-workflow-title">Import &amp; MuseScore round-trip</h2><p>Open a portable song, a melody, or an edited score.</p></div><button class="secondary icon-action modal-close" type="button" title="Close import" aria-label="Close import" @click="closeImportDialog"><AppIcon name="x"/></button></div>
+    <div class="app-modal-heading"><div><h2 id="import-workflow-title">{{importContext==='project'?'Open project file':importContext==='lead'?'Import lead sheet':importContext==='instrument'?'Import instrument part':'Import / merge instrument parts'}}</h2><p>{{importContext==='project'?'Open a portable song as a separate local song.':'Review musical material before applying it to the current song.'}}</p></div><button class="secondary icon-action modal-close" type="button" title="Close import" aria-label="Close import" @click="closeImportDialog"><AppIcon name="x"/></button></div>
     <div class="app-modal-content">
-      <label class="file-picker">Choose one or more MusicXML / MIDI files, or one portable song<input type="file" multiple accept=".tango,.tango.zip,.json,.xml,.musicxml,.mid,.midi" @change="importFile"/></label>
+      <label class="file-picker">{{importContext==='project'?'Choose a portable song':'Choose MusicXML / MIDI score files'}}<input type="file" :multiple="importContext==='arrange'" :accept="importContext==='project'?'.tango,.tango.zip,.json':'.xml,.musicxml,.mxl,.mid,.midi'" @change="importFile"/></label>
       <EnsembleImportReview v-if="pendingEnsemble.length" :project="project" :files="pendingEnsemble" @apply="applyEnsembleImport" @cancel="closeImportDialog"/>
       <div v-else-if="pending.length" class="import-panel" aria-label="Import track selection">
         <p class="hint">{{pending.length}} part(s) detected. Choose how to apply them.</p>
         <label>Import as<select v-model="importMode"><option v-if="pendingParsed" value="merge">Align &amp; merge (review before applying)</option><option value="melody">Melody only (legacy)</option><option value="score">Edited full score (legacy positional import)</option></select></label>
-        <MusicXmlMergeReview v-if="importMode==='merge'&&pendingParsed" :project="project" :parsed="pendingParsed" :source-name="pendingSourceName" @apply="applyMusicXmlMerge" @reference="keepMusicXmlReference" @cancel="closeImportDialog"/>
+        <MusicXmlMergeReview v-if="importMode==='merge'&&pendingParsed" :project="project" :parsed="pendingParsed" :source-name="pendingSourceName" :initial-instrument="importDestination" @apply="applyMusicXmlMerge" @reference="keepMusicXmlReference" @cancel="closeImportDialog"/>
         <label v-if="importMode==='melody'">Track<select v-model.number="selectedTrack"><option v-for="(track,i) in pending" :key="i" :value="i">{{track.name}} ({{track.notes.length}} notes)</option></select></label>
         <button v-if="importMode!=='merge'" type="button" class="primary" @click="applyImport">Apply legacy import</button>
       </div>
@@ -6187,6 +6175,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </details>
 
 <div class="lead-command-bar" role="group" aria-label="Lead sheet controls">
+  <button type="button" class="secondary" @click="openContextImport('lead')">Import lead sheet…</button>
   <div class="lead-display-switch" role="group" aria-label="Lead sheet view">
     <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Edit measures</button>
     <button type="button" :class="leadDisplayMode==='sheet'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='sheet'" @click="leadDisplayMode='sheet'">Readable leadsheet</button>
@@ -6280,6 +6269,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" class="secondary orchestration-more-button" aria-label="Orchestration tools and selected measure actions" aria-controls="orchestration-tools-popup" :aria-expanded="orchestrationToolsOpen" @click="orchestrationToolsOpen=!orchestrationToolsOpen">⋯ <span>Tools</span></button>
       <div v-if="orchestrationToolsOpen" id="orchestration-tools-popup" class="orchestration-tools-popup" role="group" aria-label="Orchestration tools">
         <strong>{{rosterDisplayName(overviewInstrument)}} · measures {{overviewStart}}–{{overviewEnd}}</strong>
+        <button type="button" @click="openContextImport('arrange');orchestrationToolsOpen=false">Import / merge instrument parts…</button>
+        <button v-if="project.importMergeBackup" type="button" @click="revertMusicXmlMerge();orchestrationToolsOpen=false">Undo last MusicXML merge</button>
         <button type="button" @click="showOrchestrationRangeSettings">Edit selected measures</button>
         <button type="button" @click="showOrchestrationSelectedNotes">Edit selected notes</button>
         <button type="button" :aria-expanded="phrasePlannerVisible" @click="showOrchestrationPhrasePlanner">{{phrasePlannerVisible?'Close':'Open'}} phrase planner</button>
@@ -6309,6 +6300,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="instrument-context-header"><strong>{{rosterDisplayName(instrumentContext!)}} · options</strong><button type="button" class="secondary" @click="closeInstrumentContext()">✕ Close</button></div>
     <p>Measure {{overviewFocus+1}} · selected range {{overviewStart}}–{{overviewEnd}}. These shortcuts open existing tools without changing note data.</p>
     <div class="instrument-context-actions">
+      <button type="button" class="secondary" @click="openContextImport('instrument',instrumentContext!);closeInstrumentContext()">Import or replace this instrument part…</button>
       <button type="button" class="secondary" @click="openNoteEditor(instrumentContext!,overviewFocus);closeInstrumentContext()">Edit notes in selected measure</button>
       <button type="button" class="secondary" @click="overviewInstrument=instrumentContext!;openChordEditor(overviewFocus);closeInstrumentContext()">Edit measure chords</button>
       <button type="button" class="secondary" @click="openInstrumentMeasureSettings(instrumentContext!,overviewFocus);closeInstrumentContext()">Role and technique for measure(s)</button>
