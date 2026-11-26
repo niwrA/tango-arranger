@@ -4,7 +4,7 @@ import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePre
 export type EditCategory='pitch'|'duration'|'rhythm'|'expression'|'dynamics'|'articulation'|'finger'|'bow'|'position'|'timing'|'structure'|'role'|'create';
 export type EditAction={value:string;label:string;title:string};
 export type EditSelection={kind:'notes';keys:readonly string[]}|{kind:'measures';from:number;to:number};
-export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:{bar:number;beat:number;pitch:number}};
+export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;replaceExisting?:boolean;entry?:{bar:number;beat:number;pitch:number}};
 export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string};
 export const editNoteKey=(n:Note)=>n.start+':'+n.pitch;
 const action=(value:string,label:string,title=label):EditAction=>({value,label,title});
@@ -25,7 +25,7 @@ export function musicalEditActions(category:EditCategory,inst:Instrument):EditAc
  case 'timing':return [action('-.25','← ¼','Earlier'),action('.25','¼ →','Later'),action('quantize','Grid','Quantize to quarter beat'),action('short','Short','Shorten sounding length'),action('full','Full','Full sounding length')];
  case 'structure':return [action('delete','Delete'),action('split','Split'),action('repeat','Repeat')];
  case 'role':return roles.map(v=>action(v,v));
- case 'create':return [action('generate','Generate role'),action('insert','Insert note')];
+ case 'create':return [action('generate','Fill empty measures'),action('replace','Replace with role'),action('insert','Insert note')];
  }
 }
 function clearExpression(n:Note){delete n.gesture;delete n.slideTo;delete n.approachSlideFrom;delete n.stringGlissando;delete n.bowedTremolo;delete n.pianoGlissando;delete n.vibrato;delete n.swellTo;}
@@ -46,8 +46,10 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   if(notes.some(n=>n.pitch===pitch&&Math.abs(n.start-bar*beats-beat)<1e-6))throw Error('A note already exists at that onset and pitch');
   const defaults=ctx.role?{...p,measureRoles:{...p.measureRoles,[inst+':'+bar]:ctx.role}}:p;
   result=[suggestedEditorNote(defaults,inst,bar,beat,pitch,ctx.duration)];
- }else if(category==='create'&&value==='generate'||category==='role'){
+ }else if(category==='create'&&(value==='generate'||value==='replace')||category==='role'){
   if(!bars.size)throw Error('Select a measure range');
+  if(category==='create'&&value==='generate')for(const b of [...bars])if(notes.some(n=>barOf(n)===b))bars.delete(b);
+  if(!bars.size)throw Error('All selected measures already contain notes; use Replace with role explicitly');
   const overrides={...p.measureRoles};
   for(const b of bars)if(category==='role'||ctx.role)overrides[inst+':'+b]=(category==='role'?value:ctx.role) as Role;
   const temporary={...p,measureRoles:overrides,protectedBars:{...p.protectedBars}};
@@ -55,6 +57,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   const fresh=generate(temporary)[inst]??[];
   kept=notes.filter(n=>!bars.has(barOf(n)));
   result=fresh.filter(n=>bars.has(barOf(n)));
+  if(category==='role'){kept=notes.filter(n=>!bars.has(barOf(n)));result=notes.filter(n=>bars.has(barOf(n)));}
   if(category==='role')next={...next,measureRoles:overrides};
  }else if(category==='rhythm'){
   if(!chosen.length)throw Error('Select notes or measures containing notes');

@@ -14,6 +14,7 @@ const props=withDefaults(defineProps<{
   toMeasure:number;
   selectedNote?:Note;
   selectedNotes?:readonly Note[];
+  entryMode?:boolean;
   completedNotes?:readonly Note[];
   playingNotes?:readonly Note[];
   feedbackProgress?:number;
@@ -23,7 +24,7 @@ const props=withDefaults(defineProps<{
   followMeasure?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
-const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number]}>();
+const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[bar:number,beat:number,pitch:number]}>();
 
 const host=ref<HTMLElement|null>(null);
 const scoreAppearanceKey='tango-score-appearance';
@@ -312,10 +313,41 @@ function rangeUp(event:PointerEvent){
 }
 function cancelRange(){clearTimeout(rangeTimer);rangePointer=null;}
 watch(rangeMode,enabled=>{if(!enabled){selectedMeasures.value=null;paintRange();cancelRange();}});
+// Use actual rendered stave lines and existing notehead timing anchors.
+ // The empty-space entry is intentionally quantized to a quarter beat.
+function insertAtScorePoint(event:MouseEvent){
+ const measure=measureAt(event.clientX,event.clientY);if(measure===null)return;
+ const groups=scoreMeasureGroups().filter(g=>g.measure===measure);
+ const candidates=groups.flatMap(({group})=>{
+  const lines=[...group.querySelectorAll<SVGElement>('.vf-stave path,.vf-stave line')].map(el=>el.getBoundingClientRect()).filter(r=>r.width>40&&r.height<3);
+  const ys=[...new Set(lines.map(r=>Math.round((r.top+r.bottom)/2)))].sort((a,b)=>a-b);
+  if(ys.length<5)return [];
+  return [{group,ys,rect:group.getBoundingClientRect()}];
+ });
+ const staff=candidates.sort((a,b)=>Math.abs(event.clientY-a.ys[2])-Math.abs(event.clientY-b.ys[2]))[0];
+ if(!staff)return;
+ const spacing=(staff.ys[4]-staff.ys[0])/4;
+ if(spacing<=0||Math.abs(event.clientY-staff.ys[2])>spacing*6)return;
+ const anchors=[...notesByHead.entries()].filter(([head,n])=>staff.group.contains(head)&&Math.floor(n.start/props.project.beats)===measure-1);
+ // Relative diatonic mapping from a known rendered note avoids assumptions
+ // about clef, octave transposition and grand-staff ordering.
+ if(!anchors.length)return;
+ const nearest=anchors.sort(([a],[b])=>Math.abs(a.getBoundingClientRect().left-event.clientX)-Math.abs(b.getBoundingClientRect().left-event.clientX))[0];
+ const rect=nearest[0].getBoundingClientRect(),reference=nearest[1];
+ const steps=Math.round(((rect.top+rect.bottom)/2-event.clientY)/(spacing/2));
+ const diatonic=[0,2,4,5,7,9,11],pc=((reference.pitch%12)+12)%12;
+ let degree=diatonic.findIndex(p=>p===pc);if(degree<0)degree=diatonic.findIndex(p=>p===pc-1);
+ if(degree<0)return;
+ const pos=Math.floor(reference.pitch/12)*7+degree+steps;
+ const pitch=Math.floor(pos/7)*12+diatonic[((pos%7)+7)%7];
+ const beat=Math.max(0,Math.min(props.project.beats-.25,Math.round((event.clientX-staff.rect.left)/Math.max(1,staff.rect.width)*props.project.beats*4)/4));
+ emit('insertAt',measure-1,beat,pitch);
+}
 function onScoreClick(event:MouseEvent){
   if(rangeMode.value||rangeMoved||rangeHeld){rangeMoved=false;rangeHeld=false;return;}
   const head=eventHead(event);
-  if(head)chooseHead(head);
+  if(head){chooseHead(head);return;}
+  if(props.entryMode)insertAtScorePoint(event);
 }
 
 function onScoreKey(event:KeyboardEvent){
