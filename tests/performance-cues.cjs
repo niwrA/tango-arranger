@@ -86,7 +86,8 @@ check('view switch and fullscreen are in topbar and browser limitations are hand
 check('instrument diagrams default to per-beat chords and tap to switch to roles',()=>{
  assert.ok(app.includes('cardShowsDiagram(inst:Instrument)'));
  assert.ok(app.includes('flipPerformanceCard(part.inst)'));
- assert.ok(app.includes('<PerformanceChordDiagram v-if="cardShowsDiagram(part.inst)"'));
+ assert.match(app,/<PerformanceChordDiagram v-(?:if|else-if)="cardShowsDiagram\(part\.inst\)"/);
+ assert.match(app,/<PerformanceRoleCues v-else[^>]*:same-measure-chord="roleCueHarmony\.sameBar"/);
  assert.ok(app.includes(':current-beats="performanceChordBeats.current"'));
  assert.ok(app.includes(':upcoming-beats="performanceChordBeats.next"'));
  assert.ok(app.includes("'--cue-beat-glow':performanceBeatGlow"));
