@@ -8765,3 +8765,28 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
  .shell:not(.performance-live)>.app-topbar>.brand .brand-label small{display:block!important;font-size:11px}
 }
 </style>
+
+<style scoped>
+@media(max-width:760px){
+ .shell:not(.performance-live)>.app-topbar>.brand{display:flex!important;grid-area:playback!important;justify-self:end;align-self:center;z-index:1;margin:0;padding:0 2px;gap:0}
+ .shell:not(.performance-live)>.app-topbar>.brand .logo{display:none}
+ .shell:not(.performance-live)>.app-topbar>.brand strong{font-size:clamp(9px,2.5vw,13px);letter-spacing:-.2px}
+ .shell:not(.performance-live)>.app-topbar>.brand small{display:block!important;font-size:10px;text-align:right}
+ .shell:not(.performance-live)>.app-topbar>.topbar-playback{width:max-content!important;max-width:100%;justify-self:start}
+ .instrument-focus-panel.is-learning .instrument-focus-header{gap:3px 5px;padding:4px 5px}
+ .instrument-focus-panel.is-learning .instrument-focus-title{flex:1 1 0;min-width:0}
+ .instrument-focus-panel.is-learning .instrument-focus-title h2{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .instrument-focus-panel.is-learning .instrument-focus-toolbar{flex:0 0 auto;width:auto;gap:2px;flex-wrap:nowrap}
+ .instrument-focus-panel.is-learning .instrument-focus-toolbar button{min-width:34px;width:34px;min-height:38px;padding:4px}
+ .instrument-focus-panel.is-learning .instrument-focus-toolbar .playback-speed-actions{gap:2px}
+ .instrument-focus-panel.is-learning .instrument-focus-toolbar .playback-speed-summary{min-width:43px;padding:3px}
+ .instrument-focus-panel.is-learning .instrument-focus-toolbar .performance-editor-button{display:none}
+ .instrument-focus-learn-controls{flex:1 1 auto;min-width:0}
+ .instrument-focus-learn-tuner{padding-top:2px}
+}
+@media(max-width:360px){
+ .shell:not(.performance-live)>.app-topbar>.brand strong{font-size:9px}
+ .shell:not(.performance-live)>.app-topbar>.brand small{font-size:9px}
+ .instrument-focus-panel.is-learning .instrument-focus-title{flex-basis:100%}
+}
+</style>

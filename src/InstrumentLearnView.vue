@@ -570,7 +570,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
   </Teleport>
   <Teleport to="#practice-learn-tuner">
-  <div class="learn-tuner" role="region" :aria-label="autoTuner?'Automatic chromatic tuner':'Target-aware pitch tuner'">
+  <div class="learn-tuner" :class="{'is-live-practice':listening&&!demoPlaying&&!autoTuner}" role="region" :aria-label="autoTuner?'Automatic chromatic tuner':'Target-aware pitch tuner'">
    <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
      <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
      <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
@@ -579,8 +579,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     </div>
     
     <button v-if="microphoneSupported" type="button" class="secondary" :aria-pressed="autoTuner" :title="autoTuner?'Return to score-note intonation':'Automatic chromatic tuner'" :aria-label="autoTuner?'Switch to score-note tuner':'Switch to automatic chromatic tuner'" :disabled="takeBeat!==null" @click="autoTuner=!autoTuner;stableSince=0;heldProgress=0;accepted=false;armed=true"><AppIcon name="tuning-fork"/></button>
-    <strong class="learn-tuner-pitch">{{autoTuner?'Auto tuner':'Intonation'}} · {{autoTuner?(autoTunerMidi===null?'—':pitchLabel(autoTunerMidi)):(current?pitchLabel(targetMidi??current.pitch):'—')}}</strong>
-    <span class="learn-tuner-cents" :class="{'learn-in-tune':tunerInTune}">{{displayedCents===null?'—':(displayedCents>0?'+':'')+displayedCents+'¢'}}</span>
+    <strong v-if="autoTuner" class="learn-tuner-pitch">{{autoTuner?'Auto tuner':'Intonation'}} · {{autoTuner?(autoTunerMidi===null?'—':pitchLabel(autoTunerMidi)):(current?pitchLabel(targetMidi??current.pitch):'—')}}</strong>
+    <span v-if="autoTuner" class="learn-tuner-cents" :class="{'learn-in-tune':tunerInTune}">{{displayedCents===null?'—':(displayedCents>0?'+':'')+displayedCents+'¢'}}</span>
    </div>
    <div v-if="listening&&!demoPlaying&&autoTuner" class="learn-detected-pitch" :class="{'pitch-matched':detectedPitchMatches}">
     <span>Detected note</span><strong>{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</strong>
@@ -596,7 +596,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
        <strong class="learn-pitch-comparison"><span>{{targetMidi===null?'—':pitchLabel(targetMidi)}}</span><span aria-hidden="true"> / </span><span class="learn-pitch-mismatch">{{detectedMidi===null?'—':pitchLabel(detectedMidi)}}</span></strong>
        <span>Expected / Detected</span>
       </template>
-      <template v-else><strong>{{intonationFeedback}}</strong><span>{{cents!==null&&detectedPitchMatches?(cents>0?'+':'')+cents+'¢':'—'}}</span></template>
+      <template v-else><strong>{{intonationFeedback==='Waiting for note'?(targetMidi===null?'—':pitchLabel(targetMidi)):intonationFeedback}}</strong><span>{{cents!==null&&detectedPitchMatches?(cents>0?'+':'')+cents+'¢':'—'}}</span></template>
      </div>
      <div class="learn-live-pitch-scale" role="meter" aria-label="Pitch deviation from expected note" aria-valuemin="-50" aria-valuemax="50" :aria-valuenow="cents!==null&&detectedPitchMatches?Math.max(-50,Math.min(50,cents)):undefined" :aria-valuetext="cents!==null&&detectedPitchMatches?cents+' cents':intonationFeedback" :class="{'has-pitch':cents!==null&&detectedPitchMatches}">
       <div class="learn-live-pitch-window" :style="{left:(50-tolerance)+'%',width:(2*tolerance)+'%'}"></div>
@@ -606,13 +606,13 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      <div class="learn-live-pitch-ends" aria-hidden="true"><span>−50¢</span><span>0</span><span>+50¢</span></div>
     </div>
    </div>
-    <div class="learn-tuner-meter" role="meter" :aria-label="autoTuner?'Pitch deviation from nearest chromatic note':'Pitch deviation from expected note'" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="displayedCents===null?undefined:Math.max(-50,Math.min(50,displayedCents))">
+    <div v-if="autoTuner" class="learn-tuner-meter" role="meter" :aria-label="autoTuner?'Pitch deviation from nearest chromatic note':'Pitch deviation from expected note'" :aria-valuemin="-50" :aria-valuemax="50" :aria-valuenow="displayedCents===null?undefined:Math.max(-50,Math.min(50,displayedCents))">
     <div class="learn-accuracy-window" :style="{left:Math.max(0,50-tolerance)+'%',width:Math.min(100,tolerance*2)+'%'}"></div>
     <div class="learn-meter-center"></div>
     <div v-if="displayedCents!==null" class="learn-meter-needle" :style="{left:Math.max(0,Math.min(100,50+displayedCents))+'%'}"></div>
    </div>
-   <div class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
-   <div class="learn-mic-row">
+   <div v-if="autoTuner" class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
+   <div class="learn-mic-row" :class="{'is-compact-mic':listening&&!autoTuner&&!demoPlaying}">
     <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
     <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{!autoTuner&&accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="!autoTuner&&targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
    </div>
@@ -1116,4 +1116,25 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 }
 .learn-display-overlay>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
 .learn-display-overlay>.learn-diagram :deep(.diagram-open-label strong){font-size:clamp(12px,2.2dvh,22px)}
+</style>
+
+<style scoped>
+/* The integrated pitch bar is the sole pitch meter in target practice. */
+.learn-tuner:not(:has(.learn-tuner-meter)){grid-template-columns:minmax(0,1fr)}
+.learn-tuner:not(:has(.learn-tuner-meter)) .learn-tuner-title{grid-column:1;grid-row:auto}
+.learn-tuner.is-live-practice .learn-mic-row{gap:3px}
+@media(max-width:760px){
+ .learn-topline,.learn-view-controls,.learn-display-options,.learn-transport-controls,.learn-practice-controls{gap:3px;flex-wrap:nowrap}
+ .learn-view-controls{width:100%;justify-content:flex-start}
+ .learn-view-controls button,.learn-practice-controls button,.learn-tuner-title>button,.learn-tuner-title .learn-mic-toggle{width:38px;min-width:38px;height:40px;min-height:40px;padding:4px}
+ .learn-view-controls .learn-transport-controls{padding-left:3px}
+ .learn-tuner{padding:0;gap:3px}
+ .learn-tuner-title{gap:3px;justify-content:flex-start}
+ .learn-tuner.is-live-practice .learn-active-bars{--live-bar-height:34px}
+ .learn-tuner.is-live-practice .learn-mic-row{height:5px;min-height:0;overflow:hidden;padding:0}
+ .learn-tuner.is-live-practice .learn-mic-row meter{width:100%;max-width:100%;flex:1 1 100%;height:5px}
+ .learn-tuner.is-live-practice .learn-mic-row small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .learn-tuner.is-live-practice .learn-bar-content>strong{font-size:25px}
+ .learn-tuner.is-live-practice .learn-live-feedback .learn-bar-content>strong:not(.learn-pitch-comparison){font-size:18px}
+}
 </style>

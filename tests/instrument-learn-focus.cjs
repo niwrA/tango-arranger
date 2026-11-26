@@ -54,4 +54,7 @@ assert.match(icons,/'graduation-cap'/);
 assert.doesNotMatch(component,/saveProject|project\.value\.generatedScore|localStorage\.setItem/);
 assert.match(component,/\.learn-display-overlay>\.learn-diagram\{\s*align-self:end;align-items:flex-end/);
 assert.match(component,/height:clamp\(20px,3\.2dvh,30px\)/);
+assert.match(component,/<div v-if="autoTuner" class="learn-tuner-meter"/);
+assert.match(component,/is-live-practice/);
+assert.match(app,/\.app-topbar>\.brand\{display:flex!important;grid-area:playback!important/);
 console.log('Learn focus toggle, microphone cleanup and settings checks passed');
