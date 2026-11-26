@@ -49,6 +49,14 @@ check('both score formats use the same import review in new and existing songs',
  assert.ok(app.includes('pendingParsed.value=parsed'));
  assert.ok(!app.includes('pending.value=importMidi(await file.arrayBuffer())'));
 });
+check('project picker exposes standard ZIP and JSON types to native file browsers',()=>{
+ const picker=app.match(/:accept="importContext==='project'\?'([^']+)':'([^']+)'"/);
+ assert.ok(picker);
+ const accepted=picker[1].split(',');
+ for(const type of ['.tango','.zip','.json','application/zip','application/json'])assert.ok(accepted.includes(type),type);
+ assert.ok(!picker[2].split(',').includes('.zip'),'Score import must not offer project archives');
+ assert.ok(app.includes("await loadProject(file)"));
+});
 console.log(n+' unified score import checks passed');
 
 (async()=>{
