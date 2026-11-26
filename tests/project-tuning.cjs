@@ -31,6 +31,6 @@ assert.match(app,/:reference-hz="tuningReferenceFor\(project,part.inst\)"/);
 assert.match(learn,/referenceHz=computed\(\(\)=>props.referenceHz\)/);
 assert.doesNotMatch(learn,/props.instrument.startsWith\('Violin'\)\?442:440/);
 assert.doesNotMatch(learn,/v-model.number="referenceHz"/);
-assert.match(learn,/A4 tuning: <strong>\{\{referenceHz\}\} Hz/);
+assert.match(learn,/Reference pitch <strong>A4 = \{\{referenceHz\}\} Hz<\/strong>/);
 assert.doesNotMatch(app,/function setProjectA4Reference[\s\S]{0,1000}transposeSemitones\s*=/);
 console.log('Project A4 default, per-part overrides and Learn reference tests passed');
