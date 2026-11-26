@@ -16,3 +16,8 @@ assert.match(app,/noteInst\.startsWith\('Violin'\)\?\['I'/);
 assert.match(app,/noteInst==='Contrabass'\?\['½'/);
 assert.match(app,/captureInputLayout==='keyboard'/);
 console.log('PASS string fingering metadata, auto suggestions and instrument input defaults');
+
+assert.match(app,/executeMusicalEdit\(/);
+assert.match(app,/tango-musical-edit-preview/);
+assert.match(app,/function commitQuickDraft/);
+assert.match(app,/selected-notes="quickDraft/);

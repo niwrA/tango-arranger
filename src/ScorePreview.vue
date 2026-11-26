@@ -13,6 +13,7 @@ const props=withDefaults(defineProps<{
   fromMeasure:number;
   toMeasure:number;
   selectedNote?:Note;
+  selectedNotes?:readonly Note[];
   completedNotes?:readonly Note[];
   playingNotes?:readonly Note[];
   feedbackProgress?:number;
@@ -110,7 +111,7 @@ function highlightSelection(){
     head.classList.remove('score-note-selected');
     if(props.interactive)head.setAttribute('aria-pressed','false');
   }
-  highlightedHeads=props.selectedNote?resolveNoteHeads(props.selectedNote):[];
+  highlightedHeads=[...new Set([...(props.selectedNote?resolveNoteHeads(props.selectedNote):[]),...(props.selectedNotes??[]).flatMap(resolveNoteHeads)])];
   for(const head of highlightedHeads){
     head.classList.add('score-note-selected');
     if(props.interactive)head.setAttribute('aria-pressed','true');
@@ -409,6 +410,7 @@ watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{de
 watch(displayedRange,scheduleLayout);
 watch(()=>props.expanded,scheduleLayout);
 watch(()=>props.selectedNote,()=>{highlightSelection();highlightActiveMeasure();followExpectedNote();});
+watch(()=>props.selectedNotes,highlightSelection);
 watch([()=>props.feedbackProgress,()=>props.feedbackState],updateLiveFeedback);
 watch(()=>props.completedNotes,highlightCompleted);
 watch(()=>props.activeMeasure,()=>{highlightActiveMeasure();followExpectedNote();});
@@ -560,4 +562,18 @@ onBeforeUnmount(()=>{
 .score-preview-themed .score-preview-canvas :deep(.score-note-selected path),
 .score-preview-themed .score-preview-canvas :deep(.score-note-selected [fill]){fill:#ffd166!important;stroke:var(--note-feedback-color,#c98b3b)!important}
 .score-preview-themed .score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#6ec5b2!important}
+</style>
+
+<style scoped>
+.score-preview-canvas :deep(.score-note-selected){filter:drop-shadow(0 0 2px #007d88) drop-shadow(0 0 3px #00a9b5)}
+.score-preview-canvas :deep(.score-note-selected),
+.score-preview-canvas :deep(.score-note-selected path),
+.score-preview-canvas :deep(.score-note-selected [fill]){fill:#007d88!important;stroke:#007d88!important;stroke-width:1.5px}
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected){filter:drop-shadow(0 0 2px #6af2ee) drop-shadow(0 0 4px #35b9bd)}
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected),
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected path),
+.score-preview-themed .score-preview-canvas :deep(.score-note-selected [fill]){fill:#6af2ee!important;stroke:#6af2ee!important;stroke-width:1.5px}
+.score-preview-follow :deep(.score-note-selected),
+.score-preview-follow :deep(.score-note-selected path),
+.score-preview-follow :deep(.score-note-selected [fill]){fill:var(--note-feedback-color,#c98b3b)!important;stroke:var(--note-feedback-color,#c98b3b)!important}
 </style>
