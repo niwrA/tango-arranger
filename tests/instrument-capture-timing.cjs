@@ -112,3 +112,9 @@ check('invalid timing cannot create invalid notes or an unbounded split loop',()
  assert.throws(()=>quantize([],settings(0,0,{beatsPerMeasure:0})),/range/);
 });
 console.log(`${count} instrument capture timing checks passed`);
+
+check('MIDI chord velocities survive raw and quantized capture',()=>{
+ const events=[event(.12,.76,60,{velocity:42}),event(.14,1.2,64,{velocity:110})];
+ const notes=quantize(events,settings());assert.deepEqual(notes.map(n=>[n.beat,n.pitch,n.velocity]),[[0,60,42],[.25,64,110]]);
+ assert.equal(quantize(events,settings(0,0))[0].beat,.12);assert.equal(events[0].startBeat,.12);
+});
