@@ -4,6 +4,7 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'ov
 
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
+import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi} from './midiSession';
 import {buildPracticePreview,loadPreviewBank,renderPracticePreview} from './practicePreviewAudio';
 import {stringPitchAtBeat,type Project} from './music';
 import {usesPizzicatoBank} from './pizzicatoSamples';
@@ -408,6 +409,7 @@ function stopMicrophone(){
  micStatus.value='Microphone off';
 }
 async function startMicrophone(){
+ midiRequest++;midiPractice.value=false;clearMidiPractice();
  if(listening.value){stopMicrophone();return;}
  if(!microphoneSupported.value||busy.value)return;
  if(!navigator.mediaDevices?.getUserMedia){micStatus.value='Microphone is unavailable in this browser.';return;}
@@ -534,7 +536,41 @@ async function startMicrophone(){
   if(id===generation){stopMicrophone();micStatus.value='Microphone could not start: '+String(error);}
  }
 }
-onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
+const midiPractice=ref(false);
+const midiHeld=ref<number[]>([]);
+const midiKeys=new Map<string,number>();
+const midiExpected=computed(()=>{
+ const n=current.value;if(!n)return [];
+ return [...new Set(practiceRange.value.filter(note=>!note.xmlTieContinuation&&Math.abs(note.start-n.start)<1e-6&&
+  (!props.grandStaff||staff.value==='all'||partStaffForNote(note,props.instrument,props.staffSplit,0,bandoneonModelForPart(props.project,props.instrument))===(staff.value==='upper'?1:2)))
+  .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(p=>p.pitch)??[])])
+  .map(p=>p+props.concertTranspose))].sort((a,b)=>a-b);
+});
+const midiMissing=computed(()=>midiExpected.value.filter(p=>!midiHeld.value.includes(p)));
+const midiExtra=computed(()=>midiHeld.value.filter(p=>!midiExpected.value.includes(p)));
+function clearMidiPractice(){midiKeys.clear();midiHeld.value=[];}
+let midiRequest=0;
+async function toggleMidiPractice(){
+ if(midiPractice.value){midiRequest++;midiPractice.value=false;clearMidiPractice();return;}
+ stopMicrophone();const request=++midiRequest;await enableMidi();
+ if(request!==midiRequest)return;
+ midiPractice.value=!!midiInputId.value;
+}
+watch([targets,()=>props.instrument],clearMidiPractice);
+const unsubscribeMidi=subscribeMidi(event=>{
+ if(event.kind==='reset'){clearMidiPractice();return;}
+ if(!midiPractice.value||demoPlaying.value||takeBeat.value!==null)return;
+ const key=event.channel+':'+event.pitch;
+ if(event.kind==='on')midiKeys.set(key,event.pitch);
+ else if(event.kind==='off')midiKeys.delete(key);
+ else return;
+ midiHeld.value=[...new Set(midiKeys.values())].sort((a,b)=>a-b);
+ if(event.kind!=='on'||!current.value||!midiExpected.value.length||midiMissing.value.length||midiExtra.value.length)return;
+ completedTargets.value.add(current.value);
+ accepted.value=true;heldProgress.value=1;
+ if(autoAdvance.value)cursor.value++;
+});
+onBeforeUnmount(()=>{midiRequest++;unsubscribeMidi();clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
  <section class="learn-workspace" :class="{'learn-workspace-score':showScore}" aria-label="Learn instrument notes">
@@ -593,6 +629,18 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
   </Teleport>
   <Teleport to="#practice-learn-tuner">
+  <div v-if="midiSupported" class="editor" aria-label="MIDI practice">
+    <button type="button" class="secondary" :aria-pressed="midiPractice" :disabled="busy||takeBeat!==null||demoPlaying" @click="toggleMidiPractice">{{midiPractice?'Stop MIDI practice':'Practise with MIDI'}}</button>
+    <template v-if="midiPractice">
+      <p role="status">{{midiInputId?'Play the complete expected attack.':midiStatus}}</p>
+      <p>Expected: {{midiExpected.map(pitchLabel).join(' · ')||'Exercise complete'}}</p>
+      <p>Held: {{midiHeld.map(pitchLabel).join(' · ')||'—'}}</p>
+      <p v-if="midiMissing.length">Missing: {{midiMissing.map(pitchLabel).join(' · ')}}</p>
+      <p v-if="midiExtra.length">Extra: {{midiExtra.map(pitchLabel).join(' · ')}}</p>
+      <p class="hint">MIDI checks note attacks, not acoustic intonation or duration. Release keys between attacks.</p>
+    </template>
+    <p v-else class="hint">{{midiStatus}}</p>
+  </div>
   <div class="learn-tuner" :class="{'is-live-practice':listening&&!demoPlaying&&!autoTuner}" role="region" :aria-label="autoTuner?'Automatic chromatic tuner':'Target-aware pitch tuner'">
    <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
      <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
