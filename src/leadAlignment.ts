@@ -14,12 +14,14 @@ export function createLeadAlignment(p:Project,source:string,voice:readonly Note[
  const pickup=openingPickupBeats(p)?p.beats-openingPickupBeats(p):0;
  const syllables:AlignmentSyllable[]=plan.notes.length?plan.notes.map((token,id)=>{
   const prior=existing?(token.absolute?notes.findIndex(n=>Math.abs(n.start-token.start)<eps):sung.length===plan.notes.length&&sung[id]?.n&&lyric(sung[id].n)===token.text?sung[id].i:id):-1;
-  return {...token,id,start:prior>=0&&notes[prior]?notes[prior].start:Math.max(pickup,token.start),anchor:Boolean(token.absolute),noteIndex:prior>=0&&notes[prior]?prior:undefined};
+  return {...token,id,start:token.absolute?Math.max(pickup,token.start):prior>=0&&notes[prior]?notes[prior].start:Math.max(pickup,token.start),anchor:Boolean(token.absolute),noteIndex:prior>=0&&notes[prior]?prior:undefined};
  }):sung.map(({n,i},id)=>({id,text:lyric(n)!,start:n.start,line:Math.floor(n.start/p.beats),syllabic:(verse===1?n.syllabic:n.syllabic2)??'single',melisma:verse===1?n.melisma:n.melisma2,anchor:true,noteIndex:i}));
  const chords=p.bars.flatMap((bar,i)=>parseChordSequence(bar.chord,p.beats).filter((c,j,all)=>j===0||c.chord!==all[j-1].chord).map(c=>({symbol:c.chord,start:i*p.beats+c.beat})));
  // Source markers can establish harmony in empty measures; actual project harmony wins elsewhere.
  const mapped=positionLeadChords(plan,p.beats,p.bars.length,syllables.map(s=>s.start));
- for(const c of mapped)if(!p.bars[c.measure].chord.trim()){
+ const explicit=plan.chords.length>0&&plan.chords.every(c=>c.absolute)&&source.includes('~');
+ if(explicit)chords.length=0;
+ for(const c of mapped)if(explicit||!p.bars[c.measure].chord.trim()){
   const start=c.measure*p.beats+c.beat;
   const prior=chords.find(x=>x.start===start);if(prior)prior.symbol=c.chord;else chords.push({symbol:c.chord,start});
  }
@@ -77,7 +79,7 @@ export function alignmentBars(d:LeadAlignment,p:Project):Project['bars']{
 export function alignmentPreviewNotes(d:LeadAlignment,voice:readonly Note[]){
  const notes=[...voice].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  return d.syllables.map((s,i)=>{
-  const prior=s.noteIndex===undefined?undefined:notes[s.noteIndex];
+  const prior=d.existing&&s.noteIndex!==undefined?notes[s.noteIndex]:undefined;
   const end=d.syllables[i+1]?.start??d.beats*d.measures;
   return {start:s.start,duration:Math.max(.001,Math.min(prior?.duration??1,end-s.start)),pitch:prior?.pitch??60,lyric:s.text,syllabic:s.syllabic,melisma:s.melisma};
  });
