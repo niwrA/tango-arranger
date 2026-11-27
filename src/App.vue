@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {diagnoseArrangement,refineArrangement,type Diagnostic} from "./arrangementDiagnostics";
 import {isOrchestraStyle,phraseStyleKey,styleStrength} from './orchestraStyle';
 import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi,midiOutput,midiOutputEnabled,sendMidiNote,sendMidiPedal,panicMidi} from "./midiSession";
 import MidiDiagnostics from './MidiDiagnostics.vue';
@@ -4024,6 +4025,39 @@ function setSectionOrchestraStyle(section:string,value:string){
  else delete styles[section];
  project.value.sectionStyles=styles;
 }
+const reviewOpen=ref(false);
+const reviewScope=ref<'all'|'part'|'range'>('all');
+const reviewCategory=ref('all');
+const reviewStyle=ref(true);
+const reviewProtected=ref(false);
+const reviewFindings=shallowRef<Diagnostic[]>([]);
+const reviewSelected=ref<string[]>([]);
+let reviewSnapshot='';
+function scanArrangementReview(){
+ reviewSnapshot=JSON.stringify(project.value);
+ reviewFindings.value=diagnoseArrangement(project.value,sourceScore.value,{includeStyle:reviewStyle.value,...(reviewScope.value==='part'?{instrument:noteInst.value}:reviewScope.value==='range'?{from:noteLoopFrom.value-1,to:noteLoopTo.value-1}:{})});
+ reviewSelected.value=[];
+}
+function openArrangementReview(){
+ closeSongSettings();reviewOpen.value=true;scanArrangementReview();
+}
+function closeArrangementReview(){reviewOpen.value=false;reviewSelected.value=[];}
+const reviewVisible=computed(()=>reviewFindings.value.filter(issue=>reviewCategory.value==='all'||issue.category===reviewCategory.value));
+function reviewCanApply(issue:Diagnostic){return !!issue.patch&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
+function selectReviewSuggestions(){reviewSelected.value=reviewVisible.value.filter(reviewCanApply).map(issue=>issue.id);}
+function applyArrangementReview(){
+ if(JSON.stringify(project.value)!==reviewSnapshot){message.value='Arrangement changed; scan again before applying.';scanArrangementReview();return;}
+ const selected=reviewFindings.value.filter(issue=>reviewSelected.value.includes(issue.id)&&reviewCanApply(issue));
+ if(!selected.length)return;
+ try{
+  stopPlayback();
+  const next=refineArrangement(project.value,sourceScore.value,selected,reviewProtected.value);
+  project.value=next;
+  message.value='Applied selected expression refinements; pitches and written rhythm preserved.';
+  scanArrangementReview();
+ }catch(error){message.value='Arrangement review: '+String(error);}
+}
+function visitReviewIssue(issue:Diagnostic){closeArrangementReview();openNoteEditor(issue.instrument,issue.measure);}
 function regenerate(){
  stopPlayback();
  project.value=regenerateActiveArrangement(project.value);
@@ -6778,11 +6812,33 @@ async function homePractise(inst:Instrument){
        </label>
       </details>
       <button type="button" class="secondary" @click="regenerate">Regenerate unprotected arrangement</button>
+      <button type="button" class="secondary" @click="openArrangementReview">Review arrangement / reapply style</button>
       <label>Overall difficulty<select v-model="project.difficulty"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select></label>
       <button type="button" class="secondary" @click="convertMeter" :disabled="project.beats!==2">Convert paired 2/4 measures to 4/4</button>
     </div>
     <div class="app-modal-actions"><span class="hint">Changes are autosaved to this song.</span><button type="button" class="primary" @click="closeSongSettings">Done</button></div>
   </section>
+</div>
+<div v-if="reviewOpen" class="app-modal-backdrop" @click.self="closeArrangementReview" @keydown.esc.stop.prevent="closeArrangementReview" @keydown.tab="trapModalTab">
+ <section class="app-modal arrangement-review-modal" role="dialog" aria-modal="true" aria-labelledby="arrangement-review-title">
+  <div class="app-modal-heading"><div><h2 id="arrangement-review-title">Arrangement review</h2><small>Diagnostics and optional style refinement</small></div><button type="button" class="secondary" @click="closeArrangementReview">Close</button></div>
+  <div class="app-modal-content">
+   <label>Scope<select v-model="reviewScope" @change="scanArrangementReview"><option value="all">Entire arrangement</option><option value="part">Selected instrument</option><option value="range">Working range</option></select></label>
+   <label><input type="checkbox" v-model="reviewStyle" @change="scanArrangementReview"/> Include orchestra style</label>
+   <label><input type="checkbox" v-model="reviewProtected" @change="reviewSelected=[]"/> Allow edits to protected measures</label>
+   <label>Category<select v-model="reviewCategory"><option value="all">All findings</option><option v-for="category in ['pitch','harmony','dynamics','balance','playability','style']" :key="category" :value="category">{{category}}</option></select></label>
+   <p>{{reviewVisible.length}} findings · {{reviewSelected.length}} selected. Balance is a score-based estimate, not measured audio loudness.</p>
+   <button type="button" class="secondary" @click="selectReviewSuggestions">Select visible expression fixes</button>
+   <div v-for="issue in reviewVisible" :key="issue.id" class="arrangement-review-issue">
+    <label><input type="checkbox" :value="issue.id" v-model="reviewSelected" :disabled="!reviewCanApply(issue)"/> {{issue.severity}} · {{issue.category}} · {{issue.instrument}} · M{{issue.measure+1}}</label>
+    <p>{{issue.message}}</p>
+    <small v-if="issue.patch">Proposed: {{Object.entries(issue.patch).map(([key,value])=>key+': '+(typeof value==='number'?Number(value.toFixed(2)):value)).join(' · ')}}</small>
+    <button type="button" class="secondary" @click="visitReviewIssue(issue)">Open measure</button>
+   </div>
+   <p v-if="!reviewVisible.length">No findings in this scope.</p>
+  </div>
+  <div class="app-modal-actions"><button type="button" class="secondary" @click="scanArrangementReview">Rescan</button><button type="button" class="primary" :disabled="!reviewSelected.length" @click="applyArrangementReview">Apply selected expression fixes</button></div>
+ </section>
 </div>
 <div v-if="importDialogOpen" class="app-modal-backdrop" @click.self="closeImportDialog" @keydown.esc.stop.prevent="closeImportDialog" @keydown.tab="trapModalTab">
   <section id="import-workflow-modal" class="app-modal" :class="{'musicxml-merge-modal':(importMode==='merge'&&pendingParsed)||pendingEnsemble.length}" role="dialog" aria-modal="true" aria-labelledby="import-workflow-title">
