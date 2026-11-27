@@ -412,7 +412,7 @@ function setNoteOverviewCount(count:number){
 const pianoPlayabilityWarnings=computed(()=>{
   if(!noteInst.value.startsWith('Piano'))return [];
   const visible=new Set(focusVisibleMeasures.value);
-  return assessPianoPlayability(score.value[noteInst.value]??[],project.value,noteInst.value)
+  return assessPianoPlayability(score.value[noteInst.value]??[],project.value,noteInst.value,'human')
     .filter(issue=>visible.has(issue.measure));
 });
 const focusVisibleMeasures=computed(()=>{
@@ -1796,7 +1796,7 @@ const removeEditorMidi=subscribeMidi(e=>{
    const pitches=[...midiStepPitches];midiStepPitches.clear();
    if(!midiStepEntry.value||!midiEditorVisible()||noteEditorTab.value!=='notes'||bar!==selectedBar.value||inst!==noteInst.value||
       capturePlaying.value||playing.value||noteLoopPlaying.value||quickDraft.value)return;
-   const preset=noteRhythmPreset.value;
+   const preset=effectiveNoteRhythmPreset();
    const target=preset==='off'?beat:nearestRhythmSlot(beat,preset,project.value.beats,inst,project.value.profile,.5)?.beat??beat;
    for(const p of pitches)if(noteAt(p,target)<0)toggleNote(p,beat,false);
   },85);
@@ -4901,14 +4901,31 @@ watch(noteInst,inst=>{try{localStorage.setItem('tango-last-note-instrument',inst
 const noteEditorRegion=ref<HTMLElement|null>(null);
 const noteStep=ref(0.5);
 const tripletGrid=computed(()=>Math.abs(noteStep.value-1/3)<1e-8||Math.abs(noteStep.value-1/6)<1e-8);
-const noteRhythmPreset=ref<'off'|RhythmPreset>('off');
-const noteRhythmTargets=computed(()=>noteRhythmPreset.value==='off'?[]:presetRhythmSlots(noteRhythmPreset.value,project.value.beats,noteInst.value,project.value.profile));
-const isRhythmGuideBeat=(beat:number)=>noteRhythmTargets.value.some(s=>Math.abs(s.beat-beat)<1e-6);
+const noteRhythmPreset=ref<'auto'|'off'|RhythmPreset>('auto');
+// Resolve committed per-measure provenance, never the currently auditioned draft.
+function effectiveNoteRhythmPreset(bar=selectedBar.value):RhythmPreset|'off'{
+ if(noteRhythmPreset.value!=='auto')return noteRhythmPreset.value;
+ const beats=project.value.beats;
+ const tagged=(sourceScore.value[noteInst.value]??[]).filter(n=>Math.floor((n.start+1e-7)/beats)===bar&&rhythmAttachmentValid(n,beats)&&n.rhythmSource?.kind==='preset');
+ const presets=[...new Set(tagged.map(n=>n.rhythmSource?.preset).filter((v):v is RhythmPreset=>!!v))];
+ return presets.length===1?presets[0]:'off';
+}
+const activeNoteRhythmPreset=computed(()=>effectiveNoteRhythmPreset());
+const noteRhythmTargets=computed(()=>activeNoteRhythmPreset.value==='off'?[]:presetRhythmSlots(activeNoteRhythmPreset.value,project.value.beats,noteInst.value,project.value.profile));
+const isRhythmGuideBeat=(beat:number,bar=selectedBar.value)=>{
+ const preset=effectiveNoteRhythmPreset(bar);
+ return preset!=='off'&&presetRhythmSlots(preset,project.value.beats,noteInst.value,project.value.profile).some(s=>Math.abs(s.beat-beat)<1e-6);
+};
+function snapEditorEntry(entry:NoteEntryEdit):NoteEntryEdit{
+ const preset=effectiveNoteRhythmPreset(entry.bar);
+ const slot=preset==='off'?undefined:nearestRhythmSlot(entry.beat,preset,project.value.beats,noteInst.value,project.value.profile,.5);
+ return slot&&preset!=='off'?{...entry,beat:slot.beat,rhythm:{preset,originalBeat:entry.beat,accent:slot.accent}}:entry;
+}
 function rhythmCue(n:Note):string{
  return n.rhythmSource&&rhythmAttachmentValid(n,project.value.beats)?rhythmAttachmentLabel(n.rhythmSource):'';
 }
 function selectRhythmPreset(value:string){
- if(value==='off'||RHYTHM_PRESETS.some(p=>p.id===value))noteRhythmPreset.value=value as 'off'|RhythmPreset;
+ if(value==='auto'||value==='off'||RHYTHM_PRESETS.some(p=>p.id===value))noteRhythmPreset.value=value as 'auto'|'off'|RhythmPreset;
 }
 const noteLength=ref<number|'auto'>('auto');
 const newNoteArticulation=ref<'inherit'|'staccato'|'marcato_staccato'|'legato'>('inherit');
@@ -5007,6 +5024,12 @@ function moveNoteDrag(event:PointerEvent){
 function stageNoteGeometry(base:Project,instrument:Instrument,key:string,geometry:NoteGeometryEdit){
  try{
   if(base!==project.value||instrument!==noteInst.value)throw Error('The editing context changed');
+  const original=(sourceScore.value[instrument]??[]).find(n=>editPartNoteKeys(sourceScore.value[instrument]??[]).get(n)===key);
+  if(original&&geometry.start!==original.start&&Math.abs(geometry.duration-original.duration)<1e-7){
+   const bar=Math.floor(geometry.start/base.beats),preset=effectiveNoteRhythmPreset(bar);
+   const slot=preset==='off'?undefined:nearestRhythmSlot(geometry.start-bar*base.beats,preset,base.beats,instrument,base.profile,.5);
+   if(slot&&bar*base.beats+slot.beat+geometry.duration<=base.bars.length*base.beats)geometry={...geometry,start:bar*base.beats+slot.beat};
+  }
   const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument,selection:{kind:'notes',keys:[key]},geometry},'timing','geometry');
   quickDraft.value={base,result,selectMovedNote:true};
  }catch(error){quickDraft.value=null;message.value=`Cannot move or resize note: ${String(error)}`;}
@@ -5190,12 +5213,13 @@ watch([noteFocusMode,noteEditorTab,active],()=>{
 function snapSelectedNoteNow(){
  const original=selectedEvent.value;
  if(!original){message.value='Select a note to snap first.';return;}
- if(noteRhythmPreset.value==='off'){message.value='Choose a rhythm preset before snapping.';return;}
+ const preset=effectiveNoteRhythmPreset(Math.floor((original.start+1e-7)/project.value.beats));
+ if(preset==='off'){message.value='Choose or apply a rhythm preset before snapping.';return;}
  const chord=noteMeasure.value.filter(note=>Math.abs(note.start-original.start)<1e-6);
  const originalKey=quickNoteKey(original);
  const writtenKeys=editPartNoteKeys(sourceScore.value[noteInst.value]??[]);
  try{
-  const result=commitImmediateEdit('rhythm','snap-onset',{selection:{kind:'notes',keys:chord.map(quickNoteKey)},snapPreset:noteRhythmPreset.value});
+  const result=commitImmediateEdit('rhythm','snap-onset',{selection:{kind:'notes',keys:chord.map(quickNoteKey)},snapPreset:preset});
   const change=result.changes.modified.find(({before})=>writtenKeys.get(before)===originalKey);
   const note=change&&selectCommittedNote(editNoteKey(change.after));
   if(note)auditionEvent(note);
@@ -5429,7 +5453,7 @@ function applyQuickNote(value:string,entry?:NoteEntryEdit,override?:EditSelectio
   const base=project.value;
   const selection=override??quickSelection.value;
   if(category==='create'&&(value==='replace'||brush?.replace)&&!quickPreview.value&&!window.confirm('Replace editable notes in the selected range?'))return;
-  const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined),brush},category,value);
+  const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:category==='create'&&value==='insert'?snapEditorEntry(entry??{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}):entry,brush},category,value);
   quickDraft.value={base,result};
   if(!quickPreview.value)commitQuickDraft();
   return true;
@@ -5438,7 +5462,8 @@ function applyQuickNote(value:string,entry?:NoteEntryEdit,override?:EditSelectio
 function proposeMusicalBrush(stroke:BrushStroke){
  const kind=quickBrush.value;
  if(!kind||!quickBrushActive.value)return;
- const rhythm=noteRhythmPreset.value==='off'?'style':noteRhythmPreset.value;
+ const preset=effectiveNoteRhythmPreset();
+ const rhythm=preset==='off'?'style':preset;
  const selection:EditSelection={kind:'range',fromBeat:stroke.fromBeat,toBeat:stroke.toBeat};
  applyQuickNote('brush',undefined,selection,'create',{kind,stroke,rhythm,referencePitch:quickPitch.value,replace:quickBrushReplace.value});
 }
@@ -5665,7 +5690,7 @@ function displayPitch(pitch:number){
 }
 function noteAt(pitch:number,beat:number){return noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-selectedBar.value*project.value.beats-beat)<0.00001);}
 function toggleNote(pitch:number,beat:number,preview=true){
- const preset=noteRhythmPreset.value;
+ const preset=effectiveNoteRhythmPreset();
  const slot=preset==='off'?undefined:nearestRhythmSlot(beat,preset,project.value.beats,noteInst.value,project.value.profile,0.5);
  const targetBeat=slot?.beat??beat;
  const index=noteAt(pitch,targetBeat);
@@ -8029,7 +8054,7 @@ async function homePractise(inst:Instrument){
     <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
       <details class="note-independent-loop"><summary>Independent playback range</summary><label><input type="checkbox" v-model="independentNoteLoop" :disabled="noteLoopPlaying||capturePlaying" @change="independentNoteLoopFrom=noteLoopFrom;independentNoteLoopTo=noteLoopTo"/> Override working range for loop playback</label><MeasureRangeControl v-if="independentNoteLoop" :measures="project.bars" :from="independentNoteLoopFrom" :to="independentNoteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="(from,to)=>{independentNoteLoopFrom=from;independentNoteLoopTo=to}"/></details>
   <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
-      <label v-if="midiSupported"><input type="checkbox" v-model="midiStepEntry" @change="midiStepEntry?enableEditorMidi():cancelMidiStep()"/> MIDI chord step entry at selected beat</label><label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
+      <label v-if="midiSupported"><input type="checkbox" v-model="midiStepEntry" @change="midiStepEntry?enableEditorMidi():cancelMidiStep()"/> MIDI chord step entry at selected beat</label><label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="auto">Auto · follow applied rhythm</option><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
       <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option><option :value="1/3">Eighth triplet</option><option :value="1/6">Sixteenth triplet</option></select></label>
       <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option><option :value="1/6">Sixteenth triplet</option><option :value="1/3">Eighth triplet</option><option :value="2/3">Quarter triplet</option><option :value="4/3">Half triplet</option></select></label>
       <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
@@ -8067,17 +8092,17 @@ async function homePractise(inst:Instrument){
 </div>
     <div class="note-rhythm-snap-bar" role="group" aria-label="Rhythm snap guides">
       <label>Snap note onsets to<select :value="noteRhythmPreset" aria-label="Snap to rhythm preset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)">
-        <option value="off">Off · free timing</option>
+        <option value="auto">Auto · follow applied rhythm</option><option value="off">Off · free timing</option>
         <option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option>
       </select></label>
-      <small v-if="noteRhythmPreset!=='off'">Gold tick marks show preset attacks. New notes within ½ beat snap to them; other onsets remain free. The note label records a real snap, not a guessed pattern.</small>
+      <small v-if="activeNoteRhythmPreset!=='off'">Gold tick marks show preset attacks. New notes within ½ beat snap to them; other onsets remain free. The note label records a real snap, not a guessed pattern.</small>
     </div>
     </div>
     <div v-if="pianoPlayabilityWarnings.length" class="note-playability-warnings" role="status">
       <strong>Possible piano hand-reach issues ({{pianoPlayabilityWarnings.length}})</strong>
       <span v-for="(issue,index) in pianoPlayabilityWarnings.slice(0,4)" :key="index">Measure {{issue.measure+1}}, beat {{Number((issue.beat+1).toFixed(2))}}: {{issue.message}}</span>
       <small v-if="pianoPlayabilityWarnings.length>4">More warnings are available within the selected measure range.</small>
-      <small>Staff split approximates hands; imported and manually edited notes are never moved automatically.</small>
+      <small>Advisory reach estimate, not a fingering assessment; imported and manually edited notes are never moved automatically.</small>
     </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
@@ -8093,7 +8118,7 @@ async function homePractise(inst:Instrument){
       <div class="note-continuous-pitch-title">Pitch ↔</div>
       <div class="note-continuous-beat-heads note-beat-swipe-header" title="Scroll horizontally to browse measures"><div class="note-grid-window note-grid-window-beats" :style="noteGridWindowStyle">
         <template v-for="barIndex in noteGridMeasures" :key="barIndex">
-          <div v-for="beat in noteBeats" :key="barIndex+'-'+beat" class="note-continuous-beat" :class="{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></div>
+          <div v-for="beat in noteBeats" :key="barIndex+'-'+beat" class="note-continuous-beat" :class="{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat,barIndex)}"><span>{{noteGridBeatLabel(beat)}}</span><small>{{chordAt(project.bars[barIndex].chord,project.beats,beat)||'—'}}</small></div>
         </template>
       </div></div>
     </div>
@@ -8101,7 +8126,7 @@ async function homePractise(inst:Instrument){
       <button type="button" class="note-pitch-audition note-continuous-pitch-label" :title="'Hear '+displayPitch(pitch)" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button>
       <div class="note-lane-grid" :data-brush-pitch="pitch"><div class="note-grid-window note-grid-window-cells" :style="noteGridWindowStyle">
         <template v-for="barIndex in noteGridMeasures" :key="barIndex">
-          <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
+          <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat,barIndex)}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
         </template></div>
         <span v-for="({note,kind},i) in gridPreviewOriginals.get(pitch)" :key="kind+':'+quickNoteKey(note)+':'+i" class="note-draft-original" :data-edit-preview="kind" :style="gridNotePosition(note)" role="img" :aria-label="gridPreviewLabel(note,kind)">{{kind==='deleted'?'×':'◌'}}</span>
         <button v-for="(n,i) in continuousVisibleNotes(pitch)" :key="n.start+':'+n.pitch+':'+i" type="button" :class="['note-bar',{'selected':quickNoteSelected(n),'note-merge-selected':mergeAnchor===n||mergeTarget===n,'note-bar-accented':n.accent||n.articulation==='marcato_staccato','note-bar-staccato':n.articulation==='staccato'&&!n.accent,'note-bar-gestured':!!n.gesture,'note-bar-rhythm':Boolean(rhythmCue(n))}]" :style="gridNotePosition(n)" :data-edit-preview="quickPreviewMarks?.after.get(n)" :aria-label="gridPreviewLabel(n,quickPreviewMarks?.after.get(n))" :title="displayPitch(n.pitch)+' · '+n.duration+' beats · '+(gestureText(n)||'no gesture')+(rhythmCue(n)?' · rhythm: '+rhythmCue(n):'')+'. Drag either edge to resize across measures.'" @pointerdown="startGridNoteDrag($event,n)" @contextmenu.prevent.stop="activateGridMeasure(Math.floor(n.start/project.beats));openNoteBarContext(pitch,n.start%project.beats,$event)" @keydown="handleNoteBarContextKey($event,pitch,n.start%project.beats)" @click.stop="selectGridNote(n)" :aria-pressed="mergeAnchor?mergeAnchor===n||mergeTarget===n:quickNoteSelected(n)"><span class="note-resize-handle note-resize-handle-left" aria-hidden="true">◂</span><span v-if="noteAttackMark(n)" class="note-attack-mark" aria-hidden="true">{{noteAttackMark(n)}}</span><svg v-if="n.gesture||n.slideTo!==undefined" class="note-gesture-mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><polyline :points="gestureMini(n)" /><polyline v-if="n.gesture?.partner" class="secondary" :points="gestureMini(n,'partner')" /></svg><span v-if="noteInst.startsWith('Voice')" class="note-bar-label note-bar-lyric" :title="(lyricVerse===1?n.lyric:n.lyric2)||'No lyric assigned'">{{(lyricVerse===1?n.lyric:n.lyric2)?.trim()||((lyricVerse===1?n.melisma:n.melisma2)?'—':'♪')}}</span><span v-else-if="n.gesture" class="note-gesture-label">{{gestureLabel(n.gesture)}}</span><span v-else class="note-bar-label">{{n.finger??""}}{{n.bowDirection==="down"?" 𝆪":n.bowDirection==="up"?" 𝆫":""}}{{n.finger||n.bowDirection?" · ":""}}{{n.duration}} beats</span><span v-if="rhythmCue(n)" class="note-rhythm-cue" :title="'Snapped to '+rhythmCue(n)" aria-hidden="true">◆</span><span class="note-resize-handle note-resize-handle-right" aria-hidden="true">▸</span></button>
@@ -8130,7 +8155,7 @@ async function homePractise(inst:Instrument){
       <div class="note-rhythm-inspector" role="group" aria-label="Selected note rhythm source">
         <span v-if="rhythmCue(selectedEvent)">◆ {{rhythmCue(selectedEvent)}} · preset beat {{Number((selectedEvent.rhythmSource!.targetBeat+1).toFixed(2))}}</span>
         <span v-else>Free timing · no recorded rhythm source</span>
-        <button type="button" class="secondary" :disabled="noteRhythmPreset==='off'" @click="snapSelectedNoteNow">Snap note / chord to preset</button>
+        <button type="button" class="secondary" :disabled="activeNoteRhythmPreset==='off'" @click="snapSelectedNoteNow">Snap note / chord to preset</button>
         <button v-if="selectedEvent.rhythmSource" type="button" class="secondary" @click="releaseSelectedRhythmSource">Release rhythm label</button>
       </div>
       <label>Pitch (MIDI, all semitones)<input type="number" :min="noteCtx.range[0]" :max="noteCtx.range[1]" :value="selectedEvent.pitch" @change="updateSelectedNote('pitch',($event.target as HTMLInputElement).value)"/></label>
