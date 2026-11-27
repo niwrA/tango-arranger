@@ -90,6 +90,11 @@ import {moveLeadSectionStart,insertSectionBoundary,removeSectionBoundary} from '
 import {previewLeadSheetImport,projectFromLeadSheet,arrangeImportedSections,type LeadImportPreview} from './leadSheetImport';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
+const homeOpen=ref(true);
+const libraryLoading=ref(true);
+const homeBusy=ref(false);
+const homePracticePick=ref(false);
+const homeError=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
 const libraryReady=ref(false);
 const saveStatus=ref('Opening local song library…');
@@ -116,7 +121,7 @@ function persistCurrent():Promise<void>{
   return saveQueue;
 }
 function scheduleAutosave(){
-  if(!libraryReady.value)return;
+  if(!libraryReady.value||!localSongId.value)return;
   editVersion++;
   if(autosaveTimer)clearTimeout(autosaveTimer);
   saveStatus.value='Unsaved edits…';
@@ -186,13 +191,16 @@ function selectProjectInEditor(p:Project){
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
   if(libraryReady.value){await saveLocalSong(id,p);await refreshLocalSongs();}
-  localSongId.value=id;rememberOpenedSongId(id);selectProjectInEditor(p);
+  localSongId.value=id;rememberOpenedSongId(id);selectProjectInEditor(p);homeOpen.value=false;
 }
 async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
+  select.value=localSongId.value;
+  await openSongById(id);
+}
+async function openSongById(id:string){
   if(id==='__example_tigre_viejo__'){
-    select.value=localSongId.value;
     try{
       await flushAutosave();
       const {default:url}=await import('./presets/tigre-viejo-bowed-expression.tango.zip?url');
@@ -207,7 +215,6 @@ async function chooseSongFromPicker(event:Event){
     return;
   }
   if(id==='__example_pequena_2__'||id==='__example_la_melodia__'||id==='__example_hasta_siempre__'){
-    select.value=localSongId.value;
     try{
       await flushAutosave();
       const {default:source}=id==='__example_pequena_2__'
@@ -224,7 +231,6 @@ async function chooseSongFromPicker(event:Event){
   }
   if(id==='__example_el_choclo__'){
     // Reset the native picker while the asynchronous copy is being created.
-    select.value=localSongId.value;
     try{
       await flushAutosave();
       const study=createElChocloStudy();
@@ -259,7 +265,7 @@ async function deleteCurrentLocalSong(){
     await deleteLocalSong(id);await refreshLocalSongs();
     const next=localSongs.value[0];
     if(next){const loaded=await readLocalSong(next.id);if(!loaded)throw Error('Next song is unavailable');localSongId.value=next.id;rememberOpenedSongId(next.id);selectProjectInEditor(loaded);}
-    else{await adoptLocalSong(setProjectRoster(blankProject(),getDefaultRoster()));}
+    else{localSongId.value='';rememberOpenedSongId('');showHome();}
     saveStatus.value='Local song deleted';message.value='Deleted selected song from this browser. Other songs are unchanged.';
   }catch(error){message.value=`Delete failed: ${String(error)}`;}
 }
@@ -281,9 +287,11 @@ async function initializeLocalLibrary(){
        }catch{/* Storage unavailable. */}
        message.value=`Restored ${saved.title} from this browser's local library.`;
      }}
-    if(!localSongId.value){const fresh=newLocalSongId();await saveLocalSong(fresh,project.value);localSongId.value=fresh;await refreshLocalSongs();}
+    homeOpen.value=!localSongId.value;
+    if(homeOpen.value)performanceMode.value=false;
     rememberOpenedSongId(localSongId.value);libraryReady.value=true;saveStatus.value='Autosave on · stored in this browser';
-  }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';}
+  }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';homeOpen.value=true;performanceMode.value=false;}
+  finally{libraryLoading.value=false;}
 }
 // Keep topical menus mutually exclusive and close them after an action or outside click.
 function onTopbarMenuToggle(event:Event){
@@ -3815,7 +3823,7 @@ async function importFile(e:Event){
     }
     if(/\.tango(?:\.json|\.zip)?$/i.test(file.name)){
       await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);
-      structureOpen.value=false;message.value='Portable project imported as a separate local song.';closeImportDialog();
+      structureOpen.value=false;active.value='arrange';message.value='Portable project imported as a separate local song.';closeImportDialog();
     }else{
       const result=await readScoreImport(file),parsed=result.parsed;
       pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=result.sourceXml;
@@ -5977,10 +5985,23 @@ const currentNotes=computed(()=>INSTRUMENTS.map(inst=>({inst,notes:(score.value[
 function addBar(){const previous=project.value.bars.at(-1);project.value.bars.push({chord:previous?.chord??'',melody:[],section:previous?.section??'A'});selectedBar.value=project.value.bars.length-1;}
 function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement).value;}
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
+const homeExamples=[{id:'__example_el_choclo__',title:'El Choclo',description:'32-measure orchestral study'},{id:'__example_pequena_2__',title:'Pequeña 2',description:'Final variation'},{id:'__example_tigre_viejo__',title:'Tigre Viejo',description:'Bowed expression'},{id:'__example_hasta_siempre__',title:'Hasta Siempre Amor',description:'75 measures · 7 parts'},{id:'__example_la_melodia__',title:'La Melodia de Nuestros Adios',description:'Vocal C/D'}];
+function showHome(){stopPlayback();closePerformanceInstrument();performanceMode.value=false;newSongOpen.value=false;homePracticePick.value=false;homeError.value='';homeOpen.value=true;if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});performanceStageCompact.value=false;}
+function startHomeSong(method:'blank'|'score'){homePracticePick.value=false;newSongStart.value=method;newSongOpen.value=true;}
+async function homeChooseSong(id:string,activity:'arrange'|'practice'|'perform'){
+ if(homeBusy.value)return;homeBusy.value=true;homeError.value='';
+ try{const previous=localSongId.value;await openSongById(id);if(!localSongId.value||(!id.startsWith('__example_')&&localSongId.value!==id)||(id.startsWith('__example_')&&localSongId.value===previous))throw Error(message.value||'Could not open song');
+  performanceMode.value=false;closePerformanceInstrument();homeOpen.value=activity==='practice';homePracticePick.value=activity==='practice';
+  if(activity==='perform'){performanceMode.value=true;}
+  if(activity==='arrange'&&active.value==='about')active.value='arrange';
+ }catch(error){homeError.value=String(error);homeOpen.value=true;}finally{homeBusy.value=false;}
+}
+async function homePractise(inst:Instrument){homePracticePick.value=false;homeOpen.value=false;performanceMode.value=true;performanceView.value='ensemble';await nextTick();focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=undefined;performanceExpandedInstrument.value=inst;performanceScoreView.value='off';enterInstrumentLearn();}
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
-  <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
+  <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
+  <template v-if="!homeOpen && !libraryLoading && localSongId">
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'"><span>{{performanceShortTitle}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -6101,6 +6122,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </button>
     </div>
   </div>
+  </template>
 </header>
 <div v-if="availableAppBuild&&(!performanceMode||!appUpdateBusy)&&!(active==='notes'&&noteEditorTab==='capture')" class="topbar-status app-update-banner">
   <span role="status">{{updateError||(appUpdateBusy?'Update available after playback or recording.':'A new version of Tango Arranger is available.')}}</span>
@@ -6140,7 +6162,24 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="app-modal-actions"><button type="button" class="secondary" @click="closeImportDialog">Close</button></div>
   </section>
 </div>
- <section v-if="performanceMode" class="performance-workspace performance-expanded">
+ <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
+ <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
+  <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p></div>
+  <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
+  <p v-if="homeError" role="alert">{{homeError}}</p>
+  <div v-if="homePracticePick" class="editor"><h2>Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p><div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" @click="homePractise(inst)">{{rosterDisplayName(inst)}}</button><button type="button" class="secondary" @click="homePracticePick=false">Back</button></div></div>
+  <template v-else>
+   <div class="home-activities">
+    <article class="editor"><h2>Arrange</h2><p>Create, import and refine your arrangements.</p><div class="home-actions"><button class="primary" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button><button v-if="localSongId" class="secondary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'arrange')">Continue arrangement</button></div></article>
+    <article class="editor"><h2>Practice</h2><p>Rehearse your instrument or vocal part using the existing learning tools.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'practice')">Practise current song</button><a href="#home-songs">Choose a song below</a></div></article>
+    <article class="editor"><h2>Perform</h2><p>Use the focused stage display for ensemble playing, notes and vocal cues.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'perform')">Perform current song</button><a href="#home-songs">Choose a song below</a></div></article>
+   </div>
+   <section id="home-songs" class="editor" aria-labelledby="home-songs-title"><h2 id="home-songs-title">Your songs</h2><p v-if="!localSongs.length">No saved songs yet. Create one or explore an example below.</p><div v-for="song in localSongs" :key="song.id" class="home-song-row"><div><strong>{{song.title||'Untitled tango'}}</strong><small>{{song.measures}} measures</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
+   <section class="editor"><h2>Explore example songs</h2><p>Open an independent editable copy. The built-in original stays unchanged.</p><div v-for="song in homeExamples" :key="song.id" class="home-song-row"><div><strong>{{song.title}}</strong><small>{{song.description}}</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
+   <details class="editor"><summary>Getting started</summary><p>Start with an example to listen to a complete arrangement. Arrange lets you edit melody, harmony, orchestration and individual notes. Practice opens instrument learning, and Perform opens the stage display. Your songs are saved in this browser; export a portable backup to move them to another device.</p></details>
+  </template>
+ </section>
+ <section v-else-if="performanceMode" class="performance-workspace performance-expanded">
   <div class="performance-stage-top" role="region" aria-label="Performance measure, section and beat">
    
    <div class="performance-stage-controls">
@@ -6405,7 +6444,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="file-picker">Select MusicXML or MIDI (.xml, .musicxml, .mid, .midi)<input type="file" accept=".xml,.musicxml,.mid,.midi" @change="createSongFromScore"/></label>
     <p class="hint">The source will be reviewed before it changes the newly created song. Your current arrangement remains in your local library.</p>
   </div>
-</div><nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
+</div><nav v-if="!homeOpen" class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
     <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
@@ -6537,7 +6576,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 </div>
 </Teleport>
 
-<section v-if="active==='about'" class="about-page" aria-labelledby="about-title">
+<section v-if="homeOpen" hidden></section>
+<section v-else-if="active==='about'" class="about-page" aria-labelledby="about-title">
   <div class="about-hero"><div><p class="about-eyebrow">THE WORKBENCH</p><h1 id="about-title">Tango Arranger</h1><p class="about-version">Commit {{appDisplayBuild}} · Local-first orchestral arranging</p></div><div class="about-hero-mark" aria-hidden="true">𝄞</div></div>
   <p class="about-intro">Create Argentine tango arrangements from a melody and chords, shape each orchestral part, and refine the performance note by note. Your songs stay in your browser until you choose to export them.</p>
   <div class="about-content-columns">
