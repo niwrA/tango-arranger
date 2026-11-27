@@ -2685,7 +2685,9 @@ const orchestrationToolsOpen=ref(false);
 const phrasePlannerVisible=ref(false);
 function showOrchestrationPhrasePlanner(){phrasePlannerVisible.value=!phrasePlannerVisible.value;orchestrationToolsOpen.value=false;}
 function showOrchestrationRangeSettings(){measureSettingsOpen.value=true;orchestrationToolsOpen.value=false;}
-function showOrchestrationSelectedNotes(){orchestrationToolsOpen.value=false;openNoteEditor(overviewInstrument.value,overviewStart.value-1);}
+function showOrchestrationSelectedNotes(){orchestrationToolsOpen.value=false;const first=overviewStart.value,last=overviewEnd.value;openNoteEditor(overviewInstrument.value,first-1);setNoteEditorMeasureRange(first,last);}
+function showOrchestrationSelectedRhythm(){orchestrationToolsOpen.value=false;openRhythmFromMap(overviewInstrument.value);}
+function auditionOrchestrationRange(){orchestrationToolsOpen.value=false;void previewPart('instrument',overviewStart.value-1,overviewEnd.value-1,overviewInstrument.value);}
 const selectedInstrumentGroup=ref<InstrumentGroup>('rhythm');
 const instrumentGroupOptions:InstrumentGroup[]=['rhythm','melody','harmony'];
 function groupMembers(group:InstrumentGroup):Instrument[]{return instrumentsForGroup(project.value,group,INSTRUMENTS);}
@@ -6932,9 +6934,11 @@ async function homePractise(inst:Instrument){
 <section v-else-if="active==='arrange'" class="overview-section">
 <div class="orchestration-top-row">
   <div class="orchestration-top-actions">
-    <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration editing scope">
-      <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Section':'All'}}</button>
+    <div class="orchestration-scope-tabs" role="tablist" aria-label="Orchestration map filter">
+      <button v-for="scope in (['all','section','instrument'] as const)" :key="scope" type="button" role="tab" :id="`scope-${scope}`" :aria-selected="orchestrationScope===scope" :aria-controls="'scope-map-panel'" :class="{selected:orchestrationScope===scope}" @click="orchestrationScope=scope">{{scope==='instrument'?'Instrument':scope==='section'?'Group':'All'}}</button>
     </div>
+    <div class="orchestration-selection-inline" :title="rosterDisplayName(overviewInstrument)+' · measures '+overviewStart+'–'+overviewEnd"><strong>{{rosterDisplayName(overviewInstrument)}}</strong><span>M{{overviewStart}}{{overviewEnd===overviewStart?'':'–'+overviewEnd}}</span></div>
+    <div class="orchestration-inline-shortcuts" role="group" aria-label="Selected range shortcuts"><button type="button" class="secondary icon-action" title="Range settings" aria-label="Edit selected measure settings" @click="showOrchestrationRangeSettings"><AppIcon name="settings"/></button><button type="button" class="secondary icon-action" title="Edit selected notes" aria-label="Edit selected notes" @click="showOrchestrationSelectedNotes"><AppIcon name="music"/></button><button type="button" class="secondary icon-action" title="Audition selected range" aria-label="Audition selected instrument range" @click="auditionOrchestrationRange"><AppIcon name="play"/></button></div>
     <div class="orchestration-tool-wrap">
       <button type="button" class="secondary orchestration-more-button" aria-label="Orchestration tools and selected measure actions" aria-controls="orchestration-tools-popup" :aria-expanded="orchestrationToolsOpen" @click="orchestrationToolsOpen=!orchestrationToolsOpen">⋯ <span>Tools</span></button>
       <div v-if="orchestrationToolsOpen" id="orchestration-tools-popup" class="orchestration-tools-popup" role="group" aria-label="Orchestration tools">
@@ -6943,6 +6947,8 @@ async function homePractise(inst:Instrument){
         <button v-if="project.importMergeBackup" type="button" @click="revertMusicXmlMerge();orchestrationToolsOpen=false">Undo last MusicXML merge</button>
         <button type="button" @click="showOrchestrationRangeSettings">Edit selected measures</button>
         <button type="button" @click="showOrchestrationSelectedNotes">Edit selected notes</button>
+        <button type="button" @click="showOrchestrationSelectedRhythm">Edit selected rhythm</button>
+        <button type="button" @click="auditionOrchestrationRange">Audition selected instrument range</button>
         <button type="button" :aria-expanded="phrasePlannerVisible" @click="showOrchestrationPhrasePlanner">{{phrasePlannerVisible?'Close':'Open'}} phrase planner</button>
         <p>Select a cell to edit; long-press or right-click a cell or instrument label for contextual options. Shift+click extends the selected range.</p>
       </div>
@@ -6955,7 +6961,7 @@ async function homePractise(inst:Instrument){
 <PhrasePlanEditor :project="project" :start-open="true" v-if="phrasePlannerVisible" :draft="phrasePlanDraft" @update:draft="phrasePlanDraft=$event" @apply="applyReviewedPhrasePlan" @open-notes="openPhraseNotes"/>
 <div v-if="orchestrationScope!=='all'" class="orchestration-map-filter" role="group" aria-label="Orchestration map filter">
   <label v-if="orchestrationScope==='instrument'">Instrument <select v-model="overviewInstrument" aria-label="Instrument shown in orchestration map"><option v-for="inst in overviewInstruments" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-  <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm section':group==='melody'?'Melody section':'Harmony section'}}</option></select></label>
+  <label v-if="orchestrationScope==='section'">Orchestra group <select v-model="selectedInstrumentGroup" aria-label="Orchestra group shown in orchestration map"><option v-for="group in instrumentGroupOptions" :key="group" :value="group">{{group==='rhythm'?'Rhythm group':group==='melody'?'Melody group':'Harmony group'}}</option></select></label>
 </div>
 <details v-if="orchestrationScope==='section'" class="orchestration-group-members"><summary>Choose instruments in this group</summary><div class="orchestration-group-checks" role="group" :aria-label="`Instruments in ${selectedInstrumentGroup} section`"><label v-for="inst in activeRoster" :key="inst"><input type="checkbox" :checked="groupMembers(selectedInstrumentGroup).includes(inst)" :disabled="groupMembers(selectedInstrumentGroup).length===1&&groupMembers(selectedInstrumentGroup).includes(inst)" @change="toggleGroupMember(inst,($event.target as HTMLInputElement).checked)"/>{{rosterDisplayName(inst)}}</label></div><p class="hint">Group membership is saved with this song. These are functional viewing groups, not the A/B/C song parts or generated musical roles.</p></details>
 <div class="orchestration-instrument-scope" id="scope-map-panel" role="tabpanel" :aria-labelledby="`scope-${orchestrationScope}`">
@@ -6990,7 +6996,7 @@ async function homePractise(inst:Instrument){
 
 </div>
 </div>
-<details v-if="orchestrationScope==='all'" class="control-fold orchestration-song-part-settings"><summary>Song-part settings · roles, techniques and expression (A/B/C…)</summary>
+<details class="control-fold orchestration-song-part-settings"><summary>Song-part settings · roles, techniques and expression (A/B/C…)</summary>
 <div class="orchestration-section-scope">
 <div class="orchestration-section-top"><strong>Song-part orchestration</strong><div class="section-tabs" role="group" aria-label="Choose section"><button v-for="s in sections" :key="s" type="button" :class="{selected:chosenSection===s}" :aria-pressed="chosenSection===s" @click="chosenSection=s">{{s}}</button></div></div>
 <div class="orchestration-section-intro muted">Configure the selected A/B/C song part. This is independent of the rhythm, melody and harmony instrumental groups. For keys, song-part boundaries and the instrument roster, use Structure, Keys &amp; Ensemble.</div>
@@ -9512,4 +9518,12 @@ async function homePractise(inst:Instrument){
 
 <style scoped>
 .activity-nav{display:flex;align-items:center;gap:4px;flex:0 0 auto;flex-wrap:wrap}.activity-nav button{font-size:12px;min-height:36px;padding:4px 9px;white-space:nowrap}.activity-nav button[aria-pressed="true"]{background:#23465b;color:#e2f6ff;border-color:#83c6e7}.focus-home-brand{display:inline-flex;align-items:baseline;gap:7px;border:0;background:transparent;color:#e2f6ff;padding:2px 0;min-height:24px;font-size:12px;font-weight:700;box-shadow:none}.focus-home-brand small{font-weight:500}.focus-home-brand:focus-visible{outline:2px solid #83c6e7}@media(max-width:760px){.activity-nav button{min-height:40px;padding:4px 7px;font-size:11px}}
+</style>
+
+<style scoped>
+/* UX-03: selection and shortcuts share the existing toolbar, never a new map row. */
+.orchestration-selection-inline{display:flex;align-items:center;gap:5px;min-width:0;max-width:160px;white-space:nowrap;color:#c5e9fb;font-size:11px;overflow:hidden}.orchestration-selection-inline strong{overflow:hidden;text-overflow:ellipsis;min-width:0}.orchestration-selection-inline span{flex:none;font-variant-numeric:tabular-nums;color:#b8ccd9}.orchestration-inline-shortcuts{display:none;gap:3px;flex:none}.orchestration-inline-shortcuts button{width:36px;min-width:36px;height:38px;min-height:38px;padding:6px}.orchestration-top-actions{min-width:0}.orchestration-top-row{column-gap:10px}
+@media(min-width:1500px){.orchestration-inline-shortcuts{display:flex}.orchestration-top-row .orchestration-right-legend{flex-basis:360px}}
+@media(max-width:550px){.orchestration-selection-inline{max-width:90px;display:block;line-height:1.25}.orchestration-selection-inline strong{display:block}.orchestration-top-actions{gap:4px}.orchestration-top-row .orchestration-more-button{padding-inline:7px}}
+@media(max-width:390px){.orchestration-selection-inline{max-width:65px}.orchestration-top-row .orchestration-scope-tabs button{font-size:11px;padding-inline:3px}.orchestration-top-row .orchestration-more-button span{display:none}}
 </style>
