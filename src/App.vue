@@ -5642,6 +5642,23 @@ function resetLeadAlignment(){
  try{leadAlignmentDraft.value=createLeadAlignment(project.value,leadLyricsSource.value,alignmentVoice.value,leadLyricsVerse.value,leadLyricsUseMelody.value);leadAlignmentBase.value=project.value;leadAlignmentError.value='';}
  catch(error){leadAlignmentDraft.value=null;leadAlignmentError.value=String(error);}
 }
+function serializeVisualAlignment(d:LeadAlignment):string{
+ const events=[...d.chords.map(c=>({start:c.start,text:'['+c.symbol+']',line:-1,order:0})),...d.syllables.map(t=>({start:t.start,text:'~'+t.syllabic+':'+t.text+(t.melisma?'_':''),line:t.line,order:1}))].sort((a,b)=>a.start-b.start||a.order-b.order);
+ let bar=0,line=-1,source='';
+ for(const e of events){
+  const target=Math.floor(e.start/d.beats);
+  while(bar<target){source+=' || ';bar++;}
+  if(e.line>=0&&line>=0&&e.line!==line)source+='\n';
+  if(e.line>=0)line=e.line;
+  source+=' @'+Number((e.start-target*d.beats+1).toFixed(6))+' '+e.text;
+ }
+ return source.trim();
+}
+function changeLeadAlignmentMode(mode:'visual'|'advanced'){
+ if(mode===leadAlignmentMode.value)return;
+ if(mode==='advanced'&&leadAlignmentDraft.value){leadLyricsSource.value=serializeVisualAlignment(leadAlignmentDraft.value);leadLyricsUseMelody.value=leadAlignmentDraft.value.existing;}
+ leadAlignmentMode.value=mode;
+}
 function applyVisualAlignment(){
  const d=leadAlignmentDraft.value,voice=leadLyricsExisting.value;
  if(!d||alignmentValidation.value||leadAlignmentBase.value!==project.value)return;
@@ -5670,22 +5687,14 @@ function applyVisualAlignment(){
    }
    // Retain original lyric line grouping and exact anchors in the advanced
    // source using explicit beat markers; the parser recognizes syllable flags.
-   const events=[...d.chords.map(c=>({start:c.start,text:'['+c.symbol+']',line:-1,order:0})),...d.syllables.map(t=>({start:t.start,text:'~'+t.syllabic+':'+t.text+(t.melisma?'_':''),line:t.line,order:1}))].sort((a,b)=>a.start-b.start||a.order-b.order);
-   let bar=0,line=-1,source='';
-   for(const e of events){
-    const target=Math.floor(e.start/d.beats);
-    while(bar<target){source+=' || ';bar++;}
-    if(e.line>=0&&line>=0&&e.line!==line)source+='\n';
-    if(e.line>=0)line=e.line;
-    source+=' @'+Number((e.start-target*d.beats+1).toFixed(6))+' '+e.text;
-   }
+   const source=serializeVisualAlignment(d);
    next.leadLyrics={...next.leadLyrics,[String(verse)]:{source:source.trim(),useExistingMelody:d.existing}};
   }
   stopPlayback();next.generatedScore=Object.values(next.protectedBars??{}).some(Boolean)?mergeScores(next,generate(next)):undefined;
   project.value=next;delete leadVerseDrafts.value[leadLyricsVerse.value];resetLeadAlignment();message.value='Applied visual lyric and chord alignment.';
  }catch(error){leadAlignmentError.value=String(error);}
 }
-watch([leadDisplayMode,leadAlignmentMode,leadLyricsVerse],()=>{if(leadDisplayMode.value==='alignment'&&leadAlignmentMode.value==='visual')resetLeadAlignment();});
+watch([leadDisplayMode,leadAlignmentMode,leadLyricsVerse],([view,mode,verse],[,oldMode,oldVerse])=>{if(view==='alignment'&&mode==='visual'&&(!leadAlignmentDraft.value||oldMode!==mode||oldVerse!==verse))resetLeadAlignment();});
 watch(project,()=>{if(leadAlignmentDraft.value&&leadAlignmentBase.value!==project.value){leadAlignmentDraft.value=null;leadAlignmentError.value='Song changed. Reload the alignment.';}},{flush:'sync'});
 
 function loadLeadLyricsFromSong(){
@@ -7022,7 +7031,7 @@ async function homePractise(inst:Instrument){
 </section>
 <div v-if="leadDisplayMode==='edit'&&copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
 <section v-if="leadDisplayMode==='alignment'" class="lead-alignment-workspace">
- <div class="lead-lyrics-toolbar"><button type="button" :class="leadAlignmentMode==='visual'?'primary':'secondary'" @click="leadAlignmentMode='visual'">Visual</button><button type="button" :class="leadAlignmentMode==='advanced'?'primary':'secondary'" @click="leadAlignmentMode='advanced'">Advanced</button><label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label><label v-if="leadAlignmentMode==='visual'"><input type="checkbox" v-model="leadLyricsUseMelody" @change="resetLeadAlignment"/> Use existing Voice melody</label></div>
+ <div class="lead-lyrics-toolbar"><button type="button" :class="leadAlignmentMode==='visual'?'primary':'secondary'" @click="changeLeadAlignmentMode('visual')">Visual</button><button type="button" :class="leadAlignmentMode==='advanced'?'primary':'secondary'" @click="changeLeadAlignmentMode('advanced')">Advanced</button><label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label><label v-if="leadAlignmentMode==='visual'"><input type="checkbox" v-model="leadLyricsUseMelody" @change="resetLeadAlignment"/> Use existing Voice melody</label></div>
  <template v-if="leadAlignmentMode==='visual'"><LeadAlignmentView v-if="leadAlignmentDraft" :draft="leadAlignmentDraft" :voice="alignmentVoice" :bars="alignmentBarsPreview" :playing="playing" :play-beat="performanceBeat" :selected-measure="selectedBar" :bpm="effectivePlaybackBpm" :error="alignmentValidation||leadAlignmentError" @change="leadAlignmentDraft=$event;leadAlignmentError=''" @seek="selectLeadMeasure" @apply="applyVisualAlignment" @reset="resetLeadAlignment"/><div v-else><p role="alert">{{leadAlignmentError}}</p><button type="button" @click="resetLeadAlignment">Reload alignment</button></div><p v-if="leadAlignmentDraft&&!leadAlignmentDraft.syllables.length">No syllables yet. Paste lyrics in Advanced, then return to Visual.</p></template>
  <section v-if="leadAlignmentMode==='advanced'" class="lead-lyrics-workspace">
   <strong>Advanced lyric and chord source</strong>
