@@ -2,6 +2,7 @@ import {chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,ins
 import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhythmEditor';
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
 import {createPhrasePlan,phraseAt} from './phrasePlan';
+import {clearRhythmSourceIfRetimed} from './rhythmSnap';
 export type EditCategory='pitch'|'duration'|'rhythm'|'expression'|'dynamics'|'articulation'|'finger'|'bow'|'position'|'timing'|'structure'|'role'|'create';
 export type EditAction={value:string;label:string;title:string};
 export type EditSelection=
@@ -10,7 +11,8 @@ export type EditSelection=
  |{kind:'range';fromBeat:number;toBeat:number}
  |{kind:'phrase';measure:number}
  |{kind:'part'};
-export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:{bar:number;beat:number;pitch:number}};
+export type NoteGeometryEdit={start:number;duration:number;pitchDelta:number};
+export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:{bar:number;beat:number;pitch:number};geometry?:NoteGeometryEdit};
 export type MusicalEditChanges={added:Note[];modified:{before:Note;after:Note}[];deleted:Note[]};
 export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[];changes:MusicalEditChanges};
 const onsetPitchKey=(n:Note)=>n.start+':'+n.pitch;
@@ -47,12 +49,55 @@ export function musicalEditActions(category:EditCategory,inst:Instrument):EditAc
  case 'bow':return bowed?[action('down','𝆪','Down-bow'),action('up','𝆫','Up-bow'),action('alternate','↕','Alternate bows'),action('arco','arco'),action('pizzicato','pizz.'),action('clear','Clear')]:[];
  case 'position':return bowed?['I','II','III','IV','V','VI','VII','VIII','IX'].map(v=>action(v,v,'Hand position '+v)).concat((family==='Violin'?[55,62,69,76]:[28,33,38,43]).map((v,i)=>action('string:'+v,(family==='Violin'?['G','D','A','E']:['E','A','D','G'])[i],'Assign string')),action('clear','Auto')):[];
  case 'timing':return [action('-.25','← ¼','Earlier'),action('.25','¼ →','Later'),action('quantize','Grid','Quantize to quarter beat'),action('short','Short','Shorten sounding length'),action('full','Full','Full sounding length')];
- case 'structure':return [action('delete','Delete'),action('split','Split'),action('repeat','Repeat'),action('merge','Merge','Merge two selected notes')];
+ case 'structure':return [action('delete','Delete'),action('split','Split'),action('repeat','Repeat'),action('merge','Merge','Merge two selected notes'),action('untie','Untie','Remove selected incoming ties')];
  case 'role':return roles.map(v=>action(v,v));
  case 'create':return [action('generate','Fill empty measures'),action('replace','Replace with role'),action('insert','Insert note')];
  }
 }
 function clearExpression(n:Note){delete n.gesture;delete n.slideTo;delete n.approachSlideFrom;delete n.stringGlissando;delete n.bowedTremolo;delete n.pianoGlissando;delete n.vibrato;delete n.swellTo;}
+function movePitch(note:Note,target:number){
+ const delta=target-note.pitch;
+ if(!delta)return;
+ note.pitch=target;
+ delete note.stringMidi;
+ delete note.finger;
+ delete note.handPosition;
+ if(note.gesture)note.gesture=transposeTangoGesture(note.gesture,delta);
+ if(note.slideTo!==undefined)note.slideTo+=delta;
+ if(note.approachSlideFrom!==undefined)note.approachSlideFrom+=delta;
+}
+function tiePosition(note:Note,beat:number){
+ return `${note.xmlStaff??1}:${note.xmlVoice??'1'}:${note.pitch}:${Math.round(beat*1e6)}`;
+}
+function reconcileTies(
+ notes:readonly Note[],kept:readonly Note[],transformed:ReadonlyMap<Note,Note>,
+ replacementEnds:ReadonlyMap<Note,Note>,warn:(note:Note)=>void
+){
+ if(!notes.some(note=>note.xmlTieContinuation))return;
+ const originalEnds=new Map<string,Note[]>();
+ for(const note of notes){
+  const key=tiePosition(note,note.start+note.duration);
+  const candidates=originalEnds.get(key)??[];
+  candidates.push(note);
+  originalEnds.set(key,candidates);
+ }
+ const retained=new Set(kept);
+ for(const original of notes){
+  if(!original.xmlTieContinuation)continue;
+  const updated=transformed.get(original)??(retained.has(original)?original:undefined);
+  if(!updated?.xmlTieContinuation)continue;
+  const predecessors=originalEnds.get(tiePosition(original,original.start));
+  if(!predecessors?.length)continue;
+  const stillTied=predecessors.some(predecessor=>{
+   const end=replacementEnds.get(predecessor)??transformed.get(predecessor)??(retained.has(predecessor)?predecessor:undefined);
+   return end&&tiePosition(end,end.start+end.duration)===tiePosition(updated,updated.start);
+  });
+  if(stillTied)continue;
+  if(updated===original)throw Error('This edit would break a tie outside the selection. Select the tied notes together or untie the continuation first.');
+  delete updated.xmlTieContinuation;
+  warn(updated);
+ }
+}
 /** Ranges are half-open in beats. An attack belongs to the range it starts in. */
 export function resolveEditSelection(p:Project,notes:readonly Note[],selection:EditSelection,rejectStale=true){
  const measureOf=(start:number)=>Math.floor((start+1e-7)/p.beats);
@@ -90,11 +135,13 @@ export function resolveEditSelection(p:Project,notes:readonly Note[],selection:E
 }
 export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,value:string):MusicalEditResult{
  const {project:p,score, instrument:inst,selection}=ctx,notes=score[inst]??[],beats=p.beats,total=p.bars.length*beats;
- if(!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
+ const geometry=category==='timing'&&value==='geometry';
+ if(!geometry&&!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
  if(selection.kind==='range'&&(category==='role'||category==='rhythm'||category==='create'&&value!=='insert'))
   throw Error('Choose whole measures for this edit');
  const barOf=(n:Note)=>Math.floor((n.start+1e-7)/beats);
  const {notes:chosen,measures}=resolveEditSelection(p,notes,selection);
+ if(geometry&&(!ctx.geometry||selection.kind!=='notes'||chosen.length!==1))throw Error('Choose one note to move or resize');
  const selected=new Set(chosen);
  const bars=new Set(measures);
  if(category!=='create'&&category!=='role'){
@@ -104,6 +151,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  }
  const warnings:string[]=[];
  const transformed=new Map<Note,Note>();
+ const replacementEnds=new Map<Note,Note>();
  let next:Project={...p},result:Note[]=[],kept:Note[]=notes.filter(n=>!selected.has(n));
  const range=instrumentRange(inst);
  const bound=(pitch:number)=>Math.max(range[0],Math.min(range[1],pitch));
@@ -141,24 +189,35 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  }else if(category==='rhythm'){
   if(!chosen.length)throw Error('Select notes or measures containing notes');
   for(const b of bars)result.push(...retimeMeasure(chosen,inst,b,beats,rhythmSlots(value as RhythmPreset,beats,inst,p.profile),'rhythm',p.pianoSplitPitch??60,undefined,value as RhythmPreset));
+  for(const note of result)delete note.xmlTieContinuation;
  }else if(category==='structure'&&value==='merge'){
   if(sorted.length!==2)throw Error('Select exactly two notes to merge');
   const merged=combineNoteAttacks(sorted[0],sorted[1]);
   transformed.set(sorted[0],merged);
+  replacementEnds.set(sorted[1],merged);
   result.push(merged);
  }else{
   if(!chosen.length)throw Error('Select notes first');
+  if(category==='structure'&&value==='untie'&&!chosen.some(note=>note.xmlTieContinuation))throw Error('Select a tied continuation');
   for(const [index,original] of sorted.entries()){
-   const n={...original},bar=barOf(n);
+   let n={...original};
+   const bar=barOf(n);
    if(category==='pitch'){
     const chord=chordAt(p.bars[bar].chord,beats,n.start-bar*beats);
     const target=value==='chord'?(chord?nearest(n.pitch,chordTones(chord)):n.pitch):value==='key'?nearest(n.pitch,keyPitchClasses(noteEditorContext(p,inst,bar).key)):bound(n.pitch+Number(value));
-    const delta=target-n.pitch;n.pitch=target;
-    if(delta){delete n.stringMidi;delete n.finger;delete n.handPosition;if(n.gesture)n.gesture=transposeTangoGesture(n.gesture,delta);if(n.slideTo!==undefined)n.slideTo+=delta;if(n.approachSlideFrom!==undefined)n.approachSlideFrom+=delta;}
+    movePitch(n,target);
    }else if(category==='duration'){
     n.duration=Math.min(total-n.start,value==='dot'?n.duration*1.5:value==='triplet'?n.duration*2/3:value==='double'?n.duration*2:value==='half'?n.duration/2:Number(value));delete n.rhythmSource;
    }else if(category==='timing'){
-    if(value==='short'||value==='full')n.gate=value==='short'?.5:1;
+    if(geometry){
+     const {start,duration,pitchDelta}=ctx.geometry!;
+     const pitch=n.pitch+pitchDelta;
+     if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<=0||start+duration>total+1e-8||!Number.isInteger(pitch)||pitch!==bound(pitch))
+      throw Error('Note would leave the song or instrument range');
+     movePitch(n,pitch);
+     n.start=start;n.duration=duration;
+     n=clearRhythmSourceIfRetimed(original,n,beats);
+    }else if(value==='short'||value==='full')n.gate=value==='short'?.5:1;
     else{n.start=Math.max(0,Math.min(total-n.duration,value==='quantize'?Math.round(n.start*4)/4:n.start+Number(value)));delete n.rhythmSource;}
    }else if(category==='dynamics'){
     if(value==='crescendo'||value==='diminuendo'){
@@ -185,15 +244,26 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
     else delete n.bowDirection;
    }else if(category==='structure'){
     if(value==='delete')continue;
+    if(value==='untie'){
+     if(!n.xmlTieContinuation){kept.push(original);continue;}
+     delete n.xmlTieContinuation;
+    }
     if(value==='split'||value==='repeat'){
      const length=n.duration/2;n.duration=length;delete n.rhythmSource;
-     const tail={...n,start:n.start+length};clearExpression(tail);delete tail.editId;delete tail.xmlTieContinuation;delete tail.lyric;delete tail.lyric2;result.push(tail);
+     const tail={...n,start:n.start+length};clearExpression(tail);delete tail.editId;delete tail.xmlTieContinuation;delete tail.lyric;delete tail.lyric2;
+     replacementEnds.set(original,tail);
+     result.push(tail);
     }
    }
    transformed.set(original,n);
    result.push(n);
   }
  }
+ if(category==='structure'&&value==='untie'){
+  bars.clear();
+  for(const note of result)bars.add(barOf(note));
+ }
+ reconcileTies(notes,kept,transformed,replacementEnds,note=>warnings.push('Removed the separated tie in measure '+(barOf(note)+1)));
  for(const n of result)bars.add(barOf(n));
  const combined=[...kept,...result];
  const countByKey=(part:readonly Note[])=>{
@@ -237,5 +307,6 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   modified:[...transformed].map(([before,after])=>({before,after:storedResult(after)})),
   deleted:removed.filter(note=>!transformed.has(note))
  };
- return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:category+' · '+value+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings,changes};
+ const label=geometry?'Move or resize note':category+' · '+value;
+ return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:label+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings,changes};
 }

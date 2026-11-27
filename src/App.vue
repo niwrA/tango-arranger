@@ -43,7 +43,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayBuild=appBuildId||'unknown build';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,replaceInstrumentNoteAcrossMeasures,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -58,7 +58,7 @@ import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWri
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
 import {rhythmPreviewForSelection,rhythmPreviewAudioPlan,type RhythmPreviewRow} from './rhythmPreview';
-import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel,clearRhythmSourceIfRetimed} from './rhythmSnap';
+import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel} from './rhythmSnap';
 import {createLongPressMenu,isContextMenuKey} from './contextPress';
 import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
@@ -806,7 +806,6 @@ const historyLimit=50;
 const snapshotProject=(value:Project):Project=>JSON.parse(JSON.stringify(value)) as Project;
 let historyBaseline:Project=snapshotProject(project.value);
 let restoringHistory=false;
-let dragHistoryStart:Project|null=null;
 function restoreHistory(direction:'undo'|'redo'){
   const source=direction==='undo'?undoHistory.value:redoHistory.value;
   const destination=direction==='undo'?redoHistory.value:undoHistory.value;
@@ -827,7 +826,6 @@ function restoreHistory(direction:'undo'|'redo'){
 function resetProjectHistory(){
   undoHistory.value=[];redoHistory.value=[];
   historyBaseline=snapshotProject(project.value);
-  dragHistoryStart=null;
 }
 function handleHistoryShortcut(event:KeyboardEvent){
   if(!(event.ctrlKey||event.metaKey)||event.altKey||event.key.toLowerCase()!=='z')return;
@@ -840,10 +838,6 @@ function handleHistoryShortcut(event:KeyboardEvent){
 watch(project,()=>{
   if(restoringHistory)return;
   const current=snapshotProject(project.value);
-  if(dragHistoryStart){
-    historyBaseline=current;
-    return;
-  }
   if(JSON.stringify(current)===JSON.stringify(historyBaseline))return;
   undoHistory.value.push(historyBaseline);
   if(undoHistory.value.length>historyLimit)undoHistory.value.shift();
@@ -3678,6 +3672,12 @@ function editorKeyAction(event:KeyboardEvent,editor:EditorKind){
   });
 }
 function handleNoteEditorKey(event:KeyboardEvent){
+  if(event.key==='Escape'&&(noteDrag||quickDraft.value)){
+    event.preventDefault();
+    cancelNoteDrag();
+    quickDraft.value=null;
+    return;
+  }
   if(pendingKeyChange.value||newSongOpen.value)return;
   if((typeof noteEditorTab!=='undefined'&&noteEditorTab.value!=='notes')||(event.target as HTMLElement|null)?.closest?.('[role=tab]'))return;
   const action=editorKeyAction(event,'notes');if(!action)return;
@@ -4631,91 +4631,81 @@ const noteSelected=ref(-1);
 const writtenDurationDraft=ref('1');
 watch(selectedBar,()=>{writtenDurationDraft.value='';});
 type NoteDrag={
-  index:number;mode:'move'|'resize-left'|'resize-right';pointerId:number;
-  startX:number;startY:number;startPitch:number;startLocal:number;startDuration:number;
+  mode:'move'|'resize-left'|'resize-right';pointerId:number;
+  startX:number;startY:number;
   cellWidth:number;rowHeight:number;moved:boolean;longPress:ReturnType<typeof setTimeout>|null;
-  original:Note;latest:Note;sourceBar:number
+  original:Note;latest?:{start:number;duration:number;pitchDelta:number};
+  key:string;project:Project;instrument:Instrument;
 };
 let noteDrag:NoteDrag|null=null;
-let noteDragBaseScore:typeof score.value|null=null;
+const draggingNote=ref(false);
 let suppressNoteClick=false;
 /** Three gestures share the same stable grid coordinates: the center moves a note
  * horizontally and vertically; the left/right grips adjust its written endpoints.
  * The note element itself can be replaced while dragging, so pointer capture belongs
  * to the persistent scroller and all changes are committed atomically.
  */
-function beginNoteDrag(event:PointerEvent,pitch:number,beat:number){
-  const index=noteAt(pitch,beat);if(index<0||!event.isPrimary||event.button!==0)return;
+function beginNoteDrag(event:PointerEvent,note:Note){
+  const index=noteMeasure.value.indexOf(note);if(index<0||!event.isPrimary||event.button!==0)return;
   const target=event.currentTarget as HTMLElement;
   const grid=target.closest<HTMLElement>('.note-lane-grid');
   const scroller=target.closest<HTMLElement>('.note-grid-scroll');
   if(!grid||!scroller)return;
   const handle=(event.target as HTMLElement).closest<HTMLElement>('.note-resize-handle');
   const mode:NoteDrag['mode']=handle?.classList.contains('note-resize-handle-left')?'resize-left':handle?'resize-right':'move';
-  const note=noteMeasure.value[index];noteSelected.value=index;
+  noteSelected.value=index;
   const gridRect=grid.getBoundingClientRect();
   const cellWidth=gridRect.width/(noteBeats.value.length*focusVisibleMeasures.value.length);
-  dragHistoryStart=snapshotProject(project.value);
-  noteDrag={index,mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
-    startPitch:note.pitch,startLocal:note.start-selectedBar.value*project.value.beats,
-    startDuration:note.duration,cellWidth,rowHeight:gridRect.height,moved:false,longPress:null,
-    original:{...note},latest:{...note},sourceBar:selectedBar.value};
-  noteDragBaseScore=score.value;
+  if(!(cellWidth>0&&gridRect.height>0))return;
   scroller.setPointerCapture(event.pointerId);
+  noteDrag={mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,
+    cellWidth,rowHeight:gridRect.height,moved:false,longPress:null,original:note,
+    key:quickNoteKey(note),project:project.value,instrument:noteInst.value};
   noteDrag.longPress=setTimeout(()=>{if(noteDrag&&!noteDrag.moved){if(noteFocusMode.value)noteFocusMore.value=true;else noteDetailsPopup.value=true;suppressNoteClick=true;}},600);
 }
 function moveNoteDrag(event:PointerEvent){
   const drag=noteDrag;if(!drag||event.pointerId!==drag.pointerId)return;
-  if(Math.abs(event.clientX-drag.startX)+Math.abs(event.clientY-drag.startY)<5)return;
-  drag.moved=true;if(drag.longPress){clearTimeout(drag.longPress);drag.longPress=null;}
+  if(!drag.moved&&Math.abs(event.clientX-drag.startX)+Math.abs(event.clientY-drag.startY)<5)return;
+  drag.moved=true;draggingNote.value=true;
+  if(drag.longPress){clearTimeout(drag.longPress);drag.longPress=null;}
   const dx=event.clientX-drag.startX;
   const beats=project.value.beats,total=project.value.bars.length*beats;
   let absoluteStart=drag.original.start;
-  let duration=drag.startDuration;
-  let pitch=drag.startPitch;
+  let duration=drag.original.duration;
+  let pitchDelta=0;
   if(drag.mode==='resize-right'){
-    duration=Math.max(Math.min(0.25,noteStep.value),Math.min(total-drag.original.start,drag.startDuration+Math.round(dx/drag.cellWidth)*noteStep.value));
+    duration=Math.max(Math.min(0.25,noteStep.value),Math.min(total-drag.original.start,duration+Math.round(dx/drag.cellWidth)*noteStep.value));
   }else if(drag.mode==='resize-left'){
-    const geometry=dragAbsoluteNoteLeftEdge(drag.original.start,drag.startDuration,dx,drag.cellWidth,noteStep.value);
+    const geometry=dragAbsoluteNoteLeftEdge(drag.original.start,duration,dx,drag.cellWidth,noteStep.value);
     absoluteStart=geometry.start;duration=geometry.duration;
   }else{
-    absoluteStart=dragAbsoluteNotePosition(drag.original.start,drag.startDuration,dx,drag.cellWidth,noteStep.value,total);
+    absoluteStart=dragAbsoluteNotePosition(drag.original.start,duration,dx,drag.cellWidth,noteStep.value,total);
     const deltaPitch=Math.round((drag.startY-event.clientY)/drag.rowHeight);
     const [lo,hi]=noteCtx.value.range;
-    pitch=Math.max(lo,Math.min(hi,drag.startPitch+deltaPitch));
+    pitchDelta=Math.max(lo,Math.min(hi,drag.original.pitch+deltaPitch))-drag.original.pitch;
   }
-  if(drag.latest.pitch===pitch&&Math.abs(drag.latest.start-absoluteStart)<1e-8&&Math.abs(drag.latest.duration-duration)<1e-8)return;
-  const edited=clearRhythmSourceIfRetimed(drag.original,{...drag.original,pitch,start:absoluteStart,duration},beats);
+  const geometry={start:absoluteStart,duration,pitchDelta};
+  if(drag.latest?.pitchDelta===pitchDelta&&drag.latest.start===absoluteStart&&drag.latest.duration===duration)return;
+  drag.latest=geometry;
+  if(!pitchDelta&&absoluteStart===drag.original.start&&duration===drag.original.duration){quickDraft.value=null;return;}
   try{
-    // Rebase each pointer move on the gesture's original project; moving into another
-    // measure must not duplicate the original note or lose it on the next move.
-    project.value=replaceInstrumentNoteAcrossMeasures(dragHistoryStart??project.value,noteDragBaseScore??score.value,noteInst.value,drag.original,edited);
-    drag.latest=edited;
-    const current=noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-absoluteStart)<1e-8);
-    noteSelected.value=current;
-  }catch(error){message.value=`Cannot move or resize note: ${String(error)}`;}
+    const result=executeMusicalEdit({project:drag.project,score:sourceScore.value,instrument:drag.instrument,selection:{kind:'notes',keys:[drag.key]},geometry},'timing','geometry');
+    quickDraft.value={base:drag.project,result,selectMovedNote:true};
+  }catch(error){quickDraft.value=null;message.value=`Cannot move or resize note: ${String(error)}`;}
+}
+function cancelNoteDrag(){
+  if(!noteDrag)return;
+  if(noteDrag.longPress)clearTimeout(noteDrag.longPress);
+  if(noteDrag.moved)quickDraft.value=null;
+  noteDrag=null;draggingNote.value=false;
 }
 function endNoteDrag(event:PointerEvent){
-  if(!noteDrag||event.pointerId!==noteDrag.pointerId)return;
-  if(noteDrag.longPress)clearTimeout(noteDrag.longPress);
-  if(noteDrag.moved){
-    suppressNoteClick=true;
-    const note=noteDrag.latest;
-    if(note){const bar=Math.floor(note.start/project.value.beats);selectedBar.value=bar;
-      noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===note.pitch&&Math.abs(n.start-note.start)<1e-8);
-      auditionEvent(note);message.value=`${noteInst.value} · measure ${bar+1}: ${displayPitch(note.pitch)} at beat ${Number((note.start-bar*project.value.beats+1).toFixed(2))}, duration ${note.duration} beats. Saved as a protected edit.`;}
-  }
-  if(dragHistoryStart){
-    const before=dragHistoryStart;
-    dragHistoryStart=null;
-    if(JSON.stringify(before)!==JSON.stringify(project.value)){
-      undoHistory.value.push(before);
-      if(undoHistory.value.length>historyLimit)undoHistory.value.shift();
-      redoHistory.value=[];
-      historyBaseline=snapshotProject(project.value);
-    }
-  }
-  noteDrag=null;noteDragBaseScore=null;
+  const drag=noteDrag;
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  if(event.type!=='pointerup'){cancelNoteDrag();return;}
+  if(drag.longPress)clearTimeout(drag.longPress);
+  noteDrag=null;draggingNote.value=false;
+  if(drag.moved){suppressNoteClick=true;if(!quickPreview.value)commitQuickDraft();}
   setTimeout(()=>{suppressNoteClick=false;},80);
 }
 function nudgeSelectedNote(delta:number){
@@ -4955,7 +4945,7 @@ const quickSplit=ref(false);
 watch(noteEditorTab,tab=>{if(tab!=='notes'&&tab!=='score')quickSplit.value=false;});
 const quickPreview=ref((()=>{try{return localStorage.getItem('tango-musical-edit-preview')!=='false';}catch{return true;}})());
 watch(quickPreview,v=>{try{localStorage.setItem('tango-musical-edit-preview',String(v));}catch{}});
-const quickDraft=shallowRef<{base:Project;result:MusicalEditResult}|null>(null);
+const quickDraft=shallowRef<{base:Project;result:MusicalEditResult;selectMovedNote?:boolean}|null>(null);
 const quickDisplayScore=computed(()=>{
  const result=quickDraft.value?.result;
  return result?adaptTransposedScore(result.score,result.project):score.value;
@@ -4994,7 +4984,8 @@ function toggleQuickNote(n:Note){
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
 watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
 watch([noteLoopFrom,noteLoopTo],()=>{quickDraft.value=null;});
-watch(project,()=>{quickDraft.value=null;},{deep:true,flush:'sync'});
+watch(project,()=>{quickDraft.value=null;cancelNoteDrag();},{deep:true,flush:'sync'});
+watch([noteInst,active,noteEditorTab],cancelNoteDrag,{flush:'sync'});
 const quickAuditionPlaying=ref(false);
 let quickAuditionTimer:ReturnType<typeof setTimeout>|undefined;
 let quickAuditionSession=0;
@@ -5037,11 +5028,20 @@ async function auditionQuickDraft(){
  }catch(error){stopQuickAudition();message.value='Preview audition failed: '+String(error);}
 }
 function commitQuickDraft(){
+ if(draggingNote.value)return;
  const draft=quickDraft.value;if(!draft)return;
  stopQuickAudition();
  if(draft.base!==project.value){quickDraft.value=null;message.value='Project changed; create a new preview.';return;}
  quickDraft.value=null;project.value=draft.result.project;
- if(quickScope.value==='notes'){multiNoteMode.value=true;multiNoteKeys.value=draft.result.keys;}
+ if(draft.selectMovedNote){
+  const note=(score.value[noteInst.value]??[]).find(note=>quickSourceKeys.value.get(note)===draft.result.keys[0]);
+  if(note){
+   multiNoteMode.value=false;multiNoteKeys.value=[];
+   activateGridMeasure(Math.floor((note.start+1e-7)/project.value.beats));
+   noteSelected.value=noteMeasure.value.indexOf(note);
+   auditionEvent(note);
+  }
+ }else if(quickScope.value==='notes'){multiNoteMode.value=true;multiNoteKeys.value=draft.result.keys;}
  message.value=[draft.result.description,...draft.result.warnings].join('. ');
 }
 function applyQuickNote(value:string,entry?:{bar:number;beat:number;pitch:number},override?:EditSelection,category=quickNoteCategory.value){
@@ -5087,9 +5087,9 @@ function selectNoteForEdit(note:Note,index:number){
  selectNoteEvent(index);
 }
 function startGridNoteDrag(event:PointerEvent,note:Note){
- if(quickDraft.value||mergeAnchor.value||multiNoteMode.value||quickMode.value!=='select'||quickScope.value!=='notes')return;
+ if(noteDrag||quickDraft.value||mergeAnchor.value||multiNoteMode.value||quickMode.value!=='select'||quickScope.value!=='notes')return;
  activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
- beginNoteDrag(event,note.pitch,note.start%project.value.beats);
+ beginNoteDrag(event,note);
 }
 function selectGridNote(note:Note){
  if(suppressNoteClick){suppressNoteClick=false;return;}
@@ -6819,7 +6819,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)">{{action.label}}</button>
     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
    </div>
-   <div v-if="quickDraft" class="musical-edit-row musical-preview-row" role="status">
+   <div v-if="quickDraft&&!draggingNote" class="musical-edit-row musical-preview-row" role="status">
     <strong>Preview · {{quickDraft.result.description}}</strong>
     <small v-if="quickDraft.result.warnings.length">{{quickDraft.result.warnings.join('. ')}}</small>
     <button type="button" class="secondary" @click="auditionQuickDraft">{{quickAuditionPlaying?'Stop':'▶ Audition'}}</button>
@@ -7211,7 +7211,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
-<div class="note-grid-scroll" @scroll.passive="handleNoteGridScroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)">
+<div class="note-grid-scroll" @scroll.passive="handleNoteGridScroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)" @lostpointercapture="endNoteDrag($event)">
   <div class="note-continuous-grid" :style="{minWidth:(NOTE_GRID_LABEL_PX+focusVisibleMeasures.length*noteBeats.length*NOTE_GRID_CELL_PX)+'px','--grid-steps':noteBeats.length*focusVisibleMeasures.length,'--visible-measures':focusVisibleMeasures.length,'--note-window-measures':noteGridMeasures.length,'--note-window-steps':noteBeats.length*noteGridMeasures.length}">
     <div class="note-continuous-row note-continuous-measures">
       <div class="note-continuous-pitch-title">Pitch</div>

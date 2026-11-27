@@ -6,6 +6,7 @@ const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
 const {blankProject,adaptTransposedScore}=load('src/music.ts');
 const {executeMusicalEdit,editPartNoteKeys,editNoteKey}=load('src/musicalEdit.ts');
+const {dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition}=load('src/noteEditing.ts');
 const {exportProjectZip,loadProject}=load('src/io.ts');
 const p=blankProject({sections:1,measuresPerSection:2,beats:4});
 p.bars.forEach(b=>b.chord='Dm');
@@ -111,6 +112,28 @@ assert.equal(joined.score.Voice[0].lyric,'tango');
 assert.equal(joined.score.Voice[0].lyric2,'arte');
 assert.equal(joined.changes.modified[0].before,lyrics[0]);
 assert.deepEqual(joined.changes.deleted,[lyrics[1]]);
+const tiedPart=[
+ {pitch:67,start:3,duration:1,xmlVoice:'1'},
+ {pitch:67,start:4,duration:1,xmlVoice:'1',xmlTieContinuation:true},
+ {pitch:67,start:4,duration:1,xmlVoice:'2'}
+];
+const tiedContext={project:scoped,score:{'Violin I':tiedPart},instrument:'Violin I'};
+const tiedKeys=editPartNoteKeys(tiedPart);
+const editTies=(notes,category,action)=>executeMusicalEdit({...tiedContext,selection:{kind:'notes',keys:notes.map(note=>tiedKeys.get(note))}},category,action);
+assert.throws(()=>editTies([tiedPart[0]],'pitch','1'),/tie outside the selection/);
+assert.equal(tiedPart[1].xmlTieContinuation,true);
+const tiedUp=editTies(tiedPart.slice(0,2),'pitch','1');
+assert.equal(tiedUp.score['Violin I'].find(note=>note.start===4&&note.pitch===68).xmlTieContinuation,true);
+assert.deepEqual(tiedUp.score['Violin I'].find(note=>note.xmlVoice==='2'),tiedPart[2]);
+const continuationOnly=editTies([tiedPart[1]],'pitch','1');
+assert.equal(continuationOnly.score['Violin I'].find(note=>note.pitch===68).xmlTieContinuation,undefined);
+assert.match(continuationOnly.warnings[0],/Removed the separated tie/);
+const tiedSplit=editTies([tiedPart[0]],'structure','split');
+assert.equal(tiedSplit.score['Violin I'].find(note=>note.start===3.5).xmlTieContinuation,undefined);
+assert.equal(tiedSplit.score['Violin I'].find(note=>note.start===4&&note.xmlVoice==='1').xmlTieContinuation,true);
+const untied=editTies(tiedPart,'structure','untie');
+assert.deepEqual(untied.affectedMeasures,[1]);
+assert.equal(untied.score['Violin I'].find(note=>note.xmlVoice==='1'&&note.start===4).xmlTieContinuation,undefined);
 
 // Run the actual App handlers with Vue reactivity and a minimal editor fixture.
 const app=fs.readFileSync('src/App.vue','utf8').replaceAll('\r\n','\n');
@@ -133,21 +156,24 @@ const harness=`
  const quickSelection=computed(()=>({kind:'notes',keys:[quickNoteKey(selectedEvent.value)]}));
  const quickDraft=shallowRef(null);
  const mergeAnchor=shallowRef();
- let suppressNoteClick=false;
+ const active=ref('notes'),noteEditorTab=ref('notes'),noteFocusMode=ref(false),noteFocusMore=ref(false);
+ const noteStep=ref(0.25),noteCtx=ref({range:[55,96]}),noteBeats=ref(Array(16)),focusVisibleMeasures=ref([0,1]);
  function stopQuickAudition(){}
+ function auditionEvent(){}
  function selectNoteEvent(index){noteSelected.value=index;}
  ${appSlice('const undoHistory=', 'watch(project,scheduleAutosave')}
+ ${appSlice('type NoteDrag=', 'function nudgeSelectedNote(')}
  ${appSlice('function activateGridMeasure(', 'function continuousVisibleNotes(')}
  ${appSlice('const quickDisplayScore=', 'const quickRole=')}
  ${appSlice('const quickSourceKeys=', 'const quickSelection=')}
  ${appSlice('watch(project,()=>{quickDraft', 'const quickAuditionPlaying=')}
  ${appSlice('function commitQuickDraft(', 'function insertFromScore(')}
  ${appSlice('function selectGridNote(', 'function editScoreSelection(')}
- return {project,score,quickDisplayScore,quickDraft,quickPreview,selectedEvent,applyQuickNote,commitQuickDraft,restoreHistory,selectGridNote,selectScoreNote,undoHistory,redoHistory};
+ return {project,score,quickDisplayScore,quickDraft,quickPreview,selectedEvent,applyQuickNote,commitQuickDraft,restoreHistory,selectGridNote,selectScoreNote,undoHistory,redoHistory,beginNoteDrag,moveNoteDrag,endNoteDrag};
 `;
 const seed={...fixture,generatedScore:fullScore};
-const runtime=new Function('seed','ref','shallowRef','computed','watch','executeMusicalEdit','editNoteKey','editPartNoteKeys','adaptTransposedScore',ts.transpile(harness));
-const launch=project=>runtime(project,ref,shallowRef,computed,watch,executeMusicalEdit,editNoteKey,editPartNoteKeys,adaptTransposedScore);
+const runtime=new Function('seed','ref','shallowRef','computed','watch','executeMusicalEdit','editNoteKey','editPartNoteKeys','adaptTransposedScore','dragAbsoluteNoteLeftEdge','dragAbsoluteNotePosition',ts.transpile(harness));
+const launch=project=>runtime(project,ref,shallowRef,computed,watch,executeMusicalEdit,editNoteKey,editPartNoteKeys,adaptTransposedScore,dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition);
 const editor=launch(seed);
 editor.selectGridNote(editor.score.value['Violin I'][1]);
 assert.equal(editor.selectedEvent.value.pitch,72);
@@ -183,6 +209,32 @@ direct.applyQuickNote('-1');
 assert.deepEqual(direct.score.value,preview);
 assert.equal(direct.quickDraft.value,null);
 assert.equal(direct.undoHistory.value.length,1);
+const dragEditor=launch(structuredClone(seed));
+const grid={getBoundingClientRect:()=>({width:320,height:20})};
+let capturedPointer;
+const scroller={setPointerCapture:id=>{capturedPointer=id;}};
+const down={pointerId:3,isPrimary:true,button:0,clientX:0,clientY:0,
+ currentTarget:{closest:selector=>selector==='.note-lane-grid'?grid:scroller},target:{closest:()=>null}};
+const move={...down,clientX:160,clientY:-20};
+dragEditor.beginNoteDrag(down,dragEditor.score.value['Violin I'][0]);
+assert.equal(capturedPointer,3);
+dragEditor.moveNoteDrag(move);
+assert.equal(dragEditor.quickDisplayScore.value['Violin I'].at(-1).start,4);
+assert.equal(dragEditor.quickDisplayScore.value['Violin I'].at(-1).pitch,72);
+assert.deepEqual(dragEditor.score.value,fullScore);
+assert.equal(dragEditor.undoHistory.value.length,0);
+dragEditor.endNoteDrag({...move,type:'pointercancel'});
+assert.equal(dragEditor.quickDraft.value,null);
+assert.deepEqual(dragEditor.score.value,fullScore);
+dragEditor.quickPreview.value=false;
+dragEditor.beginNoteDrag(down,dragEditor.score.value['Violin I'][0]);
+dragEditor.moveNoteDrag(move);
+assert.equal(dragEditor.undoHistory.value.length,0);
+dragEditor.endNoteDrag({...move,type:'pointerup'});
+assert.equal(dragEditor.score.value['Violin I'].at(-1).start,4);
+assert.equal(dragEditor.undoHistory.value.length,1);
+dragEditor.restoreHistory('undo');
+assert.deepEqual(dragEditor.score.value,fullScore);
 const adaptive=launch({
  ...scoped,transposeSemitones:-2,
  adaptiveTranspose:{enabled:true,semitones:-2,chordToneRhythm:false,parts:{'Violin I':{strategy:'whole',octaves:12}}},

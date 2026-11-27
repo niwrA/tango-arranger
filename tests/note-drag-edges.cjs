@@ -39,7 +39,7 @@ test('note move and left resize persist in protected score and valid MusicXML',(
 test('Vue editor exposes separate left and right resize handles and middle move mode',()=>{
   const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
   const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
-  for(const token of ['note-resize-handle-left','note-resize-handle-right',"mode:'move'|'resize-left'|'resize-right'",'dragAbsoluteNotePosition(','dragAbsoluteNoteLeftEdge(','scroller.setPointerCapture(event.pointerId)','startLocal:note.start-selectedBar.value*project.value.beats'])assert.ok(app.includes(token),token);
+  for(const token of ['note-resize-handle-left','note-resize-handle-right',"mode:'move'|'resize-left'|'resize-right'",'dragAbsoluteNotePosition(','dragAbsoluteNoteLeftEdge(','scroller.setPointerCapture(event.pointerId)','key:quickNoteKey(note)','@lostpointercapture="endNoteDrag($event)"'])assert.ok(app.includes(token),token);
   for(const token of ['.note-bar .note-resize-handle-left','.note-bar .note-resize-handle-right','cursor:move'])assert.ok(css.includes(token),token);
 });
 console.log(`${passes} note move and dual-edge resize checks passed`);

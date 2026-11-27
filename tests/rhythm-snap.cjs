@@ -134,12 +134,15 @@ check('Vue source contains cues in both modes and accessible contextual map shor
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  const required=[
   'note-rhythm-snap-bar','note-bar-rhythm','performance-rhythm-mark',
-  'snapSelectedNoteNow','releaseSelectedRhythmSource','clearRhythmSourceIfRetimed',
+  'snapSelectedNoteNow','releaseSelectedRhythmSource',
   'instrument-context-dialog','openInstrumentContext(inst,$event)',
   'beginInstrumentHeaderHold(inst)','handleInstrumentContextKey(inst,$event)',
   'handleMapContextKey(inst,i,$event)','handleNoteBarContextKey($event,pitch','openRhythmFromMap(overviewInstrument)',
   '@contextmenu.prevent.stop','<Teleport to="body">','aria-modal="true"'
  ];
  for(const term of required)assert.ok(app.includes(term),'Missing UI integration: '+term);
+ assert.match(app,/executeMusicalEdit\([^\n]+,'timing','geometry'\)/);
+ const commands=fs.readFileSync(path.join(root,'src/musicalEdit.ts'),'utf8');
+ assert.match(commands,/clearRhythmSourceIfRetimed\(original,n,beats\)/);
 });
 console.log(count+' rhythm and contextual-menu checks passed');

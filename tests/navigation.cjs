@@ -73,7 +73,7 @@ test('note-editor shortcuts respect boundaries, modifiers and text-entry focus',
     const exports={};vm.runInNewContext(compiled,{exports});return exports;
   })();
   const handler=vm.runInNewContext(`${compiled};handleNoteEditorKey`,{
-    selectedBar,noteInst,project,
+    selectedBar,noteInst,project,noteDrag:null,quickDraft:{value:null},
     editorKeyAction:(event,kind)=>resolveEditorShortcut(kind,event.key,{altKey:event.altKey,ctrlKey:event.ctrlKey,metaKey:event.metaKey,shiftKey:event.shiftKey,editable:!!event.target?.closest?.('input,textarea,select,[contenteditable]')}),
     pendingKeyChange:{value:null},newSongOpen:{value:false},noteDetailsPopup:{value:false},noteFocusMore:{value:false},noteFocusMode:{value:false},exitNoteFocusMode:()=>actions.push('exitFocus'),
     returnToMap:()=>actions.push('map'),openNoteEditor:(inst,i)=>actions.push([inst,i])
