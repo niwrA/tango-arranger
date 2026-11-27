@@ -34,7 +34,7 @@ try{
  check('Both Delete actions call existing persistent edit operations',()=>{
   assert.match(app,/action==='delete'&&selectedEvent\.value\)\{event\.preventDefault\(\);deleteSelectedNote\(\);\}/);
   assert.match(app,/action==='delete'&&rhythmSelectedSlot\.value\)\{event\.preventDefault\(\);rhythmDelete\(\);\}/);
-  assert.match(app,/function deleteSelectedNote\([\s\S]*?replaceInstrumentMeasure\(/);
+  assert.match(app,/function deleteSelectedNote\(\)\{[^}]*?commitInspectorCommand\('delete',\{kind:'notes',keys:\[quickNoteKey\(note\)\]/);
   assert.match(app,/function rhythmDelete\([\s\S]*?rhythmPattern\.value=rhythmPattern\.value\.filter/);
  });
  check('Shortcut dispatch ignores editable controls and modified keys',()=>{

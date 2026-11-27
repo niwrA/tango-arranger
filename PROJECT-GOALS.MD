@@ -6,7 +6,7 @@ The immediate product goal is to evolve Tango Arranger from an arrangement gener
 - Select, Create and Erase share one contextual, instrument-aware command system. Preview is independent of interaction mode; audition, commit/cancel and atomic undo/redo use the same musical edit result.
 - Local role-aware composition, musical brushes and intelligent transformations should reuse the arrangement engine's harmony, rhythm, technique, difficulty and register knowledge. Generation must not implicitly change arrangement roles or overwrite existing material.
 - Distinguish written and sounding pitch/duration, notation and playback expression, and selection, preview, playback and Tutor feedback. Keep instrument-specific constraints, manual assignments and protected difficulty editions intact.
-- The initial shared editing infrastructure and split/audition iteration shipped in commits [14eefaad](https://github.com/niwrA/tango-arranger/commit/14eefaad) and [892e9ea](https://github.com/niwrA/tango-arranger/commit/892e9ea). Build, regression and device acceptance remain to be established locally; advanced graphical editing, overlays, brushes, optimization and expressive transformations remain planned.
+- The shared editing infrastructure passes local build and regression checks and hosted CI. The project board records the verified desktop interactions and outstanding device and musical acceptance. Advanced graphical editing, overlays, brushes, optimization and expressive transformations remain on the roadmap. [Project board](PROJECT-BOARD.MD)
 
 ---
 

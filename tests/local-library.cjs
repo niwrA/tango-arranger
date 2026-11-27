@@ -60,7 +60,7 @@ async function run(){
   assert.match(app,/async function auditionPitch/);
   assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
-  assert.match(app,/auditionEvent\(events\[index\]\)/);
+  assert.match(app,/const original=noteMeasure\.value\[index\];\s*commitInspectorCommand\('delete',\{kind:'notes',keys:\[quickNoteKey\(original\)\]\}\);\s*auditionEvent\(original\)/);
   assert.match(app,/@click.stop="selectGridNote\(n\)"/);
   assert.match(app,/function selectGridNote\(note:Note\)\{[\s\S]*?selectScoreNote\(note\)/);
   assert.match(app,/if\(index>=0\)selectNoteEvent\(index\)/);

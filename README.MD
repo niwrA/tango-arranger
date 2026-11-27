@@ -12,7 +12,7 @@ Tango Arranger is a local-first Vue/TypeScript workbench for arranging Argentine
 
 The score and note grid now share a contextual editing toolbar, note/measure selection, Select/Create/Erase modes and an independent persistent Preview preference. Split view displays both surfaces; proposed edits can be auditioned before Apply or Cancel. The command categories are instrument-dependent. Create mode supports individual notes and role-aware material: **Fill empty measures** does not overwrite existing notes, **Replace with role** explicitly regenerates selected measures, and **Change role** preserves existing notes. Staff-position tapping is experimental; accurate empty-staff entry, accidentals and graphical dragging still need work.
 
-The shared domain implementation is in `src/musicalEdit.ts`; the score surface is in `src/ScorePreview.vue`. See [PROJECT-BOARD.MD](PROJECT-BOARD.MD) for the **immediate prioritized roadmap and desktop Codex validation checklist**, and [PROJECT-GOALS.MD](PROJECT-GOALS.MD) for the product direction. The two implementation commits ([14eefaad](https://github.com/niwrA/tango-arranger/commit/14eefaad), [892e9ea](https://github.com/niwrA/tango-arranger/commit/892e9ea)) have not yet been accepted through a verified build, complete regression run or physical-device testing.
+The shared domain implementation is in `src/musicalEdit.ts`, and the score surface is in `src/ScorePreview.vue`. The production build and full regression suite, including musical editing tests, pass locally and in CI. See the project board for verified desktop interactions and outstanding iPad, Apple Pencil and musical acceptance, and the project goals for the product direction. [Project board](PROJECT-BOARD.MD) · [Project goals](PROJECT-GOALS.MD)
 
 
 ---

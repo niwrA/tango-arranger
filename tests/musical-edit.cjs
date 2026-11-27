@@ -134,6 +134,18 @@ assert.equal(tiedSplit.score['Violin I'].find(note=>note.start===4&&note.xmlVoic
 const untied=editTies(tiedPart,'structure','untie');
 assert.deepEqual(untied.affectedMeasures,[1]);
 assert.equal(untied.score['Violin I'].find(note=>note.xmlVoice==='1'&&note.start===4).xmlTieContinuation,undefined);
+const offGrid=[{pitch:69,start:0.2,duration:0.5},{pitch:72,start:0.2,duration:0.75}];
+const snapContext={project:scoped,score:{'Violin I':offGrid},instrument:'Violin I',
+ selection:{kind:'notes',keys:offGrid.map(editNoteKey)},snapPreset:'marcato_four'};
+const snapped=executeMusicalEdit(snapContext,'rhythm','snap-onset');
+assert.deepEqual(snapped.score['Violin I'].map(note=>[note.start,note.duration,note.rhythmSource.preset]),[[0,0.5,'marcato_four'],[0,0.75,'marcato_four']]);
+assert.deepEqual(offGrid.map(note=>note.start),[0.2,0.2]);
+const entered=executeMusicalEdit({...snapContext,selection:{kind:'notes',keys:[]},duration:0.5,entry:{
+ bar:0,beat:1,pitch:70,articulation:'marcato_staccato',rhythm:{preset:'marcato_four',originalBeat:1.2,accent:true}
+}},'create','insert');
+assert.equal(entered.changes.added[0].articulation,'marcato_staccato');
+assert.equal(entered.changes.added[0].accent,true);
+assert.equal(entered.changes.added[0].rhythmSource.targetDuration,0.5);
 
 // Run the actual App handlers with Vue reactivity and a minimal editor fixture.
 const app=fs.readFileSync('src/App.vue','utf8').replaceAll('\r\n','\n');
@@ -160,6 +172,7 @@ const harness=`
  const noteStep=ref(0.25),noteCtx=ref({range:[55,96]}),noteBeats=ref(Array(16)),focusVisibleMeasures=ref([0,1]);
  function stopQuickAudition(){}
  function auditionEvent(){}
+ function focusSelectedNoteButton(){}
  function selectNoteEvent(index){noteSelected.value=index;}
  ${appSlice('const undoHistory=', 'watch(project,scheduleAutosave')}
  ${appSlice('type NoteDrag=', 'function nudgeSelectedNote(')}
@@ -169,7 +182,9 @@ const harness=`
  ${appSlice('watch(project,()=>{quickDraft', 'const quickAuditionPlaying=')}
  ${appSlice('function commitQuickDraft(', 'function insertFromScore(')}
  ${appSlice('function selectGridNote(', 'function editScoreSelection(')}
- return {project,score,quickDisplayScore,quickDraft,quickPreview,selectedEvent,applyQuickNote,commitQuickDraft,restoreHistory,selectGridNote,selectScoreNote,undoHistory,redoHistory,beginNoteDrag,moveNoteDrag,endNoteDrag};
+ ${appSlice('function commitImmediateEdit(', 'function updatePianoExpression(')}
+ ${appSlice('function deleteSelectedNote(', 'function restoreNoteMeasure(')}
+ return {project,score,quickDisplayScore,quickDraft,quickPreview,selectedEvent,applyQuickNote,commitQuickDraft,restoreHistory,selectGridNote,selectScoreNote,undoHistory,redoHistory,beginNoteDrag,moveNoteDrag,endNoteDrag,commitInspectedNote,deleteSelectedNote,clearNoteMeasure};
 `;
 const seed={...fixture,generatedScore:fullScore};
 const runtime=new Function('seed','ref','shallowRef','computed','watch','executeMusicalEdit','editNoteKey','editPartNoteKeys','adaptTransposedScore','dragAbsoluteNoteLeftEdge','dragAbsoluteNotePosition',ts.transpile(harness));
@@ -248,6 +263,21 @@ assert.deepEqual(adaptive.quickDisplayScore.value['Violin I'].map(n=>n.pitch),[6
 adaptive.commitQuickDraft();
 assert.deepEqual(adaptive.project.value.generatedScore['Violin I'].map(n=>n.pitch),[56,59]);
 assert.deepEqual(adaptive.score.value['Violin I'].map(n=>n.pitch),[68,71]);
+const displayed=adaptive.score.value['Violin I'][0];
+adaptive.commitInspectedNote(displayed,{...displayed,pitch:69,approachSlideFrom:68});
+assert.deepEqual(adaptive.project.value.generatedScore['Violin I'].map(n=>n.pitch),[57,59]);
+assert.equal(adaptive.project.value.generatedScore['Violin I'][0].approachSlideFrom,56);
+assert.equal(adaptive.selectedEvent.value.editId,displayed.editId);
+adaptive.applyQuickNote('1');
+assert.throws(()=>adaptive.commitInspectedNote(adaptive.selectedEvent.value,{...adaptive.selectedEvent.value,velocity:90}),/cancel the current preview/);
+adaptive.deleteSelectedNote();
+assert.equal(adaptive.project.value.generatedScore['Violin I'].length,2);
+adaptive.quickDraft.value=null;
+adaptive.deleteSelectedNote();
+assert.deepEqual(adaptive.project.value.generatedScore['Violin I'].map(n=>n.pitch),[59]);
+adaptive.clearNoteMeasure();
+assert.deepEqual(adaptive.project.value.generatedScore['Violin I'],[]);
+assert.equal(adaptive.project.value.protectedBars['Violin I:0'],true);
 assert.match(app,/:score="quickDisplayScore"/);
 assert.match(app,/for\(const note of quickDisplayScore\.value\[noteInst\.value\]/);
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
-import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditResult,type EditSelection} from './musicalEdit';
+import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditContext,type MusicalEditResult,type EditSelection} from './musicalEdit';
 import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -60,7 +60,7 @@ import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWri
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
 import {rhythmPreviewForSelection,rhythmPreviewAudioPlan,type RhythmPreviewRow} from './rhythmPreview';
-import {presetRhythmSlots,snapNoteToPreset,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel} from './rhythmSnap';
+import {presetRhythmSlots,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel} from './rhythmSnap';
 import {createLongPressMenu,isContextMenuKey} from './contextPress';
 import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
@@ -4888,35 +4888,21 @@ function snapSelectedNoteNow(){
  const original=selectedEvent.value;
  if(!original){message.value='Select a note to snap first.';return;}
  if(noteRhythmPreset.value==='off'){message.value='Choose a rhythm preset before snapping.';return;}
- const source=original.start,beats=project.value.beats;
- const at=source-selectedBar.value*beats;
- const slot=nearestRhythmSlot(at,noteRhythmPreset.value,beats,noteInst.value,project.value.profile,0.5);
- if(!slot){message.value='No rhythm-preset onset within half a beat. Move the note closer or choose another preset.';return;}
- const chord=noteMeasure.value.map(n=>({...n}));
- let changed=0;
- for(let i=0;i<chord.length;i++){
-  if(Math.abs(chord[i].start-source)>1e-6)continue;
-  const next=snapNoteToPreset(chord[i],beats,noteInst.value,project.value.profile,noteRhythmPreset.value,0.5);
-  if(Math.abs(next.start-source)>1e-8&&chord.some((n,j)=>j!==i&&n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-8)){
-   message.value='Cannot snap: another note of the same pitch already starts at that preset onset.';return;
-  }
-  chord[i]=next;changed++;
- }
- const chosen=chord.find(n=>n.pitch===original.pitch&&Math.abs(n.start-(selectedBar.value*beats+slot.beat))<1e-6);
+ const chord=noteMeasure.value.filter(note=>Math.abs(note.start-original.start)<1e-6);
+ const originalKey=quickNoteKey(original);
+ const writtenKeys=editPartNoteKeys(sourceScore.value[noteInst.value]??[]);
  try{
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,chord);
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===original.pitch&&Math.abs(n.start-(selectedBar.value*beats+slot.beat))<1e-6);
-  if(chosen)auditionEvent(chosen);
-  message.value='Snapped '+changed+' simultaneous note(s) to '+rhythmAttachmentLabel(chosen!.rhythmSource!)+' · beat '+Number((slot.beat+1).toFixed(2))+'.';
+  const result=commitImmediateEdit('rhythm','snap-onset',{selection:{kind:'notes',keys:chord.map(quickNoteKey)},snapPreset:noteRhythmPreset.value});
+  const change=result.changes.modified.find(({before})=>writtenKeys.get(before)===originalKey);
+  const note=change&&selectCommittedNote(editNoteKey(change.after));
+  if(note)auditionEvent(note);
  }catch(error){message.value='Cannot snap: '+String(error);}
 }
 function releaseSelectedRhythmSource(){
  const selected=selectedEvent.value;if(!selected?.rhythmSource)return;
- const original=selected.start;
- const notes=noteMeasure.value.map((n,i)=>i===noteSelected.value&&n.rhythmSource?(({rhythmSource,...rest})=>rest)(n):{...n});
+ const updated={...selected};delete updated.rhythmSource;
  try{
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,notes);
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===selected.pitch&&Math.abs(n.start-original)<1e-6);
+  commitInspectedNote(selected,updated);
   message.value='Cleared rhythm source label; note timing was not changed.';
  }catch(error){message.value='Could not clear rhythm source: '+String(error);}
 }
@@ -5253,28 +5239,29 @@ function toggleNote(pitch:number,beat:number){
  const preset=noteRhythmPreset.value;
  const slot=preset==='off'?undefined:nearestRhythmSlot(beat,preset,project.value.beats,noteInst.value,project.value.profile,0.5);
  const targetBeat=slot?.beat??beat;
- const index=noteAt(pitch,targetBeat),events=noteMeasure.value.map(n=>({...n}));
+ const index=noteAt(pitch,targetBeat);
  // Tapping beside an occupied preset onset selects it rather than deleting an unexpected note.
  if(index>=0&&slot&&Math.abs(beat-targetBeat)>1e-6){selectNoteEvent(index);return;}
- if(index>=0){auditionEvent(events[index]);events.splice(index,1);noteSelected.value=-1;}
- else{
+ try{
+  if(index>=0){
+   const original=noteMeasure.value[index];
+   commitInspectorCommand('delete',{kind:'notes',keys:[quickNoteKey(original)]});
+   auditionEvent(original);
+   noteSelected.value=-1;
+   return;
+  }
    const duration=noteLength.value==='auto'
      ?tripletGrid.value?Math.min(noteStep.value,project.value.beats-targetBeat):newNoteWrittenDuration(project.value,noteInst.value,selectedBar.value,targetBeat,newNoteArticulation.value)
      :Math.min(noteLength.value,project.value.beats-targetBeat);
-   const added=suggestedEditorNote(project.value,noteInst.value,selectedBar.value,targetBeat,pitch,duration);
-   if(slot&&preset!=='off')added.rhythmSource={
-     kind:'preset',preset,targetBeat:slot.beat,originalBeat:beat,targetDuration:added.duration,accent:slot.accent
-   };
-   if(newNoteArticulation.value!=='inherit'){
-     added.articulation=newNoteArticulation.value;
-     added.accent=newNoteArticulation.value==='marcato_staccato';
-     delete added.gate;
-   }
-   auditionEvent(added);events.push(added);
- }
- project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
- if(index<0)noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===pitch&&Math.abs(n.start-selectedBar.value*project.value.beats-targetBeat)<1e-5);
- message.value=`${noteInst.value} · measure ${selectedBar.value+1}: ${index>=0?'removed':'added'} ${displayPitch(pitch)} at beat ${Number((targetBeat+1).toFixed(2))}${slot?' · preset onset':''}. Manual measure protected.`;
+   const result=commitImmediateEdit('create','insert',{
+    selection:{kind:'notes',keys:[]},duration,
+    entry:{bar:selectedBar.value,beat:targetBeat,pitch,
+     articulation:newNoteArticulation.value==='inherit'?undefined:newNoteArticulation.value,
+     rhythm:slot&&preset!=='off'?{preset,originalBeat:beat,accent:slot.accent}:undefined}
+   });
+   const added=selectCommittedNote(result.keys[0]);
+   if(added)auditionEvent(added);
+ }catch(error){message.value='Cannot edit grid cell: '+String(error);}
 }
 const lyricTimeline= computed(()=>noteMeasure.value.map((note,index)=>({note,index,start:note.start-selectedBar.value*project.value.beats,end:Math.min(project.value.beats,note.start-selectedBar.value*project.value.beats+note.duration)})).filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start));
 function focusSelectedLyricText(){
@@ -5608,9 +5595,32 @@ const selectedStringSuggestion=computed(()=>{
  const string=noteStringRows.value.filter(s=>s.midi<=note.pitch).sort((a,b)=>Number(b.midi===note.stringMidi)-Number(a.midi===note.stringMidi)||b.midi-a.midi)[0];
  return string?{stringMidi:string.midi,position:'',finger:(string.midi===note.pitch?'0':'1') as '0'|'1'}:null;
 });
+function commitImmediateEdit(category:EditCategory,action:string,options:Omit<MusicalEditContext,'project'|'score'|'instrument'>){
+ if(noteDrag||quickDraft.value)throw Error('Apply or cancel the current preview first');
+ const result=executeMusicalEdit({project:project.value,score:sourceScore.value,instrument:noteInst.value,...options},category,action);
+ project.value=result.project;
+ message.value=[result.description,...result.warnings].join('. ');
+ return result;
+}
+function commitInspectorCommand(action:'inspector'|'delete'|'clear-measure',selection:EditSelection,details?:{before:Note;after:Note}){
+ return commitImmediateEdit('structure',action,{selection,details});
+}
+function selectCommittedNote(key:string){
+ const updated=(score.value[noteInst.value]??[]).find(note=>quickSourceKeys.value.get(note)===key);
+ if(updated)activateGridMeasure(Math.floor((updated.start+1e-7)/project.value.beats));
+ noteSelected.value=updated?noteMeasure.value.indexOf(updated):-1;
+ return updated;
+}
+function commitInspectedNote(before:Note,after:Note){
+ const key=quickSourceKeys.value.get(before);
+ if(!key)throw Error('The inspected note changed');
+ if(JSON.stringify(before)===JSON.stringify(after))return before;
+ const result=commitInspectorCommand('inspector',{kind:'notes',keys:[key]},{before,after});
+ return selectCommittedNote(result.keys[0])??after;
+}
 function updatePianoExpression(field:'target'|'keys'|'beats'|'pedal',raw:string){
  const old=selectedEvent.value;if(!old||instrumentFamily(noteInst.value)!=='Piano')return;
- const events=noteMeasure.value.map(n=>({...n})),next={...old};
+ const next={...old};
  const remaining=project.value.bars.length*project.value.beats-old.start;
  try{
   if(field==='pedal'){
@@ -5624,16 +5634,13 @@ function updatePianoExpression(field:'target'|'keys'|'beats'|'pedal',raw:string)
    if(field==='beats')g.beats=Number(raw);
    next.pianoGlissando=g;
   }
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events.map((n,i)=>i===noteSelected.value?next:n));
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
-  message.value='Piano expression saved as a protected edit.';
+  commitInspectedNote(old,next);
  }catch(error){message.value=String(error);}
 }
 function updateSelectedFingering(field:'stringMidi'|'handPosition'|'finger',raw:string){
- if(!selectedEvent.value)return;
- const notes=noteMeasure.value.map(n=>({...n}));
- const note=notes[noteSelected.value];
- if(!note)return;
+ const old=selectedEvent.value;
+ if(!old)return;
+ const note={...old};
  if(raw===''){
   delete note[field];
  }else if(field==='stringMidi'){
@@ -5644,13 +5651,13 @@ function updateSelectedFingering(field:'stringMidi'|'handPosition'|'finger',raw:
   note.stringMidi=stringMidi;
  }else if(field==='handPosition')note.handPosition=raw;
  else note.finger=raw as NonNullable<Note['finger']>;
- try{project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,notes);}
+ try{commitInspectedNote(old,note);}
  catch(error){message.value='Fingering edit rejected: '+String(error);}
 }
 
 function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'approachSlideFrom'|'vibrato'|'swellTo'|'subito',raw:string){
-  if(!selectedEvent.value)return;
-  const events=noteMeasure.value.map(n=>({...n}));const index=noteSelected.value;const old=events[index];
+  const old=selectedEvent.value;
+  if(!old)return;
   let value:number|string|boolean=raw;
   if(['pitch','start','duration','velocity','gate','slideTo','approachSlideFrom','swellTo'].includes(field)&&raw!=='inherit')value=Number(raw);
   if(field==='lyric'||field==='lyric2')value=raw.trim().slice(0,160);
@@ -5667,6 +5674,8 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   if((field==='start'||field==='duration')&&old.rhythmSource&&(Math.abs(old.start-next.start)>1e-6||Math.abs(old.duration-next.duration)>1e-6))delete next.rhythmSource;
   if(field==='pitch'&&old.gesture&&typeof value==='number')next.gesture=transposeTangoGesture(old.gesture,value-old.pitch);
   if(field==='pitch'&&old.approachSlideFrom!==undefined&&typeof value==='number')next.approachSlideFrom=old.approachSlideFrom+value-old.pitch;
+  if(field==='pitch'&&old.slideTo!==undefined&&typeof value==='number')next.slideTo=old.slideTo+value-old.pitch;
+  if(field==='pitch'&&next.pitch!==old.pitch){delete next.stringMidi;delete next.finger;delete next.handPosition;}
   if(field==='approachSlideFrom'&&raw!=='inherit'){next.technique='arco';next.articulation='legato';delete next.gesture;delete next.slideTo;}
   if(field==='vibrato'&&raw==='true'){next.technique='arco';next.articulation='legato';}
   if(field==='slideTo'&&raw!=='inherit'){delete next.gesture;delete next.stringGlissando;}
@@ -5686,11 +5695,9 @@ function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melis
   try{
     if(field==='velocity'&&(!Number.isInteger(value)||Number(value)<1||Number(value)>127))throw Error('Velocity must be 1–127');
     if(field==='gate'&&(!Number.isFinite(value)||Number(value)<=0||Number(value)>1))throw Error('Sounding length must be 1–100%');
-    project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events.map((n,i)=>i===index?next:n));
-    const id=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-8);
-    noteSelected.value=id;
-    if(field==='duration')message.value=`${noteInst.value} · measure ${selectedBar.value+1}: written duration set to ${next.duration} beats (saved as a protected edit).`;
-    if(['pitch','start','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(next);
+    const updated=commitInspectedNote(old,next);
+    if(field==='duration')message.value+=`. Written duration set to ${updated.duration} beats.`;
+    if(['pitch','start','articulation','gate','velocity','slideTo','swellTo'].includes(field))auditionEvent(updated);
   }catch(error){message.value=`Note edit rejected: ${String(error)}`;}
 }
 
@@ -5705,9 +5712,7 @@ function updateBowedExpression(field:'target'|'beats'|'tremolo'|'rate'|'mode',ra
   else if(field==='tremolo'){if(raw==='0')delete next.bowedTremolo;else{next.bowedTremolo={strokes:Number(raw) as 1|2|3,rateHz:old.bowedTremolo?.rateHz,mode:old.bowedTremolo?.mode};next.technique='arco';}}
   else if(field==='mode'&&old.bowedTremolo)next.bowedTremolo={...old.bowedTremolo,mode:raw==='measured'?'measured':'unmeasured'};
   else if(field==='rate'&&old.bowedTremolo)next.bowedTremolo={...old.bowedTremolo,rateHz:Number(raw)};
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,noteMeasure.value.map((n,i)=>i===noteSelected.value?next:n));
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
-  auditionEvent(next);
+  auditionEvent(commitInspectedNote(old,next));
  }catch(error){message.value='Bowed expression rejected: '+String(error);}
 }
 function gesturePresetForNote(n:Note):string{
@@ -5718,7 +5723,7 @@ function gesturePresetForNote(n:Note):string{
 }
 function setSelectedGesturePreset(preset:string){
  if(!selectedEvent.value)return;
- const old=selectedEvent.value,events=noteMeasure.value.map(n=>({...n})),index=noteSelected.value;
+ const old=selectedEvent.value;
  const next:Note={...old};
  try{
   if(!preset)delete next.gesture;
@@ -5728,11 +5733,7 @@ function setSelectedGesturePreset(preset:string){
    next.gate=1; // Sustain the whole contour; players may override the sounding length later.
    delete next.slideTo;
   }
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,
-    events.map((n,i)=>i===index?next:n));
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
-  message.value=next.gesture?'Applied '+gestureLabel(next.gesture)+' (saved as protected edit)':'Cleared expressive gesture';
-  auditionEvent(next);
+  auditionEvent(commitInspectedNote(old,next));
  }catch(error){message.value='Gesture unavailable: '+String(error);}
 }
 function updateSelectedGesturePitch(voice:'points'|'partner',index:number,raw:string){
@@ -5747,24 +5748,26 @@ function updateSelectedGesturePitch(voice:'points'|'partner',index:number,raw:st
  try{
   validateGesture(old,noteInst.value,gesture,range);
   const next={...old,gesture};
-  const events=noteMeasure.value.map((n,i)=>i===noteSelected.value?next:n);
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
-  noteSelected.value=noteMeasure.value.findIndex(n=>n.pitch===next.pitch&&Math.abs(n.start-next.start)<1e-7);
-  auditionEvent(next);
+  auditionEvent(commitInspectedNote(old,next));
  }catch(error){message.value='Gesture pitch rejected: '+String(error);}
 }
 
 function deleteSelectedNote(){
-  if(!selectedEvent.value)return;
-  const removed=noteSelected.value;
-  const events=noteMeasure.value.filter((_,i)=>i!==removed);
-  project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,events);
-  noteSelected.value=-1;
-  noteDetailsPopup.value=false;
-  message.value=`Deleted note from ${noteInst.value}, measure ${selectedBar.value+1}. Manual measure protected.`;
-  focusSelectedNoteButton();
+  const note=selectedEvent.value;
+  if(!note)return;
+  try{
+   commitInspectorCommand('delete',{kind:'notes',keys:[quickNoteKey(note)]});
+   noteSelected.value=-1;
+   noteDetailsPopup.value=false;
+   focusSelectedNoteButton();
+  }catch(error){message.value=`Cannot delete note: ${String(error)}`;}
 }
-function clearNoteMeasure(){project.value=replaceInstrumentMeasure(project.value,score.value,noteInst.value,selectedBar.value,[]);noteSelected.value=-1;message.value=`Cleared and protected ${noteInst.value} measure ${selectedBar.value+1}.`;}
+function clearNoteMeasure(){
+ try{
+  commitInspectorCommand('clear-measure',{kind:'measures',from:selectedBar.value,to:selectedBar.value});
+  noteSelected.value=-1;
+ }catch(error){message.value=`Cannot clear measure: ${String(error)}`;}
+}
 function restoreNoteMeasure(){project.value=resetInstrumentMeasure(project.value,noteInst.value,selectedBar.value);noteSelected.value=-1;message.value=`Restored generated ${noteInst.value} measure ${selectedBar.value+1}; other protected measures retained.`;}
 const currentNotes=computed(()=>INSTRUMENTS.map(inst=>({inst,notes:(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value)})));
 function addBar(){const previous=project.value.bars.at(-1);project.value.bars.push({chord:previous?.chord??'',melody:[],section:previous?.section??'A'});selectedBar.value=project.value.bars.length-1;}

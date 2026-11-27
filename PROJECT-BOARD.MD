@@ -8,7 +8,7 @@ This is the active delivery sequence, ahead of the older engineering backlog bel
 - Pitch, note values, rhythm presets, dynamics, articulation, gestures, fingering assignments, bowing, string/position, timing, split/repeat/delete and role-aware note insertion.
 - Synchronized score/grid split view, shared measure range and selection, draft audition using instrument playback, and initial staff-position tapping.
 - Separate **Fill empty measures** (non-overwriting), **Replace with role** (explicit regeneration), and **Change role** (retain written notes). Temporary creation role is independent of assigned arrangement role.
-- These are implementation claims, not a passing build or physical-device acceptance. The current command module uses onset/pitch selection keys, and supports note and measure selections; stable identity and broader scope remain work.
+- The P0 results below record the build and regression baseline. TA-EDIT-CORE adds persistent note identities and broader selection scopes. Physical-device acceptance remains open.
 
 ### Ordered delivery backlog
 
@@ -47,7 +47,7 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 - Headless desktop Chrome passed a local smoke check for startup, Split view with the same staged note rendered in Score and Grid, Cancel, Apply, Undo and Redo. The smoke check used programmatic DOM clicks. Desktop pointer and keyboard gestures, real audio audition, physical iPad Safari and Apple Pencil, visual MuseScore, and musician acceptance are outstanding.
 - The automated P0 baseline is established. P1.1 progress is tracked below.
 
-#### TA-EDIT-CORE in progress
+#### TA-EDIT-CORE implementation and desktop checks
 
 - Commands accept note, measure, phrase, instrument part, and half-open beat ranges. The toolbar exposes current phrase and entire part. Phrase selection follows the active plan or the same suggested phrase boundaries. Beat ranges are available to the domain for future gestures.
 - Transactions report affected measures and explain the protected or occupied measures skipped by Fill. Note edits within a broad selection leave its empty measures alone.
@@ -57,7 +57,9 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 - Grid movement and both resize handles stage the shared geometry command using the note's ID. Pointer cancellation, capture loss and Escape discard the draft. A successful release honours Preview and produces one undo entry on commit. Desktop Chrome exercised a real mouse drag and Cancel, and automated checks cover cross-measure movement, pointer cancellation and undo.
 - Shared commands preserve matching pitch, voice and staff ties when editing a pair together. They warn when a selected continuation becomes a separate attack and reject changes that would split a tie outside the selection. The Structure toolbar also offers Untie. Automated checks cover cross-bar ties, unisons in different voices, splits and explicit untie.
 - The drag and tie changes are in `b7ffab5`. The local build, full regression suite and Chrome drag smoke check passed at `7e9d061` after the subsequent audio merge. The [GitHub Actions workflow at that commit](https://github.com/niwrA/tango-arranger/actions/runs/45917304660) also passed.
-- The detailed inspector and keyboard paths still need a shared command audit. Physical touch, Apple Pencil and musician acceptance remain open.
+- The detailed inspector, keyboard Delete, grid cell entry and deletion, chord onset snapping, and clearing an instrument-measure now use the shared edit engine. Inspector changes preserve written pitch and gesture coordinates in adapted views. Inspector and legacy grid actions still commit immediately, and a staged preview must be resolved before they can commit.
+- Runtime handler and command tests cover the adapted inspector, stable IDs, preview isolation, protected rests, chord snapping and entry articulation. The grid audition check follows the note through the shared deletion handler. Physical touch, Apple Pencil and musician acceptance remain open.
+- The production build and full regression suite passed after the inspector migration. Desktop headless Chrome verified that deleting a focused note with the Delete key removes it from both the score and grid, and that a single Undo restores it. It also repeated the drag, cancellation and split view checks.
 
 Existing backlog entries below remain valid where not superseded.
 

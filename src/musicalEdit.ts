@@ -2,7 +2,7 @@ import {chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,ins
 import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhythmEditor';
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
 import {createPhrasePlan,phraseAt} from './phrasePlan';
-import {clearRhythmSourceIfRetimed} from './rhythmSnap';
+import {clearRhythmSourceIfRetimed,nearestRhythmSlot,snapNoteToPreset} from './rhythmSnap';
 export type EditCategory='pitch'|'duration'|'rhythm'|'expression'|'dynamics'|'articulation'|'finger'|'bow'|'position'|'timing'|'structure'|'role'|'create';
 export type EditAction={value:string;label:string;title:string};
 export type EditSelection=
@@ -12,7 +12,8 @@ export type EditSelection=
  |{kind:'phrase';measure:number}
  |{kind:'part'};
 export type NoteGeometryEdit={start:number;duration:number;pitchDelta:number};
-export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:{bar:number;beat:number;pitch:number};geometry?:NoteGeometryEdit};
+export type NoteEntryEdit={bar:number;beat:number;pitch:number;articulation?:Note['articulation'];rhythm?:{preset:RhythmPreset;originalBeat:number;accent:boolean}};
+export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:NoteEntryEdit;geometry?:NoteGeometryEdit;details?:{before:Note;after:Note};snapPreset?:RhythmPreset};
 export type MusicalEditChanges={added:Note[];modified:{before:Note;after:Note}[];deleted:Note[]};
 export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[];changes:MusicalEditChanges};
 const onsetPitchKey=(n:Note)=>n.start+':'+n.pitch;
@@ -136,15 +137,20 @@ export function resolveEditSelection(p:Project,notes:readonly Note[],selection:E
 export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,value:string):MusicalEditResult{
  const {project:p,score, instrument:inst,selection}=ctx,notes=score[inst]??[],beats=p.beats,total=p.bars.length*beats;
  const geometry=category==='timing'&&value==='geometry';
- if(!geometry&&!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
+ const inspector=category==='structure'&&value==='inspector';
+ const clearMeasure=category==='structure'&&value==='clear-measure';
+ const snap=category==='rhythm'&&value==='snap-onset';
+ if(!geometry&&!inspector&&!clearMeasure&&!snap&&!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
  if(selection.kind==='range'&&(category==='role'||category==='rhythm'||category==='create'&&value!=='insert'))
   throw Error('Choose whole measures for this edit');
  const barOf=(n:Note)=>Math.floor((n.start+1e-7)/beats);
  const {notes:chosen,measures}=resolveEditSelection(p,notes,selection);
  if(geometry&&(!ctx.geometry||selection.kind!=='notes'||chosen.length!==1))throw Error('Choose one note to move or resize');
+ if(inspector&&(!ctx.details||selection.kind!=='notes'||chosen.length!==1))throw Error('Choose one note to edit');
+ if(clearMeasure&&(selection.kind!=='measures'||selection.from!==selection.to))throw Error('Choose one measure to clear');
  const selected=new Set(chosen);
  const bars=new Set(measures);
- if(category!=='create'&&category!=='role'){
+ if(category!=='create'&&category!=='role'&&!clearMeasure){
   // Empty measures inside a selection do not become protected edits.
   const activeBars=new Set(chosen.map(barOf));
   for(const bar of bars)if(!activeBars.has(bar))bars.delete(bar);
@@ -159,12 +165,15 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const sorted=[...chosen].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  if(category==='create'&&value==='insert'){
   if(!ctx.entry)throw Error('Choose a pitch and onset first');
-  const {bar,beat,pitch}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
+  const {bar,beat,pitch,articulation,rhythm}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
   if(!Number.isInteger(bar)||!p.bars[bar]||!Number.isFinite(beat)||beat<0||beat>=beats||!Number.isInteger(pitch)||pitch!==bound(pitch))
    throw Error('Note entry is outside the measure or instrument range');
   if(notes.some(n=>n.pitch===pitch&&Math.abs(n.start-bar*beats-beat)<1e-6))throw Error('A note already exists at that onset and pitch');
   const defaults=ctx.role?{...p,measureRoles:{...p.measureRoles,[inst+':'+bar]:ctx.role}}:p;
-  result=[suggestedEditorNote(defaults,inst,bar,beat,pitch,ctx.duration)];
+  const added=suggestedEditorNote(defaults,inst,bar,beat,pitch,ctx.duration);
+  if(articulation){added.articulation=articulation;added.accent=articulation==='marcato_staccato';delete added.gate;}
+  if(rhythm)added.rhythmSource={kind:'preset',...rhythm,targetBeat:beat,targetDuration:added.duration};
+  result=[added];
  }else if(category==='create'&&(value==='generate'||value==='replace')||category==='role'){
   if(!bars.size)throw Error('Select a measure range');
   const overrides={...p.measureRoles};
@@ -186,17 +195,41 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   const fresh=generate(temporary)[inst]??[];
   kept=notes.filter(n=>!bars.has(barOf(n)));
   result=fresh.filter(n=>bars.has(barOf(n)));
+ }else if(snap){
+  const first=chosen[0],preset=ctx.snapPreset;
+  if(!first||!preset||!chosen.every(note=>Math.abs(note.start-first.start)<1e-6))throw Error('Select one onset and a rhythm preset');
+  if(!nearestRhythmSlot(first.start-barOf(first)*beats,preset,beats,inst,p.profile,0.5))
+   throw Error('No rhythm-preset onset within half a beat');
+  for(const note of chosen){
+   const updated={...snapNoteToPreset(note,beats,inst,p.profile,preset,0.5)};
+   transformed.set(note,updated);
+   result.push(updated);
+  }
  }else if(category==='rhythm'){
   if(!chosen.length)throw Error('Select notes or measures containing notes');
   for(const b of bars)result.push(...retimeMeasure(chosen,inst,b,beats,rhythmSlots(value as RhythmPreset,beats,inst,p.profile),'rhythm',p.pianoSplitPitch??60,undefined,value as RhythmPreset));
   for(const note of result)delete note.xmlTieContinuation;
+ }else if(inspector){
+  const original=chosen[0],{before,after}=ctx.details!;
+  // Register adaptation changes the displayed pitch and absolute gesture endpoints.
+  const displayOffset=before.pitch-original.pitch;
+  if(before.start!==original.start||before.duration!==original.duration)throw Error('The inspected note changed');
+  const edited:Note={...after,editId:original.editId,source:original.source,xmlTieContinuation:original.xmlTieContinuation,
+   pitch:after.pitch-displayOffset,
+   slideTo:after.slideTo===undefined?undefined:after.slideTo-displayOffset,
+   approachSlideFrom:after.approachSlideFrom===undefined?undefined:after.approachSlideFrom-displayOffset,
+   gesture:after.gesture&&displayOffset?transposeTangoGesture(after.gesture,-displayOffset):after.gesture};
+  if(edited.velocity!==undefined&&(!Number.isInteger(edited.velocity)||edited.velocity<1||edited.velocity>127))throw Error('Velocity must be 1–127');
+  const updated=clearRhythmSourceIfRetimed(original,edited,beats);
+  transformed.set(original,updated);
+  result.push(updated);
  }else if(category==='structure'&&value==='merge'){
   if(sorted.length!==2)throw Error('Select exactly two notes to merge');
   const merged=combineNoteAttacks(sorted[0],sorted[1]);
   transformed.set(sorted[0],merged);
   replacementEnds.set(sorted[1],merged);
   result.push(merged);
- }else{
+ }else if(!clearMeasure){
   if(!chosen.length)throw Error('Select notes first');
   if(category==='structure'&&value==='untie'&&!chosen.some(note=>note.xmlTieContinuation))throw Error('Select a tied continuation');
   for(const [index,original] of sorted.entries()){
@@ -307,6 +340,6 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   modified:[...transformed].map(([before,after])=>({before,after:storedResult(after)})),
   deleted:removed.filter(note=>!transformed.has(note))
  };
- const label=geometry?'Move or resize note':category+' · '+value;
+ const label=geometry?'Move or resize note':inspector?'Edit note':clearMeasure?'Clear measure':snap?'Snap onset to rhythm preset':category+' · '+value;
  return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:label+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings,changes};
 }
