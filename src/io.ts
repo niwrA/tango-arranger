@@ -35,7 +35,7 @@ function harmonyXml(symbol:string):string{
 /** Spell diatonic notes according to the active key signature, including the
  * raised leading tone of harmonic minor. Other chromatic notes use a simple
  * sharp/flat fallback; full voice-leading-based enharmonics remain future work. */
-const pitchXml=(n:number,key='C')=>{
+export function spellMusicXmlPitch(n:number,key='C'){
   const {fifths,mode}=parseKeySignature(key);
   const letters=['C','D','E','F','G','A','B'];
   const naturalPcs=[0,2,4,5,7,9,11];
@@ -61,7 +61,12 @@ const pitchXml=(n:number,key='C')=>{
   const alter=[...accidentals].reduce((sum,c)=>sum+(c==='#'?1:-1),0);
   const octave=(n-naturalPcs[letters.indexOf(step)]-alter)/12-1;
   if(!Number.isInteger(octave))throw Error(`Cannot spell MIDI note ${n} in key ${key}`);
-  return `<pitch><step>${step}</step>${alter?`<alter>${alter}</alter>`:''}<octave>${octave}</octave></pitch>`;};
+  return {step,alter,octave};
+}
+const pitchXml=(n:number,key='C')=>{
+ const {step,alter,octave}=spellMusicXmlPitch(n,key);
+ return `<pitch><step>${step}</step>${alter?`<alter>${alter}</alter>`:''}<octave>${octave}</octave></pitch>`;
+};
 // All export timing uses integer divisions. A segment is either a rest or a
 // simultaneous pitch set; durations are never accumulated twice for chords.
 const DIV=480;

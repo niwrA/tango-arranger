@@ -10,6 +10,8 @@ const {executeMusicalEdit,editPartNoteKeys,editNoteKey}=load('src/musicalEdit.ts
 const {dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition}=load('src/noteEditing.ts');
 const {exportProjectZip,exportMusicXml,loadProject}=load('src/io.ts');
 const {readScoreEntryNotation,scoreEntryPitch,scoreEntryBeat,scoreEntryOctaveShift}=load('src/scoreEntry.ts');
+const {projectEditPreview}=load('src/editPreview.ts');
+const {draftAuditionEvents}=load('src/editAudition.ts');
 const p=blankProject({sections:1,measuresPerSection:2,beats:4});
 p.bars.forEach(b=>b.chord='Dm');
 const score={'Violin I':[{pitch:69,start:0,duration:1},{pitch:72,start:4,duration:1}]};
@@ -44,6 +46,14 @@ assert.deepEqual(draft.score['Violin I'].find(n=>n.pitch===72),imported);
 assert.deepEqual(draft.score.Piano,fullScore.Piano);
 assert.deepEqual(draft.project.protectedBars,{'Violin I:0':true,'Violin I:2':true});
 assert.deepEqual(draft.project.partEditions,fixture.partEditions);
+const displayedBefore=part.map(note=>({...note,pitch:note.pitch+12}));
+const displayedAfter=draft.score['Violin I'].map(note=>({...note,pitch:note.pitch+12}));
+const marks=projectEditPreview(draft.changes,part,displayedBefore,draft.score['Violin I'],displayedAfter);
+assert.deepEqual(marks.before,[{note:displayedBefore[0],kind:'original'}]);
+assert.equal(marks.after.get(displayedAfter[0]),'modified');
+assert.equal(marks.after.has(displayedAfter[1]),false);
+const removalPreview=executeMusicalEdit(edit,'structure','delete');
+assert.deepEqual(projectEditPreview(removalPreview.changes,part,displayedBefore,removalPreview.score['Violin I'],removalPreview.score['Violin I']).before,[{note:displayedBefore[0],kind:'deleted'}]);
 assert.throws(()=>executeMusicalEdit(edit,'pitch','1'),/same onset and pitch/);
 assert.equal(JSON.stringify(edit),original,'failed commands do not alter input');
 const range={...edit,selection:{kind:'measures',from:0,to:2}};
@@ -190,6 +200,20 @@ assert.equal(scoreEntryOctaveShift(ottava[1],2,.5),-12);
 assert.equal(scoreEntryOctaveShift(ottava[1],2,1.5),0);
 assert.equal(scoreEntryOctaveShift(ottava[0],1,3),0);
 assert.equal(scoreEntryPitch(ottava[0],2,5,3,0),64,'bass-clef E3 under 8va resolves to sounding E4');
+
+const auditionProject={...fixture,bpm:120,transposeSemitones:2,
+ expressionRanges:[{instrument:'Violin I',startMeasure:0,endMeasure:0,from:60,to:105}],
+ tempoExpressions:{ritardandos:[{startMeasure:0,endMeasure:0,toPercent:50}],fermatas:[],aTempoMeasures:[1]}};
+const auditionScore={'Violin I':[{pitch:69,start:2,duration:1,velocity:80,slideTo:71}],Piano:[{pitch:48,start:0,duration:2}]};
+const solo=draftAuditionEvents(auditionProject,auditionScore,'Violin I',0,0,.5);
+assert.equal(solo.events.length,1);
+assert.equal(solo.events[0].event.pitch,71);
+assert.equal(solo.events[0].event.slideTo,73);
+assert.ok(solo.events[0].event.endVelocity>solo.events[0].event.velocity);
+assert.ok(solo.events[0].onset>2&&solo.events[0].duration>1&&solo.length>4,'ritardando and half speed stretch the audition');
+const ensemble=draftAuditionEvents(auditionProject,auditionScore,'Violin I',0,0,.5,true);
+assert.deepEqual(ensemble.events.map(({instrument})=>instrument),['Piano','Violin I']);
+assert.deepEqual(ensemble.events[1],solo.events[0]);
 
 // Run the actual App handlers with Vue reactivity and a minimal editor fixture.
 const app=fs.readFileSync('src/App.vue','utf8').replaceAll('\r\n','\n');

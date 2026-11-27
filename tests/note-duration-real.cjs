@@ -34,8 +34,13 @@ test('duration edit persists in generated and protected imported scores',()=>{
 test('note bars render across measure with width proportional to real duration, including off-grid starts',()=>{
   const app=fs.readFileSync('src/App.vue','utf8');
   const css=fs.readFileSync('src/style.css','utf8');
-  assert.match(app,/left:\(Math.max\(n.start,focusVisibleMeasures\[0\]\*project.beats\)-focusVisibleMeasures\[0\]\*project.beats\)\/\(project.beats\*focusVisibleMeasures.length\)\*100/);
-  assert.match(app,/width:\(Math.min\(n.start\+n.duration,\(focusVisibleMeasures\[focusVisibleMeasures.length-1\]\+1\)\*project.beats\)-Math.max\(n.start,focusVisibleMeasures\[0\]\*project.beats\)\)\/\(project.beats\*focusVisibleMeasures.length\)\*100/);
+  assert.match(app,/class="note-draft-original"[^\n]+:style="gridNotePosition\(note\)"/);
+  assert.match(app,/:style="gridNotePosition\(n\)"/);
+  assert.match(app,/return noteGridSpan\(note,from,to\)/);
+  const {noteGridSpan}=load('src/noteGridWindow.ts');
+  assert.deepEqual(noteGridSpan({start:5.125,duration:1.5},4,12),{left:'14.0625%',width:'18.75%'});
+  assert.deepEqual(noteGridSpan({start:3.5,duration:1},4,12),{left:'0%',width:'6.25%'});
+  assert.deepEqual(noteGridSpan({start:11.5,duration:1},4,12),{left:'93.75%',width:'6.25%'});
   assert.match(app,/class="note-continuous-grid"/);
   assert.match(css,/\.note-bar\{position:absolute/);
   assert.match(css,/\.note-bar \.note-resize-handle/);

@@ -91,14 +91,25 @@ export function scoreEntryPitch(notation:MeasureNotation,staff:number,stepsAbove
  return Math.floor(position/7)*12+semitones[degree]+alter-transpose;
 }
 
+export function scoreStaffSteps(notation:MeasureNotation,staff:number,step:string,octave:number,octaveShift:number):number|undefined{
+ const clef=notation.clefs.get(staff);
+ if(clef)return diatonic(step,octave)+octaveShift/12*7-clef.position+2*(clef.line-1);
+}
+
+function engravedPoints(columns:readonly EngravedBeat[],startX:number,endX:number,length:number){
+ const points=columns.filter(column=>column.beat<length-1e-7).sort((a,b)=>a.beat-b.beat);
+ if(points[0]?.beat!==0)points.unshift({x:startX,beat:0});
+ points.push({x:endX,beat:length});
+ return points;
+}
+
 /** Exact engraved attacks and rests preserve tuplets. Between columns use the active grid step. */
 export function scoreEntryBeat(x:number,columns:readonly EngravedBeat[],startX:number,endX:number,length:number,step:number):number{
- const anchors=columns.filter(column=>column.beat<length-1e-7).sort((a,b)=>a.beat-b.beat);
+ const anchors=columns.filter(column=>column.beat<length-1e-7);
  const nearest=anchors.reduce<EngravedBeat|undefined>((best,column)=>
   !best||Math.abs(x-column.x)<Math.abs(x-best.x)?column:best,undefined);
  if(nearest&&Math.abs(x-nearest.x)<=5)return nearest.beat;
- const points=anchors[0]?.beat===0?[...anchors]:[{x:startX,beat:0},...anchors];
- points.push({x:endX,beat:length});
+ const points=engravedPoints(anchors,startX,endX,length);
  const index=points.findIndex(point=>x<=point.x);
  if(index===0)return points[0].beat;
  if(index<0)return Math.max(0,length-step);
@@ -106,4 +117,13 @@ export function scoreEntryBeat(x:number,columns:readonly EngravedBeat[],startX:n
  const raw=left.beat+(right.beat-left.beat)*(x-left.x)/Math.max(1,right.x-left.x);
  const snapped=Math.round(raw/step)*step;
  return Math.max(0,Math.min(snapped<length?snapped:Math.ceil(length/step-1)*step,length));
+}
+
+export function scoreXAtBeat(beat:number,columns:readonly EngravedBeat[],startX:number,endX:number,length:number):number{
+ const points=engravedPoints(columns,startX,endX,length);
+ const index=points.findIndex(point=>beat<=point.beat);
+ if(index===0)return points[0].x;
+ if(index<0)return endX;
+ const left=points[index-1],right=points[index];
+ return left.x+(right.x-left.x)*(beat-left.beat)/(right.beat-left.beat);
 }
