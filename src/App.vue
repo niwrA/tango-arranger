@@ -1694,6 +1694,17 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
 // Microphone audio is local to the browser; no audio is uploaded.
 const captureInputSource=ref<'instrument'|'microphone'|'midi'>('instrument');
 const midiCaptureHeld=new Map<string,{pitch:number;startBeat:number;velocity:number}>();
+const midiPedals=new Map<number,number>();
+const midiPedalEvents=ref<{beat:number;channel:number;down:boolean}[]>([]);
+const midiRhythmName=ref('');
+function saveMidiRhythm(){
+ if(capturePlaying.value||!instrumentCaptureRangeMatches.value)return;
+ try{const beats=project.value.beats;const attacks=new Map<number,number>();
+ for(const e of instrumentCaptureEvents.value){if(e.startBeat>=beats)continue;const at=Math.min(beats-.25,Math.round(e.startBeat*4)/4);attacks.set(at,Math.max(attacks.get(at)??0,e.velocity??85));}
+ const starts=[...attacks.keys()].sort((a,b)=>a-b);const slots=starts.map((beat,i)=>({beat,duration:Math.min(1,(starts[i+1]??beats)-beat),accent:(attacks.get(beat)??0)>=90}));
+ customRhythms.value=saveCustomRhythm(midiRhythmName.value,beats,slots);captureFeedback.value='Saved first recorded measure as a custom rhythm.';
+ }catch(e){captureFeedback.value=String(e);}
+}
 const midiCapturePattern=ref<'off'|RhythmPreset>('off');
 const midiCaptureStrength=ref(100);
 const midiCaptureMatch=ref('');
@@ -1723,7 +1734,7 @@ function analyseMidiCapture(){
 function finishMidiCapture(){
  if(captureRecording.value&&Tone)for(const held of midiCaptureHeld.values())
   recordInstrumentCapture({...held,durationBeats:Math.max(.001,captureElapsedBeats()-held.startBeat)});
- midiCaptureHeld.clear();
+ midiCaptureHeld.clear();midiPedals.clear();
 }
 function cancelMidiStep(){clearTimeout(midiStepTimer);midiStepTimer=undefined;midiStepPitches.clear();midiStepHeld.clear();}
 const removeEditorMidi=subscribeMidi(e=>{
@@ -1731,6 +1742,7 @@ const removeEditorMidi=subscribeMidi(e=>{
  if(homeOpen.value||active.value!=='notes')return;
  const key=e.channel+':'+e.pitch;
  if(noteEditorTab.value==='capture'&&captureInputSource.value==='midi'&&captureRecording.value&&Tone){
+  if(e.kind==='pedal'){const beat=captureElapsedBeats();if(beat>=0){midiPedalEvents.value=[...midiPedalEvents.value,{beat,channel:e.channel,down:e.velocity>=64}];if(e.velocity>=64)midiPedals.set(e.channel,beat);else midiPedals.delete(e.channel);}return;}
   if(e.kind==='on'){
    const startBeat=captureElapsedBeats();if(startBeat<0)return;
    prepareInstrumentCapture(startBeat);
@@ -1971,7 +1983,7 @@ function toggleCapturePlay(){
 async function toggleCaptureRecord(){
   if(captureRecording.value){stopPlayback();return;}
   if(active.value==='notes'&&captureInputSource.value==='microphone'){void recordFromMicrophone();return;}
-  if(active.value==='notes'&&captureInputSource.value==='midi'){await enableEditorMidi();if(!midiInputId.value)return;}
+  if(active.value==='notes'&&captureInputSource.value==='midi'){await enableEditorMidi();if(!midiInputId.value)return;midiPedalEvents.value=[];}
   void startCaptureTransport(true);
 }
 function captureTap(pitch?:number,stringMidi?:number){
@@ -2507,6 +2519,12 @@ function applyCapturedMelody(){
       const notes=capturedMelodyForBar(b).map(t=>{
         const note=suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration);
         if(t.velocity!==undefined)note.velocity=t.velocity;
+        if(noteInst.value==='Piano'&&captureInputSource.value==='midi'){
+          const at=(b-captureFirst.value)*project.value.beats+t.beat;
+          const pedal=midiPedalEvents.value.find(e=>e.down&&e.beat>=at-.125&&e.beat<at+t.duration);
+          const release=pedal&&midiPedalEvents.value.find(e=>!e.down&&e.channel===pedal.channel&&e.beat>pedal.beat);
+          if(pedal&&release){note.pianoPedalOffset=Math.max(0,pedal.beat-at);note.pianoPedalBeats=release.beat-pedal.beat;}
+        }
         if(alignVoice){Object.assign(note,lyricAssignments[appliedAlignmentIndex]??{});appliedAlignmentIndex++;}
         if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
         if(t.approachSlideFrom!==undefined||t.vibrato||t.gesture){
@@ -7664,7 +7682,7 @@ async function homePractise(inst:Instrument){
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
         <details v-if="captureInputSource!=='microphone'&&instrumentCaptureEvents.length" class="capture-postprocess" open>
           <summary>Reprocess timing · {{instrumentCaptureEvents.length}} recorded attacks</summary>
-          <template v-if="captureInputSource==='midi'"><label>Rhythm target<select v-model="midiCapturePattern" :disabled="capturePlaying"><option value="off">Free / grid</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label><label>Style snap strength {{midiCaptureStrength}}%<input type="range" min="0" max="100" step="5" v-model.number="midiCaptureStrength" :disabled="capturePlaying"/></label><button type="button" class="secondary" :disabled="capturePlaying" @click="analyseMidiCapture">Detect rhythmic pattern</button><p v-if="midiCaptureMatch">{{midiCaptureMatch}}</p></template>
+          <template v-if="captureInputSource==='midi'"><label>Rhythm target<select v-model="midiCapturePattern" :disabled="capturePlaying"><option value="off">Free / grid</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label><label>Style snap strength {{midiCaptureStrength}}%<input type="range" min="0" max="100" step="5" v-model.number="midiCaptureStrength" :disabled="capturePlaying"/></label><button type="button" class="secondary" :disabled="capturePlaying" @click="analyseMidiCapture">Detect rhythmic pattern</button><p v-if="midiCaptureMatch">{{midiCaptureMatch}}</p><p>{{midiPedalEvents.length}} recorded pedal transitions</p><label>Custom rhythm name<input v-model="midiRhythmName" maxlength="64"/></label><button type="button" class="secondary" :disabled="capturePlaying||!midiRhythmName.trim()" @click="saveMidiRhythm">Save first measure as custom rhythm</button></template>
           <div class="capture-settings-grid">
             <CaptureTimingControls v-model:onset="captureQuantize" v-model:duration="captureDurationQuantize" auto :disabled="capturePlaying"/>
           </div>
