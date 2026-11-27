@@ -4041,10 +4041,35 @@ function scanArrangementReview(){
 function openArrangementReview(){
  closeSongSettings();reviewOpen.value=true;scanArrangementReview();
 }
-function closeArrangementReview(){reviewOpen.value=false;reviewSelected.value=[];}
+function closeArrangementReview(){stopQuickAudition();reviewOpen.value=false;reviewSelected.value=[];}
 const reviewVisible=computed(()=>reviewFindings.value.filter(issue=>reviewCategory.value==='all'||issue.category===reviewCategory.value));
 function reviewCanApply(issue:Diagnostic){return !!issue.patch&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
 function selectReviewSuggestions(){reviewSelected.value=reviewVisible.value.filter(reviewCanApply).map(issue=>issue.id);}
+async function auditionArrangementReview(after:boolean){
+ if(quickAuditionPlaying.value){stopQuickAudition();return;}
+ if(JSON.stringify(project.value)!==reviewSnapshot){scanArrangementReview();return;}
+ const selected=reviewFindings.value.filter(issue=>reviewSelected.value.includes(issue.id)&&reviewCanApply(issue));
+ if(!selected.length)return;
+ stopPlayback();const session=++quickAuditionSession;
+ try{
+  const p=after?refineArrangement(project.value,sourceScore.value,selected,reviewProtected.value):project.value;
+  const written=after?p.generatedScore??sourceScore.value:sourceScore.value;
+  const first=Math.min(...selected.map(i=>i.measure)),last=Math.min(p.bars.length-1,first+7,Math.max(...selected.map(i=>i.measure)));
+  const playback=draftAuditionEvents(p,adaptTransposedScore(written,p),selected[0].instrument,first,last,rehearsalSpeed.value,true);
+  Tone=await startAudioFromGesture();
+  if(session!==quickAuditionSession||!reviewOpen.value)return;
+  await prepareSamples([...new Set(playback.events.map(event=>event.instrument))]);
+  if(session!==quickAuditionSession||!reviewOpen.value)return;
+  const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=p.bpm;
+  const output=(Tone.getContext().rawContext as AudioContext).createGain();output.connect((Tone.getContext().rawContext as AudioContext).destination);
+  quickAuditionOutput=output;quickAuditionPlaying.value=true;
+  for(const {instrument,note,event,onset,duration} of playback.events)transport.scheduleOnce(time=>{
+   if(session===quickAuditionSession)renderArrangementNote(instrument,note,event,duration,time,1,{project:p,output});
+  },onset);
+  transport.start('+0.05');quickAuditionTimer=setTimeout(()=>{if(session===quickAuditionSession)stopQuickAudition();},playback.length*1000+150);
+  message.value=(after?'Proposed':'Original')+' arrangement · measures '+(first+1)+'–'+(last+1);
+ }catch(error){stopQuickAudition();message.value='Review audition failed: '+String(error);}
+}
 function applyArrangementReview(){
  if(JSON.stringify(project.value)!==reviewSnapshot){message.value='Arrangement changed; scan again before applying.';scanArrangementReview();return;}
  const selected=reviewFindings.value.filter(issue=>reviewSelected.value.includes(issue.id)&&reviewCanApply(issue));
@@ -6829,6 +6854,7 @@ async function homePractise(inst:Instrument){
    <label>Category<select v-model="reviewCategory"><option value="all">All findings</option><option v-for="category in ['pitch','harmony','dynamics','balance','playability','style']" :key="category" :value="category">{{category}}</option></select></label>
    <p>{{reviewVisible.length}} findings · {{reviewSelected.length}} selected. Balance is a score-based estimate, not measured audio loudness.</p>
    <button type="button" class="secondary" @click="selectReviewSuggestions">Select visible expression fixes</button>
+   <div class="two"><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(false)">Listen original</button><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(true)">Listen proposed</button></div><small>Audition covers up to eight measures from the first selected finding.</small><button v-if="quickAuditionPlaying" type="button" class="secondary" @click="stopQuickAudition">Stop audition</button>
    <div v-for="issue in reviewVisible" :key="issue.id" class="arrangement-review-issue">
     <label><input type="checkbox" :value="issue.id" v-model="reviewSelected" :disabled="!reviewCanApply(issue)"/> {{issue.severity}} · {{issue.category}} · {{issue.instrument}} · M{{issue.measure+1}}</label>
     <p>{{issue.message}}</p>
