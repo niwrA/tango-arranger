@@ -1,5 +1,5 @@
 import {moveTempoExpressions,validateTempoExpressions,type TempoExpressions} from './tempoExpressions';
-import {generate,mergeScores,instrumentRange,projectInstruments,openingPickupBeats,type Project,type Score,type Note,type Instrument,type Bar,type Role,type MeasureDynamics,type Articulation,type ViolinTechnique,type BassTechnique} from './music';
+import {generate,mergeScores,writtenInstrumentPitchPlayable,projectInstruments,openingPickupBeats,type Project,type Score,type Note,type Instrument,type Bar,type Role,type MeasureDynamics,type Articulation,type ViolinTechnique,type BassTechnique} from './music';
 
 /** Zero-based, inclusive ranges internally. User-facing controls use 1-based measures. */
 export type MeasureRange={start:number;end:number};
@@ -325,9 +325,8 @@ export function pasteMeasureRange(original:Project,score:Score,clip:MeasureClipb
    if(source!==target&&(n.gesture||n.vibrato||n.approachSlideFrom!==undefined||n.slideTo!==undefined||n.stringMidi!==undefined||n.handPosition||n.finger))
      throw Error('Cross-instrument paste contains technique or fingering data. Edit that ornament separately before transferring.');
    n.start+=begin;n.duration=Math.min(n.duration,end-n.start);n.source='manual';
-   const [low,high]=instrumentRange(target);
-   if(n.pitch<low||n.pitch>high||n.slideTo!==undefined&&(n.slideTo<low||n.slideTo>high)
-     ||n.approachSlideFrom!==undefined&&(n.approachSlideFrom<low||n.approachSlideFrom>high))
+   if(!writtenInstrumentPitchPlayable(target,n.pitch,next)||n.slideTo!==undefined&&!writtenInstrumentPitchPlayable(target,n.slideTo,next)
+     ||n.approachSlideFrom!==undefined&&!writtenInstrumentPitchPlayable(target,n.approachSlideFrom,next))
      throw Error('A note is outside the playable range of '+target+'. No changes applied.');
    return n;
   });

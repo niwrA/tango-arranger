@@ -47,7 +47,7 @@ const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayBuild=appBuildId||'unknown build';
 import changelogMarkdown from '../CHANGELOG.md?raw';
 import {createElChocloStudy} from './presets/el-choclo';
-import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
+import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,instrumentPitchPlayable,writtenInstrumentRange,writtenInstrumentPitchPlayable,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
 import {newLocalSongId,saveLocalSong,listLocalSongs,readLocalSong,deleteLocalSong,lastOpenedSongId,rememberOpenedSongId,type LocalSongSummary} from './localProjects';
@@ -55,7 +55,9 @@ import {measureLoopEvents} from './measureLoop';
 import {noteGridSpan,noteGridViewport,NOTE_GRID_CELL_PX,NOTE_GRID_LABEL_PX,type NoteGridViewport} from './noteGridWindow';
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
-import {playExpressiveEvent} from './expressiveAudio';
+import {playExpressiveEvent,type ExpressiveEvent} from './expressiveAudio';
+import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain,type BandoneonVoice} from './bandoneonAudio';
+import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
 import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
@@ -152,6 +154,8 @@ function stopPlayback(){
   }
   safeRelease(()=>synth?.releaseAll());
   if(typeof stopArcoSustain==='function')safeRelease(()=>stopArcoSustain());
+  if(typeof stopBandoneonVoices==='function'&&typeof Tone!=='undefined'&&Tone)safeRelease(()=>stopBandoneonVoices(Tone.getContext().rawContext as AudioContext));
+  if(typeof captureBandoneonVoices!=='undefined')captureBandoneonVoices.clear();
   for(const voice of instrumentSynths.values())safeRelease(()=>voice.releaseAll());
   for(const voice of samplePlayers.values())safeRelease(()=>voice.releaseAll());
   if(typeof pizzicatoPlayers!=='undefined')for(const voice of [...pizzicatoPlayers.values(),...pizzicatoAlternates.values(),...pizzicatoSoftPlayers.values()])safeRelease(()=>voice.releaseAll());
@@ -877,6 +881,17 @@ function applyRoster(roster:string[]){
   catch(e){message.value=String(e);}
 }
 function rosterDisplayName(inst:string){return project.value.instrumentNames?.[inst]??inst;}
+function bandoneonLayoutSummary(inst:Instrument){
+ const p=project.value,[low,high]=instrumentRange(inst,p),shift=p.transposeSemitones??0;
+ const outside=(score.value[inst]??[]).filter(n=>!instrumentPitchPlayable(inst,n.pitch+shift,p)).length;
+ return `${midiName(low)}–${midiName(high)}${outside?' · '+outside+' existing '+(outside===1?'note':'notes')+' outside this layout':''}`;
+}
+function setBandoneonModel(inst:Instrument,event:Event){
+ const value=(event.target as HTMLSelectElement).value as BandoneonModelId;
+ if(!inst.startsWith('Bandoneon')||!BANDONEON_MODELS.some(model=>model.id===value))return;
+ project.value.bandoneonModels={...project.value.bandoneonModels,[inst]:value};
+ message.value='Bandoneon layout updated. Existing notes have not been changed.';
+}
 function setProjectA4Reference(event:Event){
  const input=event.target as HTMLInputElement;
  const value=Number(input.value);
@@ -1396,6 +1411,7 @@ function reprocessInstrumentTiming(raw=false):void{
 type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number;stringMidi?:number}>();
 const captureMonitorPitches=new Set<number>();
+const captureBandoneonVoices=new Map<number,BandoneonVoice>();
 const captureHeldDisplay=ref<number[]>([]);
 function heldCaptureKeysHasPitch(pitch:number){return [...heldCaptureKeys.values()].some(held=>held.pitch===pitch);}
 function updateCaptureHeldDisplay(){captureHeldDisplay.value=[...heldCaptureKeys.values()].map(held=>held.pitch);}
@@ -1407,11 +1423,18 @@ function monitorCapturePitch(pitch:number){
  if(!Tone||captureMonitorPitches.has(pitch))return;
  captureMonitorPitches.add(pitch);
  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+ if(noteInst.value.startsWith('Bandoneon')){
+  const voice=renderBandoneon(noteInst.value,{pitch:transposed,durationSeconds:1,velocity:91},Tone.now(),undefined,undefined,true);
+  if(voice)captureBandoneonVoices.set(pitch,voice);
+  return;
+ }
  ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
 }
 function releaseCaptureMonitorPitch(pitch:number){
  if(heldCaptureKeysHasPitch(pitch)||!captureMonitorPitches.has(pitch))return;
  captureMonitorPitches.delete(pitch);
+ const reed=captureBandoneonVoices.get(pitch);
+ if(reed){reed.release();captureBandoneonVoices.delete(pitch);return;}
  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
  if(Tone)captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
 }
@@ -1577,7 +1600,9 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
-          if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
+          if(inst.startsWith('Bandoneon'))
+            renderBandoneon(inst,{...event,durationSeconds:duration,velocity:event.velocity*.8,endVelocity:event.endVelocity===undefined?undefined:event.endVelocity*.8},onset,event.bandoneonStaff);
+          else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
             playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
             duration,onset,Math.max(0.05,event.velocity/127*0.8));
@@ -1904,7 +1929,7 @@ function capturePianoKey(event:PointerEvent,pitch:number){
  try{(event.currentTarget as HTMLElement).setPointerCapture(id);}catch{/* Released before capture. */}
  // A sounding voice is owned by pitch, not a particular touch. A second
  // pointer holding the same note cannot release it prematurely.
- if(Tone&&captureKeySynth)monitorCapturePitch(pitch);
+ if(Tone&&(captureKeySynth||noteInst.value.startsWith('Bandoneon')))monitorCapturePitch(pitch);
  else void startAudioFromGesture().then(tone=>{
   Tone=tone;
   if(!heldCaptureKeys.has(id))return;
@@ -2234,8 +2259,9 @@ async function auditionPitchPreview():Promise<void>{
   for(const n of pitchPreviewNotes.value){
    const sounding=n.pitch+(project.value.transposeSemitones??0);
    if(sounding<0||sounding>127)continue;
-   voice.triggerAttackRelease(Tone.Frequency(sounding,'midi').toFrequency(),
-    Math.max(0.07,n.durationBeats*secondsPerBeat*0.9),origin+n.startBeat*secondsPerBeat,0.65);
+   const duration=Math.max(0.07,n.durationBeats*secondsPerBeat*0.9),time=origin+n.startBeat*secondsPerBeat;
+   if(noteInst.value.startsWith('Bandoneon'))renderBandoneon(noteInst.value,{pitch:sounding,durationSeconds:duration,velocity:83},time);
+   else voice.triggerAttackRelease(Tone.Frequency(sounding,'midi').toFrequency(),duration,time,0.65);
   }
   pitchPostprocessStatus.value='Auditioning the proposal with its original rests and note positions.';
  }catch(error){previewPitchError('Cannot audition: '+String(error));}
@@ -2322,7 +2348,9 @@ async function auditionDraft(notes:Array<CapturedMelodyNote&{startBeat?:number}>
   for(const n of notes){
    const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));
    const startBeat=n.startBeat??nextBeat,duration=n.duration*secondsPerBeat;
-   synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),Math.max(0.01,duration*0.9),origin+startBeat*secondsPerBeat,0.7);
+   const sounding=Math.max(0.01,duration*0.9),time=origin+startBeat*secondsPerBeat;
+   if(noteInst.value.startsWith('Bandoneon'))renderBandoneon(noteInst.value,{pitch,durationSeconds:sounding,velocity:89},time);
+   else synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),sounding,time,0.7);
    nextBeat=startBeat+n.duration;
   }
  }
@@ -2410,7 +2438,7 @@ function applyCapturedMelody(){
       const recordedPitches=bars.flatMap(b=>capturedMelodyForBar(b).map(n=>n.pitch));
       if(recordedPitches.length){
         const low=Math.min(...recordedPitches),high=Math.max(...recordedPitches);
-        const [rangeLow,rangeHigh]=instrumentRange(noteInst.value);
+        const [rangeLow,rangeHigh]=writtenInstrumentRange(noteInst.value,project.value);
         noteViewCustom.value=true;
         noteViewStart.value=Math.max(rangeLow,Math.min(low-2,rangeHigh));
         noteViewEnd.value=Math.min(rangeHigh,Math.max(high+2,noteViewStart.value));
@@ -3875,9 +3903,9 @@ const instrumentSynths=new Map<string,PolySynth>();
 function instrumentSynth(inst:string):PolySynth{
   const existing=instrumentSynths.get(inst);if(existing)return existing;
   const name=inst.toLowerCase();
-  const oscillator=name.includes('violin')||name.includes('voice')?'sawtooth':name.includes('bandoneon')?'square':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
-  const attack=name.includes('violin')?0.08:name.includes('bandoneon')?0.035:name.includes('voice')?0.09:0.008;
-  const release=name.includes('violin')?0.32:name.includes('bandoneon')?0.17:name.includes('bass')?0.18:0.12;
+  const oscillator=name.includes('violin')||name.includes('voice')?'sawtooth':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
+  const attack=name.includes('violin')?0.08:name.includes('voice')?0.09:0.008;
+  const release=name.includes('violin')?0.32:name.includes('bass')?0.18:0.12;
   const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:name.includes('violin')?0.045:0.12,sustain:name.includes('violin')?0.93:0.72,release}}).toDestination();
   voice.volume.value=-7+instrumentGainDb(inst);
   instrumentSynths.set(inst,voice);
@@ -3902,11 +3930,13 @@ function updateInstrumentGain(inst:string,event:Event){
  try{localStorage.setItem(mixStorageKey,JSON.stringify(instrumentMix.value));}catch{/* Private browsing may deny storage. */}
  const sampler=samplePlayers.get(inst);if(sampler)sampler.volume.value=-5+instrumentGainDb(inst);
  setArcoSustainGain(inst,-5+instrumentGainDb(inst));
+ if(Tone&&inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers]){const pizz=players.get(inst);if(pizz)pizz.volume.value=-5+instrumentGainDb(inst);}
  const voice=instrumentSynths.get(inst);if(voice)voice.volume.value=-7+instrumentGainDb(inst);
 }
 function resetInstrumentMix(){
  instrumentMix.value={};
+ if(Tone)for(const inst of projectInstruments(project.value))if(inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
  try{localStorage.removeItem(mixStorageKey);}catch{/* Storage unavailable. */}
  for(const [inst,sampler] of samplePlayers){sampler.volume.value=-5+instrumentGainDb(inst);setArcoSustainGain(inst,-5+instrumentGainDb(inst));}
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,sampler] of players)sampler.volume.value=-5+instrumentGainDb(inst);
@@ -3921,6 +3951,7 @@ function focusInstrumentAudible(inst:string):boolean{
 function setFocusMonitorMode(mode:'solo'|'mute'){
  focusMonitorMode.value=focusMonitorMode.value===mode?'all':mode;
  stopArcoSustain(inst=>!focusInstrumentAudible(inst));
+ if(Tone)stopBandoneonVoices(Tone.getContext().rawContext as AudioContext,inst=>!focusInstrumentAudible(inst));
  for(const [inst,voice] of instrumentSynths)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const [inst,voice] of samplePlayers)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,voice] of players)if(!focusInstrumentAudible(inst))voice.releaseAll();
@@ -3935,7 +3966,7 @@ const pizzicatoSoftPlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
 const pizzicatoAttackIndices=new Map<string,number>();
 function sampleName(inst:string):string{
  const n=inst.toLowerCase();
- return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'harmonium':n.includes('voice')?'harmonium':'piano';
+ return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('voice')?'harmonium':'piano';
 }
 function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'primary'|'alternate'|'soft'='primary'):Promise<boolean>{
  const bank=pizzicato?(variant==='primary'?pizzicatoBank(inst):pizzicatoVariantBank(inst,variant)):arcoBank(inst)??(!legacyPiano&&openPianoAvailable?openPianoBank(inst,import.meta.env.BASE_URL):undefined);
@@ -3959,6 +3990,8 @@ function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'prim
 let openPianoAvailable=false;
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
+ instruments=instruments.filter(inst=>!inst.startsWith('Bandoneon'));
+ if(!instruments.length){sampleStatus.value='Bandoneon uses the reed synthesizer';return;}
  sampleStatus.value='Loading samples…';
  if(instruments.some(inst=>inst.toLowerCase().includes('piano'))&&!openPianoAvailable){
   try{const response=await fetch(import.meta.env.BASE_URL+'samples/open-piano/manifest.json',{signal:AbortSignal.timeout(2000)});const manifest=response.ok?await response.json():null;openPianoAvailable=manifest?.source==='VCSL Steinway B'&&manifest?.version===1;}catch{ /* optional assets: retain legacy piano */ }
@@ -3975,8 +4008,14 @@ function selectPizzicatoPlayer(inst:string,velocity:number){
  const variant=pizzicatoVariant(velocity,index);
  return (variant==='soft'?pizzicatoSoftPlayers.get(inst):variant==='alternate'?pizzicatoAlternates.get(inst):undefined)??pizzicatoPlayers.get(inst);
 }
+function renderBandoneon(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
+ if(!focusInstrumentAudible(inst))return;
+ const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonModelForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
+ return playBandoneonNote(Tone.getContext().rawContext as AudioContext,inst,event,time,{hand,gainDb:instrumentGainDb(inst),destination,held});
+}
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
  if(!focusInstrumentAudible(inst))return;
+ if(inst.startsWith('Bandoneon')){renderBandoneon(inst,{pitch,durationSeconds:duration,velocity:velocity*127},time);return;}
  if(audioEngine.value==='samples'&&!usesPizzicatoBank(inst,technique)&&arcoBank(inst)&&!canUseArcoSample(inst,duration)&&playArcoSustain(Tone.getContext().rawContext as AudioContext,inst,pitch,duration,time,velocity,-5+instrumentGainDb(inst)))return;
  // Never substitute a bowed sample for missing pizzicato, or vice versa.
  const sampler=audioEngine.value!=='samples'?undefined:usesPizzicatoBank(inst,technique)?selectPizzicatoPlayer(inst,velocity):arcoBank(inst)?(canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined):!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
@@ -3988,6 +4027,10 @@ type DraftInstrumentPreview={project:Project;output:AudioNode};
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1,preview?:DraftInstrumentPreview){
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
+ if(inst.startsWith('Bandoneon')){
+  renderBandoneon(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
+  return;
+ }
  const bar=Math.floor(n.start/(preview?.project??project.value).beats);
  const planned=preview?plannedViolinTechnique(preview.project,inst as Instrument,bar):violinTechnique(inst as Instrument,bar);
  const technique=resolveStringTechnique(inst,n.technique,planned,Boolean(n.stringGlissando||n.bowedTremolo||n.gesture||n.slideTo!==undefined||n.approachSlideFrom!==undefined));
@@ -4191,7 +4234,9 @@ async function toggleNoteLoop(){
       // Read the current score at the start of every pass, including manual edits.
       const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats,project.value.transposeSemitones??0),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
       for(const event of events){
-        if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
+        if(noteInst.value.startsWith('Bandoneon'))
+          renderBandoneon(noteInst.value,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.bandoneonStaff);
+        else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
         else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
       }
@@ -4215,6 +4260,11 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
   if(!auditionEnabled.value)return;
   try{
     Tone=await startAudioFromGesture();
+    if(noteInst.value.startsWith('Bandoneon')){
+      const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
+      renderBandoneon(noteInst.value,{pitch:transposed,durationSeconds:Math.max(.025,durationSeconds),velocity},Tone.now());
+      return;
+    }
     if(audioEngine.value==='samples'){
       await prepareSamples([noteInst.value]);
       const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
@@ -4232,6 +4282,21 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
 function auditionEvent(note:Note){
   if(!auditionEnabled.value)return;
   if(note.stringGlissando)note=stringGlissandoPlayback(note);
+  if(noteInst.value.startsWith('Bandoneon')){
+    const p=project.value,inst=noteInst.value;
+    void startAudioFromGesture().then(tone=>{
+      if(project.value!==p||noteInst.value!==inst)return;
+      Tone=tone;
+      const transpose=p.transposeSemitones??0;
+      const staff=note.staffOverride??note.xmlStaff;
+      renderBandoneon(inst,{
+        pitch:note.pitch+transpose,durationSeconds:Math.max(.025,noteSoundingDuration(note)*60/p.bpm),velocity:noteSoundingVelocity(note),
+        endVelocity:note.swellTo,slideTo:note.slideTo===undefined?undefined:note.slideTo+transpose,
+        gesture:note.gesture?transposeTangoGesture(note.gesture,transpose):undefined,
+      },Tone.now(),staff);
+    }).catch(error=>{message.value='Bandoneon preview unavailable: '+String(error);});
+    return;
+  }
   if(note.pianoGlissando||note.pianoPedalBeats){
     void startAudioFromGesture().then(tone=>{Tone=tone;const transpose=project.value.transposeSemitones??0,seconds=60/project.value.bpm;
       for(const attack of playbackNotesInRange([note],note.start,Infinity,transpose))triggerInstrument(noteInst.value,attack.pitch+transpose,noteSoundingDuration(attack)*seconds,Tone.now()+(attack.start-note.start)*seconds,noteSoundingVelocity(attack)/127);
@@ -4794,7 +4859,7 @@ function noteBarClick(pitch:number,beat:number){
   if(index>=0)selectNoteEvent(index);
 }
 
-const noteCtx=computed(()=>({...noteEditorContext(project.value,noteInst.value,selectedBar.value),range:editablePitchRange(noteInst.value,score.value[noteInst.value]??[])}));
+const noteCtx=computed(()=>({...noteEditorContext(project.value,noteInst.value,selectedBar.value),range:editablePitchRange(noteInst.value,score.value[noteInst.value]??[],project.value)}));
 const noteMeasure=computed(()=>[...(score.value[noteInst.value]??[])]
   .filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===selectedBar.value)
   .sort((a,b)=>a.start-b.start||a.pitch-b.pitch));
@@ -5318,7 +5383,7 @@ function openNoteEditor(inst:Instrument=overviewInstrument.value,b:number=select
     noteLoopFrom.value=first+1;
     noteLoopTo.value=first+count;
   }
-  const range=editablePitchRange(inst,score.value[inst]??[]);
+  const range=editablePitchRange(inst,score.value[inst]??[],project.value);
   const existing=(score.value[inst]??[]).filter(n=>Math.floor(n.start/project.value.beats)===selectedBar.value);
   const typical=inst==='Contrabass'?43:inst==='Piano'?61:inst==='Violin I'?76:inst==='Violin II'?69:inst.startsWith('Bandoneon')?67:72;
   noteCenter.value=Math.max(range[0]+9,Math.min(range[1]-8,existing.length?Math.round(existing.reduce((sum,n)=>sum+n.pitch,0)/existing.length):typical));
@@ -6506,7 +6571,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label>Project tuning · A4 (Hz)<input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.a4Hz??DEFAULT_A4_HZ" @change="setProjectA4Reference" aria-label="Project-wide A4 tuning reference in Hz"/></label>
     <span class="hint">All instruments inherit this reference (default 442 Hz), unless overridden below. Used by Learn pitch detection; it does not transpose notes or change exported notation.</span>
   </div>
-  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" class="bandoneon-model-select">Keyboard layout <select :value="bandoneonModelForPart(project,inst)" :aria-label="'Bandoneon keyboard layout for '+rosterDisplayName(inst)" @change="setBandoneonModel(inst,$event)"><option v-for="model in BANDONEON_MODELS" :key="model.id" :value="model.id">{{model.label}}</option></select><small>{{bandoneonLayoutSummary(inst)}}</small></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
   <div class="two"><label>Preset name<input v-model="rosterPresetName" placeholder="My tango orchestra"/></label><div class="align-bottom"><button type="button" @click="saveCurrentRoster">Save roster preset</button></div></div>
   <div class="two"><label>Saved rosters<select v-model="rosterPresetSelection"><option value="">Select a preset</option><option v-for="preset in rosterPresets" :key="preset.name" :value="preset.name">{{preset.name}}</option></select></label><div class="align-bottom"><button type="button" :disabled="!rosterPresetSelection" @click="loadSelectedRoster">Load</button><button type="button" class="secondary" :disabled="!rosterPresetSelection || ['Factory seven-part','Quartet','Sextet','Septet','Orquesta típica'].includes(rosterPresetSelection)" @click="deleteSelectedRoster">Delete</button></div></div>
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>
@@ -7147,7 +7212,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       </div>
      </div>
     </template>
-  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView,'capture-real-piano':noteInst==='Piano'}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><div class="capture-keybed" :style="noteInst==='Piano'?{minWidth:captureAutoFit?'100%':(capturePianoGeometry.span*44)+'px'}:undefined"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :style="noteInst==='Piano'?capturePianoGeometry.positions[pitch]:undefined" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :data-pitch="pitch" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointermove.prevent="capturePianoKeyMove($event)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div></div>
+  <div ref="capturePianoElement" v-show="captureInputLayout==='keyboard'||!captureFingerboardRows.length" class="capture-piano" :class="{'capture-piano-auto':captureAutoFit,'capture-large-instrument':captureLargeView,'capture-real-piano':noteInst==='Piano'}" role="group" aria-label="Playable chromatic keyboard for melody entry, from selected start note to end note"><div class="capture-keybed" :style="noteInst==='Piano'?{minWidth:captureAutoFit?'100%':(capturePianoGeometry.span*44)+'px'}:undefined"><button v-for="pitch in captureKeyboardPitches" :key="pitch" type="button" :style="noteInst==='Piano'?capturePianoGeometry.positions[pitch]:undefined" :class="['capture-piano-key',{'capture-piano-black':[1,3,6,8,10].includes(pitch%12),'capture-piano-selected':capturePitch===pitch,'is-held':captureHeldDisplay.includes(pitch)}]" :data-pitch="pitch" :disabled="noteInst.startsWith('Bandoneon')&&!writtenInstrumentPitchPlayable(noteInst,pitch,project)" :aria-label="`Tap ${midiName(pitch)} to record its pitch and onset`" @pointerdown.prevent="capturePianoKey($event,pitch)" @pointermove.prevent="capturePianoKeyMove($event)" @pointerup="releaseCapturePianoKey($event)" @pointercancel="releaseCapturePianoKey($event)" @lostpointercapture="releaseCapturePianoKey($event)" @click="capturePianoKeyClick($event,pitch)"><span>{{captureNoteLabels[pitch%12]}}</span><small>{{Math.floor(pitch/12)-1}}</small></button></div></div>
 
       <button type="button" class="capture-tap-pad" :disabled="!captureRecording" @pointerdown.prevent="capturePointerTap($event,capturePitch)" @click="captureKeyboardClick($event,capturePitch)" :aria-label="`Tap rhythm at ${midiName(capturePitch)}`">TAP RHYTHM<span>Record {{midiName(capturePitch)}} at each tap · Space / Enter when focused</span></button>
     </template>

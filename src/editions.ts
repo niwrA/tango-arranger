@@ -2,7 +2,7 @@
  * The legacy generatedScore/importedScore/protectedBars fields remain the
  * authoritative *active* workspace; other variants are durable snapshots.
  * Keeping this boundary makes old .tango files and existing editors work. */
-import {generate,mergeScores,projectInstruments,instrumentFamily,instrumentRange,chordAt,chordTones,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
+import {generate,mergeScores,projectInstruments,instrumentFamily,instrumentRange,instrumentPitchPlayable,chordAt,chordTones,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
 import {validatePhrasePlan,type PhrasePlan} from './phrasePlan';
 
 export const EDITION_LEVELS:readonly Difficulty[]=['easy','intermediate','advanced'];
@@ -33,6 +33,8 @@ export function scoreSourceSignature(p:Project,inst:Instrument):string{
   measureViolinTechniques:p.measureViolinTechniques,
   measureBassTechniques:p.measureBassTechniques,
   instrument:inst,
+  bandoneonModel:p.bandoneonModels?.[inst],
+  bandoneonTranspose:inst.startsWith('Bandoneon')?p.transposeSemitones||undefined:undefined,
   activity:p.instrumentSettings?.[inst]?.activity,
   dynamicsOffset:p.instrumentSettings?.[inst]?.dynamicsOffset
  });
@@ -102,7 +104,7 @@ function generateAtLevel(p:Project,level:Difficulty):Score{
 export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly Note[],level:Difficulty):Note[]{
  if(level==='advanced')return copyNotes(source);
  const violin=instrumentFamily(inst)==='Violin';
- const [low,high]=instrumentRange(inst);
+ const [low,high]=instrumentRange(inst,p);
  const shift=p.transposeSemitones??0;
  const ceiling=violin?(level==='easy'?83:88):high;
  const floor=low;
@@ -135,7 +137,7 @@ export function simplifyImportedPart(p:Project,inst:Instrument,source:readonly N
   if(ornamental&&previous){previous.duration+=primary.duration;continue;}
   if(violin)for(const r of result.slice(-2))if(r.start<start&&r.start+r.duration>start)r.duration=start-r.start;
   for(const n of chosen){
-   const candidates=[0,-12,12,-24,24].map(o=>n.pitch+o).filter(x=>x+shift>=floor&&x+shift<=ceiling);
+   const candidates=[0,-12,12,-24,24].map(o=>n.pitch+o).filter(x=>x+shift>=floor&&x+shift<=ceiling&&instrumentPitchPlayable(inst,x+shift,p));
    const cost=(x:number)=>Math.abs(x-n.pitch)*.25+(previous?Math.abs((x-previous.pitch)-(original-(previousOriginal??original)))*.8:0)+(violin?Math.min(12,...positions(x+shift).map(f=>f.position*.7+(level==='easy'&&x+shift===[55,62,69,76][f.string]?-1.5:0)+(lastFinger?Math.abs(f.position-lastFinger.position)*.6+Math.abs(f.string-lastFinger.string)*(level==='easy'?2:.5):0))):0);
    if(candidates.length&&chosen.length===1)n.pitch=candidates.sort((a,b)=>cost(a)-cost(b))[0];
    if(violin){

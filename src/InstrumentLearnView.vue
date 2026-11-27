@@ -7,6 +7,8 @@ import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
 import {buildPracticePreview,loadPreviewBank,renderPracticePreview} from './practicePreviewAudio';
 import {stringPitchAtBeat,type Project} from './music';
 import {usesPizzicatoBank} from './pizzicatoSamples';
+import {bandoneonModelForPart} from './bandoneon';
+import {stopBandoneonVoices} from './bandoneonAudio';
 import {instrumentFamily,partStaffForNote,noteSoundingDuration,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensitivityThresholdDb} from './learnPitch';
@@ -95,7 +97,7 @@ const staff=ref<PracticeStaff>('all');
 const chordTarget=ref<ChordTarget>('highest');
 const practiceRange=computed(()=>props.notes.filter(note=>
  note.start>=(from.value-1)*props.beatsPerMeasure-1e-6&&note.start<to.value*props.beatsPerMeasure-1e-6));
-const exercise=computed(()=>practiceTargets(practiceRange.value,props.instrument,props.staffSplit,props.grandStaff?staff.value:'all',chordTarget.value));
+const exercise=computed(()=>practiceTargets(practiceRange.value,props.instrument,props.staffSplit,props.grandStaff?staff.value:'all',chordTarget.value,bandoneonModelForPart(props.project,props.instrument)));
 const targets=computed(()=>exercise.value.targets);
 function targetPitch(note:Note){return exercise.value.pitches.get(note)??note.pitch;}
 function otherPitches(note:Note){
@@ -174,9 +176,9 @@ const diagramPitches=computed(()=>[...new Set(diagramNotes.value
  .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(point=>point.pitch)??[])])
  .map(pitch=>pitch+diagramTranspose.value))]);
 const bandoneonHands=computed(()=>family.value==='Bandoneon'
- ?bandoneonPracticeHands(diagramNotes.value,props.instrument,props.staffSplit,props.concertTranspose):undefined);
+ ?bandoneonPracticeHands(diagramNotes.value,props.instrument,props.staffSplit,props.concertTranspose,bandoneonModelForPart(props.project,props.instrument)):undefined);
 const bandoneonTargetHand=computed<'right'|'left'|undefined>(()=>family.value==='Bandoneon'&&guideNote.value
- ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit)===1?'right':'left':undefined);
+ ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit,0,bandoneonModelForPart(props.project,props.instrument))===1?'right':'left':undefined);
 const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value,guideNote.value?.stringMidi):null);
 const practicePositionNotes=computed(()=>targets.value.map(n=>({pitch:targetPitch(n)+props.concertTranspose,start:n.start,duration:noteSoundingDuration(n),stringMidi:n.stringMidi,lockString:Boolean(n.stringGlissando||n.approachSlideFrom!==undefined||n.slideTo!==undefined)})));
 const practicePositions=computed(()=>family.value==='Violin'||family.value==='Contrabass'?planPracticePositions(family.value,practicePositionNotes.value):[]);
@@ -301,7 +303,7 @@ function stopDemo(){
  demoBeat.value=null;
  const previous=demoAudio;
  demoAudio=null;
- if(previous){demoTailUntil=performance.now()+180;void previous.close().catch(()=>{});}
+ if(previous){stopBandoneonVoices(previous);demoTailUntil=performance.now()+180;void previous.close().catch(()=>{});}
  demoPlaying.value=false;
 }
 async function listenToNotes(){
@@ -318,7 +320,7 @@ async function listenToNotes(){
   const rangeEnd=to.value*props.beatsPerMeasure;
   const selected=targets.value.map(note=>({...note,pitch:targetPitch(note),technique:props.resolveTechnique?.(note)??note.technique}));
   const events=buildPracticePreview(selected,rangeStart,rangeEnd,props.bpm,props.beatsPerMeasure,props.concertTranspose,previewDuration.value==='written',props.instrument,props.project);
-  const sampleMode=props.audioEngine!=='synth';
+  const sampleMode=props.audioEngine!=='synth'&&!props.instrument.startsWith('Bandoneon');
   const [ordinary,pizzicato]=sampleMode?await Promise.all([
    loadPreviewBank(ctx,props.instrument),
    events.some(e=>usesPizzicatoBank(props.instrument,e.technique))?loadPreviewBank(ctx,props.instrument,true):Promise.resolve([])

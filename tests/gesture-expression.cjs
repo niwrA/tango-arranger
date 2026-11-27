@@ -11,11 +11,12 @@ function load(file,imports={}){
 }
 const gestures=load('src/tangoGestures.ts');
 const phrases=load('src/phrasePlan.ts');
-const music=load('src/music.ts',{'./tangoGestures':gestures,'./phrasePlan':phrases});
-const measure=load('src/measureLoop.ts',{'./music':music,'./tangoGestures':gestures});
+const bandoneon=load('src/bandoneon.ts');
+const music=load('src/music.ts',{'./tangoGestures':gestures,'./phrasePlan':phrases,'./bandoneon':bandoneon});
+const measure=load('src/measureLoop.ts',{'./music':music,'./tangoGestures':gestures,'./bandoneon':bandoneon});
 const audio=load('src/expressiveAudio.ts');
 const editions=load('src/editions.ts',{'./music':music,'./phrasePlan':phrases});
-const io=load('src/io.ts',{'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music,'./editions':editions,'./tangoGestures':gestures,'./musicXmlImport':{parseMusicXmlDetailed(){throw Error('Not used in export tests');}}});
+const io=load('src/io.ts',{'./bandoneon':bandoneon,'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music,'./editions':editions,'./tangoGestures':gestures,'./musicXmlImport':{parseMusicXmlDetailed(){throw Error('Not used in export tests');}}});
 let count=0;function check(name,fn){fn();count++;console.log('PASS',name);}
 const violin={pitch:72,start:0,duration:2,velocity:95};
 const range=music.instrumentRange('Violin I');

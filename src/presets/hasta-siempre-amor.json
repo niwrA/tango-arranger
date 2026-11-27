@@ -6064,14 +6064,6 @@
     ],
     "Bandoneon I": [
       {
-        "pitch": 26,
-        "start": 4,
-        "duration": 4,
-        "source": "imported",
-        "xmlStaff": 2,
-        "xmlVoice": "38"
-      },
-      {
         "pitch": 65,
         "start": 4.5,
         "duration": 1,
@@ -7933,14 +7925,6 @@
       }
     ],
     "Bandoneon II": [
-      {
-        "pitch": 26,
-        "start": 4,
-        "duration": 4,
-        "source": "imported",
-        "xmlStaff": 2,
-        "xmlVoice": "22"
-      },
       {
         "pitch": 62,
         "start": 4.5,
@@ -22333,14 +22317,6 @@
     ],
     "Bandoneon I": [
       {
-        "pitch": 26,
-        "start": 4,
-        "duration": 4,
-        "source": "imported",
-        "xmlStaff": 2,
-        "xmlVoice": "38"
-      },
-      {
         "pitch": 65,
         "start": 4.5,
         "duration": 1,
@@ -24202,14 +24178,6 @@
       }
     ],
     "Bandoneon II": [
-      {
-        "pitch": 26,
-        "start": 4,
-        "duration": 4,
-        "source": "imported",
-        "xmlStaff": 2,
-        "xmlVoice": "22"
-      },
       {
         "pitch": 62,
         "start": 4.5,
@@ -38566,14 +38534,6 @@
     ],
     "Bandoneon I": [
       {
-        "pitch": 26,
-        "start": 4,
-        "duration": 4,
-        "source": "imported",
-        "xmlStaff": 2,
-        "xmlVoice": "38"
-      },
-      {
         "pitch": 65,
         "start": 4.5,
         "duration": 1,
@@ -40435,14 +40395,6 @@
       }
     ],
     "Bandoneon II": [
-      {
-        "pitch": 26,
-        "start": 4,
-        "duration": 4,
-        "source": "imported",
-        "xmlStaff": 2,
-        "xmlVoice": "22"
-      },
       {
         "pitch": 62,
         "start": 4.5,
@@ -60161,14 +60113,6 @@
       "advanced": {
         "notes": [
           {
-            "pitch": 26,
-            "start": 4,
-            "duration": 4,
-            "source": "imported",
-            "xmlStaff": 2,
-            "xmlVoice": "38"
-          },
-          {
             "pitch": 65,
             "start": 4.5,
             "duration": 1,
@@ -62030,14 +61974,6 @@
           }
         ],
         "importedNotes": [
-          {
-            "pitch": 26,
-            "start": 4,
-            "duration": 4,
-            "source": "imported",
-            "xmlStaff": 2,
-            "xmlVoice": "38"
-          },
           {
             "pitch": 65,
             "start": 4.5,
@@ -63983,14 +63919,6 @@
       "advanced": {
         "notes": [
           {
-            "pitch": 26,
-            "start": 4,
-            "duration": 4,
-            "source": "imported",
-            "xmlStaff": 2,
-            "xmlVoice": "22"
-          },
-          {
             "pitch": 62,
             "start": 4.5,
             "duration": 1,
@@ -65788,14 +65716,6 @@
           }
         ],
         "importedNotes": [
-          {
-            "pitch": 26,
-            "start": 4,
-            "duration": 4,
-            "source": "imported",
-            "xmlStaff": 2,
-            "xmlVoice": "22"
-          },
           {
             "pitch": 62,
             "start": 4.5,
