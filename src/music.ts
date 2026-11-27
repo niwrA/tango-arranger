@@ -1,3 +1,4 @@
+import {effectiveOrchestraStyle,isOrchestraStyle,orchestraStyle,orchestraPulses,type OrchestraStyleId} from './orchestraStyle';
 import {bandoneonHandForPitch,bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId} from './bandoneon';
 import type {TempoExpressions} from './tempoExpressions';
 import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
@@ -300,7 +301,7 @@ export type Bar = { chord:string; melody:Note[]; section:string; pickupBeats?:nu
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
-export type Project = { version:1; nextMusicalEditId?:number; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; bandoneonModels?:Record<string,BandoneonModelId>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; nextMusicalEditId?:number; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; bandoneonModels?:Record<string,BandoneonModelId>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; sectionStyles?:Record<string,OrchestraStyleId>; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export type RegisterStrategy='auto'|'individual'|'whole'|'phrase'|'exact';
 export type RegisterPartSetting={strategy:RegisterStrategy;octaves?:-24|-12|0|12|24};
 export type AdaptiveTranspose={enabled:boolean;chordToneRhythm:boolean;semitones:number;parts?:Record<string,RegisterPartSetting>};
@@ -741,7 +742,7 @@ export const VIOLIN_PROFILE_MARCATO:Readonly<Record<string,readonly number[]>>={
 };
 export function violinMarcatoBeatsFor(p:Project,section:string,inst:ViolinPart):number[]{
   const chosen=p.violinMarcatoBeats?.[section]?.[inst];
-  const defaults=VIOLIN_PROFILE_MARCATO[p.profile]??VIOLIN_PROFILE_MARCATO.traditional;
+  const defaults=VIOLIN_PROFILE_MARCATO[effectiveOrchestraStyle(p,section)]??VIOLIN_PROFILE_MARCATO.traditional;
   return [...new Set((chosen??defaults).filter(n=>Number.isInteger(n)&&n>=0&&n<p.beats))].sort((a,b)=>a-b);
 }
 /** Tango chord violin: one note on each beat, with an exceptionally short
@@ -1105,12 +1106,14 @@ export function generate(p:Project):Score {
   const roster=projectInstruments(p);
   const phrases=phraseMeasureMap(p);
   const score=Object.fromEntries(roster.map(i=>[i,[]])) as unknown as Score;
-  const profile=patterns[p.profile]??patterns.traditional;
-  const milonga=p.profile==='milonga'&&p.beats===2;
+
   const settings=p.orchestration??defaultOrchestration();
   const expression=p.expression??defaultExpression();
   for(let b=0;b<p.bars.length;b++){
     const bar=p.bars[b],offset=b*p.beats,phrase=phrases[b];
+    const styleId=effectiveOrchestraStyle(p,bar.section),profile=patterns[styleId]??patterns.traditional;
+    const style=orchestraStyle(styleId),styled=isOrchestraStyle(styleId)&&styleId!=='traditional'&&p.beats===4;
+    const milonga=p.profile==='milonga'&&p.beats===2;
     if(!bar.chord.trim()&&!bar.melody.length)continue; // A blank measure is genuinely silent.
     const harmony=(beat:number)=>chordTones(chordAt(bar.chord,p.beats,beat));
     const tones=harmony(0),root=tones[0];
@@ -1201,14 +1204,15 @@ export function generate(p:Project):Score {
       }
       if(inst.startsWith('Bandoneon')&&(role==='chords'||configuredRole==='fill')){
         const chordBeats=p.beats===3?[1,2]:milonga?[0.5,1.5]:[0,2].filter(beat=>beat<p.beats);
+        const pulses=styled?orchestraPulses(styleId,p.beats,'chords'):chordBeats.map(beat=>({beat,duration:.75,accent:false}));
         const maxNotes=difficulty==='easy'?2:3;
-        for(const beat of chordBeats){
-          const pcs=harmony(beat);
+        for(const pulse of pulses){
+          const beat=pulse.beat,pcs=harmony(beat);
           const voicing=[...new Set(pcs.slice(0,maxNotes).map((pc,j)=>closest(pc,58+j*5,range[0],Math.min(range[1],79))))];
-          const duration=Math.min(0.75,p.beats-beat);
-          // Keep the compact attack while engraving it on the written beat grid.
-          const gate=Math.min(0.7,p.beats-beat)*0.72/duration;
-          for(const pitch of voicing)put(pitch,beat,duration,68,undefined,gate);
+          const duration=Math.min(styled?pulse.duration:.75,p.beats-beat);
+          // Keep written rhythm distinct from sounding length.
+          const gate=styled?style.gate:Math.min(0.7,p.beats-beat)*0.72/duration;
+          for(const pitch of voicing){const before=notes.length;put(pitch,beat,duration,styled?(pulse.accent?style.accentVelocity:style.plainVelocity):68,undefined,gate);if(styled&&notes.length>before)Object.assign(notes[notes.length-1],{accent:pulse.accent,articulation:pulse.accent?'marcato_staccato':style.gate>=.78?'legato':'staccato'});}
         }
         if(role==='chords')continue;
         // In fill mode, continue generating the melody line on top of these chord events.
@@ -1287,6 +1291,14 @@ export function generate(p:Project):Score {
           put(closest(last[2]??last[0],42,28,55),2,0.85,68,undefined,0.58);
           continue;
         }
+        if(styled&&inst.startsWith('Contrabass')){
+          for(const [index,pulse] of orchestraPulses(styleId,p.beats,'bass').entries()){
+            const pcs=harmony(pulse.beat),pc=pcs[index%2===0?0:2]??pcs[0];
+            const before=notes.length;put(closest(pc,40,28,55),pulse.beat,pulse.duration,pulse.accent?style.accentVelocity:style.plainVelocity,'arco',style.gate);
+            if(notes.length>before)Object.assign(notes[notes.length-1],{accent:pulse.accent,articulation:pulse.accent?'marcato_staccato':style.gate>=.78?'legato':'staccato'});
+          }
+          continue;
+        }
         for(let beat=0;beat<p.beats;beat+=2){
           const t0=harmony(beat),r0=t0[0];
           put(closest(beat===0?r0:t0[2]??r0,40,28,55),beat,Math.min(1,p.beats-beat),95,undefined,0.68);
@@ -1323,6 +1335,19 @@ export function generate(p:Project):Score {
           for(const beat of [1,2]){
             const pcs=harmony(beat);
             putPianoChord(pcs,beat===1?65:68,beat,0.8,beat===1?65:62,0.55);
+          }
+          continue;
+        }
+        if(styled&&!p.pianoFigures?.[bar.section]){
+          const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
+          for(const [index,pulse] of orchestraPulses(styleId,p.beats,'bass').entries()){
+            const pcs=harmony(pulse.beat),pc=pcs[index%2===0?0:2]??pcs[0];
+            const before=notes.length;put(pianoBassReinforcement(pc,40,range[0],bassCeiling),pulse.beat,pulse.duration,pulse.accent?style.accentVelocity:style.plainVelocity,undefined,style.gate);
+            if(notes.length>before)Object.assign(notes[notes.length-1],{accent:pulse.accent,articulation:pulse.accent?'marcato_staccato':style.gate>=.78?'legato':'staccato'});
+          }
+          for(const pulse of orchestraPulses(styleId,p.beats,'chords')){
+            const before=notes.length;putPianoChord(harmony(pulse.beat),style.register,pulse.beat,pulse.duration,pulse.accent?style.accentVelocity:style.plainVelocity,style.gate);
+            for(const n of notes.slice(before))Object.assign(n,{accent:pulse.accent,articulation:pulse.accent?'marcato_staccato':style.gate>=.78?'legato':'staccato'});
           }
           continue;
         }
