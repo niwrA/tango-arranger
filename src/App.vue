@@ -3969,6 +3969,11 @@ function setLeadMelodyNotes(notes:Note[]){
   project.value={...project.value,bars:project.value.bars.map((bar,i)=>i===selectedBar.value?{...bar,melody:notes.map(n=>({...n}))}:bar)};
 }
 function setMelody(){const notes:Note[]=[];const tokens=melodyText.value.trim().split(/\s+/).filter(Boolean);let next=0;for(const token of tokens){const m=token.match(/^([A-Ga-g][#b]?-?\d+)(?::([\d.]+))?(?:@([\d.]+))?$/);if(!m){message.value=`Invalid note: ${token}. Example: D5:1@0`;return;}const pitch=parsePitch(m[1]);if(pitch===null)continue;const duration=Number(m[2]??1),start=m[3]===undefined?next:Number(m[3]);if(!Number.isFinite(duration)||duration<=0||start<0||start+duration>project.value.beats+0.00001){message.value=`Invalid timing: ${token}`;return;}notes.push({pitch,start,duration});next=start+duration;}bar.value.melody=notes;message.value=`Updated melody in bar ${selectedBar.value+1}. Regenerate to apply.`;}
+function setPhraseOrchestraStyle(start:number,value:string){
+ const styles={...project.value.phraseStyles};
+ if(isOrchestraStyle(value))styles[String(start)]=value;else delete styles[String(start)];
+ project.value.phraseStyles=styles;
+}
 function setSectionOrchestraStyle(section:string,value:string){
  const styles={...project.value.sectionStyles};
  if(isOrchestraStyle(value))styles[section]=value;
@@ -6676,12 +6681,18 @@ async function homePractise(inst:Instrument){
       <label><span><input type="checkbox" v-model="arrangementCountIn"/> One-measure count-in before playback</span><small class="hint">Clicks continue through any rests before the first pickup note.</small></label>
       <label>Transpose arrangement (semitones)<input type="number" min="-24" max="24" step="1" :value="project.transposeSemitones??0" @change="setTranspose"/><small class="hint">Non-destructive transposition of playback, review, chords and MusicXML.</small></label>
       <label>Orchestra profile<select v-model="project.profile"><option v-for="[id,name] in profiles" :key="id" :value="id">{{name}}</option></select></label>
+      <label>Style influence · {{Math.round((project.styleStrength??1)*100)}}%<input type="range" min="0" max="1" step=".05" :value="project.styleStrength??1" @input="project.styleStrength=Number(($event.target as HTMLInputElement).value)"/></label>
       <details class="orchestra-style-settings"><summary>Section style overrides</summary>
        <small class="hint">Style changes affect newly generated accompaniment. Explicit figures, techniques, roles and protected measures retain priority. Named tango accompaniment profiles currently target 4/4.</small>
        <label v-for="section in [...new Set(project.bars.map(bar=>bar.section))]" :key="section">Section {{section}}
         <select :value="project.sectionStyles?.[section]??''" @change="setSectionOrchestraStyle(section,($event.target as HTMLSelectElement).value)">
          <option value="">Inherit song style</option><option v-for="[id,name] in profiles.filter(([id])=>id!=='milonga')" :key="id" :value="id">{{name}}</option>
         </select>
+       </label>
+      </details>
+      <details v-if="project.phrasePlan?.phrases?.length"><summary>Phrase style overrides</summary>
+       <label v-for="phrase in project.phrasePlan.phrases" :key="phrase.startMeasure">Measures {{phrase.startMeasure+1}}–{{phrase.endMeasure+1}}
+        <select :value="project.phraseStyles?.[String(phrase.startMeasure)]??''" @change="setPhraseOrchestraStyle(phrase.startMeasure,($event.target as HTMLSelectElement).value)"><option value="">Inherit section style</option><option v-for="[id,name] in profiles.filter(([id])=>id!=='milonga')" :key="id" :value="id">{{name}}</option></select>
        </label>
       </details>
       <button type="button" class="secondary" @click="regenerate">Regenerate unprotected arrangement</button>
