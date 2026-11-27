@@ -4029,13 +4029,15 @@ const reviewOpen=ref(false);
 const reviewScope=ref<'all'|'part'|'range'>('all');
 const reviewCategory=ref('all');
 const reviewStyle=ref(true);
+const reviewStructural=ref(false);
+const reviewShowDismissed=ref(false);
 const reviewProtected=ref(false);
 const reviewFindings=shallowRef<Diagnostic[]>([]);
 const reviewSelected=ref<string[]>([]);
 let reviewSnapshot='';
 function scanArrangementReview(){
  reviewSnapshot=JSON.stringify(project.value);
- reviewFindings.value=diagnoseArrangement(project.value,sourceScore.value,{includeStyle:reviewStyle.value,...(reviewScope.value==='part'?{instrument:noteInst.value}:reviewScope.value==='range'?{from:noteLoopFrom.value-1,to:noteLoopTo.value-1}:{})});
+ reviewFindings.value=diagnoseArrangement(project.value,sourceScore.value,{includeStyle:reviewStyle.value,includeStructural:reviewStructural.value,showDismissed:reviewShowDismissed.value,...(reviewScope.value==='part'?{instrument:noteInst.value}:reviewScope.value==='range'?{from:noteLoopFrom.value-1,to:noteLoopTo.value-1}:{})});
  reviewSelected.value=[];
 }
 function openArrangementReview(){
@@ -4043,7 +4045,13 @@ function openArrangementReview(){
 }
 function closeArrangementReview(){stopQuickAudition();reviewOpen.value=false;reviewSelected.value=[];}
 const reviewVisible=computed(()=>reviewFindings.value.filter(issue=>reviewCategory.value==='all'||issue.category===reviewCategory.value));
-function reviewCanApply(issue:Diagnostic){return !!issue.patch&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
+function reviewCanApply(issue:Diagnostic){return !!issue.patch&&!project.value.dismissedArrangementFindings?.includes(issue.id)&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
+function dismissReviewIssue(issue:Diagnostic){
+ project.value={...project.value,dismissedArrangementFindings:[...new Set([...(project.value.dismissedArrangementFindings??[]),issue.id])]};scanArrangementReview();
+}
+function restoreReviewIssue(issue:Diagnostic){
+ project.value={...project.value,dismissedArrangementFindings:(project.value.dismissedArrangementFindings??[]).filter(id=>id!==issue.id)};scanArrangementReview();
+}
 function selectReviewSuggestions(){reviewSelected.value=reviewVisible.value.filter(reviewCanApply).map(issue=>issue.id);}
 async function auditionArrangementReview(after:boolean){
  if(quickAuditionPlaying.value){stopQuickAudition();return;}
@@ -4078,7 +4086,7 @@ function applyArrangementReview(){
   stopPlayback();
   const next=refineArrangement(project.value,sourceScore.value,selected,reviewProtected.value);
   project.value=next;
-  message.value='Applied selected expression refinements; pitches and written rhythm preserved.';
+  message.value=selected.some(issue=>issue.patch?.pitch!==undefined||issue.patch?.start!==undefined)?'Applied selected structural and expression refinements.':'Applied selected expression refinements; pitches and written rhythm preserved.';
   scanArrangementReview();
  }catch(error){message.value='Arrangement review: '+String(error);}
 }
@@ -6850,20 +6858,23 @@ async function homePractise(inst:Instrument){
   <div class="app-modal-content">
    <label>Scope<select v-model="reviewScope" @change="scanArrangementReview"><option value="all">Entire arrangement</option><option value="part">Selected instrument</option><option value="range">Working range</option></select></label>
    <label><input type="checkbox" v-model="reviewStyle" @change="scanArrangementReview"/> Include orchestra style</label>
+   <label><input type="checkbox" v-model="reviewStructural" @change="scanArrangementReview"/> Also propose pitch and onset changes</label>
+   <label><input type="checkbox" v-model="reviewShowDismissed" @change="scanArrangementReview"/> Show dismissed findings</label>
    <label><input type="checkbox" v-model="reviewProtected" @change="reviewSelected=[]"/> Allow edits to protected measures</label>
    <label>Category<select v-model="reviewCategory"><option value="all">All findings</option><option v-for="category in ['pitch','harmony','dynamics','balance','playability','style']" :key="category" :value="category">{{category}}</option></select></label>
    <p>{{reviewVisible.length}} findings · {{reviewSelected.length}} selected. Balance is a score-based estimate, not measured audio loudness.</p>
-   <button type="button" class="secondary" @click="selectReviewSuggestions">Select visible expression fixes</button>
+   <button type="button" class="secondary" @click="selectReviewSuggestions">Select visible proposed fixes</button>
    <div class="two"><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(false)">Listen original</button><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(true)">Listen proposed</button></div><small>Audition covers up to eight measures from the first selected finding.</small><button v-if="quickAuditionPlaying" type="button" class="secondary" @click="stopQuickAudition">Stop audition</button>
    <div v-for="issue in reviewVisible" :key="issue.id" class="arrangement-review-issue">
     <label><input type="checkbox" :value="issue.id" v-model="reviewSelected" :disabled="!reviewCanApply(issue)"/> {{issue.severity}} · {{issue.category}} · {{issue.instrument}} · M{{issue.measure+1}}</label>
     <p>{{issue.message}}</p>
     <small v-if="issue.patch">Proposed: {{Object.entries(issue.patch).map(([key,value])=>key+': '+(typeof value==='number'?Number(value.toFixed(2)):value)).join(' · ')}}</small>
     <button type="button" class="secondary" @click="visitReviewIssue(issue)">Open measure</button>
+    <button v-if="project.dismissedArrangementFindings?.includes(issue.id)" type="button" class="secondary" @click="restoreReviewIssue(issue)">Restore finding</button><button v-else type="button" class="secondary" @click="dismissReviewIssue(issue)">Dismiss finding</button>
    </div>
    <p v-if="!reviewVisible.length">No findings in this scope.</p>
   </div>
-  <div class="app-modal-actions"><button type="button" class="secondary" @click="scanArrangementReview">Rescan</button><button type="button" class="primary" :disabled="!reviewSelected.length" @click="applyArrangementReview">Apply selected expression fixes</button></div>
+  <div class="app-modal-actions"><button type="button" class="secondary" @click="scanArrangementReview">Rescan</button><button type="button" class="primary" :disabled="!reviewSelected.length" @click="applyArrangementReview">Apply selected fixes</button></div>
  </section>
 </div>
 <div v-if="importDialogOpen" class="app-modal-backdrop" @click.self="closeImportDialog" @keydown.esc.stop.prevent="closeImportDialog" @keydown.tab="trapModalTab">
