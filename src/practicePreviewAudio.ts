@@ -1,3 +1,4 @@
+import {playBandoneonNote} from './bandoneonAudio';
 import {measureLoopEvents,type MeasureLoopEvent} from './measureLoop';
 import {playbackNotesInRange} from './arrangementPlayback';
 import {noteSoundingDuration,type Note,type Instrument,type Project} from './music';
@@ -24,9 +25,10 @@ function fetchSample(url:string){
 }
 function midi(name:string){const m=/^([A-G])(#?)(-?\d+)$/.exec(name);return m?12*(Number(m[3])+1)+({C:0,D:2,E:4,F:5,G:7,A:9,B:11}[m[1]]??0)+(m[2]?1:0):60;}
 export async function loadPreviewBank(ctx:AudioContext,inst:string,pizzicato=false):Promise<Anchor[]>{
+ if(inst.startsWith('Bandoneon'))return [];
  const bank=pizzicato?pizzicatoBank(inst):undefined;
  if(pizzicato&&!bank)return [];
- const id=inst.toLowerCase(),name=id.includes('violin')?'violin':id.includes('bass')?'contrabass':id.includes('bandoneon')||id.includes('voice')?'harmonium':'piano';
+ const id=inst.toLowerCase(),name=id.includes('violin')?'violin':id.includes('bass')?'contrabass':id.includes('voice')?'harmonium':'piano';
  const pitches=name==='violin'?['A3','C4','C5','C6']:name==='contrabass'?['C2','E2','E3']:name==='harmonium'?['C3','C4','C5']:['C3','C4','C5','C6'];
  const urls=bank?.urls??Object.fromEntries(pitches.map(p=>[p,p+'.mp3']));
  const base=bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+name+'/';
@@ -34,6 +36,10 @@ export async function loadPreviewBank(ctx:AudioContext,inst:string,pizzicato=fal
  return result.filter((a):a is Anchor=>a!==null);
 }
 export function renderPracticePreview(ctx:AudioContext,event:PreviewEvent,at:number,inst:string,referenceHz:number,ordinary:Anchor[],pizzicato:Anchor[]){
+ if(inst.startsWith('Bandoneon')){
+  playBandoneonNote(ctx,inst,event,at,{referenceHz,hand:event.bandoneonStaff===2?'left':event.bandoneonStaff===1?'right':undefined});
+  return;
+ }
  const end=at+event.durationSeconds;
  const paths=event.gesture?[event.gesture.points,...(event.gesture.partner?[event.gesture.partner]:[])]:[[{at:0,pitch:event.pitch},{at:1,pitch:event.slideTo??event.pitch}]];
  const plucked=usesPizzicatoBank(inst,event.technique),id=inst.toLowerCase(),sustain=!plucked&&!id.includes('piano');
@@ -51,7 +57,7 @@ export function renderPracticePreview(ctx:AudioContext,event:PreviewEvent,at:num
    if(sustain&&anchor.buffer.duration>.18){sample.loop=true;sample.loopStart=anchor.buffer.duration*.25;sample.loopEnd=anchor.buffer.duration*.8;}
    source=sample;pitchParam=sample.playbackRate;frequency=p=>expectedFrequency(p,referenceHz)/expectedFrequency(anchor.pitch,440);
   }else{
-   const osc=ctx.createOscillator();osc.type=id.includes('violin')?'sawtooth':id.includes('bandoneon')?'square':'triangle';
+   const osc=ctx.createOscillator();osc.type=id.includes('violin')?'sawtooth':'triangle';
    source=osc;pitchParam=osc.frequency;frequency=p=>expectedFrequency(p,referenceHz);
   }
   pitchParam.setValueAtTime(frequency(points[0].pitch),at);

@@ -21,7 +21,7 @@ const states=['capturePlaying','captureRecording','captureLoopEnabled','rhythmCa
  'captureFrom','captureTo','captureLatency','captureMetronome','captureCountIn','captureCountingIn',
  'captureSpeed','captureTranspose','captureQuantize','captureDurationQuantize','captureTakeMode','captureRecordedPass',
  'instrumentCaptureEvents','instrumentCaptureBase','instrumentCaptureSession','instrumentCaptureRangeMatches',
- 'heldCaptureKeys','captureMonitorPitches','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
+ 'heldCaptureKeys','captureMonitorPitches','captureBandoneonVoices','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
  'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureSelectedString','captureEditedRhythms',
  'captureSession','captureSynth','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
  'captureBarNumbers','captureInputSource','captureMuteBacking'];
@@ -70,7 +70,9 @@ function harness(){
  const tone={Synth,PolySynth:Synth,getTransport:()=>transport,getContext:()=>({rawContext:{}}),now:()=>100,
   getDraw:()=>({schedule:callback=>callback()}),Frequency:pitch=>({toFrequency:()=>pitch})};
  const project=demoProject();project.bpm=120;project.beats=4;project.bars=project.bars.slice(0,4);
- const ctx={console,module:{exports:{}},ref,computed,project:ref(project),
+ const reeds=[];
+ const ctx={console,module:{exports:{}},ref,computed,project:ref(project),reeds,
+  renderBandoneon(inst,event,time,_staff,_destination,held){const reed={inst,event,time,held,released:false,release(){this.released=true;}};reeds.push(reed);return reed;},
   active:ref('notes'),noteInst:ref('Piano'),noteLoopFrom:ref(1),noteLoopTo:ref(1),
   plannedPhrasesByMeasure:ref({}),score:ref({Piano:[],'Violin I':[]}),INSTRUMENTS:['Piano','Violin I'],Tone:tone,
   startAudioFromGesture:async()=>tone,stopMicrophoneCapture(){},playExpressiveEvent(){},
@@ -103,6 +105,14 @@ function harness(){
 (async()=>{
  let count=0;
  async function check(name,run){await run();count++;console.log('PASS '+name);}
+ await check('Bandoneon keyboard monitoring owns a held reed voice until the last touch releases',async()=>{
+  const h=harness();h.ctx.noteInst.value='Bandoneon I';
+  h.down(1,38,0);await settle();h.down(2,38,0);await settle();
+  assert.equal(h.ctx.reeds.length,1);assert.equal(h.ctx.reeds[0].held,true);
+  assert.equal(h.ctx.reeds[0].event.pitch,38);
+  h.up(1,1);assert.equal(h.ctx.reeds[0].released,false);
+  h.up(2,2);assert.equal(h.ctx.reeds[0].released,true);
+ });
  await check('held keyboard notes use independent onset and duration grids',async()=>{
   const h=harness();h.state().captureQuantize.value='0.5';h.state().captureDurationQuantize.value='0.25';
   await h.api.startCaptureTransport(true);h.down(1,60,1.14);h.up(1,1.81);

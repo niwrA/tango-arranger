@@ -1,6 +1,7 @@
+import {bandoneonModelForPart,isBandoneonPitchPlayable} from './bandoneon';
 /** Auditable MusicXML ↔ Tango alignment and non-destructive preview/merge.
  * Harmonies inferred from OMR are suggestions, never authoritative facts. */
-import {chordAt,chordTones,instrumentRange,partStaffForNote,generate,mergeScores,parseChordSequence,parsePitch,projectInstruments,sectionLetter,transposeChord,
+import {chordAt,chordTones,writtenInstrumentRange,partStaffForNote,generate,mergeScores,parseChordSequence,parsePitch,projectInstruments,sectionLetter,transposeChord,
   type Bar,type Instrument,type Note,type Project,type Score} from './music';
 import {assembleEditionScore,snapshotActiveEditions} from './editions';
 import type {ParsedMusicXml,XmlPart,XmlMeasure} from './musicXmlImport';
@@ -378,7 +379,7 @@ export function undoReviewedMerge(project:Project):Project{
 }
 export type AccompanimentRhythm='four'|'two'|'syncopa'|'bass'|'section';
 export function accompanimentInstrument(inst:Instrument){return /^(Piano|Bandoneon)/i.test(inst);}
-const staffOf=(n:Note,p:Project,inst:Instrument)=>n.xmlStaff===1||n.xmlStaff===2?n.xmlStaff:partStaffForNote(n,inst,p.pianoSplitPitch??60);
+const staffOf=(n:Note,p:Project,inst:Instrument)=>n.xmlStaff===1||n.xmlStaff===2?n.xmlStaff:partStaffForNote(n,inst,p.pianoSplitPitch??60,0,bandoneonModelForPart(p,inst));
 export function missingAccompanimentMeasures(p:Project,inst:Instrument,from=0,to=p.bars.length-1){
  if(!accompanimentInstrument(inst))return [];
  const notes=assembleEditionScore(p)[inst]??[];
@@ -411,8 +412,8 @@ export function completeMissingAccompaniment(p:Project,inst:Instrument,rhythm:Ac
    if(upper.some(n=>n.start<start+len-1e-7&&n.start+n.duration>start+1e-7))continue;
    const chord=chordAt(bar.chord,p.beats,beat);
    if(!/^[A-Ga-g][#b]?/.test(chord))continue;
-   const [lo,hi]=instrumentRange(inst),floor=Math.max(lo,p.pianoSplitPitch??60),ceiling=Math.min(hi,floor+15);
-   const pitches=chordTones(chord).map(pc=>floor+((pc-floor%12+12)%12)).filter(n=>n<=ceiling);
+   const [lo,hi]=writtenInstrumentRange(inst,p),floor=Math.max(lo,p.pianoSplitPitch??60),ceiling=Math.min(hi,floor+15);
+   const pitches=chordTones(chord).map(pc=>floor+((pc-floor%12+12)%12)).filter(n=>n<=ceiling&&(!inst.startsWith('Bandoneon')||isBandoneonPitchPlayable(n+(p.transposeSemitones??0),bandoneonModelForPart(p,inst),'right')));
    if(pitches.length<2)continue;
    for(const pitch of pitches)added.push({pitch,start,duration:len,gate:.75,velocity:72,xmlStaff:1,source:'generated'});
    count++;

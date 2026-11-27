@@ -27,6 +27,15 @@ test('loop honors custom sounding gate, tempo and global transposition',()=>{
   const events=measureLoopEvents([{pitch:70,start:2,duration:2,gate:0.5,velocity:92}],0,4,60,3);
   equalEvents(events,[{pitch:73,onsetSeconds:2,durationSeconds:1,velocity:92}]);
 });
+test('bandoneon events preserve explicit staves and infer unambiguous hands from the layout',()=>{
+  const notes=[{pitch:38,start:0,duration:1},{pitch:75,start:1,duration:1,xmlStaff:2},{pitch:58,start:2,duration:1}];
+  const project={...music.blankProject({sections:1,measuresPerSection:1,beats:4}),pianoSplitPitch:60,bandoneonModels:{'Bandoneon I':'rheinische-142'}};
+  const events=measureLoopEvents(notes,0,4,120,0,[],'Bandoneon I',project);
+  assert.deepEqual(events.map(n=>n.bandoneonStaff),[2,2,2]);
+  const moved=measureLoopEvents([notes[2]],0,4,120,12,[],'Bandoneon I',project)[0];
+  assert.equal(moved.pitch,70);
+  assert.equal(moved.bandoneonStaff,1);
+});
 test('loop clips tails at measure boundary, preserving written note duration',()=>{
   const note={pitch:70,start:3.75,duration:2,gate:1};
   const events=measureLoopEvents([note],0,4,120);

@@ -1,10 +1,11 @@
+import {type BandoneonModelId} from './bandoneon';
 import {partStaffForNote,type Instrument,type Note} from './music';
 
 export type PracticeStaff='all'|'upper'|'lower';
 export type ChordTarget='highest'|'lowest';
 
 /** Keep whole attacks for display, but let the tuner assess one pitch per attack. */
-export function practiceTargets(notes:readonly Note[],instrument:Instrument,split:number,staff:PracticeStaff,chordTarget:ChordTarget){
+export function practiceTargets(notes:readonly Note[],instrument:Instrument,split:number,staff:PracticeStaff,chordTarget:ChordTarget,bandoneonModel?:BandoneonModelId){
  const ordered=notes.filter(note=>!note.xmlTieContinuation&&Number.isInteger(note.pitch)&&note.pitch>=0&&note.pitch<=127)
   .sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  const targets:Note[]=[];
@@ -17,7 +18,7 @@ export function practiceTargets(notes:readonly Note[],instrument:Instrument,spli
    const partner=note.gesture?.partner?.[0]?.pitch;
    return partner===undefined?[{note,pitch:note.pitch}]:[{note,pitch:note.pitch},{note,pitch:partner}];
   }).sort((a,b)=>a.pitch-b.pitch);
-  const candidates=staff==='all'?tones:tones.filter(({note})=>partStaffForNote(note,instrument,split)===(staff==='upper'?1:2));
+  const candidates=staff==='all'?tones:tones.filter(({note})=>partStaffForNote(note,instrument,split,0,bandoneonModel)===(staff==='upper'?1:2));
   const target=chordTarget==='highest'?candidates.at(-1):candidates[0];
   if(target){
    targets.push(target.note);
@@ -28,12 +29,12 @@ export function practiceTargets(notes:readonly Note[],instrument:Instrument,spli
  return {targets,chords,pitches};
 }
 
-export function bandoneonPracticeHands(notes:readonly Note[],instrument:Instrument,split:number,transpose:number){
+export function bandoneonPracticeHands(notes:readonly Note[],instrument:Instrument,split:number,transpose:number,bandoneonModel?:BandoneonModelId){
  const left=new Set<number>(),right=new Set<number>();
  let inferred=false;
  for(const note of notes){
-  if(note.xmlStaff!==1&&note.xmlStaff!==2)inferred=true;
-  const hand=partStaffForNote(note,instrument,split)===1?right:left;
+  if(!note.staffOverride&&note.xmlStaff!==1&&note.xmlStaff!==2)inferred=true;
+  const hand=partStaffForNote(note,instrument,split,0,bandoneonModel)===1?right:left;
   hand.add(note.pitch+transpose);
   const partner=note.gesture?.partner?.[0]?.pitch;
   if(partner!==undefined)hand.add(partner+transpose);
