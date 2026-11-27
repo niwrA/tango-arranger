@@ -57,6 +57,33 @@ async function run(){
   assert.match(app,/await adoptLocalSong\(fresh\)/);
   assert.match(app,/await adoptLocalSong\(imported\)/);
   console.log('PASS autosave, restore, new-song and imported-song flows are wired');
+  // Run the app startup function against the same fake IndexedDB as the store tests.
+  const startup=app.slice(app.indexOf('async function initializeLocalLibrary()'),app.indexOf('// Keep topical menus'));
+  const compiledStartup=require('typescript').transpile(startup,{target:require('typescript').ScriptTarget.ES2022});
+  const evaluateStartup=new Function('globals',`with(globals){${compiledStartup};return initializeLocalLibrary();}`);
+  const ref=value=>({value});
+  const globals={
+    listLocalSongs:lib.listLocalSongs,readLocalSong:lib.readLocalSong,lastOpenedSongId:lib.lastOpenedSongId,
+    rememberOpenedSongId:lib.rememberOpenedSongId,localStorage,localSongId:ref(''),localSongs:ref([]),
+    homeOpen:ref(true),libraryLoading:ref(true),libraryReady:ref(false),performanceMode:ref(false),
+    saveStatus:ref(''),message:ref(''),selectedBar:ref(0),performanceBeat:ref(0),noteInst:ref(''),
+    selectProjectInEditor:p=>{globals.loaded=p;},projectInstruments:()=>[],
+  };
+  await evaluateStartup(globals);
+  assert.equal(globals.localSongId.value,second);
+  assert.equal(globals.homeOpen.value,false);
+  assert.equal(globals.loaded.bars[0].chord,'D,D,D,G');
+  await lib.deleteLocalSong(second);
+  globals.localSongId.value='';
+  globals.libraryLoading.value=true;
+  await evaluateStartup(globals);
+  assert.equal((await lib.listLocalSongs()).length,0);
+  assert.equal(globals.homeOpen.value,true);
+  assert.equal(globals.libraryLoading.value,false);
+  assert.equal(globals.libraryReady.value,true);
+  assert.match(app,/else\{localSongId.value='';rememberOpenedSongId\(''\);showHome\(\);\}/);
+  assert.match(app,/if\(localSongId.value\)void flushAutosave\(\)/);
+  console.log('PASS startup restores saved songs, and empty Home has no implicit draft');
   assert.match(app,/async function auditionPitch/);
   assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
@@ -66,6 +93,6 @@ async function run(){
   assert.match(app,/if\(index>=0\)selectNoteEvent\(index\)/);
   assert.match(app,/v-model="auditionEnabled"/);
   console.log('PASS piano-roll click audition, event audition and sound toggle are wired');
-  console.log('6 local-library / audition checks passed');
+  console.log('7 local-library / audition checks passed');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});
