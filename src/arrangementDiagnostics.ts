@@ -4,8 +4,8 @@ import {effectiveRole,phraseMeasureMap} from './phrasePlan';
 import {orchestraStyle,orchestraPulses,styleForMeasure,phraseStyleKey,styleStrength,isOrchestraStyle} from './orchestraStyle';
 
 export type DiagnosticCategory='pitch'|'harmony'|'dynamics'|'balance'|'playability'|'style';
-export type Diagnostic={id:string;category:DiagnosticCategory;severity:'error'|'warning'|'suggestion';instrument:Instrument;measure:number;message:string;noteIndex?:number;patch?:Partial<Pick<Note,'velocity'|'gate'|'accent'|'articulation'>>};
-export type ReviewScope={from?:number;to?:number;instrument?:Instrument;includeStyle?:boolean};
+export type Diagnostic={id:string;category:DiagnosticCategory;severity:'error'|'warning'|'suggestion';instrument:Instrument;measure:number;message:string;noteIndex?:number;patch?:Partial<Pick<Note,'velocity'|'gate'|'accent'|'articulation'|'pitch'|'start'>>};
+export type ReviewScope={from?:number;to?:number;instrument?:Instrument;includeStyle?:boolean;includeStructural?:boolean;showDismissed?:boolean};
 const clamp=(n:number)=>Math.max(1,Math.min(127,Math.round(n)));
 const median=(values:number[])=>{const sorted=[...values].sort((a,b)=>a-b);return sorted.length?sorted[Math.floor(sorted.length/2)]:80;};
 /** Read-only analysis. Balance is a score proxy, not measured acoustic loudness. */
@@ -14,7 +14,10 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
  const from=Math.max(0,scope.from??0),to=Math.min(p.bars.length-1,scope.to??p.bars.length-1);
  const add=(instrument:Instrument,measure:number,category:DiagnosticCategory,severity:Diagnostic['severity'],message:string,noteIndex?:number,patch?:Diagnostic['patch'])=>{
   if(measure<from||measure>to||scope.instrument&&scope.instrument!==instrument)return;
-  issues.push({id:[instrument,measure,category,noteIndex??'measure',message].join(':'),instrument,measure,category,severity,message,noteIndex,patch});
+  const note=noteIndex===undefined?undefined:score[instrument]?.[noteIndex];
+  const id=JSON.stringify([instrument,measure,category,message,note?[note.editId??null,note.pitch,note.start,note.duration,note.velocity??80,note.gate??null,note.articulation??null]:null]);
+  if(!scope.showDismissed&&p.dismissedArrangementFindings?.includes(id))return;
+  issues.push({id,instrument,measure,category,severity,message,noteIndex,patch});
  };
  const soundingScore=adaptTransposedScore(score,p);
  const byMeasure=new Map<string,{n:Note;i:number}[]>();
@@ -53,8 +56,11 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
    for(const {n,i} of entries){
     const local=n.start-bar*p.beats,v=n.velocity??80;
     const chord=chordAt(measure.chord,p.beats,local);
-    if(chord.trim()&&n.duration>=1.5&&(role==='chords'||role==='bass')&&!chordTones(chord).includes(((n.pitch%12)+12)%12))
-     add(inst,bar,'harmony','suggestion','Sustained accompaniment note outside the current chord; review resolution',i);
+    if(chord.trim()&&n.duration>=1.5&&(role==='chords'||role==='bass')&&!chordTones(chord).includes(((n.pitch%12)+12)%12)){
+     const candidate=[n.pitch-1,n.pitch+1,n.pitch-2,n.pitch+2].find(pitch=>chordTones(chord).includes(((pitch%12)+12)%12)&&instrumentPitchPlayable(inst,pitch+(p.transposeSemitones??0),p)&&!entries.some(x=>x.i!==i&&x.n.pitch===pitch&&Math.abs(x.n.start-n.start)<1e-7));
+     const safe=scope.includeStructural&&candidate!==undefined&&!n.gesture&&!n.stringGlissando&&!n.pianoGlissando&&!n.slideTo&&!n.approachSlideFrom&&!n.xmlTieContinuation&&!n.pianoPedalBeats&&!['Piano','Bandoneon'].includes(instrumentFamily(inst));
+     add(inst,bar,'harmony','suggestion','Sustained accompaniment note outside the current chord; review resolution',i,safe?{pitch:candidate}:undefined);
+    }
     const previous=entries.filter(x=>x.n.start<n.start&&n.start-x.n.start<=1.5).sort((a,b)=>b.n.start-a.n.start)[0];
     const following=entries.filter(x=>x.n.start>n.start&&x.n.start-n.start<=1.5).sort((a,b)=>a.n.start-b.n.start)[0];
     if(entries.length>=4&&Math.abs(v-center)>=30&&previous&&following&&Math.abs((previous.n.velocity??80)-(following.n.velocity??80))<=15&&!n.accent&&!n.subito&&!n.swellTo&&!p.measureDynamics?.[inst+':'+bar])
@@ -63,7 +69,12 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
      const bass=role==='bass'||instrumentFamily(inst)==='Piano'&&n.pitch<(p.pianoSplitPitch??60);
      const slots=orchestraPulses(styleId,p.beats,bass?'bass':'chords');
      const slot=slots.find(s=>Math.abs(s.beat-local)<.126);
-     if(!slot)add(inst,bar,'style','suggestion','Attack differs from typical style pulse; review rhythm',i);
+     if(!slot){
+      const nearest=[...slots].sort((a,b)=>Math.abs(a.beat-local)-Math.abs(b.beat-local))[0];
+      const start=bar*p.beats+nearest.beat;
+      const safe=scope.includeStructural&&Math.abs(start-n.start)<=.5&&start+n.duration<=(bar+1)*p.beats+1e-7&&!n.xmlTieContinuation&&!n.rhythmSource&&!n.slideTo&&!n.approachSlideFrom&&!n.pianoPedalBeats&&entries.every(x=>x.i===i||x.n.start===n.start||x.n.start>=start+n.duration||x.n.start+x.n.duration<=start)&&entries.filter(x=>x.n.start===n.start).length===1;
+      add(inst,bar,'style','suggestion','Attack differs from typical style pulse; review rhythm',i,safe?{start}:undefined);
+     }
      else {
       const expected=slot.accent?style.accentVelocity:style.plainVelocity;
       const velocity=clamp(v+(expected-v)*strength),gate=(n.gate??.9)+(style.gate-(n.gate??.9))*strength;
@@ -88,7 +99,7 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
  return issues;
 }
 /** Apply only explicitly selected expression patches, in a single returned project.
- * No pitch, onset or written duration changes. Protected measures opt-in. */
+ * Structural patches are opt-in during scan; written duration stays unchanged. Protected measures opt-in. */
 export function refineArrangement(p:Project,score:Score,findings:readonly Diagnostic[],allowProtected=false):Project{
  let next=p,current=score;
  const groups=new Map<string,Diagnostic[]>();
@@ -106,7 +117,7 @@ export function refineArrangement(p:Project,score:Score,findings:readonly Diagno
   const notes=source.flatMap((n,i)=>{
    if(Math.floor((n.start+1e-7)/p.beats)!==measure)return [];
    const patch=patches.get(i);if(!patch){unchanged.add(n);return [n];}
-   return [{...n,...patch}];
+   const edited={...n,...patch};if(patch.start!==undefined)delete edited.rhythmSource;return [edited];
   });
   next=replaceInstrumentMeasure(next,current,instrument,measure,notes,unchanged);
   current=next.generatedScore!;
