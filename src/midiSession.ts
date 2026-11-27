@@ -1,11 +1,17 @@
-import {ref, shallowRef, computed} from 'vue';
+import {ref, shallowRef, computed, watch} from 'vue';
 export type MidiEvent={kind:'on'|'off'|'pedal'|'reset';pitch:number;velocity:number;channel:number;time:number;port:string};
 export const midiSupported=typeof navigator!=='undefined'&&typeof navigator.requestMIDIAccess==='function';
 export const midiAccess=shallowRef<MIDIAccess>();
 export const midiInputs=shallowRef<MIDIInput[]>([]);
 export const midiOutputs=shallowRef<MIDIOutput[]>([]);
+function preference(key:string){try{return localStorage.getItem('tango-midi-'+key)||'';}catch{return '';}}
+function savePreference(key:string,value:string){try{localStorage.setItem('tango-midi-'+key,value);}catch{/* storage unavailable */}}
+let preferredInput=preference('input'),preferredOutput=preference('output');
 export const midiInputId=ref('');
 export const midiOutputId=ref('');
+export const midiChannel=ref(Math.max(0,Math.min(15,Number(preference('channel'))||0)));
+watch(midiChannel,value=>{panicMidi();savePreference('channel',String(value));});
+export function selectMidiOutput(id:string){panicMidi();midiOutputId.value=id;preferredOutput=id;savePreference('output',id);}
 export const midiOutputEnabled=ref(false);
 export const midiStatus=ref(midiSupported?'Not enabled':'Web MIDI unavailable');
 export const midiBusy=ref(false);
@@ -35,11 +41,11 @@ function refresh(){
  for(const p of midiInputs.value)if(!ins.includes(p))p.onmidimessage=null;
  for(const p of ins)p.onmidimessage=receive;
  midiInputs.value=ins;midiOutputs.value=outs;
- if(!ins.some(p=>p.id===midiInputId.value))selectMidiInput(ins[0]?.id||'');
- if(!outs.some(p=>p.id===midiOutputId.value)){midiOutputEnabled.value=false;midiOutputId.value=outs[0]?.id||'';}
+ if(!ins.some(p=>p.id===midiInputId.value)){reset();midiInputId.value=ins.find(p=>p.id===preferredInput)?.id||ins[0]?.id||'';}
+ if(!outs.some(p=>p.id===midiOutputId.value)){midiOutputEnabled.value=false;midiOutputId.value=outs.find(p=>p.id===preferredOutput)?.id||outs[0]?.id||'';}
  midiStatus.value=ins.length||outs.length?'MIDI enabled':'MIDI enabled; no devices detected';
 }
-export function selectMidiInput(id:string){if(id!==midiInputId.value){reset();midiInputId.value=id;}}
+export function selectMidiInput(id:string){if(id!==midiInputId.value){reset();midiInputId.value=id;preferredInput=id;savePreference('input',id);}}
 export async function enableMidi(){
  if(!midiSupported||midiBusy.value||midiAccess.value)return;
  midiBusy.value=true;
@@ -50,10 +56,10 @@ export async function enableMidi(){
 export function sendMidiNote(pitch:number,velocity:number,duration:number,delay=0){
  const p=midiOutput.value;if(!p||p.state!=='connected')return false;
  const clamp=(n:number)=>Math.max(0,Math.min(127,Math.round(n)));
- const on=new Uint8Array([144,clamp(pitch),Math.max(1,clamp(velocity))]),off=new Uint8Array([128,clamp(pitch),0]);
+ const on=new Uint8Array([144|midiChannel.value,clamp(pitch),Math.max(1,clamp(velocity))]),off=new Uint8Array([128|midiChannel.value,clamp(pitch),0]);
  try{const now=performance.now()+Math.max(0,delay)*1000;p.send(on,now);p.send(off,now+Math.max(25,duration*1000));midiSent.value+=2;log('OUT queued',p.name||p.id,on);log('OUT queued',p.name||p.id,off);return true;}
  catch(e){midiStatus.value='MIDI send failed: '+String(e);return false;}
 }
 export function panicMidi(){
- for(const p of midiOutputs.value){if(p.connection!=='open')continue;try{p.clear();p.send([176,64,0]);p.send([176,123,0]);p.send([176,120,0]);}catch{/* disconnected */}}
+ for(const p of midiOutputs.value){if(p.connection!=='open')continue;try{p.clear();for(let ch=0;ch<16;ch++){p.send([176|ch,64,0]);p.send([176|ch,123,0]);p.send([176|ch,120,0]);}}catch{/* disconnected */}}
 }
