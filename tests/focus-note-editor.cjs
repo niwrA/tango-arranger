@@ -49,3 +49,11 @@ test('range summary is opt-in and collapses only on phones',()=>{
  assert.match(range,/range-collapsible:not\(\.range-expanded\)>label/);
 });
 console.log(`${checks} focused editor checks passed`);
+
+test('note loop uses shared instrument rendering rather than generic synth',()=>{
+ const loop=vue.slice(vue.indexOf('async function toggleNoteLoop(){'),vue.indexOf('\nwatch(active,',vue.indexOf('async function toggleNoteLoop(){')));
+ assert.match(loop,/await prepareSamples\(\[inst\]\)/);
+ assert.match(loop,/renderArrangementNote\(inst,note,event,/);
+ assert.match(loop,/midiPianoAvailable\(inst\)/);
+ assert.doesNotMatch(loop,/loopSynth|new Tone\.PolySynth/);
+});
