@@ -6037,7 +6037,8 @@ type Activity='arrange'|'practice'|'perform';
 type ActivityContext={arrange?:{tab:WorkspaceTab;bar:number;instrument:Instrument;range:[number,number]};practice?:{instrument:Instrument;range?:[number,number];measure?:number;display:PracticeDisplay};perform?:{bar:number;view:'ensemble'|'notes'}};
 const activityContexts:Record<string,ActivityContext>=(()=>{try{const value=JSON.parse(localStorage.getItem('tango-activity-context-v1')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}})();
 const currentActivity=computed<Activity>(()=>instrumentLearnMode.value?'practice':performanceMode.value?'perform':'arrange');
-const {keepPracticeAwake,keepPerformanceAwake,keepEditingAwake,wakeSupported,canInstall,installApp}=useDisplayFeatures(computed(()=>homeOpen.value||libraryLoading.value||!localSongId.value?null:currentActivity.value));
+const openingPractice=ref(false);
+const {keepPracticeAwake,keepPerformanceAwake,keepEditingAwake,wakeSupported,canInstall,installApp}=useDisplayFeatures(computed(()=>homeOpen.value||openingPractice.value||libraryLoading.value||!localSongId.value?null:currentActivity.value));
 
 function activityContext(){const id=localSongId.value;if(!activityContexts[id]||typeof activityContexts[id]!=='object')activityContexts[id]={};return activityContexts[id];}
 function saveActivityContexts(){try{localStorage.setItem('tango-activity-context-v1',JSON.stringify(activityContexts));}catch{/* UI preferences are optional. */}}
@@ -6239,24 +6240,34 @@ async function homeChooseSong(id:string,activity:Activity){
  }catch(error){homeError.value=String(error);homeOpen.value=true;}
  finally{homeBusy.value=false;}
 }
+function closeHomeDisplaySettings(event:KeyboardEvent){
+ const details=event.currentTarget as HTMLDetailsElement;
+ if(!details.open)return;
+ details.open=false;
+ details.querySelector('summary')?.focus();
+}
 async function homePractise(inst:Instrument){
  if(!activeRoster.value.includes(inst))return;
- const saved=activityContext().practice;
- closeDirectPracticePicker(false);homePracticePick.value=false;homeOpen.value=false;
- performanceView.value='ensemble';performanceMode.value=true;
- focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=clampActivityBar(selectedBar.value)+1;practiceDisplay.value='score-diagram';
- if(saved?.instrument===inst){
-  if(Array.isArray(saved.range))resumedPracticeRange.value=clampActivityRange(saved.range);
-  if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;
-  if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;
- }
- performanceExpandedInstrument.value=inst;performanceScoreView.value='off';
- // The focus panel and its Teleport targets must be in the document before Learn mounts.
- await nextTick();
- if(performanceExpandedInstrument.value!==inst||!performanceMode.value||homeOpen.value)return;
- enterInstrumentLearn();
- await nextTick();
- document.querySelector<HTMLElement>('.instrument-focus-learn')?.focus();
+ // The focused panel briefly uses the Performance shell before Learn mounts.
+ openingPractice.value=true;
+ try{
+  const saved=activityContext().practice;
+  closeDirectPracticePicker(false);homePracticePick.value=false;homeOpen.value=false;
+  performanceView.value='ensemble';performanceMode.value=true;
+  focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=clampActivityBar(selectedBar.value)+1;practiceDisplay.value='score-diagram';
+  if(saved?.instrument===inst){
+   if(Array.isArray(saved.range))resumedPracticeRange.value=clampActivityRange(saved.range);
+   if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;
+   if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;
+  }
+  performanceExpandedInstrument.value=inst;performanceScoreView.value='off';
+  // The focus panel and its Teleport targets must be in the document before Learn mounts.
+  await nextTick();
+  if(performanceExpandedInstrument.value!==inst||!performanceMode.value||homeOpen.value)return;
+  enterInstrumentLearn();
+  await nextTick();
+  document.querySelector<HTMLElement>('.instrument-focus-learn')?.focus();
+ }finally{openingPractice.value=false;}
 }
 </script>
 <template>
@@ -6436,17 +6447,17 @@ async function homePractise(inst:Instrument){
  </Teleport>
  <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
  <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
-  <div class="home-intro"><div><h1 id="home-title" tabindex="-1">Your tango workspace</h1><p>Arrange, practise and perform.</p></div><div class="home-intro-actions"><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button><details class="home-display-settings"><summary aria-label="Display preferences" title="Display preferences"><AppIcon name="settings"/><span>Settings</span></summary><div class="home-settings-popover"><strong>Display preferences</strong><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></div></details></div></div>
+  <div class="home-intro"><div><h1 id="home-title" tabindex="-1">Your tango workspace</h1><p>Arrange, practise and perform.</p></div><div class="home-intro-actions"><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button><details class="home-display-settings" @keydown.esc.stop="closeHomeDisplaySettings"><summary aria-label="Display preferences" title="Display preferences"><AppIcon name="settings"/><span>Settings</span></summary><div class="home-settings-popover"><strong>Display preferences</strong><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></div></details></div></div>
   
   <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
   <p v-if="homeError" role="alert">{{homeError}}</p>
   <div v-if="homePracticePick" class="editor home-practice-picker"><div class="practice-picker-heading"><button type="button" class="secondary" @click="homePracticePick=false"><AppIcon name="arrow-left"/> Back</button><div><h2>Choose your part</h2><p>{{project.title||'Untitled tango'}} · Practice</p></div></div><div class="home-actions practice-picker-grid" role="group" aria-label="Choose instrument"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary practice-instrument-card" :disabled="homeBusy" @click="choosePracticeInstrument(inst)"><InstrumentBadge :instrument="inst" :roster="activeRoster" :label="rosterDisplayName(inst)"/><strong>{{rosterDisplayName(inst)}}</strong><AppIcon name="play"/></button></div></div>
   <template v-else>
-   <section v-if="localSongId" class="home-current-song" aria-label="Current song"><span class="home-current-icon"><AppIcon name="music"/></span><div><small>Current song</small><strong>{{project.title.trim()||'Untitled tango'}}</strong></div></section>
+   <section v-if="localSongId" class="home-current-song" aria-label="Current song"><span class="home-current-icon"><AppIcon name="music"/></span><div><small>Current song</small><strong id="home-current-song-name">{{project.title.trim()||'Untitled tango'}}</strong></div></section>
    <div class="home-activities">
-    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="layers"/></span><div><h2>Arrange</h2><p>Create and edit arrangements.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'arrange')">Continue arrangement <AppIcon name="play"/></button><button :class="localSongId?'secondary':'primary'" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button></div></article>
-    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="graduation-cap"/></span><div><h2>Practice</h2><p>Rehearse your own part.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'practice')">Choose your part <AppIcon name="play"/></button><a class="home-other-song" href="#home-songs">Choose another song</a></div></article>
-    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="presentation"/></span><div><h2>Perform</h2><p>Play with the stage display.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'perform')">Open stage <AppIcon name="play"/></button><a class="home-other-song" href="#home-songs">Choose another song</a></div></article>
+    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="layers"/></span><div><h2>Arrange</h2><p>Create and edit arrangements.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'arrange')">Continue arrangement <AppIcon name="play"/></button><button :class="localSongId?'secondary':'primary'" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button></div></article>
+    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="graduation-cap"/></span><div><h2>Practice</h2><p>Rehearse your own part.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'practice')">Choose your part <AppIcon name="play"/></button><a class="home-other-song" href="#home-songs">Choose another song</a></div></article>
+    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="presentation"/></span><div><h2>Perform</h2><p>Play with the stage display.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'perform')">Open stage <AppIcon name="play"/></button><a class="home-other-song" href="#home-songs">Choose another song</a></div></article>
    </div>
    <section id="home-songs" class="editor" aria-labelledby="home-songs-title"><h2 id="home-songs-title">Your songs</h2><p v-if="!localSongs.length">No saved songs yet. Create one or explore an example below.</p><div v-for="song in localSongs" :key="song.id" class="home-song-row"><div><strong>{{song.title||'Untitled tango'}}</strong><small>{{song.measures}} measures</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
    <section class="editor"><h2>Explore example songs</h2><p>Open an independent editable copy. The built-in original stays unchanged.</p><div v-for="song in homeExamples" :key="song.id" class="home-song-row"><div><strong>{{song.title}}</strong><small>{{song.description}}</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
