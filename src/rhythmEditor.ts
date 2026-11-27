@@ -1,3 +1,4 @@
+import {orchestraPulses} from './orchestraStyle';
 import {INSTRUMENTS,generate,mergeScores,replaceInstrumentMeasure,type Instrument,type Note,type Project,type Score} from './music';
 
 /** User-selectable tango rhythm templates, not literal transcriptions of historic orchestras.
@@ -38,10 +39,7 @@ export function rhythmSlots(preset:RhythmPreset,beats:number,inst:Instrument='Pi
     case 'profile_darienzo':case 'profile_disarli':case 'profile_troilo':case 'profile_pugliese':
     case 'profile_fresedo':case 'profile_canaro':case 'profile_traditional': {
       const style=preset==='style'?profile:preset.slice('profile_'.length);
-      if(style==='disarli'||style==='fresedo'){units=bass?[0,4]:[2,6];accents=style==='fresedo'?[0,2]:[0,4];}
-      else if(style==='troilo'){units=[0,3,4,7];accents=[3,7];}
-      else{units=[0,2,4,6];accents=style==='darienzo'?[0,2,4,6]:style==='pugliese'?[0,6]:[0,4];}
-      break;
+      return orchestraPulses(style,beats,bass?'bass':'chords');
     }
     default: units=[0,2,4,6];accents=[0,4];
   }
