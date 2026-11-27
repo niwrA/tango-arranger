@@ -8,6 +8,7 @@ import {projectEditPreview,type PreviewOriginal} from './editPreview';
 import {draftAuditionEvents} from './editAudition';
 import {normalizeBrushStroke,type BrushPoint,type BrushStroke} from './brushGesture';
 import {instrumentBrushes,type BrushKind,type MusicalBrush} from './musicalBrush';
+import {verifyArrangementReshape} from './arrangementEditSafety';
 import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -190,7 +191,7 @@ function selectProjectInEditor(p:Project){
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   noteLoopFrom.value=1;noteLoopTo.value=firstNoteSectionEnd(p.bars);
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
-  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadLyricsSource.value='';leadLyricsOpen.value=false;leadLyricsVerse.value=1;leadDisplayMode.value='sheet';
+  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadVerseDrafts.value={};leadLyricsVerse.value=1;if(leadLyricsPanel.value)leadLyricsPanel.value.open=false;leadDisplayMode.value='sheet';
 }
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
@@ -3255,7 +3256,7 @@ function deleteLeadSection(i:number){
     selectedBar.value=target;overviewFocus.value=target;chosenSection.value=next.bars[target].section;
     overviewStart.value=target+1;overviewEnd.value=Math.min(next.bars.length,target+8);
     copySectionMode.value=false;leadMeasureEditorOpen.value=false;mapRangeAnchor.value=null;
-    leadLyricsSource.value='';
+    leadVerseDrafts.value={};
     message.value=`Deleted section ${label}; later sections and their score events were shifted. Use Undo to reverse. Load from song to rebuild the Lyrics & Chords workspace.`;
   }catch(error){message.value='Section deletion failed: '+String(error);}
 }
@@ -3274,14 +3275,16 @@ function editLeadSectionStart(index:number,newStart:number){
 }
 const leadDisplayMode=ref<'edit'|'sheet'>('sheet');
 const leadPrintableSource=computed(()=>{
- const stored=project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source?.trim();
- if(stored)return stored;
- if(leadLyricsSource.value.trim())return leadLyricsSource.value.trim();
+ const source=leadLyricsSource.value.trim();
+ if(source)return source;
  const voice=leadLyricsExisting.value;
  return voice?leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value):'';
 });
 const leadPrintableText=computed(()=>readableLeadSheet(leadPrintableSource.value));
-function showLeadLyricsEditor(){leadLyricsOpen.value=true;void nextTick(()=>{const panel=document.querySelector<HTMLDetailsElement>('.lead-lyrics-workspace');if(panel){panel.open=true;panel.querySelector('summary')?.focus({preventScroll:true});}});}
+function showLeadLyricsEditor(){
+ const panel=leadLyricsPanel.value;
+ if(panel){panel.open=true;panel.querySelector('summary')?.focus({preventScroll:true});}
+}
 function exportReadableLeadSheet(){
  if(!leadPrintableText.value.trim()){message.value='No leadsheet text to export.';return;}
  const filename=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();
@@ -3680,7 +3683,7 @@ function startInstrumentMeasureHold(inst:Instrument,i:number){
 }
 function selectOverviewMapCell(inst:Instrument,i:number,event:Pick<MouseEvent,'shiftKey'>){
   if(suppressMeasureSettingsClick){suppressMeasureSettingsClick=false;return;}
-  if(!event.shiftKey)arrangementExtraParts.value=[];
+  clearExtraArrangementParts(event.shiftKey);
   const selection=selectMapMeasure(mapRangeAnchor.value,i,project.value.bars.length,event.shiftKey);
   mapRangeAnchor.value=selection.anchor;
   if(!event.shiftKey)focusOverview(inst,i);
@@ -3730,7 +3733,7 @@ function returnToMap(){
   if(returnFromScoreEdit())return;
   noteFocusMode.value=false;noteFocusMore.value=false;
   const inst=noteInst.value,i=selectedBar.value;
-  focusOverview(inst,i);active.value='arrange';
+  arrangementView.value='map';focusOverview(inst,i);active.value='arrange';
   void nextTick(()=>document.querySelector<HTMLButtonElement>(`.song-cell[data-map-measure="${i}"][data-map-instrument="${inst}"]`)?.focus());
 }
 /** Shortcuts work when the editor or its note/attack buttons have focus.
@@ -4307,7 +4310,7 @@ async function toggleNoteLoop(){
     transport.start();
   }catch(error){message.value=`Measure loop unavailable: ${String(error)}. Check browser audio permissions.`;stopPlayback();}
 }
-watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&rhythmLoopPlaying.value)stopPlayback();if(capturePlaying.value||microphoneStarting.value||microphoneListening.value)stopPlayback();else stopMicrophoneCapture();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
+watch(active,tab=>{if(tab!=='notes'){noteFocusMode.value=false;noteFocusMore.value=false;}if(tab!=='notes'&&noteLoopPlaying.value)stopNoteLoop();if(tab!=='rhythm'&&(rhythmLoopPlaying.value||rhythmAuditionPlaying.value!==null))stopPlayback();if(capturePlaying.value||microphoneStarting.value||microphoneListening.value)stopPlayback();else stopMicrophoneCapture();if(tab==='rhythm')void nextTick(()=>rhythmEditorRegion.value?.focus({preventScroll:true}));});
 watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return;if(capturePlaying.value)Tone.getTransport().bpm.value=bpm*captureSpeed.value;else if(playing.value||noteLoopPlaying.value||rhythmLoopPlaying.value)Tone.getTransport().bpm.value=playing.value&&!beforeArrangementStart()?performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value:effectivePlaybackBpm.value;});
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
@@ -5578,10 +5581,19 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
 /** A persisted editable lyrics source is shared by the lead sheet and the Voice score.
  * Chord anchors and original line breaks remain in the source for export and karaoke.
  */
-const leadLyricsOpen=ref(false);
-const leadLyricsSource=ref('');
-const leadLyricsUseMelody=ref(true);
+const leadLyricsPanel=ref<HTMLDetailsElement|null>(null);
+const leadVerseDrafts=ref<Partial<Record<1|2,{source?:string;useExistingMelody?:boolean}>>>({});
 const leadLyricsVerse=ref<1|2>(1);
+const currentLeadDraft=computed(()=>leadVerseDrafts.value[leadLyricsVerse.value]);
+const savedLeadVerse=computed(()=>project.value.leadLyrics?.[String(leadLyricsVerse.value)]);
+const leadLyricsSource=computed({
+ get:()=>currentLeadDraft.value?.source??savedLeadVerse.value?.source??'',
+ set:(source:string)=>{leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,source};}
+});
+const leadLyricsUseMelody=computed({
+ get:():boolean=>currentLeadDraft.value?.useExistingMelody??savedLeadVerse.value?.useExistingMelody??Boolean(leadLyricsMatches.value.length),
+ set:(useExistingMelody:boolean)=>{leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,useExistingMelody};}
+});
 const leadLyricsPlan=computed(()=>parseLeadLyrics(leadLyricsSource.value,project.value.beats));
 const leadLyricsExisting=computed(()=>projectInstruments(project.value).find(i=>i.startsWith('Voice')));
 const leadLyricsMatches=computed(()=>{
@@ -5609,12 +5621,6 @@ const leadLyricsValidation=computed(()=>{
  catch(error){return String(error);}
  return '';
 });
-function openLeadLyrics(){
-  const saved=project.value.leadLyrics?.[String(leadLyricsVerse.value)];
-  leadLyricsSource.value=saved?.source??leadLyricsSource.value;
-  leadLyricsUseMelody.value=saved?.useExistingMelody??Boolean(leadLyricsMatches.value.length);
-  // The native <details> element owns its open state; this flag tracks visibility.
-}
 function loadLeadLyricsFromSong(){
   const voice=leadLyricsExisting.value;
   if(!voice){message.value='This song has no Voice part. Add Voice before reading back the vocal lyrics.';return;}
@@ -5625,12 +5631,6 @@ function loadLeadLyricsFromSong(){
     message.value=`Loaded readable lyrics and chords for verse ${leadLyricsVerse.value}. Existing Voice notes supply precise pitches and timing when you apply.`;
   }catch(error){message.value='Cannot load lyrics from song: '+String(error);}
 }
-function onLeadLyricsToggle(event:Event){
-  const opened=(event.currentTarget as HTMLDetailsElement).open;
-  leadLyricsOpen.value=opened;
-  if(opened)openLeadLyrics();
-}
-watch(leadLyricsVerse,()=>{leadLyricsSource.value=project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source??'';if(leadLyricsOpen.value)openLeadLyrics();});
 function applyLeadLyrics(){
   const plan=leadLyricsPlan.value,voice=leadLyricsExisting.value;
   if(!voice){message.value='Add a Voice instrument before applying song lyrics.';return;}
@@ -5683,6 +5683,7 @@ function applyLeadLyrics(){
   });
   project.value={...next,bars,leadLyrics:{...(next.leadLyrics??{}),[String(leadLyricsVerse.value)]:{
     source:leadLyricsSource.value,useExistingMelody:leadLyricsUseMelody.value}}};
+  delete leadVerseDrafts.value[leadLyricsVerse.value];
   const snapped=chords.filter(c=>c.snapped).length;
   message.value=`Aligned ${plan.notes.length} syllables and ${chords.length} chords; retained ${plan.lines.length} original lyric lines.${snapped?' '+snapped+' chord(s) rounded to the nearest quarter-note beat.':''}`;
 }
@@ -6125,6 +6126,11 @@ async function switchActivity(activity:Activity,event?:MouseEvent){
 const arrangementView=ref<'map'|'score'|'dynamics'|'rhythm'>('map');
 const arrangementOperation=ref<'select'|'role'|'dynamics'|'rhythm'|'articulation'|'pitch'|'create'|'tempo'>('select');
 const arrangementExtraParts=ref<Instrument[]>([]);
+function clearExtraArrangementParts(extend:boolean){if(!extend)arrangementExtraParts.value=[];}
+watch(activeRoster,roster=>{
+ if(!roster.includes(overviewInstrument.value))overviewInstrument.value=roster[0];
+ arrangementExtraParts.value=arrangementExtraParts.value.filter(inst=>roster.includes(inst));
+});
 const arrangementParts=computed(()=>[...new Set([overviewInstrument.value,...arrangementExtraParts.value])].filter(inst=>activeRoster.value.includes(inst)));
 const arrangementBounds=computed(()=>orchestrationMeasureRange(project.value.bars.length,overviewStart.value,overviewEnd.value));
 const arrangementDraft=shallowRef<{base:Project;project:Project;description:string;warnings:string[]}|null>(null);
@@ -6152,12 +6158,17 @@ function stageArrangementEdit(value:string){
  if(category==='select'||category==='rhythm'||category==='tempo'||!range||!arrangementParts.value.length)return;
  try{
   let next=project.value,working=sourceScore.value;const warnings:string[]=[];let count=0;
+  if(category==='create'&&value==='replace'){
+   verifyArrangementReshape(next,working,arrangementParts.value,range,'replace');
+   warnings.push('Apply will replace the existing generated notes in the selected measures.');
+  }
   for(const inst of arrangementParts.value){
    if(category!=='create'&&category!=='role'&&!resolveEditSelection(next,working[inst]??[],{kind:'measures',from:range[0],to:range[1]}).notes.length){warnings.push(inst+': no selected notes');continue;}
    const result=executeMusicalEdit({project:next,score:working,instrument:inst,selection:{kind:'measures',from:range[0],to:range[1]}},category,value);
    next=result.project;working=result.score;count+=result.count;warnings.push(...result.warnings.map(w=>inst+': '+w));
   }
   if(next===project.value)throw Error('No editable material in this selection');
+  if(category==='role')warnings.unshift('Changes role assignments only; notes are unchanged until generated or replaced.');
   arrangementDraft.value={base:project.value,project:next,description:category+' · '+value+' · '+count+' notes · '+arrangementParts.value.length+' selected parts',warnings};
  }catch(error){message.value='Arrangement edit rejected: '+String(error);}
 }
@@ -6165,6 +6176,7 @@ function stageArrangementRhythm(){
  if(arrangementDraft.value)return;
  const range=arrangementBounds.value;if(!range||!arrangementParts.value.length)return;
  try{const slots=validateRhythmPattern(rhythmPattern.value,project.value.beats,rhythmGridStep);
+  if(rhythmMode.value==='rhythm')verifyArrangementReshape(project.value,sourceScore.value,arrangementParts.value,range,'rhythm');
   const result=applyRhythmPattern(project.value,sourceScore.value,{instruments:arrangementParts.value,measures:Array.from({length:range[1]-range[0]+1},(_,i)=>range[0]+i),slots,mode:rhythmMode.value,overwriteProtected:false});
   if(!result.updated)throw Error('No unprotected sounding measures in the selection');
   const warnings=[result.skippedProtected+' protected and '+result.skippedEmpty+' silent instrument-measures skipped'];
@@ -6177,10 +6189,15 @@ function cancelArrangementDraft(){arrangementDraft.value=null;}
 function openArrangementRhythm(){const range=arrangementBounds.value;if(!range||!arrangementParts.value.length)return;cancelArrangementDraft();stopPlayback();rhythmScope.value='range';rhythmStart.value=range[0]+1;rhythmEnd.value=range[1]+1;rhythmTargets.value=[...arrangementParts.value];rhythmOverwrite.value=false;rhythmFeedback.value='Design or record a rhythm, then return to Arrangement to preview it.';active.value='rhythm';}
 function returnArrangementRhythm(){stopPlayback();closeRhythmMenu();active.value='arrange';arrangementOperation.value='rhythm';}
 watch([overviewInstrument,overviewStart,overviewEnd,arrangementExtraParts,arrangementOperation],()=>{arrangementDraft.value=null;});
-watch(arrangementView,()=>{arrangementMeasurePage.value=Math.floor(Math.max(0,overviewStart.value-1)/16);});
+watch(arrangementView,view=>{
+ if(view!=='map'&&measureSettingsOpen.value)closeSelectedMeasureSettings();
+ arrangementMeasurePage.value=Math.min(arrangementPageCount.value-1,Math.floor(Math.max(0,overviewStart.value-1)/16));
+});
+watch(arrangementPageCount,count=>{arrangementMeasurePage.value=Math.min(arrangementMeasurePage.value,count-1);});
 watch(project,()=>{arrangementDraft.value=null;},{deep:true,flush:'sync'});
 watch(localSongId,()=>{arrangementExtraParts.value=[];arrangementDraft.value=null;arrangementMeasurePage.value=0;});
 watch(active,tab=>{if(tab!=='arrange')arrangementDraft.value=null;});
+watch([homeOpen,performanceMode],([home,perform])=>{if(home||perform)cancelArrangementDraft();});
 const homeExamples=[{id:'__example_pequena_2__',title:'Pequeña 2',description:'Final variation'},{id:'__example_tigre_viejo__',title:'Tigre Viejo',description:'Bowed expression'},{id:'__example_hasta_siempre__',title:'Hasta Siempre Amor',description:'75 measures · 7 parts'},{id:'__example_la_melodia__',title:'La Melodia de Nuestros Adios',description:'Vocal C/D'}];
 function showHome(){
  if(homeBusy.value)return;
@@ -6935,7 +6952,7 @@ async function homePractise(inst:Instrument){
   <div v-else class="lead-instrumental-fallback"><p>No lyrics for this verse. Chord progression:</p><div v-for="span in leadEditorSpans" :key="span.start"><strong>{{span.label}}</strong><div class="lead-instrumental-chords"><button v-for="offset in span.measures" :key="offset" type="button" @click="leadDisplayMode='edit';selectLeadMeasure(span.start+offset-1)"><small>{{measureLabel(span.start+offset-1)}}</small><strong>{{project.bars[span.start+offset-1].chord||'—'}}</strong></button></div></div></div>
 </section>
 <div v-if="leadDisplayMode==='edit'&&copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
-<details class="lead-lyrics-workspace" :open="leadLyricsOpen" @toggle="onLeadLyricsToggle">
+<details ref="leadLyricsPanel" class="lead-lyrics-workspace">
   <summary>Lyrics &amp; chords · editable song source</summary>
   <p class="hint">Paste ordinary song lyrics with chords in square brackets, such as [D]Donde el río se queda. Line breaks are preserved but do not end a measure. The editor aligns words to existing Voice notes automatically; add | only to clarify note-group boundaries and || only to force a measure boundary. Hyphens split sung syllables. Existing melody pitches and timing are preserved when selected; otherwise C4 notes are editable placeholders.</p>
   <div class="lead-lyrics-toolbar">
@@ -7054,7 +7071,7 @@ async function homePractise(inst:Instrument){
   <div class="expressive-actions"><button type="submit" class="primary">Save marking</button><button type="button" @click="expressiveMark=null">Cancel</button></div>
  </form>
 </details>
-<template v-if="arrangementView==='score'"><div class="arrangement-score-controls"><button type="button" class="secondary" :aria-pressed="arrangementScoreSelectionOnly" @click="arrangementScoreSelectionOnly=!arrangementScoreSelectionOnly">{{arrangementScoreSelectionOnly?'Show entire score':'Show selected range'}}</button><small>Click a staff measure; Shift+click extends range.</small></div><ArrangementScore :project="arrangementProject" :score="arrangementScore" :from="arrangementScoreSelectionOnly?overviewStart:1" :to="arrangementScoreSelectionOnly?overviewEnd:project.bars.length" :selected-from="overviewStart" :selected-to="overviewEnd" :selected-parts="arrangementParts" @select="arrangementSelectCell"/></template>
+<template v-if="arrangementView==='score'"><div class="arrangement-score-controls"><button type="button" class="secondary" :aria-pressed="arrangementScoreSelectionOnly" @click="arrangementScoreSelectionOnly=!arrangementScoreSelectionOnly">{{arrangementScoreSelectionOnly?'Show entire score':'Show selected range'}}</button><small>Click a staff measure or use the selection controls. Shift+click extends the range.</small></div><ArrangementScore :project="arrangementProject" :score="arrangementScore" :from="arrangementScoreSelectionOnly?overviewStart:1" :to="arrangementScoreSelectionOnly?overviewEnd:project.bars.length" :selected-from="overviewStart" :selected-to="overviewEnd" :selected-parts="arrangementParts" @select="arrangementSelectCell"/></template>
 <div v-if="arrangementView==='dynamics'||arrangementView==='rhythm'" class="arrangement-timeline">
  <div class="arrangement-timeline-caption"><small>{{arrangementView==='dynamics'?'Mean written note velocity (not playback intensity)':'Written attacks within each measure'}} · song overview</small><button type="button" class="secondary" :disabled="arrangementMeasurePage===0" @click="arrangementMeasurePage--">‹</button><small>{{arrangementMeasurePage+1}} / {{arrangementPageCount}}</small><button type="button" class="secondary" :disabled="arrangementMeasurePage+1>=arrangementPageCount" @click="arrangementMeasurePage++">›</button></div>
  <div class="arrangement-timeline-scroll"><table><thead><tr><th>Part</th><th v-for="bar in arrangementMeasures" :key="bar">M{{bar+1}}</th></tr></thead><tbody><tr v-for="inst in activeRoster" :key="inst"><th>{{rosterDisplayName(inst)}}</th><td v-for="bar in arrangementMeasures" :key="bar"><button type="button" :class="{'arrangement-target':arrangementParts.includes(inst)&&bar+1>=overviewStart&&bar+1<=overviewEnd}" :aria-label="rosterDisplayName(inst)+' measure '+(bar+1)" @click="arrangementSelectCell(inst,bar,$event.shiftKey)"><template v-if="arrangementView==='dynamics'"><span class="arrangement-velocity" :style="{height:100*arrangementDynamic(inst,bar)/127+'%'}"></span><small>{{arrangementDynamic(inst,bar)||'–'}}</small></template><template v-else><span v-for="(note,index) in arrangementNotes(inst,bar)" :key="index" class="arrangement-attack" :style="{left:100*(note.start-bar*project.beats)/project.beats+'%',width:Math.min(100,100*note.duration/project.beats)+'%'}"></span></template></button></td></tr></tbody></table></div>
@@ -9658,7 +9675,7 @@ async function homePractise(inst:Instrument){
 </style>
 
 <style scoped>
-.arrangement-score-controls{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px}.arrangement-score-controls button{min-height:34px;padding:4px 8px;font-size:12px}.arrangement-commandbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 7px;min-width:0}.arrangement-views,.arrangement-context-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}.arrangement-commandbar button{font-size:12px;min-height:36px;padding:4px 8px}.arrangement-views button[aria-pressed=true]{background:#23465b;border-color:#83c6e7;color:#e2f6ff}.arrangement-operation{display:flex;align-items:center;gap:4px;font-size:12px}.arrangement-operation select,.arrangement-context-actions select{width:auto;max-width:180px;margin:0;font-size:12px;min-height:36px}.arrangement-selection-menu{position:relative;margin-left:auto;font-size:12px}.arrangement-selection-menu summary{cursor:pointer;color:#c5e9fb;padding:8px;white-space:nowrap}.arrangement-selection-popover{position:absolute;right:0;top:100%;z-index:35;display:grid;gap:5px;width:min(310px,85vw);max-height:65dvh;overflow:auto;background:#233440;border:1px solid #83c6e7;border-radius:8px;padding:10px;box-shadow:0 12px 30px #0009}.arrangement-selection-popover label{display:flex;align-items:center;gap:6px}.arrangement-selection-popover input[type=checkbox]{width:auto;margin:0}.arrangement-timeline{border:1px solid #536a7d;border-radius:8px;padding:5px}.arrangement-timeline-caption,.arrangement-designer-return{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.arrangement-timeline-scroll{overflow:auto}.arrangement-timeline table{border-collapse:collapse;min-width:100%}.arrangement-timeline th{font-size:11px;white-space:nowrap;padding:4px}.arrangement-timeline td{padding:2px}.arrangement-timeline td button{position:relative;overflow:hidden;min-width:38px;width:100%;height:34px;background:#1a2934;border:1px solid #536a7d;padding:0}.arrangement-timeline td button.arrangement-target{border-color:#83c6e7}.arrangement-velocity{position:absolute;bottom:0;left:0;right:0;background:#529fcb55}.arrangement-timeline td small{position:relative}.arrangement-attack{position:absolute;top:25%;height:50%;background:#d1a875;border-radius:2px;min-width:2px}.arrangement-designer-return{justify-content:space-between;margin-bottom:6px}@media(max-width:760px){.arrangement-commandbar{gap:4px}.arrangement-commandbar button{min-height:40px;padding:4px 6px}.arrangement-selection-menu{margin-left:0}.arrangement-context-actions{max-width:100%}}
+.arrangement-score-controls{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px}.arrangement-score-controls button{min-height:34px;padding:4px 8px;font-size:12px}.arrangement-commandbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 7px;min-width:0}.arrangement-views,.arrangement-context-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}.arrangement-commandbar button{font-size:12px;min-height:36px;padding:4px 8px}.arrangement-views button[aria-pressed=true]{background:#23465b;border-color:#83c6e7;color:#e2f6ff}.arrangement-operation{display:flex;align-items:center;gap:4px;font-size:12px}.arrangement-operation select,.arrangement-context-actions select{width:auto;max-width:180px;margin:0;font-size:12px;min-height:36px}.arrangement-selection-menu{position:relative;margin-left:auto;font-size:12px}.arrangement-selection-menu summary{cursor:pointer;color:#c5e9fb;padding:8px;white-space:nowrap}.arrangement-selection-popover{position:absolute;right:0;top:100%;z-index:35;display:grid;gap:5px;width:min(310px,85vw);max-height:65dvh;overflow:auto;background:#233440;border:1px solid #83c6e7;border-radius:8px;padding:10px;box-shadow:0 12px 30px #0009}.arrangement-selection-popover label{display:flex;align-items:center;gap:6px}.arrangement-selection-popover input[type=checkbox]{width:auto;margin:0}.arrangement-timeline{border:1px solid #536a7d;border-radius:8px;padding:5px}.arrangement-timeline-caption,.arrangement-designer-return{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.arrangement-timeline-scroll{overflow:auto}.arrangement-timeline table{border-collapse:collapse;min-width:100%}.arrangement-timeline th{font-size:11px;white-space:nowrap;padding:4px}.arrangement-timeline td{padding:2px}.arrangement-timeline td button{position:relative;overflow:hidden;min-width:38px;width:100%;height:34px;background:#1a2934;border:1px solid #536a7d;padding:0}.arrangement-timeline td button.arrangement-target{border-color:#83c6e7}.arrangement-velocity{position:absolute;bottom:0;left:0;right:0;background:#529fcb55}.arrangement-timeline td small{position:relative}.arrangement-attack{position:absolute;top:25%;height:50%;background:#d1a875;border-radius:2px;min-width:2px}.arrangement-designer-return{justify-content:space-between;margin-bottom:6px}@media(max-width:760px){.arrangement-commandbar{gap:4px}.arrangement-commandbar button{min-height:40px;padding:4px 6px}.arrangement-selection-menu{margin-left:0;flex-basis:100%}.arrangement-selection-popover{left:0;right:auto;box-sizing:border-box}.arrangement-context-actions{max-width:100%}}
 </style>
 
 <style scoped>

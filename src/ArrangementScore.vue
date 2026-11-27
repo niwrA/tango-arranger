@@ -1,24 +1,30 @@
 <script setup lang="ts">
-import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
+import {onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay} from 'opensheetmusicdisplay';
 import {exportMusicXml} from './io';
-import {partUsesGrandStaff,projectInstruments,type Instrument,type Project,type Score} from './music';
+import {projectInstruments,type Instrument,type Project,type Score} from './music';
 
 const props=defineProps<{project:Project;score:Score;from:number;to:number;selectedFrom:number;selectedTo:number;selectedParts:Instrument[]}>();
 const emit=defineEmits<{select:[instrument:Instrument,bar:number,extend:boolean]}>();
-const staffParts=computed(()=>projectInstruments(props.project).flatMap(inst=>partUsesGrandStaff(props.project,inst,props.score[inst]??[])?[inst,inst]:[inst]));
 const host=ref<HTMLElement|null>(null);
 const loading=ref(true),error=ref('');
 let renderer:OpenSheetMusicDisplay|undefined,observer:ResizeObserver|undefined;
+let loadQueue=Promise.resolve();
 let timer:ReturnType<typeof setTimeout>|undefined,frame=0,revision=0,width=0,alive=true,loaded=false;
 function measureGroups(){
  const result:{group:SVGGElement;instrument:Instrument;bar:number}[]=[];
- const list=renderer?.GraphicSheet?.MeasureList??[];
- for(let bar=Math.max(0,props.from-1);bar<Math.min(list.length,props.to);bar++){
-  const staves=list[bar]??[];
-  // Do not guess the instrument if the engraver has omitted a staff.
-  if(staves.length!==staffParts.value.length)continue;
-  staves.forEach((staff,index)=>{const group=staff?.getSVGGElement();const instrument=staffParts.value[index];if(group&&instrument&&host.value?.contains(group))result.push({group,instrument,bar});});
+ const sheet=renderer?.Sheet,container=host.value;
+ if(!loaded||!sheet||!container)return result;
+ const parts=projectInstruments(props.project);
+ // OSMD 2.3 documents DOM IDs as source-measure and global staff indices.
+ // Incremental layout replaces earlier GraphicSheet objects but keeps their SVGs.
+ if(sheet.Instruments.length!==parts.length||sheet.SourceMeasures.length!==props.project.bars.length)return result;
+ const staffParts=sheet.Staves.map(staff=>parts[sheet.Instruments.indexOf(staff.ParentInstrument)]);
+ for(const group of container.querySelectorAll<SVGGElement>('g.vf-measure[id^="osmd-m"]')){
+  const match=/^osmd-m(\d+)-(\d+)$/.exec(group.id);
+  if(!match)continue; // Ignore extra courtesy clef/key-signature measures.
+  const bar=Number(match[1]),instrument=staffParts[Number(match[2])];
+  if(instrument&&bar>=props.from-1&&bar<props.to)result.push({group,instrument,bar});
  }
  return result;
 }
@@ -35,7 +41,8 @@ function paintSelection(){
 function selectMeasure(event:MouseEvent){
  const target=event.target;
  const groups=measureGroups();
- const found=groups.find(({group})=>target instanceof Node&&group.contains(target))??groups.find(({group})=>{const box=group.getBoundingClientRect();return event.clientX>=box.left&&event.clientX<=box.right&&event.clientY>=box.top&&event.clientY<=box.bottom;});
+ const group=target instanceof Element?target.closest('g.vf-measure'):null;
+ const found=group?groups.find(item=>item.group===group):groups.find(({group})=>{const box=group.querySelector('.vf-stave')?.getBoundingClientRect();return box&&event.clientX>=box.left&&event.clientX<=box.right&&event.clientY>=box.top-4&&event.clientY<=box.bottom+4;});
  if(found)emit('select',found.instrument,found.bar,event.shiftKey);
 }
 function draw(){
@@ -45,7 +52,10 @@ function draw(){
  const last=Math.max(first,Math.min(props.project.bars.length,props.to));
  const current=revision;
  try{
-  renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last});
+  // Use source indices; printed measure numbers skip the pickup and can repeat.
+  const rules=renderer.EngravingRules;
+  rules.MinMeasureToDrawNumber=0;rules.MaxMeasureToDrawNumber=Number.MAX_VALUE;
+  rules.MinMeasureToDrawIndex=first-1;rules.MaxMeasureToDrawIndex=last-1;
   renderer.resetIncrementalRendering();
   const next=()=>{if(!alive||current!==revision||!renderer)return;try{
    const {done}=renderer.renderNext({measures:8});
@@ -54,22 +64,27 @@ function draw(){
   next();
  }catch(cause){error.value=String(cause);loading.value=false;}
 }
-async function reload(){
- if(!renderer)return;
- const current=++revision;cancelAnimationFrame(frame);loaded=false;loading.value=true;error.value='';
- try{await renderer.load(exportMusicXml(props.project,props.score,{engravingPreview:true}));
+async function reload(current:number){
+ if(!renderer||!alive||current!==revision)return;
+ try{
+  renderer.EngravingRules.MinMeasureToDrawIndex=0;
+  renderer.EngravingRules.MaxMeasureToDrawIndex=Number.MAX_VALUE;
+  await renderer.load(exportMusicXml(props.project,props.score,{engravingPreview:true}));
   if(!alive||current!==revision)return;loaded=true;draw();
  }catch(cause){if(alive&&current===revision){error.value=String(cause);loading.value=false;}}
 }
-function schedule(){clearTimeout(timer);timer=setTimeout(()=>void reload(),180);}
-watch(()=>[props.project,props.score],schedule,{deep:true});
+function schedule(delay=180){
+ const current=++revision;cancelAnimationFrame(frame);loaded=false;loading.value=true;error.value='';
+ clearTimeout(timer);timer=setTimeout(()=>{loadQueue=loadQueue.then(()=>reload(current));},delay);
+}
+watch(()=>[props.project,props.score],()=>schedule(),{deep:true});
 watch(()=>[props.from,props.to],()=>{if(loaded){loading.value=true;draw();}});
 watch(()=>[props.selectedFrom,props.selectedTo,props.selectedParts],paintSelection,{deep:true,flush:'post'});
 onMounted(()=>{
  if(!host.value)return;
  renderer=new OpenSheetMusicDisplay(host.value,{autoResize:false,backend:'svg',drawingParameters:'compact',drawTitle:false,drawCredits:false,drawPartNames:true,drawMeasureNumbers:true,disableCursor:true,autoGenerateMultipleRestMeasuresFromRestMeasures:false});
  observer=new ResizeObserver(([entry])=>{const next=Math.round(entry.contentRect.width);if(next>0&&next!==width){width=next;draw();}});
- observer.observe(host.value);void reload();
+ observer.observe(host.value);schedule(0);
 });
 onBeforeUnmount(()=>{alive=false;revision++;clearTimeout(timer);cancelAnimationFrame(frame);observer?.disconnect();renderer?.dispose();renderer=undefined;});
 </script>

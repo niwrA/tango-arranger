@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const load=require('./load-domain.cjs').createDomainLoader();
+const {verifyArrangementReshape}=load('src/arrangementEditSafety.ts');
+const {blankProject}=load('src/music.ts');
+const project=blankProject({sections:1,measuresPerSection:4,beats:4});
+const check=(score,range,kind='rhythm')=>verifyArrangementReshape(project,score,['Piano','Violin I'],range,kind);
+const note=(start,duration=1,extras={})=>({start,duration,pitch:60,...extras});
+assert.doesNotThrow(()=>check({Piano:[note(4)]},[1,1]));
+assert.throws(()=>check({Piano:[note(4)],'Violin I':[note(7,2)]},[1,1]),/Violin I, measure 2.*sustained/);
+assert.throws(()=>check({Piano:[note(3,2),note(5)]},[1,1]),/sustained/);
+assert.throws(()=>check({Piano:[note(7),note(8,1,{xmlTieContinuation:true})]},[1,1]),/tie/);
+assert.throws(()=>check({Piano:[note(7),note(8,1,{xmlTieContinuation:true})]},[2,2]),/tie/);
+assert.doesNotThrow(()=>check({Piano:[note(7),note(8,1,{xmlTieContinuation:true,xmlStaff:2})]},[1,1]));
+assert.throws(()=>check({'Violin I':[note(4,1,{source:'manual'})]},[1,1],'replace'),/manually edited/);
+project.protectedBars['Piano:1']=true;
+assert.doesNotThrow(()=>check({Piano:[note(7,2)]},[1,1]));
+assert.throws(()=>check({Piano:[]},[1,1],'replace'),/protected/);
+console.log('PASS bulk replace and reshape guard protected notes, ties and boundary-crossing sustains');

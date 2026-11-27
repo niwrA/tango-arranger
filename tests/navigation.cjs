@@ -99,7 +99,7 @@ test('section and key editing is separate from the orchestration map',()=>{
   const structure=src.slice(start,lead),orchestration=src.slice(arrange,rhythm);
   assert.match(structure,/<h3>Song structure<\/h3>/);
   assert.match(structure,/<h3>Keys by section<\/h3>/);
-  assert.match(src,/@click="active='arrange'">Orchestration<\/button>/);
+  assert.match(src,/<button[^>]+@click="[^"]*active='arrange'">Arrangement<\/button>/);
   assert.match(orchestration,/<div class="song-map-scroll">/);
   assert.match(orchestration,/<div class="editor overview-edit">/);
   assert.match(orchestration,/Configure the selected A\/B\/C song part/);
@@ -110,8 +110,8 @@ test('Structure opens by default, saved tabs restore, and tabs have descriptive 
   assert.match(src,/const active=ref<[^>]+>\(initialWorkspaceTab\(\)\)/);
   const nav=src.match(/<nav class="tabs workspace-menu" aria-label="Main work areas">[\s\S]*?<\/nav>/)?.[0];
   assert.ok(nav);
-  assert.match(nav,/Structure, Keys &amp; Ensemble/);
-  assert.match(nav,/Note editor/);
+  assert.deepEqual([...nav.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map(m=>m[1]),
+    ['Song','Lead sheet','Arrangement','Note editor','Rhythm designer','About &amp; releases']);
   assert.doesNotMatch(nav,/\d+ ·/);
   assert.doesNotMatch(nav,/Song overview/);
 });
