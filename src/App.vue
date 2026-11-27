@@ -1322,8 +1322,8 @@ async function toggleRhythmLoop(){
     if(session!==rhythmLoopSession||active.value!=='rhythm')return;
     rhythmLoopSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.045,sustain:0.05,release:0.06}}).toDestination();
     rhythmLoopSynth.volume.value=-13;
-    loopSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.07,sustain:0.9,release:0.23}}).toDestination();
-    loopSynth.volume.value=-9;
+    await prepareSamples([rhythmPreviewInstrument.value]);
+    if(session!==rhythmLoopSession||active.value!=='rhythm')return;
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
@@ -1336,8 +1336,8 @@ async function toggleRhythmLoop(){
       const originals=(score.value[inst]??[]).filter(n=>Math.floor((n.start+1e-7)/project.value.beats)===b);
       if(rhythmLoopSound.value==='instrument'&&originals.length){
         const notes=retimeMeasure(originals,inst,b,project.value.beats,slots,'rhythm',project.value.pianoSplitPitch??60);
-        const events=measureLoopEvents(notes,b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value);
-        for(const event of events)loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
+        for(const note of notes)for(const event of measureLoopEvents([note],b,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,[],inst,project.value))
+          renderArrangementNote(inst,note,event,playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
       }else{
         for(const slot of slots)rhythmLoopSynth?.triggerAttackRelease(slot.accent?'C6':'G5','32n',time+slot.beat*60/effectivePlaybackBpm.value,slot.accent?0.95:0.55);
       }
@@ -1614,10 +1614,8 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
   try{
     Tone=await startAudioFromGesture();
     if(session!==captureSession||active.value!==editor)return;
-    captureSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.09,sustain:0.85,release:0.25}}).toDestination();
-    captureSynth.volume.value=-13;
-    captureKeySynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.09,sustain:0.85,release:0.25}}).toDestination();
-    captureKeySynth.volume.value=-11;
+    await prepareSamples([...new Set([...projectInstruments(project.value),'Piano',noteInst.value])]);
+    if(session!==captureSession||active.value!==editor)return;
     captureClickSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.04,sustain:0,release:0.04}}).toDestination();
     captureClickSynth.volume.value=-18;
     const transport=Tone.getTransport();
@@ -1630,19 +1628,15 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
       const b=first+measure%(last-first+1);measure++;
       const currentScore=score.value;
        if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
-      for(const inst of INSTRUMENTS){
-        const events=measureLoopEvents(playbackNotesInRange(currentScore[inst]??[],first*project.value.beats,(last+1)*project.value.beats,playbackTranspose),b,project.value.beats,project.value.bpm,
-          playbackTranspose,project.value.expressionRanges??[],inst,project.value,true);
-        for(const event of events){
-          const onset=time+event.onsetSeconds/captureSpeed.value;
-          const duration=event.durationSeconds/captureSpeed.value;
-          if(usesModeledAudio(inst))
-            renderModeledPart(inst,{...event,durationSeconds:duration,velocity:event.velocity*.8,endVelocity:event.endVelocity===undefined?undefined:event.endVelocity*.8},onset,event.bandoneonStaff);
-          else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
-            playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
-          else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
-            duration,onset,Math.max(0.05,event.velocity/127*0.8));
+      for(const inst of projectInstruments(project.value)){
+        const p=project.value,beats=p.beats,notes=currentScore[inst]??[],nativePedal=midiPianoAvailable(inst);
+        if(nativePedal)for(const span of pianoPedalWindows(notes,first*beats,(last+1)*beats)){
+          if(span.start>=b*beats&&span.start<(b+1)*beats&&focusInstrumentAudible(inst))
+            sendMidiPedal((span.end-span.start)*60/(p.bpm*captureSpeed.value),midiTransportDelay(time+(span.start-b*beats)*60/(p.bpm*captureSpeed.value)));
         }
+        for(const note of playbackNotesInRange(notes,first*beats,(last+1)*beats,playbackTranspose,nativePedal))
+          for(const event of measureLoopEvents([note],b,beats,p.bpm,playbackTranspose,p.expressionRanges??[],inst,p,true))
+            renderArrangementNote(inst,note,event,event.durationSeconds/captureSpeed.value,time+event.onsetSeconds/captureSpeed.value,.8);
       }
     },'1m',countInBeats?'1m':0);
     let beatCount=0;
@@ -1667,8 +1661,7 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
           const degree=beat%ordered.length;
           const cycle=Math.floor(beat/ordered.length);
           const pitch=ordered[degree]+12*cycle+playbackTranspose;
-          captureKeySynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
-            Math.min(0.65,0.8*60/(project.value.bpm*captureSpeed.value)),time,0.45);
+          triggerInstrument('Piano',pitch,Math.min(0.65,0.8*60/(project.value.bpm*captureSpeed.value)),time,0.45);
         }else if(captureMetronome.value){
           captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time,beat===0?0.7:0.35);
         }
@@ -2409,15 +2402,16 @@ async function auditionPitchPreview():Promise<void>{
  if(!s||capturePlaying.value||pitchPreviewStale.value||!pitchPreviewNotes.value.length)return;
  try{
   const readyTone=await startAudioFromGesture();Tone=readyTone;
-  const voice=ensureCaptureKeySynth();
+  const inst=noteInst.value;
+  await prepareSamples([inst]);
+  if(rawPitchSession.value!==s||noteInst.value!==inst||capturePlaying.value)return;
   const secondsPerBeat=60/(s.tempoBpm*s.recordingSpeed);
   const origin=Tone.now()+0.08;
   for(const n of pitchPreviewNotes.value){
    const sounding=n.pitch+(project.value.transposeSemitones??0);
    if(sounding<0||sounding>127)continue;
    const duration=Math.max(0.07,n.durationBeats*secondsPerBeat*0.9),time=origin+n.startBeat*secondsPerBeat;
-   if(usesModeledAudio(noteInst.value))renderModeledPart(noteInst.value,{pitch:sounding,durationSeconds:duration,velocity:83},time);
-   else voice.triggerAttackRelease(Tone.Frequency(sounding,'midi').toFrequency(),duration,time,0.65);
+   triggerInstrument(inst,sounding,duration,time,.65);
   }
   pitchPostprocessStatus.value='Auditioning the proposal with its original rests and note positions.';
  }catch(error){previewPitchError('Cannot audition: '+String(error));}
@@ -2498,15 +2492,16 @@ async function copyCaptureTake(){
 async function auditionDraft(notes:Array<CapturedMelodyNote&{startBeat?:number}>){
  if(capturePlaying.value||!notes.length)return;
  try{
-  Tone=await startAudioFromGesture();const synth=ensureCaptureKeySynth();
+  const inst=noteInst.value;
+  Tone=await startAudioFromGesture();await prepareSamples([inst]);
+  if(noteInst.value!==inst||capturePlaying.value)return;
   const origin=Tone.now()+0.05,secondsPerBeat=60/(project.value.bpm*captureSpeed.value);
   let nextBeat=0;
   for(const n of notes){
    const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));
    const startBeat=n.startBeat??nextBeat,duration=n.duration*secondsPerBeat;
    const sounding=Math.max(0.01,duration*0.9),time=origin+startBeat*secondsPerBeat;
-   if(usesModeledAudio(noteInst.value))renderModeledPart(noteInst.value,{pitch,durationSeconds:sounding,velocity:89},time);
-   else synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),sounding,time,0.7);
+   triggerInstrument(inst,pitch,sounding,time,.7);
    nextBeat=startBeat+n.duration;
   }
  }
@@ -2690,8 +2685,9 @@ async function auditionRhythmComparison(version:'before'|'after'):Promise<void>{
  try{
   Tone=await startAudioFromGesture();
   if(session!==rhythmLoopSession||active.value!=='rhythm')return;
-  loopSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.02,decay:0.07,sustain:0.84,release:0.22}}).toDestination();
-  loopSynth.volume.value=-10;
+  const inst=rhythmPreviewInstrument.value;
+  await prepareSamples([inst]);
+  if(session!==rhythmLoopSession||active.value!=='rhythm'||rhythmPreviewInstrument.value!==inst)return;
   const transport=Tone.getTransport();
   transport.stop();transport.cancel();transport.position=0;transport.timeSignature=project.value.beats;
   transport.bpm.value=effectivePlaybackBpm.value;
@@ -2702,8 +2698,7 @@ async function auditionRhythmComparison(version:'before'|'after'):Promise<void>{
    const pitch=note.pitch+transposition;
    if(pitch<0||pitch>127)continue;
    transport.scheduleOnce(time=>{
-    loopSynth?.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),
-      Math.max(0.06,note.durationBeats*secondsPerBeat*0.92),time,Math.max(0.15,Math.min(1,note.velocity/127)));
+    triggerInstrument(inst,pitch,Math.max(0.06,note.durationBeats*secondsPerBeat*0.92),time,Math.max(0.15,Math.min(1,note.velocity/127)));
    },note.atBeat*secondsPerBeat);
   }
   const finish=rows.length*project.value.beats*secondsPerBeat+0.15;
@@ -4415,7 +4410,7 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
           const durationBeats=Math.max(0.1,(bar*beats+next-onset)*0.88);
           const pitches=chordTones(change.chord).map(pc=>60+pc);
           const cueBeat=onset-startBeat;
-          transport.schedule(t=>synth?.triggerAttackRelease(pitches.map(p=>Tone.Frequency(p,'midi').toFrequency()),durationBeats*60/effectivePlaybackBpm.value,t,0.55),beatOffsetTicks(cueBeat,transport.PPQ));
+          transport.schedule(t=>{for(const pitch of pitches)triggerInstrument('Piano',pitch,durationBeats*60/effectivePlaybackBpm.value,t,.55);},beatOffsetTicks(cueBeat,transport.PPQ));
           count++;
         }
       }
@@ -5430,6 +5425,8 @@ async function auditionQuickDraft(){
   const p=draft.result.project;
   const playback=draftAuditionEvents(p,quickDisplayScore.value,noteInst.value,noteLoopFrom.value-1,noteLoopTo.value-1,rehearsalSpeed.value,quickAuditionAccompaniment.value);
   if(!playback.events.length){message.value='The proposed range is silent.';return;}
+  await prepareSamples([...new Set(playback.events.map(event=>event.instrument))]);
+  if(session!==quickAuditionSession||quickDraft.value!==draft)return;
   const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;
   transport.bpm.value=p.bpm;
   const context=Tone.getContext().rawContext as AudioContext;
