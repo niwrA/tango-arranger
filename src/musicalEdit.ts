@@ -1,9 +1,10 @@
-import {chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,combineNoteAttacks,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
+import {adaptTransposedScore,chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,combineNoteAttacks,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
 import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhythmEditor';
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
 import {createPhrasePlan,phraseAt} from './phrasePlan';
 import {clearRhythmSourceIfRetimed,nearestRhythmSlot,snapNoteToPreset} from './rhythmSnap';
 import {composeMusicalBrush,instrumentBrushes,type MusicalBrush} from './musicalBrush';
+import {planPassageBowing,planPassageFingering} from './stringPassagePlan';
 export type EditCategory='pitch'|'duration'|'rhythm'|'expression'|'dynamics'|'articulation'|'finger'|'bow'|'position'|'timing'|'structure'|'role'|'create';
 export type EditAction={value:string;label:string;title:string};
 export type EditSelection=
@@ -55,8 +56,8 @@ export function musicalEditActions(category:EditCategory,inst:Instrument):EditAc
  case 'dynamics':return Object.keys(DYNAMIC_VELOCITIES).map(v=>action(v,v)).concat([action('crescendo','<','Crescendo'),action('diminuendo','>','Diminuendo')]);
  case 'articulation':return [action('staccato','•','Staccato'),action('marcato_staccato','>','Accent / marcato'),action('legato','—','Legato'),...(family==='Violin'?[action('vibrato','vib.','Vibrato')]:[]),action('clear','Clear')];
  case 'finger':return bowed?['0','1','2','3','4',...(family==='Contrabass'?['T']:[])].map(v=>action(v,v,'Finger '+v)).concat(action('clear','Auto')):[];
- case 'bow':return bowed?[action('down','𝆪','Down-bow'),action('up','𝆫','Up-bow'),action('alternate','↕','Alternate bows'),action('arco','arco'),action('pizzicato','pizz.'),action('clear','Clear')]:[];
- case 'position':return bowed?['I','II','III','IV','V','VI','VII','VIII','IX'].map(v=>action(v,v,'Hand position '+v)).concat((family==='Violin'?[55,62,69,76]:[28,33,38,43]).map((v,i)=>action('string:'+v,(family==='Violin'?['G','D','A','E']:['E','A','D','G'])[i],'Assign string')),action('clear','Auto')):[];
+ case 'bow':return bowed?[action('plan-down','Plan down-bow opening'),action('plan-up','Plan up-bow opening'),action('down','𝆪','Down-bow'),action('up','𝆫','Up-bow'),action('alternate','↕','Alternate bows'),action('arco','arco'),action('pizzicato','pizz.'),action('clear','Clear')]:[];
+ case 'position':return bowed?[action('plan-shifts','Plan fingering','Plan fingering with fewer shifts'),action('plan-crossings','Prefer fewer crossings'),...['I','II','III','IV','V','VI','VII','VIII','IX'].map(v=>action(v,v,'Hand position '+v)),...(family==='Violin'?[55,62,69,76]:[28,33,38,43]).map((v,i)=>action('string:'+v,(family==='Violin'?['G','D','A','E']:['E','A','D','G'])[i],'Assign string')),action('clear','Auto')]:[];
  case 'timing':return [action('-.25','← ¼','Earlier'),action('.25','¼ →','Later'),action('quantize','Grid','Quantize to quarter beat'),action('short','Short','Shorten sounding length'),action('full','Full','Full sounding length')];
  case 'structure':return [action('delete','Delete'),action('split','Split'),action('repeat','Repeat'),action('merge','Merge','Merge two selected notes'),action('untie','Untie','Remove selected incoming ties')];
  case 'role':return roles.map(v=>action(v,v));
@@ -149,6 +150,8 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const clearMeasure=category==='structure'&&value==='clear-measure';
  const snap=category==='rhythm'&&value==='snap-onset';
  const brush=category==='create'&&value==='brush';
+ const fingeringPlan=category==='position'&&(value==='plan-shifts'||value==='plan-crossings');
+ const bowPlan=category==='bow'&&(value==='plan-down'||value==='plan-up');
  if(!geometry&&!inspector&&!clearMeasure&&!snap&&!brush&&!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
  if(selection.kind==='range'&&(category==='role'||category==='rhythm'||category==='create'&&value!=='insert'&&!brush))
   throw Error('Choose whole measures for this edit');
@@ -172,7 +175,24 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const bound=(pitch:number)=>Math.max(range[0],Math.min(range[1],pitch));
  const nearest=(pitch:number,pcs:number[])=>Array.from({length:range[1]-range[0]+1},(_,i)=>i+range[0]).filter(n=>pcs.includes(n%12)).sort((a,b)=>Math.abs(a-pitch)-Math.abs(b-pitch)||a-b)[0]??pitch;
  const sorted=[...chosen].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
- if(brush){
+ if(fingeringPlan||bowPlan){
+  if(!sorted.length)throw Error('Select a passage with notes');
+  const from=sorted[0].start,to=Math.max(...sorted.map(note=>note.start+note.duration));
+  const passage=notes.filter(note=>note.start<to-1e-7&&note.start+note.duration>=from-1e-7);
+  const display=adaptTransposedScore(score,p)[inst]??[];
+  const pitches=new Map(notes.map((note,index)=>[note,(display[index]?.pitch??note.pitch)+(p.transposeSemitones??0)]));
+  const plan=fingeringPlan?planPassageFingering(p,inst.startsWith('Contrabass')?'Contrabass':'Violin',passage,pitches,value==='plan-crossings'?'crossings':'shifts'):
+   planPassageBowing(p,inst,passage,value==='plan-up'?'up':'down');
+  for(const original of chosen){
+   const patch=plan.assignments.get(original);
+   if(!patch){kept.push(original);continue;}
+   const updated={...original,...patch};
+   transformed.set(original,updated);result.push(updated);
+  }
+  warnings.push(...plan.warnings);
+  if(!result.length)throw Error(warnings.join('. ')||'The passage already has compatible annotations');
+  bars.clear();for(const note of result)bars.add(barOf(note));
+ }else if(brush){
   const input=ctx.brush;
   if(!input||selection.kind!=='range'||!instrumentBrushes(inst).some(item=>item.id===input.kind))throw Error('Choose a compatible brush and beat range');
   if(!RHYTHM_PRESETS.some(preset=>preset.id===input.rhythm))throw Error('Choose a valid brush rhythm');
@@ -376,6 +396,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   modified:[...transformed].map(([before,after])=>({before,after:storedResult(after)})),
   deleted:removed.filter(note=>!transformed.has(note))
  };
- const label=geometry?'Move or resize note':inspector?'Edit note':clearMeasure?'Clear measure':snap?'Snap onset to rhythm preset':brush?'Brush '+ctx.brush!.kind:category+' · '+value;
+ const label=geometry?'Move or resize note':inspector?'Edit note':clearMeasure?'Clear measure':snap?'Snap onset to rhythm preset':
+  brush?'Brush '+ctx.brush!.kind:fingeringPlan?'Plan passage fingering':bowPlan?'Plan passage bows':category+' · '+value;
  return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:label+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings,changes};
 }

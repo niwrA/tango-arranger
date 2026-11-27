@@ -20,6 +20,8 @@ export interface StringPositionGuide {
  anchorMidi:number;
 }
 export interface PositionNote {pitch:number;start?:number;duration?:number;stringMidi?:number;lockString?:boolean}
+export type PassageFingerNote=PositionNote&{finger?:GuideFinger;handPosition?:string};
+export type PassageFingering=PositionFingering&{position:string;ordinal:number;first:number;thumb:boolean;stringIndex:number};
 type Position={label:string;first:number;thumb?:boolean};
 const violin:Position[]=[
  {label:'I',first:2},{label:'II',first:4},{label:'III',first:5},
@@ -53,6 +55,20 @@ export function fingerAtPosition(instrument:PositionInstrument,first:number,offs
  if(distance===3||distance===4)return '3';
  if(distance===5)return '4';
  return null;
+}
+/** The editor treats explicitly written string, finger and position as fixed. */
+export function passageFingerings(instrument:PositionInstrument,note:PassageFingerNote):PassageFingering[]{
+ const positions=instrument==='Violin'?violin:bass;
+ return positions.flatMap((position,ordinal)=>{
+  if(note.handPosition!==undefined&&note.handPosition!==position.label)return [];
+  return fingerboardStrings(instrument).flatMap((string,stringIndex)=>{
+   if(note.stringMidi!==undefined&&note.stringMidi!==string.midi)return [];
+   const offset=note.pitch-string.midi,thumb=Boolean(position.thumb);
+   const finger=fingerAtPosition(instrument,position.first,offset,thumb);
+   if(finger===null||(note.finger!==undefined&&note.finger!==finger))return [];
+   return [{pitch:note.pitch,openMidi:string.midi,offset,finger,position:position.label,ordinal,first:position.first,thumb,stringIndex}];
+  });
+ });
 }
 /** Keep each hand-position window fixed at 8 columns, including on an iPad. */
 export function positionWindow(guide:StringPositionGuide):number[]{

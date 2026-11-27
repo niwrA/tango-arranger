@@ -79,7 +79,13 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 
 - Create mode offers melody, arpeggio, bass, chord voicing, rhythmic repetition, and diatonic or chromatic approach brushes. Score and Grid send the same beat/pitch stroke to the shared command. The visible-range button provides a keyboard alternative.
 - Arpeggio and accompaniment generation reuse the arrangement and figure engines. Melody follows the contour against the current key and beat-level harmony. Rhythm presets and the current style supply timing and accents for repetition and melodic strokes. Brushes preserve assigned roles, other parts, saved editions and manual or protected measures. Explicit replacement affects editable attacks within the stroke.
-- The production build and full local regression suite passed. Automated tests cover each brush, harmony changes, protection and replacement. Headless Chrome verified real mouse strokes in both views, simulated touch cancellation, Preview, Cancel, the visible-range button, and a single Undo for an applied phrase. Physical iPad scrolling and Apple Pencil gestures, and musical assessment of the figures, remain open.
+- The production build, full local regression suite and hosted workflow passed. Automated tests cover each brush, harmony changes, protection and replacement. Headless Chrome verified real mouse strokes in both views, simulated touch cancellation, Preview, Cancel, the visible-range button, and a single Undo for an applied phrase. Physical iPad scrolling and Apple Pencil gestures, and musical assessment of the figures, remain open. [GitHub Actions at `cc9755e`](https://github.com/niwrA/tango-arranger/actions/runs/45974973128)
+
+#### TA-EDIT-OPTIMIZE implementation and desktop checks
+
+- Violin and contrabass Position commands offer fingering plans that favour fewer shifts or fewer string crossings. The planner uses the existing playable string and hand-position options, takes sounding register and tempo into account, and can assign adjacent-string double stops. Written pitches and timing are preserved. Existing string, finger and position annotations constrain the plan.
+- Bow commands offer up-bow and down-bow openings. They use phrasing, articulation, attacks, ties, tempo and note length, retain explicit bows and skip inherited or explicit pizzicato. The preview reports impossible fingering, conflicting bow locks and long bows that may need a retake.
+- Automated checks cover transposition, tied fingers and bows, adjacent strings, impossible locks, inherited pizzicato and the preservation of other parts. Desktop headless Chrome previewed both fingering alternatives, verified that pitch and timing stayed fixed, applied a bow plan and undid it with one step. Musician assessment of physical fingering and bowing remains open.
 
 Existing backlog entries below remain valid where not superseded.
 

@@ -266,6 +266,49 @@ assert.deepEqual(replacingBrush.project.partEditions,fixture.partEditions);
 assert.deepEqual(replacingBrush.score['Violin I'].at(-1),protectedNote);
 assert.deepEqual(originalBrushScore['Violin I'],[generatedAttack,protectedNote]);
 
+const lockedFinger={pitch:69,start:0,duration:1,stringMidi:69,finger:'0',source:'imported',lyric:'manual'};
+const tiedFinger={pitch:69,start:1,duration:1,xmlTieContinuation:true,xmlVoice:'1'};
+const openDouble=[{pitch:55,start:2,duration:1},{pitch:62,start:2,duration:1}];
+const impossibleFinger={pitch:60,start:3,duration:1,stringMidi:76,handPosition:'I'};
+const stringPart=[lockedFinger,tiedFinger,...openDouble,impossibleFinger];
+const stringContext={project:brushProject,score:{'Violin I':stringPart,Piano:pianoReference},instrument:'Violin I',selection:{kind:'part'}};
+const fingering=executeMusicalEdit(stringContext,'position','plan-shifts');
+assert.deepEqual(fingering.score['Violin I'].map(note=>[note.pitch,note.start,note.duration]),stringPart.map(note=>[note.pitch,note.start,note.duration]));
+assert.deepEqual(fingering.score['Violin I'][0],lockedFinger);
+assert.equal(fingering.score['Violin I'][1].xmlTieContinuation,true);
+assert.equal(fingering.score['Violin I'][1].stringMidi,69);
+assert.deepEqual(fingering.score['Violin I'].slice(2,4).map(note=>[note.stringMidi,note.finger]),[[55,'0'],[62,'0']]);
+assert.match(fingering.warnings.join(' '),/No compatible fingering in measure 1, beat 4/);
+assert.deepEqual(fingering.score['Violin I'].at(-1),impossibleFinger);
+assert.deepEqual(fingering.score.Piano,pianoReference);
+const sameString=executeMusicalEdit(stringContext,'position','plan-crossings');
+assert.equal(sameString.changes.modified.length,3);
+const concertFingering=executeMusicalEdit({...stringContext,project:{...brushProject,transposeSemitones:2},
+ score:{'Violin I':[{pitch:67,start:0,duration:1,stringMidi:69}]}},'position','plan-shifts');
+assert.equal(concertFingering.changes.modified[0].after.finger,'0');
+assert.equal(concertFingering.changes.modified[0].after.pitch,67);
+assert.throws(()=>executeMusicalEdit({...stringContext,instrument:'Piano'},'position','plan-shifts'),/Unsupported/);
+const lockedBow={pitch:69,start:0,duration:1,gate:1,bowDirection:'up',articulation:'legato'};
+const tiedBow={pitch:69,start:1,duration:1,xmlTieContinuation:true,articulation:'legato'};
+const pluck={pitch:71,start:2,duration:.5,technique:'pizzicato'};
+const accentBow={pitch:72,start:3,duration:1,accent:true};
+const bowNotes=[lockedBow,tiedBow,pluck,accentBow];
+const bowing=executeMusicalEdit({...stringContext,score:{'Violin I':bowNotes}},'bow','plan-down');
+assert.deepEqual(bowing.score['Violin I'].map(note=>note.bowDirection),['up','up',undefined,'down']);
+assert.equal(bowing.score['Violin I'][1].xmlTieContinuation,true);
+assert.deepEqual(bowing.score['Violin I'][2],pluck);
+const longBow={pitch:79,start:4,duration:3,gate:1,velocity:112};
+const slowBowing=executeMusicalEdit({...stringContext,project:{...brushProject,bpm:40},score:{'Violin I':[{...lockedBow,bowDirection:undefined},longBow]}},'bow','plan-up');
+assert.match(slowBowing.warnings.join(' '),/Long bow in measure 2/);
+assert.deepEqual(slowBowing.score['Violin I'].map(note=>note.bowDirection),['up','up']);
+const conflict={...tiedBow,bowDirection:'down'};
+assert.throws(()=>executeMusicalEdit({...stringContext,score:{'Violin I':[lockedBow,conflict]}},'bow','plan-up'),/Conflicting locked bows/);
+const inheritedPizz={pitch:72,start:4,duration:1};
+const mixedBowing=executeMusicalEdit({...stringContext,project:{...brushProject,measureViolinTechniques:{'Violin II:0':'tango_staccato','Violin II:1':'pizzicato'}},
+ instrument:'Violin II',score:{'Violin II':[{pitch:69,start:0,duration:1},inheritedPizz]}},'bow','plan-down');
+assert.equal(mixedBowing.score['Violin II'][0].bowDirection,'down');
+assert.deepEqual(mixedBowing.score['Violin II'][1],inheritedPizz);
+
 // Run the actual App handlers with Vue reactivity and a minimal editor fixture.
 const app=fs.readFileSync('src/App.vue','utf8').replaceAll('\r\n','\n');
 function appSlice(from,to){
