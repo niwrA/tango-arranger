@@ -54,6 +54,17 @@ check('pizzicato alternates actual recordings and selects soft layers',()=>{
  assert.equal(p.pizzicatoVariant(.8,0),'primary');
  assert.equal(p.pizzicatoVariant(.8,1),'alternate');
 });
+check('WAV loop metadata uses source sample rate and inclusive end',()=>{
+ const {readWavLoop}=load('src/arcoSustain.ts');
+ const buffer=new ArrayBuffer(104),v=new DataView(buffer);
+ const tag=(p,s)=>{for(let i=0;i<s.length;i++)v.setUint8(p+i,s.charCodeAt(i));};
+ tag(0,'RIFF');v.setUint32(4,96,true);tag(8,'WAVE');
+ tag(12,'fmt ');v.setUint32(16,16,true);v.setUint32(24,48000,true);
+ tag(36,'smpl');v.setUint32(40,60,true);v.setUint32(72,1,true);
+ v.setUint32(88,24000,true);v.setUint32(92,47999,true);
+ const loop=readWavLoop(buffer);assert.equal(loop.start,.5);assert.equal(loop.end,1);
+ assert.equal(readWavLoop(new ArrayBuffer(4)),undefined);
+});
 function make(beats,profile='traditional'){
  const p=m.blankProject({sections:1,measuresPerSection:2,beats,bpm:120});
  p.profile=profile;
