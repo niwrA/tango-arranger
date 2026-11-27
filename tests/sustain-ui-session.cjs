@@ -42,7 +42,8 @@ check('bowed strings without a usable sample retain the sustaining synth fallbac
  assert.match(trigger,/canUseArcoSample\(inst,duration\)\?samplePlayers.get\(inst\):undefined/);
  assert.match(trigger,/else instrumentSynth\(inst\).triggerAttackRelease\(/);
  assert.ok(app.includes("name.includes('violin')?0.93:0.72"));
- assert.ok(app.includes('sustain:0.9,release:0.23'));
+ const loop=app.slice(app.indexOf('async function toggleNoteLoop('),app.indexOf('watch(active,tab',app.indexOf('async function toggleNoteLoop(')));
+ assert.match(loop,/renderArrangementNote\(inst,note,event,playbackDuration\(event.durationSeconds,rehearsalSpeed.value\)/);
 });
 check('note-editor capture pointer sustains outside recording and releases on pointerup',()=>{
  const start=app.indexOf('function capturePianoKey(event:PointerEvent');

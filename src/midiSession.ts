@@ -34,13 +34,23 @@ function publish(event:MidiEvent){
  }
 }
 function reset(){publish({kind:'reset',pitch:0,velocity:0,channel:0,time:performance.now(),port:''});}
-function log(direction:string,port:string,data:Uint8Array){
- midiLog.value=[new Date().toLocaleTimeString()+' '+direction+' '+port+': '+Array.from(data,b=>b.toString(16).padStart(2,'0')).join(' ').toUpperCase(),...midiLog.value].slice(0,100);
+const diagnosticsReaders=new Set<()=>boolean>();
+/** Recording diagnostics is separate from delivering MIDI to the application. */
+export function observeMidiDiagnostics(isOpen:()=>boolean){
+ diagnosticsReaders.add(isOpen);
+ return ()=>{diagnosticsReaders.delete(isOpen);};
+}
+function log(direction:'IN'|'OUT queued',port:MIDIPort,data:Uint8Array){
+ let collecting=false;
+ for(const isOpen of diagnosticsReaders){if(isOpen()){collecting=true;break;}}
+ if(!collecting)return;
+ if(direction==='IN')midiReceived.value++;else midiSent.value++;
+ midiLog.value=[new Date().toLocaleTimeString()+' '+direction+' '+(port.name||port.id)+': '+Array.from(data,b=>b.toString(16).padStart(2,'0')).join(' ').toUpperCase(),...midiLog.value].slice(0,100);
 }
 function receive(event:MIDIMessageEvent){
  const d=event.data,port=event.currentTarget as MIDIInput;
  if(!d?.length||port!==activeInput)return;
- midiReceived.value++;log('IN',port.name||port.id,d);
+ log('IN',port,d);
  if(d.length<3)return;
  const status=d[0]&240,kind=status===144&&d[2]>0?'on':status===128||status===144?'off':status===176&&d[1]===64?'pedal':null;
  if(kind)publish({kind,pitch:d[1],velocity:d[2],channel:d[0]&15,time:event.timeStamp,port:port.id});
@@ -105,7 +115,7 @@ function stateFor(port:MIDIOutput,channel:number){
 function emit(port:MIDIOutput,data:Uint8Array):void;
 function emit(port:MIDIOutput,data:Uint8Array,at:number):void;
 function emit(port:MIDIOutput,data:Uint8Array,at?:number){
- port.send(data,at);midiSent.value++;log('OUT queued',port.name||port.id,data);
+ port.send(data,at);log('OUT queued',port,data);
 }
 function startAt(port:MIDIOutput,state:OutputState,data:Uint8Array,at:number){
  // Without clear(), keep future attacks cancellable in this app rather than

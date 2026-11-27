@@ -15,7 +15,7 @@ const stateNames=['capturePlaying','captureRecording','captureLoopEnabled','melo
  'captureFrom','captureTo','captureLatency','captureMetronome','captureCountIn','captureCountingIn',
  'captureSpeed','captureTranspose','captureQuantize','captureTakeMode','captureRecordedPass',
  'heldCaptureKeys','captureMonitorPitches','captureHeldDisplay','captureViolinTraces',
- 'capturePlayBar','capturePlayBeat','captureFeedback','captureSession','captureSynth','captureKeySynth','captureClickSynth',
+ 'capturePlayBar','capturePlayBeat','captureFeedback','captureSession','captureClickSynth',
  'captureKind','captureFirst','captureLast','rhythmStart','rhythmEnd','captureInputSource','captureMuteBacking',
  'microphoneStatus','microphoneEstimate','microphoneSensitivity','microphoneInputDb',
  'microphoneMonitoring','microphoneListening','microphoneStarting','microphoneSessionShift',
@@ -69,11 +69,11 @@ const {reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS}=loadModule('pitchPostproc
 const ref=value=>({value});
 const computed=get=>({get value(){return get();}});
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
-async function settle(){await Promise.resolve();await Promise.resolve();}
+async function settle(){for(let turn=0;turn<8;turn++)await Promise.resolve();}
 
 function harness(){
  const permissions=[],unlocks=[],resumes=[],streams=[],contexts=[],frames=new Map(),watches=[];
- const expressive=[],modeled=[];let frameId=0,permissionCalls=0,unlockCalls=0,sharedAudioContext=null;
+ const expressive=[],modeled=[],countIn=[];let frameId=0,permissionCalls=0,unlockCalls=0,sharedAudioContext=null;
  const transport={seconds:0,position:0,bpm:{value:120},repeats:[],once:[],starts:0,
   stop(){},cancel(){this.repeats=[];this.once=[];},start(){this.starts++;},
   scheduleRepeat(callback,interval,at){this.repeats.push({callback,interval,at});},
@@ -99,7 +99,15 @@ function harness(){
   },
   measureLoopEvents,playbackNotesInRange,chordAt,chordTones,addCapturedTap,microphoneScoreMidi,quantizeInstrumentCapture,
   reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS,
-  usesModeledAudio,
+  usesModeledAudio,projectInstruments:()=>Object.keys(ctx.score.value),
+  prepareSamples:async()=>{},midiPianoAvailable:()=>false,panicMidi(){},
+  finishMidiCapture(){},cancelMidiStep(){},cancelPendingMidiCapture(){},
+  triggerInstrument(instrument,pitch){countIn.push({instrument,pitch});},
+  renderArrangementNote:(instrument,_note,event,duration,time)=>{
+   const scheduled={...event,durationSeconds:duration};
+   if(usesModeledAudio(instrument))modeled.push({instrument,event:scheduled,time});
+   else expressive.push({event:scheduled,time});
+  },
   renderModeledPart:(instrument,event,time)=>modeled.push({instrument,event,time}),
   playExpressiveEvent:(_audio,event,time)=>expressive.push({event,time}),
   detectMonophonicPitch:()=>ctx.estimate,
@@ -141,7 +149,7 @@ function harness(){
   const entry=frames.entries().next().value;assert.ok(entry,'An animation frame is scheduled');
   frames.delete(entry[0]);entry[1]();
  }
- return {api,state,ctx,tone,transport,expressive,modeled,permissions,unlocks,resumes,streams,contexts,frames,
+ return {api,state,ctx,tone,transport,expressive,modeled,countIn,permissions,unlocks,resumes,streams,contexts,frames,
   makeStream,change,frame,get permissionCalls(){return permissionCalls;},get unlockCalls(){return unlockCalls;}};
 }
 
@@ -253,7 +261,7 @@ function harness(){
   assert.deepEqual(Array.from(h.modeled[2].event.gesture.points,point=>point.pitch),[76,78]);
   assert.deepEqual(Array.from(h.modeled[2].event.gesture.partner,point=>point.pitch),[64,66]);
   h.transport.repeats.find(item=>item.interval==='4n').callback(0);
-  assert.equal(h.state().captureKeySynth.calls[0].pitch,74);h.api.stopPlayback();
+  assert.deepEqual(h.countIn[0],{instrument:'Piano',pitch:74});h.api.stopPlayback();
  });
  await check('instrument and rhythm recording ignore the microphone key shift',async()=>{
   for(const [editor,source] of [['notes','instrument'],['rhythm','microphone']]){

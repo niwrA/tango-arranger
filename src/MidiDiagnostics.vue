@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import {midiSupported as supported,midiAccess as access,midiInputs as inputs,midiOutputs as outputs,midiInputId as inputId,midiOutputId as outputId,midiOutputEnabled as outputEnabled,midiStatus as status,midiBusy as busy,midiReceived as received,midiSent as sent,midiLog as log,midiOutput as selectedOutput,enableMidi as enable,selectMidiInput,selectMidiOutput,midiChannel,sendMidiNote,panicMidi} from './midiSession';
+import {onBeforeUnmount,ref} from 'vue';
+import {midiSupported as supported,midiAccess as access,midiInputs as inputs,midiOutputs as outputs,midiInputId as inputId,midiOutputId as outputId,midiOutputEnabled as outputEnabled,midiStatus as status,midiBusy as busy,midiReceived as received,midiSent as sent,midiLog as log,midiOutput as selectedOutput,enableMidi as enable,selectMidiInput,selectMidiOutput,midiChannel,sendMidiNote,panicMidi,observeMidiDiagnostics} from './midiSession';
+const panel=ref<HTMLDetailsElement|null>(null);
+const stopObserving=observeMidiDiagnostics(()=>Boolean(panel.value?.open&&panel.value.isConnected));
+onBeforeUnmount(stopObserving);
 function testNote(){sendMidiNote(60,64,.3);}
 </script>
 
 <template>
-  <details class="editor">
+  <details ref="panel" class="editor">
     <summary>MIDI diagnostics</summary>
     <p>Connect your digital piano using USB MIDI and enable MIDI access. Requires a secure connection and a compatible browser (for example Chrome on Android).</p>
     <button type="button" class="secondary" :disabled="!supported || busy || !!access" @click="enable">{{busy ? 'Requesting access…' : 'Enable MIDI'}}</button>
@@ -24,6 +28,7 @@ function testNote(){sendMidiNote(60,64,.3);}
       <button type="button" class="secondary" :disabled="!selectedOutput" @click="testNote">Send test note (C4)</button>
       <p class="hint">Listen for middle C on your piano. Queued output does not confirm that the piano received it. No automatic MIDI echo is enabled.</p>
       <h3>Activity</h3>
+      <p class="hint">Activity is recorded only while this panel is open.</p>
       <p>Received: {{received}} · Output queued: {{sent}}</p>
       <button type="button" class="secondary" @click="log = []; received = 0; sent = 0">Clear log</button>
       <pre class="midi-log" aria-label="Recent MIDI messages">{{log.join('\n') || 'No MIDI messages yet.'}}</pre>

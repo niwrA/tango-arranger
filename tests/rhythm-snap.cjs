@@ -130,6 +130,18 @@ check('MusicXML duration coverage is unaffected; source is app-local metadata',(
  assert.equal(io.validateMusicXmlDurations(xml,4,music.projectInstruments(p).length).length,0);
  assert.ok(!xml.includes('rhythmSource'));
 });
+check('Auto resolves only one unambiguous pattern from committed measure attachments',()=>{
+ const named=snap.snapNoteToPreset(note(72,.9,1),4,'Violin I','traditional','marcato_four');
+ const next={...named,pitch:77,start:4+named.start,rhythmSource:{...named.rhythmSource,preset:'marcato_two'}};
+ const edited={...named,rhythmSource:{...named.rhythmSource,kind:'edited-grid',preset:undefined}};
+ const mixed={...named,rhythmSource:{...named.rhythmSource,preset:'marcato_two'}};
+ assert.equal(snap.committedNamedRhythmPreset([named,next],4,0),'marcato_four');
+ assert.equal(snap.committedNamedRhythmPreset([named,next],4,1),'marcato_two');
+ assert.equal(snap.committedNamedRhythmPreset([named,next],4,2),'off');
+ assert.equal(snap.committedNamedRhythmPreset([named,mixed],4,0),'off');
+ assert.equal(snap.committedNamedRhythmPreset([named,edited],4,0),'off');
+ assert.equal(snap.committedNamedRhythmPreset([{...named,duration:2}],4,0),'off');
+});
 check('Vue source contains cues in both modes and accessible contextual map shortcuts',()=>{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  const required=[

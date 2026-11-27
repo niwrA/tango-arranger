@@ -60,6 +60,18 @@ export function rhythmAttachmentValid(note:Note,beats:number):boolean{
   const local=rounded(note.start-Math.floor((note.start+epsilon)/beats)*beats);
   return Math.abs(local-s.targetBeat)<epsilon&&Math.abs(note.duration-s.targetDuration)<epsilon;
 }
+/** Auto only follows an unambiguous committed named pattern. An edited grid
+ * or a second named attachment must not be mistaken for one preset. */
+export function committedNamedRhythmPreset(notes:readonly Note[],beats:number,bar:number):RhythmPreset|'off'{
+ let result:RhythmPreset|undefined;
+ for(const n of notes){
+  if(Math.floor((n.start+epsilon)/beats)!==bar||!rhythmAttachmentValid(n,beats))continue;
+  const attachment=n.rhythmSource!;
+  if(attachment.kind!=='preset'||!attachment.preset||(result&&result!==attachment.preset))return 'off';
+  result=attachment.preset;
+ }
+ return result??'off';
+}
 export function clearRhythmSourceIfRetimed(previous:Note,updated:Note,beats:number):Note{
   if(!previous.rhythmSource)return updated;
   if(Math.abs(previous.start-updated.start)>epsilon||Math.abs(previous.duration-updated.duration)>epsilon||!rhythmAttachmentValid(updated,beats)){
