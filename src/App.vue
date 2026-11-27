@@ -6210,6 +6210,7 @@ function showHome(){
  homePracticePick.value=false;
  homeError.value='';
  homeOpen.value=true;
+ void nextTick(()=>document.querySelector<HTMLElement>('#home-title')?.focus({preventScroll:true}));
  if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
  performanceStageCompact.value=false;
  // Finish any pending edit without waiting for the normal autosave debounce.
@@ -6430,7 +6431,7 @@ async function homePractise(inst:Instrument){
  </Teleport>
  <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
  <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
-  <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button></div>
+  <div class="home-intro"><h1 id="home-title" tabindex="-1">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button></div>
   <details class="editor"><summary>Display preferences</summary><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></details>
   <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
   <p v-if="homeError" role="alert">{{homeError}}</p>
@@ -9689,4 +9690,20 @@ async function homePractise(inst:Instrument){
 .focus-home-brand{min-height:36px}.focus-brand-label{display:inline-flex;align-items:baseline;gap:5px}
 @media(max-width:1120px){.performance-live .app-topbar>.brand.brand-link .brand-label,.performance-live .app-topbar>.brand.brand-link .logo{display:none!important}.performance-live .app-topbar>.brand.brand-link .home-brand-icon{display:inline-flex}.performance-live .app-topbar>.brand.brand-link{width:42px;min-height:42px;justify-content:center}}
 @media(max-width:760px){.shell:not(.performance-live)>.app-topbar>.brand.brand-link .brand-label,.shell:not(.performance-live)>.app-topbar>.brand.brand-link .logo{display:none!important}.shell:not(.performance-live)>.app-topbar>.brand.brand-link .home-brand-icon{display:inline-flex}.shell:not(.performance-live)>.app-topbar>.brand.brand-link{width:40px;min-height:40px;justify-content:center}.focus-home-brand .focus-brand-label{display:none}.focus-home-brand .home-brand-icon{display:inline-flex}.focus-home-brand{width:42px;min-height:42px;justify-content:center}}
+/* Give the controls their own row on narrow phones. The transport can wrap
+   when a singer cue adds another button; the workspace menu never moves off-screen. */
+@media(max-width:420px){
+ .shell.performance-live>.app-topbar{
+  display:grid!important;grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"home title title" "transport transport more";
+ }
+ .shell.performance-live>.app-topbar>.brand-link{grid-area:home}
+ .shell.performance-live>.app-topbar>.performance-topbar-song-title{
+  grid-area:title;display:flex!important;min-width:0
+ }
+ .shell.performance-live>.app-topbar>.topbar-playback{
+  grid-area:transport!important;flex-wrap:wrap;min-width:0
+ }
+ .shell.performance-live>.app-topbar>.topbar-compact-actions{grid-area:more;justify-self:end;align-self:start}
+}
 </style>

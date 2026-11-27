@@ -20,3 +20,12 @@ for(const action of ['duplicateLeadSection(span.sectionIndex)','beginSectionCopy
  assert.ok(vue.includes('@click="'+action+'"'),'Existing section action preserved: '+action);
 }
 console.log('Phone header and section card responsiveness checks passed');
+
+const narrowStage=vue.slice(vue.indexOf('/* Give the controls their own row on narrow phones.'));
+assert.match(narrowStage,/@media\(max-width:420px\)/);
+assert.match(narrowStage,/grid-template-areas:"home title title" "transport transport more"/);
+assert.match(narrowStage,/\.topbar-playback\{\s*grid-area:transport!important;flex-wrap:wrap/);
+assert.match(narrowStage,/\.topbar-compact-actions\{grid-area:more;justify-self:end/);
+assert.match(vue,/<h1 id="home-title" tabindex="-1">/);
+assert.match(vue,/function showHome\(\)\{[\s\S]*?nextTick\(\(\)=>document\.querySelector<HTMLElement>\('#home-title'\)\?\.focus/);
+console.log('Narrow stage stays accessible and leaving a workspace hands keyboard focus to Home');
