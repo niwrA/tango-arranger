@@ -30,12 +30,9 @@ check('text export retains original line breaks with chords above lyrics',()=>{
  assert.ok(text.includes('Am\nYo no'));
  assert.ok(text.includes('E7\nsé por qué'));
 });
-check('lead sheet applies anchored chords to the existing measure harmony',()=>{
- assert.ok(app.includes('positionLeadChords(plan,project.value.beats,project.value.bars.length,written.map(n=>n.start))'));
- assert.ok(app.includes('chordSequenceFromBeats('));
- assert.ok(app.includes('leadToken'));
- assert.ok(app.includes('const oldGenerated=all.filter('));
- assert.ok(app.includes('source:leadLyricsSource.value'));
+check('advanced lyric text cannot change shared harmony unless explicitly enabled',()=>{
+ assert.match(app,/if\(leadLyricsIncludeChords.value\)\s*draft=importAlignmentChords/);
+ assert.match(app,/get:\(\)=>currentLeadDraft.value\?\.includeChords\?\?false/);
 });
 check('karaoke receives original line boundaries without changing note timings',()=>{
  assert.equal((app.match(/:line-starts="performanceVocalCue.lineStarts"/g)||[]).length,2);
