@@ -29,6 +29,8 @@ import PhrasePlanEditor from './PhrasePlanEditor.vue';
 import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
 import PerformanceLyricLine from './PerformanceLyricLine.vue';
+import LeadAlignmentView from './LeadAlignmentView.vue';
+import {createLeadAlignment,alignmentBars,alignmentPreviewNotes,type LeadAlignment} from './leadAlignment';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import InstrumentLearnView,{type PracticeDisplay} from './InstrumentLearnView.vue';
@@ -191,7 +193,7 @@ function selectProjectInEditor(p:Project){
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   noteLoopFrom.value=1;noteLoopTo.value=firstNoteSectionEnd(p.bars);
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
-  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadVerseDrafts.value={};leadLyricsVerse.value=1;if(leadLyricsPanel.value)leadLyricsPanel.value.open=false;leadDisplayMode.value='sheet';
+  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadVerseDrafts.value={};leadLyricsVerse.value=1;leadAlignmentDraft.value=null;leadAlignmentMode.value='visual';leadDisplayMode.value='sheet';
 }
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
@@ -3273,7 +3275,8 @@ function editLeadSectionStart(index:number,newStart:number){
    message.value=`Moved the start of section ${current.label} to measure ${newStart+1}. Existing notes, chords and protected measure edits retain their absolute positions.`;
  }catch(error){message.value='Cannot move section boundary: '+String(error);}
 }
-const leadDisplayMode=ref<'edit'|'sheet'>('sheet');
+const leadDisplayMode=ref<'edit'|'sheet'|'alignment'>('sheet');
+const leadAlignmentMode=ref<'visual'|'advanced'>('visual');
 const leadPrintableSource=computed(()=>{
  const source=leadLyricsSource.value.trim();
  if(source)return source;
@@ -3282,8 +3285,7 @@ const leadPrintableSource=computed(()=>{
 });
 const leadPrintableText=computed(()=>readableLeadSheet(leadPrintableSource.value));
 function showLeadLyricsEditor(){
- const panel=leadLyricsPanel.value;
- if(panel){panel.open=true;panel.querySelector('summary')?.focus({preventScroll:true});}
+ leadDisplayMode.value='alignment';
 }
 function exportReadableLeadSheet(){
  if(!leadPrintableText.value.trim()){message.value='No leadsheet text to export.';return;}
@@ -5581,7 +5583,9 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
 /** A persisted editable lyrics source is shared by the lead sheet and the Voice score.
  * Chord anchors and original line breaks remain in the source for export and karaoke.
  */
-const leadLyricsPanel=ref<HTMLDetailsElement|null>(null);
+const leadAlignmentDraft=ref<LeadAlignment|null>(null);
+const leadAlignmentBase=shallowRef<Project|null>(null);
+const leadAlignmentError=ref('');
 const leadVerseDrafts=ref<Partial<Record<1|2,{source?:string;useExistingMelody?:boolean}>>>({});
 const leadLyricsVerse=ref<1|2>(1);
 const currentLeadDraft=computed(()=>leadVerseDrafts.value[leadLyricsVerse.value]);
@@ -5621,6 +5625,69 @@ const leadLyricsValidation=computed(()=>{
  catch(error){return String(error);}
  return '';
 });
+
+// Visual alignment is a separate transactional draft. Existing pitches and
+// durations remain untouched when lyrics are attached to existing vocal notes.
+const alignmentVoice=computed(()=>leadLyricsExisting.value?(sourceScore.value[leadLyricsExisting.value]??[]):[]);
+const alignmentBarsPreview=computed(()=>{try{return leadAlignmentDraft.value?alignmentBars(leadAlignmentDraft.value,project.value):project.value.bars;}catch{return project.value.bars;}});
+const alignmentValidation=computed(()=>{
+ const d=leadAlignmentDraft.value;if(!d)return leadAlignmentError.value;
+ if(!leadLyricsExisting.value&&d.syllables.length)return 'Add a Voice part before applying lyrics.';
+ if(d.syllables.some((n,i)=>n.start<d.pickup||n.start>=d.measures*d.beats||i>0&&n.start<=d.syllables[i-1].start))return 'Syllables must be ordered within the song.';
+ if(d.existing&&d.syllables.some(n=>n.noteIndex===undefined))return 'Some syllables do not have a vocal note. Align them or use provisional timing.';
+ try{alignmentBars(d,project.value);}catch(error){return String(error);}
+ return '';
+});
+function resetLeadAlignment(){
+ try{leadAlignmentDraft.value=createLeadAlignment(project.value,leadLyricsSource.value,alignmentVoice.value,leadLyricsVerse.value,leadLyricsUseMelody.value);leadAlignmentBase.value=project.value;leadAlignmentError.value='';}
+ catch(error){leadAlignmentDraft.value=null;leadAlignmentError.value=String(error);}
+}
+function applyVisualAlignment(){
+ const d=leadAlignmentDraft.value,voice=leadLyricsExisting.value;
+ if(!d||alignmentValidation.value||leadAlignmentBase.value!==project.value)return;
+ try{
+  const bars=alignmentBars(d,project.value);
+  let next={...project.value,bars};
+  if(voice&&d.syllables.length){
+   const all=[...alignmentVoice.value].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+   const verse=leadLyricsVerse.value,field=verse===1?'lyric':'lyric2',syll=verse===1?'syllabic':'syllabic2',mel=verse===1?'melisma':'melisma2';
+   const prefix='lead:'+verse+':';
+   if(!d.existing&&all.some(n=>!n.leadToken?.startsWith(prefix)))throw Error('Existing vocal notes would overlap provisional notes. Use existing melody or edit the vocal part first.');
+   const updated=d.existing?all.map(n=>({...n,[field]:undefined,[syll]:undefined,[mel]:undefined})):all.filter(n=>!n.leadToken?.startsWith(prefix)).map(n=>({...n}));
+   const preview=alignmentPreviewNotes(d,all);
+   d.syllables.forEach((token,i)=>{
+    const lyric={[field]:token.text,[syll]:token.syllabic,[mel]:Boolean(token.melisma)};
+    if(d.existing&&token.noteIndex!==undefined)Object.assign(updated[token.noteIndex],lyric);
+    else updated.push({...preview[i],lyric:undefined,syllabic:undefined,melisma:undefined,...lyric,velocity:80,source:'manual',leadToken:prefix+i});
+   });
+   const dirty=new Set([...all,...updated].map(n=>Math.floor(n.start/next.beats)));
+   let working=sourceScore.value;
+   for(const bar of [...dirty].sort((a,b)=>a-b)){
+    if(bar<0||bar>=next.bars.length)continue;
+    const from=bar*next.beats,to=from+next.beats;
+    next=replaceInstrumentMeasure(next,working,voice,bar,updated.filter(n=>n.start>=from&&n.start<to));
+    working=next.generatedScore!;
+   }
+   // Retain original lyric line grouping and exact anchors in the advanced
+   // source using explicit beat markers; the parser recognizes syllable flags.
+   const events=[...d.chords.map(c=>({start:c.start,text:'['+c.symbol+']',line:-1,order:0})),...d.syllables.map(t=>({start:t.start,text:'~'+t.syllabic+':'+t.text+(t.melisma?'_':''),line:t.line,order:1}))].sort((a,b)=>a.start-b.start||a.order-b.order);
+   let bar=0,line=-1,source='';
+   for(const e of events){
+    const target=Math.floor(e.start/d.beats);
+    while(bar<target){source+=' || ';bar++;}
+    if(e.line>=0&&line>=0&&e.line!==line)source+='\n';
+    if(e.line>=0)line=e.line;
+    source+=' @'+Number((e.start-target*d.beats+1).toFixed(6))+' '+e.text;
+   }
+   next.leadLyrics={...next.leadLyrics,[String(verse)]:{source:source.trim(),useExistingMelody:d.existing}};
+  }
+  stopPlayback();next.generatedScore=Object.values(next.protectedBars??{}).some(Boolean)?mergeScores(next,generate(next)):undefined;
+  project.value=next;delete leadVerseDrafts.value[leadLyricsVerse.value];resetLeadAlignment();message.value='Applied visual lyric and chord alignment.';
+ }catch(error){leadAlignmentError.value=String(error);}
+}
+watch([leadDisplayMode,leadAlignmentMode,leadLyricsVerse],()=>{if(leadDisplayMode.value==='alignment'&&leadAlignmentMode.value==='visual')resetLeadAlignment();});
+watch(project,()=>{if(leadAlignmentDraft.value&&leadAlignmentBase.value!==project.value){leadAlignmentDraft.value=null;leadAlignmentError.value='Song changed. Reload the alignment.';}},{flush:'sync'});
+
 function loadLeadLyricsFromSong(){
   const voice=leadLyricsExisting.value;
   if(!voice){message.value='This song has no Voice part. Add Voice before reading back the vocal lyrics.';return;}
@@ -6931,9 +6998,10 @@ async function homePractise(inst:Instrument){
   <button type="button" class="secondary" @click="openContextImport('lead')">Import lead sheet…</button>
   <div class="lead-display-switch" role="group" aria-label="Lead sheet view">
     <button type="button" :class="leadDisplayMode==='sheet'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='sheet'" @click="leadDisplayMode='sheet'">Lyrics &amp; chords</button>
+    <button type="button" :class="leadDisplayMode==='alignment'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='alignment'" @click="showLeadLyricsEditor">Alignment</button>
     <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Measures</button>
   </div>
-  <button type="button" class="secondary" @click="showLeadLyricsEditor">Edit lyrics / align chords…</button>
+  
   <div class="lead-preview-controls" role="group" aria-label="Chord preview">
     <button type="button" class="secondary" title="Preview chords from the beginning" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button>
     <button type="button" class="secondary" title="Preview chords from the selected measure" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button>
@@ -6953,8 +7021,11 @@ async function homePractise(inst:Instrument){
   <div v-else class="lead-instrumental-fallback"><p>No lyrics for this verse. Chord progression:</p><div v-for="span in leadEditorSpans" :key="span.start"><strong>{{span.label}}</strong><div class="lead-instrumental-chords"><button v-for="offset in span.measures" :key="offset" type="button" @click="leadDisplayMode='edit';selectLeadMeasure(span.start+offset-1)"><small>{{measureLabel(span.start+offset-1)}}</small><strong>{{project.bars[span.start+offset-1].chord||'—'}}</strong></button></div></div></div>
 </section>
 <div v-if="leadDisplayMode==='edit'&&copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
-<details ref="leadLyricsPanel" class="lead-lyrics-workspace">
-  <summary>Lyrics &amp; chords · editable song source</summary>
+<section v-if="leadDisplayMode==='alignment'" class="lead-alignment-workspace">
+ <div class="lead-lyrics-toolbar"><button type="button" :class="leadAlignmentMode==='visual'?'primary':'secondary'" @click="leadAlignmentMode='visual'">Visual</button><button type="button" :class="leadAlignmentMode==='advanced'?'primary':'secondary'" @click="leadAlignmentMode='advanced'">Advanced</button><label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label><label v-if="leadAlignmentMode==='visual'"><input type="checkbox" v-model="leadLyricsUseMelody" @change="resetLeadAlignment"/> Use existing Voice melody</label></div>
+ <template v-if="leadAlignmentMode==='visual'"><LeadAlignmentView v-if="leadAlignmentDraft" :draft="leadAlignmentDraft" :voice="alignmentVoice" :bars="alignmentBarsPreview" :playing="playing" :play-beat="performanceBeat" :selected-measure="selectedBar" :bpm="effectivePlaybackBpm" :error="alignmentValidation||leadAlignmentError" @change="leadAlignmentDraft=$event;leadAlignmentError=''" @seek="selectLeadMeasure" @apply="applyVisualAlignment" @reset="resetLeadAlignment"/><div v-else><p role="alert">{{leadAlignmentError}}</p><button type="button" @click="resetLeadAlignment">Reload alignment</button></div><p v-if="leadAlignmentDraft&&!leadAlignmentDraft.syllables.length">No syllables yet. Paste lyrics in Advanced, then return to Visual.</p></template>
+ <section v-if="leadAlignmentMode==='advanced'" class="lead-lyrics-workspace">
+  <strong>Advanced lyric and chord source</strong>
   <p class="hint">Paste ordinary song lyrics with chords in square brackets, such as [D]Donde el río se queda. Line breaks are preserved but do not end a measure. The editor aligns words to existing Voice notes automatically; add | only to clarify note-group boundaries and || only to force a measure boundary. Hyphens split sung syllables. Existing melody pitches and timing are preserved when selected; otherwise C4 notes are editable placeholders.</p>
   <div class="lead-lyrics-toolbar">
     <label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label>
@@ -6972,7 +7043,8 @@ async function homePractise(inst:Instrument){
     <span v-if="leadLyricsPreview.length>120" class="hint">Showing first 120 positions</span>
   </div>
   <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="!!leadLyricsValidation" @click="applyLeadLyrics">Apply lyric alignment to Voice notes</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
-</details>
+</section>
+</section>
 <div v-if="leadDisplayMode==='edit'" class="lead-sections">
   <section v-for="span in leadEditorSpans" :key="`${span.label}:${span.start}`" class="lead-section" :aria-label="span.label">
     <div v-if="span.start===0&&pickupBeats" class="lead-section-heading"><strong>Opening pickup</strong></div>
