@@ -100,7 +100,9 @@ check('diagram position labels and finger cells preserve fixed-height cards',()=
 console.log(count+' performance stage naming/fingering checks passed');
 
 check('performance and capture share compact violin geometry and sounding finger cues',()=>{
- assert.ok(diagram.includes("family.value==='Violin'?'minmax(0,1.1fr) '"));
+ assert.ok(diagram.includes("'--fingerboard-columns':'minmax(0,1.1fr) '"));
+ assert.match(diagram,/offsets\.map\(\(n,i\)=>.*Math\.pow\(2,-/);
+ assert.match(diagram,/weights\.map\(w=>.*w\.toFixed/);
  assert.ok(diagram.includes('(!props.learn&&isPlayingStringPitch(string.midi,string.midi+offset))'));
  assert.ok(diagram.includes('props.learn||props.focus'));
  assert.ok(app.includes('capture-violin-geometry'));

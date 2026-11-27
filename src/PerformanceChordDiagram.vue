@@ -2,6 +2,7 @@
 import {computed,ref,watch,nextTick,onBeforeUnmount} from 'vue';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
+import {fingerAtPosition} from './stringPositionGuide';
 import {fingerboardStrings} from './stringFingerboard';
 import {positionWindow,type StringPositionGuide} from './stringPositionGuide';
 import {pianoWindowCovering} from './pianoRegisters';
@@ -88,7 +89,8 @@ const displayedStops=computed(()=>{
 });
 const fingerboardColumns=computed(()=>{
  const offsets=displayedStops.value;
- return {'--stop-count':offsets.length,'--violin-columns':family.value==='Violin'?'minmax(0,1.1fr) '+offsets.map(n=>'minmax(0,'+Math.max(.38,Math.pow(2,-n/12)).toFixed(3)+'fr)').join(' '):undefined};
+ const weights=offsets.map((n,i)=>(i===0?1:(Math.pow(2,-(offsets[i-1]-offsets[0])/12)-Math.pow(2,-(n-offsets[0])/12))/(1-Math.pow(2,-1/12))));
+ return {'--stop-count':offsets.length,'--fingerboard-columns':'minmax(0,1.1fr) '+weights.map(w=>'minmax(0,'+w.toFixed(5)+'fr)').join(' ')};
 });
 const boardShift=ref(0),boardMoving=ref(false);
 let shiftFrame=0;
@@ -110,6 +112,7 @@ const positionText=computed(()=>props.positionGuide
  :props.violinPosition
   ?(props.violinPosition.finger===0?'Open '+props.violinPosition.stringName+' string':'Position '+props.violinPosition.position+' · '+props.violinPosition.stringName+' string · finger '+props.violinPosition.finger)
   :'First position');
+function inHandRegion(offset:number){const guide=props.positionGuide;return !!guide&&offset>0&&fingerAtPosition(guide.instrument,guide.firstFingerOffset,offset,guide.thumb)!==null;}
 function fingerFor(openMidi:number,midi:number):string|null{
  const match=props.positionGuide?.fingerings.find(f=>f.openMidi===openMidi&&f.pitch===midi);
  return match?.finger??null;
@@ -230,6 +233,7 @@ const diagramDescription=computed(()=>{
            'is-sounding':isPlayingStringPitch(string.midi,string.midi+offset),
            'is-measure-note':isPlannedStringPitch(string.midi,string.midi+offset),
            'is-learn-target':isTargetStop(string.midi,offset),
+           'is-hand-region':inHandRegion(offset),
            'is-position-anchor':!!props.positionGuide&&string.midi===props.positionGuide.anchorStringMidi&&string.midi+offset===props.positionGuide.anchorMidi,
            'is-unplayed-chord-tone':shouldDimTone(string.midi+offset)}"
          :title="midiLabel(string.midi+offset)+(fingerFor(string.midi,string.midi+offset)!==null?' · suggested finger '+fingerFor(string.midi,string.midi+offset):'')">
@@ -591,7 +595,7 @@ const diagramDescription=computed(()=>{
 /* All columns share one geometry; the open string is a real cell, not a label
    taking up an extra hidden semitone. Number the stopped cells in Learn. */
 .performance-instrument-diagram .diagram-fingerboard .diagram-string-row{
- grid-template-columns:repeat(calc(var(--stop-count,7) + 1),minmax(0,1fr));
+ grid-template-columns:var(--fingerboard-columns);
 }
 .diagram-fingerboard .diagram-open-label{
  display:flex;align-items:center;justify-content:center;gap:2px;min-width:0;
@@ -664,7 +668,7 @@ const diagramDescription=computed(()=>{
 @media(prefers-reduced-motion:reduce){.diagram-hand-position-main{animation:none}}
 
 /* Geometric semitone spacing on the violin; position anchor shares the header. */
-.performance-instrument-diagram.is-learn .diagram-violin-fingerboard .diagram-string-row{grid-template-columns:var(--violin-columns)}
+.performance-instrument-diagram.is-learn .diagram-violin-fingerboard .diagram-string-row{grid-template-columns:var(--fingerboard-columns)}
 .performance-instrument-diagram.is-learn .diagram-stop-header .diagram-position-column{color:#e2f6ff;background:#23465b;border-radius:4px;box-shadow:inset 0 -2px #83c6e7}
 .diagram-position-column small{display:block;font-size:10px;line-height:1.1}
 .performance-instrument-diagram.is-learn .diagram-fingerboard .diagram-string-stop:not(.is-learn-target):not(.is-position-anchor):not(.is-sounding){filter:saturate(.55);opacity:.62}
@@ -673,7 +677,7 @@ const diagramDescription=computed(()=>{
 
 <style scoped>
 /* Shared performance geometry and visual priority. No practice pulse during playback. */
-.performance-instrument-diagram:not(.is-learn) .diagram-violin-fingerboard .diagram-string-row{grid-template-columns:var(--violin-columns)}
+.performance-instrument-diagram:not(.is-learn) .diagram-violin-fingerboard .diagram-string-row{grid-template-columns:var(--fingerboard-columns)}
 .performance-instrument-diagram:not(.is-learn) .diagram-fingerboard .diagram-string-stop:not(.is-sounding):not(.is-position-anchor):not(.is-measure-note){opacity:.55;filter:saturate(.65)}
 .performance-instrument-diagram:not(.is-learn) .diagram-fingerboard .diagram-string-stop:not(.is-chord-tone):not(.is-sounding):not(.is-position-anchor):not(.is-measure-note){border-top-color:#506675}
 .performance-instrument-diagram:not(.is-learn) .diagram-fingerboard .diagram-string-stop.is-position-anchor:not(.is-sounding){outline:1px solid #83c6e7;outline-offset:-1px;background:#24495e;color:#e2f6ff}
@@ -713,4 +717,10 @@ const diagramDescription=computed(()=>{
 @media(prefers-reduced-motion:reduce){
  .performance-instrument-diagram.is-learn .diagram-string-row>.diagram-string-stop,.performance-instrument-diagram.is-learn .diagram-stop-header>span{transform:none!important;transition:none!important}
 }
+</style>
+
+<style scoped>
+/* Hand coverage is independent of chord and active-note colour. */
+.performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-hand-region:not(.is-sounding):not(.is-learn-target):not(.is-measure-note):not(.is-position-anchor){background-color:#83c6e733;box-shadow:inset 0 0 0 1px #83c6e74d;opacity:1;filter:none;transition:background-color 180ms ease,box-shadow 180ms ease,transform var(--board-shift-duration,0ms) cubic-bezier(.2,.7,.25,1)}
+@media(prefers-reduced-motion:reduce){.performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-hand-region{transition:none!important}}
 </style>

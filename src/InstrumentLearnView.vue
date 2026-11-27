@@ -32,7 +32,7 @@ const props=defineProps<{
  initialMeasure:number;concertTranspose:number;referenceHz:number;bpm:number;display:PracticeDisplay;
  initialPracticeRange?:[number,number];initialPracticeMeasure?:number;grandStaff:boolean;staffSplit:number;project?:Project;audioEngine?:'samples'|'synth';resolveTechnique?:(note:Note)=>Note['technique'];
 }>();
-const emit=defineEmits<{(event:'exit'):void;(event:'update:display',display:PracticeDisplay):void}>();
+const emit=defineEmits<{(event:'exit'):void;(event:'update:display',display:PracticeDisplay):void;(event:'update:context',context:{range:[number,number];measure:number}):void}>();
 const layout=computed({
  get:()=>props.display,
  set:(value:PracticeDisplay)=>emit('update:display',value),
@@ -173,6 +173,7 @@ const guideNote=computed(()=>demoPlaying.value?scoreDemoNotes.value.at(-1)??null
 const guideMidi=computed(()=>guideNote.value?Math.round(demoBeat.value!==null&&guideNote.value.stringGlissando?stringPitchAtBeat(guideNote.value,(from.value-1)*props.beatsPerMeasure+demoBeat.value):targetPitch(guideNote.value))+props.concertTranspose:null);
 const diagramTranspose=computed(()=>['Violin','Contrabass','Bandoneon'].includes(family.value)?props.concertTranspose:0);
 const diagramTarget=computed(()=>guideMidi.value===null?null:guideMidi.value-props.concertTranspose+diagramTranspose.value);
+watch([from,to,scoreMeasure],([first,last,measure])=>emit('update:context',{range:[first,last],measure}));
 const diagramPitches=computed(()=>[...new Set(diagramNotes.value
  .flatMap(note=>[note.pitch,...(note.gesture?.partner?.slice(0,1).map(point=>point.pitch)??[])])
  .map(pitch=>pitch+diagramTranspose.value))]);
@@ -640,7 +641,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    </div>
   </div>
   </Teleport>
-  <div class="learn-display" :class="{'learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore,'learn-display-overlay':overlayScore}"
+  <div class="learn-display" :class="{'learn-string-layout':family==='Violin'||family==='Contrabass','learn-display-both':showGuide&&showDiagram,'learn-display-combined':combinedScore,'learn-display-overlay':overlayScore}"
    :style="overlayScore?{'--score-paper':`rgb(248 250 252 / ${overlayPaper/100})`}:undefined">
    <div v-if="showGuide" class="learn-guide" aria-label="Expected notes">
     <div class="learn-progress">{{done?'Pass complete':'Note '+Math.min(cursor+1,targets.length)+' of '+targets.length}} · measures {{from}}–{{to}}</div>
@@ -970,7 +971,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-display-overlay>.learn-guide,.learn-display-overlay>.learn-diagram{grid-area:overlay}
 .learn-display :deep(.performance-instrument-diagram.is-focus.is-learn){width:100%;max-width:none;min-width:0}
 .learn-display :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard){width:100%;min-width:0;box-sizing:border-box;grid-template-columns:minmax(0,1fr)}
-.learn-display :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard .diagram-string-row){width:100%;min-width:0;box-sizing:border-box;grid-template-columns:repeat(calc(var(--stop-count,7) + 1),minmax(0,1fr))}
+.learn-display :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-fingerboard .diagram-string-row){width:100%;min-width:0;box-sizing:border-box;grid-template-columns:var(--fingerboard-columns)}
 .learn-display :deep(.diagram-open-label){width:100%;min-width:0}
 @media(min-width:900px) and (orientation:landscape){
  .learn-display-both{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"tuner tuner" "guide diagram";grid-template-rows:auto auto}
@@ -1170,5 +1171,15 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 .learn-display-combined :deep(.diagram-upcoming-measure){display:none}
 @media(min-width:900px) and (orientation:landscape){
  .learn-display-combined{grid-template-rows:minmax(0,1fr)}
+}
+</style>
+
+<style scoped>
+/* The wide string diagram is most useful below the independently scrolling score. */
+@media(min-width:900px) and (orientation:landscape){
+ .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay){grid-template-columns:minmax(0,1fr);grid-template-areas:"guide" "diagram";grid-template-rows:minmax(0,1fr) auto;gap:6px}
+ .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay)>.learn-guide{grid-column:1;grid-row:1;min-height:0;overflow:hidden}
+ .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay)>.learn-diagram{grid-column:1;grid-row:2;width:100%;align-self:end}
+ .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay)>.learn-diagram :deep(.diagram-string-row){height:clamp(22px,3.8dvh,38px)}
 }
 </style>
