@@ -1712,8 +1712,13 @@ function analyseMidiCapture(){
   const missing=slots.reduce((sum,s)=>sum+Math.min(...attacks.map(a=>Math.abs(s.beat-a))),0)/slots.length;
   return {label:p.label,score:distance+missing};
  }).sort((a,b)=>a.score-b.score);
- const role=effectiveRole(noteInst.value,captureFirst.value);
- midiCaptureMatch.value='Closest rhythm templates: '+candidates.slice(0,3).map(p=>p.label).join(' / ')+' · Current role: '+role+' (not inferred).';
+ const groups=new Map<number,number[]>();
+ for(const e of instrumentCaptureEvents.value){const at=Math.round(e.startBeat*8)/8;const pitches=groups.get(at)??[];pitches.push(e.pitch);groups.set(at,pitches);}
+ const chords=[...groups.values()].filter(p=>new Set(p).size>1).length/groups.size;
+ const pitches=instrumentCaptureEvents.value.map(e=>e.pitch);
+ const low=pitches.filter(p=>p<48).length/pitches.length;
+ const role=chords>=.5?'chords':low>=.8?'bass':'melody';
+ midiCaptureMatch.value='Closest rhythm templates: '+candidates.slice(0,3).map(p=>p.label).join(' / ')+' · Possible role: '+role+' (register/polyphony heuristic; review in context). Current role: '+effectiveRole(noteInst.value,captureFirst.value)+'.';
 }
 function finishMidiCapture(){
  if(captureRecording.value&&Tone)for(const held of midiCaptureHeld.values())
@@ -1751,7 +1756,9 @@ const removeEditorMidi=subscribeMidi(e=>{
    midiStepTimer=undefined;
    const pitches=[...midiStepPitches];midiStepPitches.clear();
    if(!midiStepEntry.value||homeOpen.value||active.value!=='notes'||noteEditorTab.value!=='notes'||bar!==selectedBar.value||inst!==noteInst.value)return;
-   for(const p of pitches)if(noteAt(p,beat)<0)toggleNote(p,beat);
+   const preset=noteRhythmPreset.value;
+   const target=preset==='off'?beat:nearestRhythmSlot(beat,preset,project.value.beats,inst,project.value.profile,.5)?.beat??beat;
+   for(const p of pitches)if(noteAt(p,target)<0)toggleNote(p,beat);
   },85);
  }
 });
