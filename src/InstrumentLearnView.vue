@@ -537,6 +537,39 @@ async function startMicrophone(){
  }
 }
 const midiPractice=ref(false);
+const midiTimed=ref(false);
+const midiTimingResult=ref('');
+let midiTimedStart=0;
+let midiTimedTimer:ReturnType<typeof setTimeout>|undefined;
+let midiTimedNotes:{pitch:number;start:number;end?:number}[]=[];
+const midiTimedHeld=new Map<string,{pitch:number;start:number;end?:number}>();
+function cancelMidiTimed(){clearTimeout(midiTimedTimer);midiTimed.value=false;midiTimedHeld.clear();}
+function finishMidiTimed(){
+ const end=performance.now();
+ for(const n of midiTimedHeld.values())n.end=end;
+ const ms=60000/props.bpm,offset=(from.value-1)*props.beatsPerMeasure;
+ const expected=practiceRange.value.filter(n=>!n.xmlTieContinuation&&(!props.grandStaff||staff.value==='all'||partStaffForNote(n,props.instrument,props.staffSplit,0,bandoneonModelForPart(props.project,props.instrument))===(staff.value==='upper'?1:2)));
+ const unused=new Set(midiTimedNotes);
+ let matched=0,onsetError=0,durationError=0;
+ for(const n of expected){
+  const at=midiTimedStart+(n.start-offset)*ms;
+  const candidates=[...unused].filter(p=>p.pitch===n.pitch+props.concertTranspose&&Math.abs(p.start-at)<=ms*.5).sort((a,b)=>Math.abs(a.start-at)-Math.abs(b.start-at));
+  const p=candidates[0];if(!p)continue;
+  unused.delete(p);matched++;onsetError+=Math.abs(p.start-at);durationError+=Math.abs((p.end??end)-p.start-noteSoundingDuration(n)*ms);
+ }
+ midiTimingResult.value=matched+' / '+expected.length+' notes matched · '+(expected.length-matched)+' missed · '+unused.size+' extra'+(matched?' · mean onset error '+Math.round(onsetError/matched)+' ms · mean duration error '+Math.round(durationError/matched)+' ms':'');
+ cancelMidiTimed();
+}
+function startMidiTimed(){
+ if(midiTimed.value){finishMidiTimed();return;}
+ if(!midiPractice.value||!midiInputId.value)return;
+ midiTimedNotes=[];midiTimedHeld.clear();midiTimingResult.value='';
+ const ms=60000/props.bpm;
+ midiTimedStart=performance.now()+props.beatsPerMeasure*ms;
+ midiTimed.value=true;
+ midiTimedTimer=setTimeout(finishMidiTimed,(to.value-from.value+2)*props.beatsPerMeasure*ms+500);
+}
+
 const midiHeld=ref<number[]>([]);
 const midiKeys=new Map<string,number>();
 const midiExpected=computed(()=>{
@@ -548,7 +581,7 @@ const midiExpected=computed(()=>{
 });
 const midiMissing=computed(()=>midiExpected.value.filter(p=>!midiHeld.value.includes(p)));
 const midiExtra=computed(()=>midiHeld.value.filter(p=>!midiExpected.value.includes(p)));
-function clearMidiPractice(){midiKeys.clear();midiHeld.value=[];}
+function clearMidiPractice(){midiKeys.clear();midiHeld.value=[];cancelMidiTimed();}
 let midiRequest=0;
 async function toggleMidiPractice(){
  if(midiPractice.value){midiRequest++;midiPractice.value=false;clearMidiPractice();return;}
@@ -561,6 +594,7 @@ const unsubscribeMidi=subscribeMidi(event=>{
  if(event.kind==='reset'){clearMidiPractice();return;}
  if(!midiPractice.value||demoPlaying.value||takeBeat.value!==null)return;
  const key=event.channel+':'+event.pitch;
+ if(midiTimed.value){if(event.kind==='on'&&event.time>=midiTimedStart){const n={pitch:event.pitch,start:event.time};midiTimedNotes.push(n);midiTimedHeld.set(key,n);}else if(event.kind==='off'){const n=midiTimedHeld.get(key);if(n)n.end=event.time;midiTimedHeld.delete(key);}return;}
  if(event.kind==='on')midiKeys.set(key,event.pitch);
  else if(event.kind==='off')midiKeys.delete(key);
  else return;
@@ -570,7 +604,7 @@ const unsubscribeMidi=subscribeMidi(event=>{
  accepted.value=true;heldProgress.value=1;
  if(autoAdvance.value)cursor.value++;
 });
-onBeforeUnmount(()=>{midiRequest++;unsubscribeMidi();clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
+onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
  <section class="learn-workspace" :class="{'learn-workspace-score':showScore}" aria-label="Learn instrument notes">
@@ -637,7 +671,7 @@ onBeforeUnmount(()=>{midiRequest++;unsubscribeMidi();clearTimeout(repeatTimer);s
       <p>Held: {{midiHeld.map(pitchLabel).join(' · ')||'—'}}</p>
       <p v-if="midiMissing.length">Missing: {{midiMissing.map(pitchLabel).join(' · ')}}</p>
       <p v-if="midiExtra.length">Extra: {{midiExtra.map(pitchLabel).join(' · ')}}</p>
-      <p class="hint">MIDI checks note attacks, not acoustic intonation or duration. Release keys between attacks.</p>
+      <button type="button" class="secondary" :disabled="!midiInputId" @click="startMidiTimed">{{midiTimed?'Finish timed take':'Start timed MIDI take'}}</button><p v-if="midiTimed" role="status">Timed take active · one measure silent count-in, then play at the selected tempo.</p><p v-if="midiTimingResult" role="status">{{midiTimingResult}}</p><p class="hint">Step practice checks attacks, not acoustic intonation. Timed takes assess onset and key duration.</p>
     </template>
     <p v-else class="hint">{{midiStatus}}</p>
   </div>
