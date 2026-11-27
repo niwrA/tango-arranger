@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {isOrchestraStyle} from './orchestraStyle';
 import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi,midiOutput,midiOutputEnabled,sendMidiNote,sendMidiPedal,panicMidi} from "./midiSession";
 import MidiDiagnostics from './MidiDiagnostics.vue';
 import {assignCapturedPedal,capturedPedalSpans,type MidiPedalTransition} from './midiCapture';
@@ -3968,6 +3969,12 @@ function setLeadMelodyNotes(notes:Note[]){
   project.value={...project.value,bars:project.value.bars.map((bar,i)=>i===selectedBar.value?{...bar,melody:notes.map(n=>({...n}))}:bar)};
 }
 function setMelody(){const notes:Note[]=[];const tokens=melodyText.value.trim().split(/\s+/).filter(Boolean);let next=0;for(const token of tokens){const m=token.match(/^([A-Ga-g][#b]?-?\d+)(?::([\d.]+))?(?:@([\d.]+))?$/);if(!m){message.value=`Invalid note: ${token}. Example: D5:1@0`;return;}const pitch=parsePitch(m[1]);if(pitch===null)continue;const duration=Number(m[2]??1),start=m[3]===undefined?next:Number(m[3]);if(!Number.isFinite(duration)||duration<=0||start<0||start+duration>project.value.beats+0.00001){message.value=`Invalid timing: ${token}`;return;}notes.push({pitch,start,duration});next=start+duration;}bar.value.melody=notes;message.value=`Updated melody in bar ${selectedBar.value+1}. Regenerate to apply.`;}
+function setSectionOrchestraStyle(section:string,value:string){
+ const styles={...project.value.sectionStyles};
+ if(isOrchestraStyle(value))styles[section]=value;
+ else delete styles[section];
+ project.value.sectionStyles=styles;
+}
 function regenerate(){const fresh=generate(project.value);project.value.generatedScore=mergeScores(project.value,fresh);message.value=`Generated ${scoreStats(project.value.generatedScore)} notes across ${INSTRUMENTS.length} parts. Protected measures retained.`;}
 function setRole(inst:Instrument,e:Event){
   const sec=chosenSection.value;
@@ -6669,6 +6676,15 @@ async function homePractise(inst:Instrument){
       <label><span><input type="checkbox" v-model="arrangementCountIn"/> One-measure count-in before playback</span><small class="hint">Clicks continue through any rests before the first pickup note.</small></label>
       <label>Transpose arrangement (semitones)<input type="number" min="-24" max="24" step="1" :value="project.transposeSemitones??0" @change="setTranspose"/><small class="hint">Non-destructive transposition of playback, review, chords and MusicXML.</small></label>
       <label>Orchestra profile<select v-model="project.profile"><option v-for="[id,name] in profiles" :key="id" :value="id">{{name}}</option></select></label>
+      <details class="orchestra-style-settings"><summary>Section style overrides</summary>
+       <small class="hint">Style changes affect newly generated accompaniment. Explicit figures, techniques, roles and protected measures retain priority. Named tango accompaniment profiles currently target 4/4.</small>
+       <label v-for="section in [...new Set(project.bars.map(bar=>bar.section))]" :key="section">Section {{section}}
+        <select :value="project.sectionStyles?.[section]??''" @change="setSectionOrchestraStyle(section,($event.target as HTMLSelectElement).value)">
+         <option value="">Inherit song style</option><option v-for="[id,name] in profiles.filter(([id])=>id!=='milonga')" :key="id" :value="id">{{name}}</option>
+        </select>
+       </label>
+      </details>
+      <button type="button" class="secondary" @click="regenerate">Regenerate unprotected arrangement</button>
       <label>Overall difficulty<select v-model="project.difficulty"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select></label>
       <button type="button" class="secondary" @click="convertMeter" :disabled="project.beats!==2">Convert paired 2/4 measures to 4/4</button>
     </div>
