@@ -63,7 +63,7 @@ export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 export type PianoGlissando={interval:number;keys:'white'|'black'|'chromatic';beats:number};
 export type StringGlissando={interval:number;beats:number};
 export type BowedTremolo={strokes:1|2|3;rateHz?:number;mode?:'measured'|'unmeasured'};
-export type Note = { editId?:string; xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; bowDirection?:'up'|'down'; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+export type Note = { editId?:string; staffOverride?:1|2; xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; bowDirection?:'up'|'down'; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
 /** Convert a linked glissando to a playback-only contour. */
 export function stringGlissandoPlayback(note:Note,from=note.start,to=Infinity):Note{
  const gliss=note.stringGlissando;
@@ -817,6 +817,7 @@ export function partUsesGrandStaff(project:Project,inst:Instrument,notes:readonl
 
 /** Staff placement is a practice aid. It does not prescribe physical fingering. */
 export function partStaffForNote(note:Note,inst:Instrument,splitPitch=60,transpose=0):1|2 {
+  if(note.staffOverride===1||note.staffOverride===2)return note.staffOverride;
   if(inst.startsWith('Bandoneon')&&(note.xmlStaff===1||note.xmlStaff===2))return note.xmlStaff;
   return pianoStaffForPitch(note.pitch-transpose,splitPitch);
 }

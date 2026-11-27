@@ -2,12 +2,14 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const ts=require('typescript');
 const {ref,shallowRef,computed,watch}=require('vue');
+const {DOMParser}=require('@xmldom/xmldom');
 const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
 const {blankProject,adaptTransposedScore}=load('src/music.ts');
 const {executeMusicalEdit,editPartNoteKeys,editNoteKey}=load('src/musicalEdit.ts');
 const {dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition}=load('src/noteEditing.ts');
-const {exportProjectZip,loadProject}=load('src/io.ts');
+const {exportProjectZip,exportMusicXml,loadProject}=load('src/io.ts');
+const {readScoreEntryNotation,scoreEntryPitch,scoreEntryBeat,scoreEntryOctaveShift}=load('src/scoreEntry.ts');
 const p=blankProject({sections:1,measuresPerSection:2,beats:4});
 p.bars.forEach(b=>b.chord='Dm');
 const score={'Violin I':[{pitch:69,start:0,duration:1},{pitch:72,start:4,duration:1}]};
@@ -147,6 +149,48 @@ assert.equal(entered.changes.added[0].articulation,'marcato_staccato');
 assert.equal(entered.changes.added[0].accent,true);
 assert.equal(entered.changes.added[0].rhythmSource.targetDuration,0.5);
 
+const notation=readScoreEntryNotation(new DOMParser().parseFromString(`<score-partwise><part>
+ <measure><attributes><divisions>6</divisions><key><fifths>1</fifths></key>
+  <clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>
+ </attributes><note><rest/><duration>8</duration></note>
+ <note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration></note>
+ <note><chord/><pitch><step>G</step><alter>1</alter><octave>4</octave></pitch><duration>4</duration></note>
+ <backup><duration>12</duration></backup>
+ <note><pitch><step>F</step><alter>-1</alter><octave>4</octave></pitch><duration>12</duration><staff>2</staff></note></measure>
+ <measure><note><pitch><step>F</step><octave>4</octave></pitch><duration>6</duration><tie type="stop"/></note></measure>
+ <measure><attributes><key><fifths>-2</fifths></key></attributes></measure>
+ </part></score-partwise>`,'text/xml'));
+assert.equal(scoreEntryPitch(notation[0],1,1,1,0),66,'F sharp from the active signature');
+assert.equal(scoreEntryPitch(notation[0],1,1,4/3,0),65,'local natural after a triplet onset');
+assert.equal(scoreEntryPitch(notation[0],1,2,2,0),68,'local chord accidental');
+assert.equal(scoreEntryPitch(notation[0],2,6,0,0),54,'bass clef fourth line follows the F sharp signature');
+assert.equal(scoreEntryPitch(notation[0],2,13,1,0),64,'bass staff carries its own accidental');
+assert.equal(scoreEntryPitch(notation[1],1,1,1,0),66,'a continuation keeps its pitch without changing the new bar accidental');
+assert.equal(scoreEntryPitch(notation[2],1,0,2,2),61,'empty staff follows new key and reverses global transposition');
+assert.equal(scoreEntryPitch(notation[2],1,-2,0,0),60,'first lower ledger line');
+assert.equal(scoreEntryPitch(notation[2],1,10,0,0),81,'first upper ledger line');
+const columns=[{x:60,beat:0},{x:142,beat:4/3},{x:164,beat:2}];
+assert.equal(scoreEntryBeat(145,columns,50,215,4,0.5),4/3,'exact engraved triplet column');
+assert.equal(scoreEntryBeat(101,columns,50,215,4,0.5),0.5,'interpolate between nonuniform columns');
+assert.equal(scoreEntryBeat(180,[],50,215,4,0.5),3,'empty staff spans the whole measure');
+assert.equal(scoreEntryBeat(215,[],50,215,4,1/3),11/3,'last tuplet slot stays in the measure');
+const grandStaffEdit=executeMusicalEdit({project:fixture,score:{Piano:[]},instrument:'Piano',selection:{kind:'notes',keys:[]},
+ duration:1,entry:{bar:0,beat:3,pitch:64,notation:{staff:2,octaveShift:-12}}},'create','insert');
+const grandStaffNote=grandStaffEdit.changes.added[0];
+assert.equal(grandStaffNote.staffOverride,2);
+assert.equal(grandStaffNote.xmlOctaveShift,-12);
+const grandStaffContinuation=executeMusicalEdit({project:grandStaffEdit.project,score:grandStaffEdit.score,instrument:'Piano',selection:{kind:'notes',keys:[]},
+ duration:1,entry:{bar:1,beat:0,pitch:65,notation:{staff:2,octaveShift:-12}}},'create','insert');
+const grandStaffXml=exportMusicXml(grandStaffContinuation.project,grandStaffContinuation.score,{onlyInstrument:'Piano',engravingPreview:true});
+assert.match(grandStaffXml,/<note><pitch><step>E<\/step><octave>4<\/octave><\/pitch>(?:(?!<\/note>).)*<staff>2<\/staff>/);
+const ottava=readScoreEntryNotation(new DOMParser().parseFromString(grandStaffXml,'text/xml'));
+assert.equal(scoreEntryOctaveShift(ottava[0],2,2.5),0);
+assert.equal(scoreEntryOctaveShift(ottava[0],2,3),-12);
+assert.equal(scoreEntryOctaveShift(ottava[1],2,.5),-12);
+assert.equal(scoreEntryOctaveShift(ottava[1],2,1.5),0);
+assert.equal(scoreEntryOctaveShift(ottava[0],1,3),0);
+assert.equal(scoreEntryPitch(ottava[0],2,5,3,0),64,'bass-clef E3 under 8va resolves to sounding E4');
+
 // Run the actual App handlers with Vue reactivity and a minimal editor fixture.
 const app=fs.readFileSync('src/App.vue','utf8').replaceAll('\r\n','\n');
 function appSlice(from,to){
@@ -181,14 +225,25 @@ const harness=`
  ${appSlice('const quickSourceKeys=', 'const quickSelection=')}
  ${appSlice('watch(project,()=>{quickDraft', 'const quickAuditionPlaying=')}
  ${appSlice('function commitQuickDraft(', 'function insertFromScore(')}
+ ${appSlice('function moveScoreNote(', 'function selectGridNote(')}
  ${appSlice('function selectGridNote(', 'function editScoreSelection(')}
  ${appSlice('function commitImmediateEdit(', 'function updatePianoExpression(')}
  ${appSlice('function deleteSelectedNote(', 'function restoreNoteMeasure(')}
- return {project,score,quickDisplayScore,quickDraft,quickPreview,selectedEvent,applyQuickNote,commitQuickDraft,restoreHistory,selectGridNote,selectScoreNote,undoHistory,redoHistory,beginNoteDrag,moveNoteDrag,endNoteDrag,commitInspectedNote,deleteSelectedNote,clearNoteMeasure};
+ return {project,score,quickDisplayScore,quickDraft,quickPreview,selectedEvent,applyQuickNote,commitQuickDraft,restoreHistory,selectGridNote,selectScoreNote,undoHistory,redoHistory,beginNoteDrag,moveNoteDrag,endNoteDrag,moveScoreNote,commitInspectedNote,deleteSelectedNote,clearNoteMeasure};
 `;
 const seed={...fixture,generatedScore:fullScore};
 const runtime=new Function('seed','ref','shallowRef','computed','watch','executeMusicalEdit','editNoteKey','editPartNoteKeys','adaptTransposedScore','dragAbsoluteNoteLeftEdge','dragAbsoluteNotePosition',ts.transpile(harness));
 const launch=project=>runtime(project,ref,shallowRef,computed,watch,executeMusicalEdit,editNoteKey,editPartNoteKeys,adaptTransposedScore,dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition);
+const scoreDrag=launch(seed);
+const sourceNote=scoreDrag.score.value['Violin I'][0];
+scoreDrag.moveScoreNote(sourceNote,1.5,2);
+assert.equal(scoreDrag.score.value['Violin I'][0],sourceNote,'score drag stages a draft');
+assert.deepEqual(scoreDrag.quickDisplayScore.value['Violin I'].map(note=>[note.start,note.pitch]),[[0,72],[1.5,73]]);
+scoreDrag.commitQuickDraft();
+assert.equal(scoreDrag.selectedEvent.value.pitch,73);
+assert.equal(scoreDrag.undoHistory.value.length,1);
+scoreDrag.restoreHistory('undo');
+assert.equal(scoreDrag.score.value['Violin I'][0].pitch,71);
 const editor=launch(seed);
 editor.selectGridNote(editor.score.value['Violin I'][1]);
 assert.equal(editor.selectedEvent.value.pitch,72);
@@ -287,5 +342,8 @@ assert.match(app,/for\(const note of quickDisplayScore\.value\[noteInst\.value\]
  assert.deepEqual(restored.generatedScore['Violin I'],draft.score['Violin I']);
  assert.deepEqual(restored.protectedBars,draft.project.protectedBars);
  assert.deepEqual(restored.partEditions['Violin I'].easy,fixture.partEditions['Violin I'].easy);
+ const grandStaffBackup=await exportProjectZip(grandStaffEdit.project);
+ const restoredGrandStaff=await loadProject({arrayBuffer:()=>grandStaffBackup.arrayBuffer()});
+ assert.deepEqual(restoredGrandStaff.generatedScore.Piano,JSON.parse(JSON.stringify([grandStaffNote])));
  console.log('PASS shared musical edit selection, collisions, preview isolation, roles, protected rests and portable round trip');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import AppIcon from './AppIcon.vue';
-import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditContext,type MusicalEditResult,type EditSelection} from './musicalEdit';
+import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditContext,type MusicalEditResult,type EditSelection,type NoteEntryEdit,type NoteGeometryEdit,type NoteNotationEdit} from './musicalEdit';
 import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -3682,7 +3682,7 @@ function handleNoteEditorKey(event:KeyboardEvent){
     return;
   }
   if(pendingKeyChange.value||newSongOpen.value)return;
-  if((typeof noteEditorTab!=='undefined'&&noteEditorTab.value!=='notes')||(event.target as HTMLElement|null)?.closest?.('[role=tab]'))return;
+  if((typeof noteEditorTab!=='undefined'&&!['notes','score'].includes(noteEditorTab.value))||(event.target as HTMLElement|null)?.closest?.('[role=tab]'))return;
   const action=editorKeyAction(event,'notes');if(!action)return;
   if(action==='escape'){
     event.preventDefault();
@@ -4713,10 +4713,14 @@ function moveNoteDrag(event:PointerEvent){
   if(drag.latest?.pitchDelta===pitchDelta&&drag.latest.start===absoluteStart&&drag.latest.duration===duration)return;
   drag.latest=geometry;
   if(!pitchDelta&&absoluteStart===drag.original.start&&duration===drag.original.duration){quickDraft.value=null;return;}
-  try{
-    const result=executeMusicalEdit({project:drag.project,score:sourceScore.value,instrument:drag.instrument,selection:{kind:'notes',keys:[drag.key]},geometry},'timing','geometry');
-    quickDraft.value={base:drag.project,result,selectMovedNote:true};
-  }catch(error){quickDraft.value=null;message.value=`Cannot move or resize note: ${String(error)}`;}
+  stageNoteGeometry(drag.project,drag.instrument,drag.key,geometry);
+}
+function stageNoteGeometry(base:Project,instrument:Instrument,key:string,geometry:NoteGeometryEdit){
+ try{
+  if(base!==project.value||instrument!==noteInst.value)throw Error('The editing context changed');
+  const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument,selection:{kind:'notes',keys:[key]},geometry},'timing','geometry');
+  quickDraft.value={base,result,selectMovedNote:true};
+ }catch(error){quickDraft.value=null;message.value=`Cannot move or resize note: ${String(error)}`;}
 }
 function cancelNoteDrag(){
   if(!noteDrag)return;
@@ -5055,7 +5059,7 @@ function commitQuickDraft(){
  }else if(quickScope.value==='notes'){multiNoteMode.value=true;multiNoteKeys.value=draft.result.keys;}
  message.value=[draft.result.description,...draft.result.warnings].join('. ');
 }
-function applyQuickNote(value:string,entry?:{bar:number;beat:number;pitch:number},override?:EditSelection,category=quickNoteCategory.value){
+function applyQuickNote(value:string,entry?:NoteEntryEdit,override?:EditSelection,category=quickNoteCategory.value){
  try{
   if(quickDraft.value)throw Error('Apply or cancel the current preview first');
   const base=project.value;
@@ -5067,10 +5071,10 @@ function applyQuickNote(value:string,entry?:{bar:number;beat:number;pitch:number
   return true;
  }catch(error){message.value='Musical edit rejected: '+String(error);return false;}
 }
-function insertFromScore(bar:number,beat:number,pitch:number){
+function insertFromScore(entry:NoteEntryEdit){
  if(quickDraft.value)return;
- activateGridMeasure(bar);quickBeat.value=beat+1;quickPitch.value=pitch;
- applyQuickNote('insert',{bar,beat,pitch},undefined,'create');
+ activateGridMeasure(entry.bar);quickBeat.value=entry.beat+1;quickPitch.value=entry.pitch;
+ applyQuickNote('insert',entry,undefined,'create');
 }
 function quickErase(n:Note){applyQuickNote('delete',undefined,{kind:'notes',keys:[quickNoteKey(n)]},'structure');}
 function quickCreate(pitch:number,beat:number){applyQuickNote('insert',{bar:selectedBar.value,beat,pitch},undefined,'create');}
@@ -5101,6 +5105,13 @@ function startGridNoteDrag(event:PointerEvent,note:Note){
  if(noteDrag||quickDraft.value||mergeAnchor.value||multiNoteMode.value||quickMode.value!=='select'||quickScope.value!=='notes')return;
  activateGridMeasure(Math.floor((note.start+1e-8)/project.value.beats));
  beginNoteDrag(event,note);
+}
+function moveScoreNote(note:Note,start:number,pitchDelta:number,notation?:NoteNotationEdit){
+ if(noteDrag||quickDraft.value||mergeAnchor.value||multiNoteMode.value||quickMode.value!=='select'||quickScope.value!=='notes')return;
+ const key=quickSourceKeys.value.get(note);
+ if(!key)return;
+ stageNoteGeometry(project.value,noteInst.value,key,{start,duration:note.duration,pitchDelta,notation});
+ if(!quickPreview.value)commitQuickDraft();
 }
 function selectGridNote(note:Note){
  if(suppressNoteClick){suppressNoteClick=false;return;}
@@ -6862,7 +6873,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'||quickSplit" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft?(quickDisplayScore[noteInst]??[]).filter(n=>quickDraft?.result.keys.includes(quickNoteKey(n))):multiNoteMode||quickScope!=='notes'?Array.from(quickSelectedNotes):undefined"  :entry-mode="quickMode==='create'&&!quickDraft" @insert-at="insertFromScore" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
+    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft?(quickDisplayScore[noteInst]??[]).filter(n=>quickDraft?.result.keys.includes(quickNoteKey(n))):multiNoteMode||quickScope!=='notes'?Array.from(quickSelectedNotes):undefined" :entry-mode="quickMode==='create'&&!quickDraft" :entry-step="noteStep" :move-mode="quickMode==='select'&&quickScope==='notes'&&!quickDraft&&!multiNoteMode&&!mergeAnchor" @insert-at="insertFromScore" @move-note="moveScoreNote" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">

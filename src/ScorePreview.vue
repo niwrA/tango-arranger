@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
-import {OpenSheetMusicDisplay,type MusicSystem} from 'opensheetmusicdisplay';
+import {OpenSheetMusicDisplay,type GraphicalMeasure,type MusicSystem} from 'opensheetmusicdisplay';
 import {exportMusicXml} from './io';
-import {midiName,type Instrument,type Note,type Project,type Score} from './music';
+import {midiName,openingPickupBeats,type Instrument,type Note,type Project,type Score} from './music';
 import {effectiveViolinTechnique} from './phrasePlan';
 import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
+import {readScoreEntryNotation,scoreEntryBeat,scoreEntryPitch,scoreEntryOctaveShift,type MeasureNotation} from './scoreEntry';
+import type {NoteEntryEdit,NoteNotationEdit} from './musicalEdit';
 
 const props=withDefaults(defineProps<{
   project:Project;
@@ -15,6 +17,8 @@ const props=withDefaults(defineProps<{
   selectedNote?:Note;
   selectedNotes?:readonly Note[];
   entryMode?:boolean;
+  entryStep?:number;
+  moveMode?:boolean;
   completedNotes?:readonly Note[];
   playingNotes?:readonly Note[];
   feedbackProgress?:number;
@@ -24,7 +28,7 @@ const props=withDefaults(defineProps<{
   followMeasure?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
-const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[bar:number,beat:number,pitch:number]}>();
+const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[entry:NoteEntryEdit];moveNote:[note:Note,start:number,pitchDelta:number,notation?:NoteNotationEdit]}>();
 
 const host=ref<HTMLElement|null>(null);
 const scoreAppearanceKey='tango-score-appearance';
@@ -61,6 +65,7 @@ let highlightedHeads:SVGElement[]=[];
 let completedHeads:SVGElement[]=[];
 let playingHeads=new Set<SVGElement>();
 let measureGroups:SVGGElement[]=[];
+let entryNotation:MeasureNotation[]=[];
 let followedSystem:MusicSystem|undefined;
 let followedGroup:SVGGElement|undefined;
 
@@ -313,37 +318,96 @@ function rangeUp(event:PointerEvent){
 }
 function cancelRange(){clearTimeout(rangeTimer);rangePointer=null;}
 watch(rangeMode,enabled=>{if(!enabled){selectedMeasures.value=null;paintRange();cancelRange();}});
-// Use actual rendered stave lines and existing notehead timing anchors.
- // The empty-space entry is intentionally quantized to a quarter beat.
-function insertAtScorePoint(event:MouseEvent){
- const measure=measureAt(event.clientX,event.clientY);if(measure===null)return;
- const groups=scoreMeasureGroups().filter(g=>g.measure===measure);
- const candidates=groups.flatMap(({group})=>{
-  const lines=[...group.querySelectorAll<SVGElement>('.vf-stave path,.vf-stave line')].map(el=>el.getBoundingClientRect()).filter(r=>r.width>40&&r.height<3);
-  const ys=[...new Set(lines.map(r=>Math.round((r.top+r.bottom)/2)))].sort((a,b)=>a-b);
-  if(ys.length<5)return [];
-  return [{group,ys,rect:group.getBoundingClientRect()}];
+type EngravedStave={getNoteStartX():number;getNoteEndX():number;getYForLine(line:number):number};
+function scorePoint(clientX:number,clientY:number){
+ if(!loaded||!host.value)return;
+ const pick=openingPickupBeats(props.project);
+ const candidates=[];
+ for(const [bar,staves] of (osmd?.GraphicSheet?.MeasureList??[]).entries()){
+  if(bar+1<displayedRange.value.first||bar+1>displayedRange.value.last)continue;
+  for(const [index,measure] of staves.entries()){
+   const group=measure.getSVGGElement();
+   if(!group||!host.value.contains(group))continue;
+   const bounds=group.getBoundingClientRect();
+   if(clientX<bounds.left||clientX>bounds.right||clientY<bounds.top-50||clientY>bounds.bottom+50)continue;
+   const matrix=group.getScreenCTM();
+   const stave=(measure as GraphicalMeasure&{getVFStave():EngravedStave}).getVFStave();
+   if(!matrix||!stave)continue;
+   const {x,y}=new DOMPoint(clientX,clientY).matrixTransform(matrix.inverse());
+   const top=stave.getYForLine(0),bottom=stave.getYForLine(4);
+   const distance=Math.abs(y-(top+bottom)/2);
+   if(x<stave.getNoteStartX()-4||x>stave.getNoteEndX()+4||distance>(bottom-top)*1.5)continue;
+   candidates.push({bar,staff:index+1,measure,stave,x,steps:Math.round((bottom-y)*8/(bottom-top)),distance});
+  }
+ }
+ const target=candidates.sort((a,b)=>a.distance-b.distance)[0];
+ if(!target)return;
+ const {bar,staff,measure,stave,x,steps}=target;
+ const length=bar===0&&pick?pick:props.project.beats;
+ const columns=measure.staffEntries.flatMap(entry=>{
+  const beat=entry.relInMeasureTimestamp.RealValue*4;
+  if(!entry.graphicalVoiceEntries.some(voice=>voice.notes.some(({sourceNote})=>!sourceNote.isRest()||sourceNote.Length.RealValue*4<length)))return [];
+  const voice=entry.graphicalVoiceEntries.find(candidate=>Number.isFinite(candidate.noteHeadsCenterX));
+  const units=voice?voice.PositionAndShape.AbsolutePosition.x+voice.noteHeadsCenterX:entry.PositionAndShape.AbsolutePosition.x;
+  return [{x:units*10,beat}];
  });
- const staff=candidates.sort((a,b)=>Math.abs(event.clientY-a.ys[2])-Math.abs(event.clientY-b.ys[2]))[0];
- if(!staff)return;
- const spacing=(staff.ys[4]-staff.ys[0])/4;
- if(spacing<=0||Math.abs(event.clientY-staff.ys[2])>spacing*6)return;
- const anchors=[...notesByHead.entries()].filter(([head,n])=>staff.group.contains(head)&&Math.floor(n.start/props.project.beats)===measure-1);
- // Relative diatonic mapping from a known rendered note avoids assumptions
- // about clef, octave transposition and grand-staff ordering.
- if(!anchors.length)return;
- const nearest=anchors.sort(([a],[b])=>Math.abs(a.getBoundingClientRect().left-event.clientX)-Math.abs(b.getBoundingClientRect().left-event.clientX))[0];
- const rect=nearest[0].getBoundingClientRect(),reference=nearest[1];
- const steps=Math.round(((rect.top+rect.bottom)/2-event.clientY)/(spacing/2));
- const diatonic=[0,2,4,5,7,9,11],pc=((reference.pitch%12)+12)%12;
- let degree=diatonic.findIndex(p=>p===pc);if(degree<0)degree=diatonic.findIndex(p=>p===pc-1);
- if(degree<0)return;
- const pos=Math.floor(reference.pitch/12)*7+degree+steps;
- const pitch=Math.floor(pos/7)*12+diatonic[((pos%7)+7)%7];
- const beat=Math.max(0,Math.min(props.project.beats-.25,Math.round((event.clientX-staff.rect.left)/Math.max(1,staff.rect.width)*props.project.beats*4)/4));
- emit('insertAt',measure-1,beat,pitch);
+ const beat=scoreEntryBeat(x,columns,stave.getNoteStartX(),stave.getNoteEndX(),length,props.entryStep??.25);
+ const notation=entryNotation[bar];
+ if(!notation)return;
+ const pitch=scoreEntryPitch(notation,staff,steps,beat,props.project.transposeSemitones??0);
+ if(pitch===undefined)return;
+ const octaveShift=scoreEntryOctaveShift(notation,staff,beat);
+ const grandStaff:1|2|undefined=notation.clefs.size>1?(staff===2?2:1):undefined;
+ return {bar,staff,steps,beat:beat+props.project.beats-length,pitch,notation:{staff:grandStaff,octaveShift}};
 }
+function insertAtScorePoint(event:MouseEvent){
+ const target=scorePoint(event.clientX,event.clientY);
+ if(target)emit('insertAt',{bar:target.bar,beat:target.beat,pitch:target.pitch,notation:target.notation});
+}
+let movePointer:{id:number;note:Note;x:number;y:number;origin:NonNullable<ReturnType<typeof scorePoint>>;moved:boolean}|undefined;
+let suppressScoreClick=false;
+function scorePointerDown(event:PointerEvent){
+ if(rangeMode.value){rangeDown(event);return;}
+ suppressScoreClick=false;
+ if(!props.moveMode||!event.isPrimary||event.button!==0)return;
+ const head=eventHead(event),note=head&&notesByHead.get(head);
+ if(!note)return;
+ const origin=scorePoint(event.clientX,event.clientY);
+ if(origin)movePointer={id:event.pointerId,note,x:event.clientX,y:event.clientY,origin,moved:false};
+}
+function scorePointerMove(event:PointerEvent){
+ rangeMove(event);
+ if(movePointer?.id!==event.pointerId||movePointer.moved)return;
+ if(Math.hypot(event.clientX-movePointer.x,event.clientY-movePointer.y)<6)return;
+ movePointer.moved=true;
+ host.value?.setPointerCapture(event.pointerId);
+}
+function scorePointerUp(event:PointerEvent){
+ rangeUp(event);
+ const drag=movePointer;
+ if(drag?.id!==event.pointerId)return;
+ movePointer=undefined;
+ if(!drag.moved||!props.moveMode)return;
+ suppressScoreClick=true;
+ const destination=scorePoint(event.clientX,event.clientY);
+ if(!destination)return;
+ const dx=event.clientX-drag.x;
+ const beats=props.project.beats;
+ const timeDelta=Math.abs(dx)<5&&destination.bar===drag.origin.bar?0:
+  (destination.bar-drag.origin.bar)*beats+destination.beat-drag.origin.beat;
+ const staffChanged=destination.staff!==drag.origin.staff;
+ const octaveChanged=destination.notation.octaveShift!==drag.origin.notation.octaveShift;
+ const pitchDelta=!staffChanged&&!octaveChanged&&destination.steps===drag.origin.steps?0:destination.pitch-drag.note.pitch;
+ if(timeDelta||pitchDelta||staffChanged)emit('moveNote',drag.note,drag.note.start+timeDelta,pitchDelta,staffChanged||octaveChanged?destination.notation:undefined);
+}
+function cancelScorePointer(){
+ if(movePointer?.moved)suppressScoreClick=true;
+ movePointer=undefined;
+ cancelRange();
+}
+watch(()=>props.moveMode,enabled=>{if(!enabled)cancelScorePointer();});
 function onScoreClick(event:MouseEvent){
+ if(suppressScoreClick){suppressScoreClick=false;return;}
   if(rangeMode.value||rangeMoved||rangeHeld){rangeMoved=false;rangeHeld=false;return;}
   const head=eventHead(event);
   if(head){chooseHead(head);return;}
@@ -351,6 +415,7 @@ function onScoreClick(event:MouseEvent){
 }
 
 function onScoreKey(event:KeyboardEvent){
+ if(event.key==='Escape'&&movePointer){event.preventDefault();event.stopPropagation();cancelScorePointer();return;}
   const head=eventHead(event);
   if(!head)return;
   if(event.key==='Enter'||event.key===' '){event.preventDefault();chooseHead(head);return;}
@@ -419,6 +484,7 @@ async function reloadScore(){
     await renderer.load(xml);
     if(current!==generation)return;
     notesByColor=colors.byColor;
+    entryNotation=readScoreEntryNotation(new DOMParser().parseFromString(xml,'text/xml'));
     loaded=true;
     renderRange();
   }catch(cause){
@@ -475,7 +541,7 @@ onMounted(()=>{
 
 onBeforeUnmount(()=>{
   window.removeEventListener('tango-score-appearance',syncScoreAppearance);
-  generation++;cancelRange();
+  generation++;cancelScorePointer();
   if(contentTimer)clearTimeout(contentTimer);
   if(layoutTimer)clearTimeout(layoutTimer);
   cancelAnimationFrame(layoutFrame);
@@ -494,8 +560,8 @@ onBeforeUnmount(()=>{
     <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><span class="score-range-status" role="status">Measures {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</span><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
-    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode}" :aria-busy="loading"
-      :tabindex="followMeasure?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':undefined" @pointerdown="rangeDown" @pointermove="rangeMove" @pointerup="rangeUp" @pointercancel="cancelRange" @lostpointercapture="cancelRange" @click="onScoreClick" @keydown="onScoreKey" />
+    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode,'score-move-mode':moveMode}" :aria-busy="loading"
+      :tabindex="followMeasure?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':undefined" @pointerdown="scorePointerDown" @pointermove="scorePointerMove" @pointerup="scorePointerUp" @pointercancel="cancelScorePointer" @lostpointercapture="cancelScorePointer" @click="onScoreClick" @keydown="onScoreKey" />
   </section>
 </template>
 
@@ -514,6 +580,7 @@ onBeforeUnmount(()=>{
 .score-preview-expanded .score-preview-canvas :deep(svg){margin-inline:auto}
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
 .score-preview-interactive :deep(.score-notehead){cursor:pointer}
+.score-move-mode :deep(.score-notehead){cursor:grab;touch-action:none}
 .score-preview-canvas :deep(.score-note-completed),.score-preview-canvas :deep(.score-note-completed [fill]){fill:#24724f}
 .score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#176773}
 .score-preview-canvas :deep(.score-note-playing),.score-preview-canvas :deep(.score-note-playing [fill]){fill:#006d79}

@@ -11,13 +11,20 @@ export type EditSelection=
  |{kind:'range';fromBeat:number;toBeat:number}
  |{kind:'phrase';measure:number}
  |{kind:'part'};
-export type NoteGeometryEdit={start:number;duration:number;pitchDelta:number};
-export type NoteEntryEdit={bar:number;beat:number;pitch:number;articulation?:Note['articulation'];rhythm?:{preset:RhythmPreset;originalBeat:number;accent:boolean}};
+export type NoteNotationEdit={staff?:1|2;octaveShift:number};
+export type NoteGeometryEdit={start:number;duration:number;pitchDelta:number;notation?:NoteNotationEdit};
+export type NoteEntryEdit={bar:number;beat:number;pitch:number;notation?:NoteNotationEdit;articulation?:Note['articulation'];rhythm?:{preset:RhythmPreset;originalBeat:number;accent:boolean}};
 export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:NoteEntryEdit;geometry?:NoteGeometryEdit;details?:{before:Note;after:Note};snapPreset?:RhythmPreset};
 export type MusicalEditChanges={added:Note[];modified:{before:Note;after:Note}[];deleted:Note[]};
 export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[];changes:MusicalEditChanges};
 const onsetPitchKey=(n:Note)=>n.start+':'+n.pitch;
 export const editNoteKey=(n:Note)=>n.editId?`id:${n.editId}`:onsetPitchKey(n);
+
+function applyNoteNotation(note:Note,notation:NoteNotationEdit|undefined){
+ if(!notation)return;
+ if(notation.staff){note.staffOverride=notation.staff;note.xmlStaff=notation.staff;}
+ if(notation.octaveShift)note.xmlOctaveShift=notation.octaveShift;else delete note.xmlOctaveShift;
+}
 
 /** Legacy notes can share the same onset and pitch, or a copied note ID.
  * Disambiguate within the part until an edit gives that note its own ID. */
@@ -165,12 +172,13 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const sorted=[...chosen].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  if(category==='create'&&value==='insert'){
   if(!ctx.entry)throw Error('Choose a pitch and onset first');
-  const {bar,beat,pitch,articulation,rhythm}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
+  const {bar,beat,pitch,articulation,rhythm,notation}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
   if(!Number.isInteger(bar)||!p.bars[bar]||!Number.isFinite(beat)||beat<0||beat>=beats||!Number.isInteger(pitch)||pitch!==bound(pitch))
    throw Error('Note entry is outside the measure or instrument range');
   if(notes.some(n=>n.pitch===pitch&&Math.abs(n.start-bar*beats-beat)<1e-6))throw Error('A note already exists at that onset and pitch');
   const defaults=ctx.role?{...p,measureRoles:{...p.measureRoles,[inst+':'+bar]:ctx.role}}:p;
   const added=suggestedEditorNote(defaults,inst,bar,beat,pitch,ctx.duration);
+  applyNoteNotation(added,notation);
   if(articulation){added.articulation=articulation;added.accent=articulation==='marcato_staccato';delete added.gate;}
   if(rhythm)added.rhythmSource={kind:'preset',...rhythm,targetBeat:beat,targetDuration:added.duration};
   result=[added];
@@ -243,12 +251,13 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
     n.duration=Math.min(total-n.start,value==='dot'?n.duration*1.5:value==='triplet'?n.duration*2/3:value==='double'?n.duration*2:value==='half'?n.duration/2:Number(value));delete n.rhythmSource;
    }else if(category==='timing'){
     if(geometry){
-     const {start,duration,pitchDelta}=ctx.geometry!;
+     const {start,duration,pitchDelta,notation}=ctx.geometry!;
      const pitch=n.pitch+pitchDelta;
      if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<=0||start+duration>total+1e-8||!Number.isInteger(pitch)||pitch!==bound(pitch))
       throw Error('Note would leave the song or instrument range');
      movePitch(n,pitch);
      n.start=start;n.duration=duration;
+     applyNoteNotation(n,notation);
      n=clearRhythmSourceIfRetimed(original,n,beats);
     }else if(value==='short'||value==='full')n.gate=value==='short'?.5:1;
     else{n.start=Math.max(0,Math.min(total-n.duration,value==='quantize'?Math.round(n.start*4)/4:n.start+Number(value)));delete n.rhythmSource;}
