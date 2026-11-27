@@ -1929,7 +1929,9 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .home-activities .editor{display:flex;flex-direction:column;gap:8px;margin:0;min-width:0}
 .home-activities h2,.home-workspace h2{margin-top:0}
 .home-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.home-workspace .home-actions button{min-height:44px!important}
+.home-workspace > .editor{min-width:0}
+.home-workspace .home-actions button{min-height:44px!important;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .home-song-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 0;border-top:1px solid currentColor;border-top-color:color-mix(in srgb,currentColor 18%,transparent)}
+.home-song-row > div:first-child{min-width:0;max-width:100%;overflow-wrap:anywhere}
 .home-song-row small{display:block;opacity:.75;margin-top:3px}
 @media(max-width:760px){.home-activities{grid-template-columns:1fr}.home-song-row .home-actions{width:100%}.home-song-row .home-actions button{flex:1}}

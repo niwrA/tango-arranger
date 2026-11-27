@@ -110,6 +110,13 @@ async function run(){
   assert.match(app,/else\{localSongId.value='';rememberOpenedSongId\(''\);showHome\(\);\}/);
   assert.match(app,/if\(localSongId.value\)void flushAutosave\(\)/);
   console.log('PASS startup restores saved songs, and empty Home has no implicit draft');
+  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+  for(const [activity,label] of [['arrange','Continue'],['practice','Practise'],['perform','Perform']]){
+    assert.ok(app.includes(`@click="homeChooseSong(localSongId,'${activity}')">${label} · {{project.title.trim()||'Untitled tango'}}`));
+  }
+  assert.match(css,/\.home-workspace \.home-actions button\{[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/);
+  assert.match(css,/\.home-song-row > div:first-child\{[^}]*max-width:100%[^}]*overflow-wrap:anywhere/);
+  console.log('PASS Home shortcuts name the current song and can wrap long titles');
   assert.match(app,/async function auditionPitch/);
   assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
