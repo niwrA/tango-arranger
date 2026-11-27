@@ -1,7 +1,8 @@
+import {bandoneonModelForPart} from './bandoneon';
 import {transposeTangoGesture,type TangoGesture} from './tangoGestures';
-import {noteSoundingDuration,stringGlissandoPlayback,noteSoundingVelocity,type Note,type ExpressionRange,type Instrument,type Project,measureDynamicVelocity,melodyDuckingFactor,DYNAMIC_VELOCITIES} from './music';
+import {partStaffForNote,noteSoundingDuration,stringGlissandoPlayback,noteSoundingVelocity,type Note,type ExpressionRange,type Instrument,type Project,measureDynamicVelocity,melodyDuckingFactor,DYNAMIC_VELOCITIES} from './music';
 
-export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number};
+export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number;bandoneonStaff?:1|2};
 /** Build one instrument-measure's loop events, preserving absolute-score note positions.
  * Times are relative to the selected measure. The sounding gate, not the written
  * note duration, controls audio. Long tails are clipped at the loop boundary. */
@@ -27,8 +28,10 @@ export function measureLoopEvents(notes:readonly Note[],measureIndex:number,beat
       const initial=mark===undefined?noteSoundingVelocity(n):mark;
       const startVelocity=Math.max(1,Math.min(127,Math.round((project&&instrument?measureDynamicVelocity(project,instrument,n.start,scaled(n.start,initial)):scaled(n.start,initial))*duck))); 
       const endVelocity=Math.max(1,Math.min(127,Math.round((n.swellTo??(project&&instrument?measureDynamicVelocity(project,instrument,n.start+soundingBeats-0.0001,scaled(n.start+soundingBeats,initial)):scaled(n.start+soundingBeats,initial)))*duck))); 
+      const pitch=Math.max(0,Math.min(127,n.pitch+transpose));
       return {
-        pitch:Math.max(0,Math.min(127,n.pitch+transpose)),
+        pitch,
+        ...(instrument?.startsWith('Bandoneon')?{bandoneonStaff:partStaffForNote({...n,pitch},instrument,project?.pianoSplitPitch??60,0,bandoneonModelForPart(project,instrument))}:{}),
         onsetSeconds:offset*secondsPerBeat,
         durationSeconds:Math.max(0.025,soundingBeats*secondsPerBeat),
         velocity:startVelocity,

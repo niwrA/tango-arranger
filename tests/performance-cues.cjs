@@ -125,13 +125,7 @@ check('harmonic cues follow intra-measure changes and current measure beats',()=
  assert.match(app,/<PerformanceRoleCues[^>]*:chord="performanceHarmony.chord" :next-chord="roleCueHarmony.chord"/);
 });
 check('stage harmony follows actual chord changes, transposition and score boundaries',()=>{
- const musicSource=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
- const musicJs=ts.transpileModule(musicSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const musicMod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${musicJs}\n})`,{console})(
-  (_module)=>({}),musicMod,musicMod.exports
- );
- const {stageHarmonyAt}=musicMod.exports;
+ const {stageHarmonyAt}=require('./load-domain.cjs').createDomainLoader()('src/music.ts');
  const project={beats:4,sectionKeys:{A:'C'},bars:[
   {section:'A',chord:'C,G7'},{section:'A',chord:'G7'},{section:'A',chord:'Am'}
  ]};
@@ -186,15 +180,10 @@ check('stage title is shortened only in presentation, with full name preserved a
  assert.ok(app.includes('.performance-live .app-topbar .brand{display:none!important}'));
 });
 check('mixed-case Maj7 chord highlights the major seventh rather than dominant seventh',()=>{
- const musicSource=fs.readFileSync(path.join(root,'src/music.ts'),'utf8');
- const musicJs=ts.transpileModule(musicSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
- const musicMod={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${musicJs}\n})`,{console})(
-  (_module)=>({}),musicMod,musicMod.exports
- );
- const tones=Array.from(musicMod.exports.chordTones('GMaj7'));
+ const {chordTones}=require('./load-domain.cjs').createDomainLoader()('src/music.ts');
+ const tones=Array.from(chordTones('GMaj7'));
  assert.deepEqual(tones,[7,11,2,6]);
- assert.deepEqual(Array.from(musicMod.exports.chordTones('G7')),[7,11,2,5]);
+ assert.deepEqual(Array.from(chordTones('G7')),[7,11,2,5]);
 });
 check('per-part chord diagrams highlight sounding notes and dim only unplayed chord voicings',()=>{
  const diagram=fs.readFileSync(path.join(root,'src/PerformanceChordDiagram.vue'),'utf8');

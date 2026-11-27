@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import {bandoneonModelForPart} from './bandoneon';
 import {parseMusicXmlDetailed} from './musicXmlImport';
 import {tempoAutomationPoints,normalizedTempoExpressions} from './tempoExpressions';
 import {EDITION_LEVELS,assembleEditionScore,currentEditionLevel,getEditionInfo,snapshotActiveEditions,type EditionChoice} from './editions';
@@ -132,7 +133,7 @@ function legatoPassageStarts(notes:readonly Note[]):ReadonlySet<number>{
 function grandStaffNotes(p:Project,inst:Instrument,notes:Note[]):[Note[],Note[]]{
   const staves:[Note[],Note[]]=[[],[]];
   for(const note of notes){
-    const staff=partStaffForNote(note,inst,p.pianoSplitPitch??60,p.transposeSemitones??0);
+    const staff=partStaffForNote(note,inst,p.pianoSplitPitch??60,p.transposeSemitones??0,bandoneonModelForPart(p,inst));
     staves[staff-1].push(note);
   }
   return staves;
@@ -349,7 +350,9 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       .slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
     // Allocate overlapping notes to independent voices rather than silently discarding them.
     const renderStaff=(staffIndex:number)=>{
-    const notes=(inst.startsWith('Piano')||(inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]))?allNotes.filter(n=>(pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===1)===(staffIndex===0)):allNotes;
+    const notes=inst.startsWith('Bandoneon')&&p.bandoneonGrandStaff?.[inst]
+      ?allNotes.filter(n=>partStaffForNote(n,inst,p.pianoSplitPitch??60,p.transposeSemitones??0,bandoneonModelForPart(p,inst))===staffIndex+1)
+      :inst.startsWith('Piano')?allNotes.filter(n=>pianoStaffForPitch(n.pitch,p.pianoSplitPitch??60)===staffIndex+1):allNotes;
     // The score's duration is the sole authority for notation. Playback
     // gates and articulations must never rewrite it during export.
     // Simultaneous equal-duration notes belong to ONE chord, not separate

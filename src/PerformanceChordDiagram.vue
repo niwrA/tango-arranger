@@ -257,7 +257,7 @@ const diagramDescription=computed(()=>{
        <span v-if="!bandoneonHands?.[hand].length" class="diagram-hand-rest">Rest</span>
       </div>
      </div>
-     <small v-if="bandoneonHands?.inferred">Register split used for notes without staff assignments</small>
+     <small v-if="bandoneonHands?.inferred">Hand inferred from the layout and register when no staff is assigned</small>
    </div>
    <div v-else class="diagram-targets" :class="'diagram-family-'+family.toLowerCase()" aria-label="Concert-pitch chord tone targets">
      <div class="diagram-targets-graphic" aria-hidden="true">

@@ -726,6 +726,8 @@ main{width:100%;max-width:none;padding:26px clamp(16px,2.5vw,48px) 70px}
 .structure-tab .roster-management button{padding:6px 9px;font-size:12px}
 .structure-tab .roster-parts{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:5px;padding:6px;margin:2px 0 10px;overflow:visible}
 .structure-tab .roster-parts .role-row{display:flex;align-items:center;gap:5px;min-width:0;padding:5px 7px;border:1px solid #35414c;border-radius:7px}
+.structure-tab .roster-parts .role-row:has(.bandoneon-model-select){flex-wrap:wrap}
+.structure-tab .roster-parts .bandoneon-model-select{flex:1 1 155px;min-width:0;margin:0}
 .structure-tab .roster-parts .role-row strong{flex:1;min-width:0;font-size:12px;overflow-wrap:anywhere}
 .structure-tab .roster-parts .role-row button{padding:4px 7px;flex:none}
 @media(max-width:520px){.structure-tab .roster-parts{grid-template-columns:1fr}.structure-tab .roster-management .two{grid-template-columns:1fr}}

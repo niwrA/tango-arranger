@@ -1,3 +1,9 @@
+## Bandoneon layouts and reed synthesis (2026-11-27)
+
+- Choose a documented bandoneon keyboard layout per part in **Structure, Keys & Ensemble → Ensemble**. Existing projects default to 142 Rheinische. The layout describes the pitches available on each hand across both bellows directions, not whether a whole chord fits one direction or hand position.
+- Remove the two unplayable D1 pedals from the bundled *Hasta Siempre Amor* example, preserving playable low D2 notes and existing saved copies.
+- Use one synthesized octave-paired reed voice for bandoneon attacks, sustains and swells. Left and right hands have different tone colours, and pressure changes loudness and brightness without switching to a harmonium sample.
+
 ## Violin pizzicato routing (2026-11-26)
 
 - Inherit the orchestration pizzicato style when an imported violin note has no explicit technique, preserving explicit arco and bowed gestures. All thirteen upstream violin WAV anchors were verified.

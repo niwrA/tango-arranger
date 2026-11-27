@@ -1,4 +1,4 @@
-import {adaptTransposedScore,chordAt,chordTones,keyPitchClasses,noteEditorContext,instrumentRange,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,combineNoteAttacks,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
+import {adaptTransposedScore,chordAt,chordTones,keyPitchClasses,noteEditorContext,writtenInstrumentRange,writtenInstrumentPitchPlayable,instrumentFamily,replaceInstrumentMeasure,suggestedEditorNote,generate,combineNoteAttacks,DYNAMIC_VELOCITIES,type Project,type Score,type Note,type Instrument,type Role,type DynamicMark} from './music';
 import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhythmEditor';
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
 import {createPhrasePlan,phraseAt} from './phrasePlan';
@@ -171,9 +171,10 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const transformed=new Map<Note,Note>();
  const replacementEnds=new Map<Note,Note>();
  let next:Project={...p},result:Note[]=[],kept:Note[]=notes.filter(n=>!selected.has(n));
- const range=instrumentRange(inst);
+ const range=writtenInstrumentRange(inst,p);
+ const playable=(pitch:number)=>writtenInstrumentPitchPlayable(inst,pitch,p);
+ const nearest=(pitch:number,pcs:number[])=>Array.from({length:range[1]-range[0]+1},(_,i)=>i+range[0]).filter(n=>pcs.includes(n%12)&&playable(n)).sort((a,b)=>Math.abs(a-pitch)-Math.abs(b-pitch)||a-b)[0]??pitch;
  const bound=(pitch:number)=>Math.max(range[0],Math.min(range[1],pitch));
- const nearest=(pitch:number,pcs:number[])=>Array.from({length:range[1]-range[0]+1},(_,i)=>i+range[0]).filter(n=>pcs.includes(n%12)).sort((a,b)=>Math.abs(a-pitch)-Math.abs(b-pitch)||a-b)[0]??pitch;
  const sorted=[...chosen].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  if(fingeringPlan||bowPlan){
   if(!sorted.length)throw Error('Select a passage with notes');
@@ -220,7 +221,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  }else if(category==='create'&&value==='insert'){
   if(!ctx.entry)throw Error('Choose a pitch and onset first');
   const {bar,beat,pitch,articulation,rhythm,notation}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
-  if(!Number.isInteger(bar)||!p.bars[bar]||!Number.isFinite(beat)||beat<0||beat>=beats||!Number.isInteger(pitch)||pitch!==bound(pitch))
+  if(!Number.isInteger(bar)||!p.bars[bar]||!Number.isFinite(beat)||beat<0||beat>=beats||!playable(pitch))
    throw Error('Note entry is outside the measure or instrument range');
   if(notes.some(n=>n.pitch===pitch&&Math.abs(n.start-bar*beats-beat)<1e-6))throw Error('A note already exists at that onset and pitch');
   const defaults=ctx.role?{...p,measureRoles:{...p.measureRoles,[inst+':'+bar]:ctx.role}}:p;
@@ -300,7 +301,7 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
     if(geometry){
      const {start,duration,pitchDelta,notation}=ctx.geometry!;
      const pitch=n.pitch+pitchDelta;
-     if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<=0||start+duration>total+1e-8||!Number.isInteger(pitch)||pitch!==bound(pitch))
+     if(!Number.isFinite(start)||!Number.isFinite(duration)||start<0||duration<=0||start+duration>total+1e-8||!playable(pitch))
       throw Error('Note would leave the song or instrument range');
      movePitch(n,pitch);
      n.start=start;n.duration=duration;
