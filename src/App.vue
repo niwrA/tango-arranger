@@ -46,7 +46,6 @@ const runningAppBuild=import.meta.env.VITE_APP_BUILD_SHA||'';
 const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayBuild=appBuildId||'unknown build';
 import changelogMarkdown from '../CHANGELOG.md?raw';
-import {createElChocloStudy} from './presets/el-choclo';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,instrumentPitchPlayable,writtenInstrumentRange,writtenInstrumentPitchPlayable,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
@@ -56,7 +55,8 @@ import {noteGridSpan,noteGridViewport,NOTE_GRID_CELL_PX,NOTE_GRID_LABEL_PX,type 
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent,type ExpressiveEvent} from './expressiveAudio';
-import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain,type BandoneonVoice} from './bandoneonAudio';
+import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain} from './bandoneonAudio';
+import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide,stopVoiceGuide,setVoiceGuideGain,type VoiceGuideHandle} from './voiceGuideAudio';
 import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
@@ -89,6 +89,11 @@ import {moveLeadSectionStart,insertSectionBoundary,removeSectionBoundary} from '
 import {previewLeadSheetImport,projectFromLeadSheet,arrangeImportedSections,type LeadImportPreview} from './leadSheetImport';
 // Local-first autosave: each song has a stable ID independent of its (editable) title.
 const localSongId=ref('');
+const homeOpen=ref(true);
+const libraryLoading=ref(true);
+const homeBusy=ref(false);
+const homePracticePick=ref(false);
+const homeError=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
 const libraryReady=ref(false);
 const saveStatus=ref('Opening local song library…');
@@ -115,7 +120,7 @@ function persistCurrent():Promise<void>{
   return saveQueue;
 }
 function scheduleAutosave(){
-  if(!libraryReady.value)return;
+  if(!libraryReady.value||!localSongId.value)return;
   editVersion++;
   if(autosaveTimer)clearTimeout(autosaveTimer);
   saveStatus.value='Unsaved edits…';
@@ -155,7 +160,8 @@ function stopPlayback(){
   safeRelease(()=>synth?.releaseAll());
   if(typeof stopArcoSustain==='function')safeRelease(()=>stopArcoSustain());
   if(typeof stopBandoneonVoices==='function'&&typeof Tone!=='undefined'&&Tone)safeRelease(()=>stopBandoneonVoices(Tone.getContext().rawContext as AudioContext));
-  if(typeof captureBandoneonVoices!=='undefined')captureBandoneonVoices.clear();
+  if(typeof stopVoiceGuide==='function'&&typeof Tone!=='undefined'&&Tone)safeRelease(()=>stopVoiceGuide(Tone.getContext().rawContext as AudioContext));
+  if(typeof captureModeledVoices!=='undefined')captureModeledVoices.clear();
   for(const voice of instrumentSynths.values())safeRelease(()=>voice.releaseAll());
   for(const voice of samplePlayers.values())safeRelease(()=>voice.releaseAll());
   if(typeof pizzicatoPlayers!=='undefined')for(const voice of [...pizzicatoPlayers.values(),...pizzicatoAlternates.values(),...pizzicatoSoftPlayers.values()])safeRelease(()=>voice.releaseAll());
@@ -184,13 +190,16 @@ function selectProjectInEditor(p:Project){
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
   if(libraryReady.value){await saveLocalSong(id,p);await refreshLocalSongs();}
-  localSongId.value=id;rememberOpenedSongId(id);selectProjectInEditor(p);
+  localSongId.value=id;rememberOpenedSongId(id);selectProjectInEditor(p);homeOpen.value=false;
 }
 async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
+  select.value=localSongId.value;
+  await openSongById(id);
+}
+async function openSongById(id:string){
   if(id==='__example_tigre_viejo__'){
-    select.value=localSongId.value;
     try{
       await flushAutosave();
       const {default:url}=await import('./presets/tigre-viejo-bowed-expression.tango.zip?url');
@@ -205,7 +214,6 @@ async function chooseSongFromPicker(event:Event){
     return;
   }
   if(id==='__example_pequena_2__'||id==='__example_la_melodia__'||id==='__example_hasta_siempre__'){
-    select.value=localSongId.value;
     try{
       await flushAutosave();
       const {default:source}=id==='__example_pequena_2__'
@@ -218,18 +226,6 @@ async function chooseSongFromPicker(event:Event){
       active.value='arrange';
       message.value=`Opened a new editable copy of ${study.title} (${study.bars.length} measures).`;
     }catch(error){message.value=`Could not open built-in song: ${String(error)}`;}
-    return;
-  }
-  if(id==='__example_el_choclo__'){
-    // Reset the native picker while the asynchronous copy is being created.
-    select.value=localSongId.value;
-    try{
-      await flushAutosave();
-      const study=createElChocloStudy();
-      await adoptLocalSong(study);
-      active.value='arrange';
-      message.value='Opened a new editable El Choclo orchestral study (32 measures, 4/4). Melody/harmony adapted from the earlier ABC transcription; orchestration generated with current features, not a historical score.';
-    }catch(error){message.value=`Could not create El Choclo study: ${String(error)}`;}
     return;
   }
   await openLocalSong(id);
@@ -250,14 +246,14 @@ async function duplicateLocalSong(){
   catch(error){message.value=`Could not duplicate song: ${String(error)}`;}
 }
 async function deleteCurrentLocalSong(){
-  if(!libraryReady.value)return;
+  if(!libraryReady.value||!localSongId.value)return;
   if(!window.confirm(`Permanently delete "${project.value.title||'Untitled Tango'}" from this browser? Export a .tango.json backup first if needed.`))return;
   try{
     await flushAutosave();const id=localSongId.value;
     await deleteLocalSong(id);await refreshLocalSongs();
     const next=localSongs.value[0];
     if(next){const loaded=await readLocalSong(next.id);if(!loaded)throw Error('Next song is unavailable');localSongId.value=next.id;rememberOpenedSongId(next.id);selectProjectInEditor(loaded);}
-    else{await adoptLocalSong(setProjectRoster(blankProject(),getDefaultRoster()));}
+    else{localSongId.value='';rememberOpenedSongId('');showHome();}
     saveStatus.value='Local song deleted';message.value='Deleted selected song from this browser. Other songs are unchanged.';
   }catch(error){message.value=`Delete failed: ${String(error)}`;}
 }
@@ -279,9 +275,11 @@ async function initializeLocalLibrary(){
        }catch{/* Storage unavailable. */}
        message.value=`Restored ${saved.title} from this browser's local library.`;
      }}
-    if(!localSongId.value){const fresh=newLocalSongId();await saveLocalSong(fresh,project.value);localSongId.value=fresh;await refreshLocalSongs();}
+    homeOpen.value=!localSongId.value;
+    if(homeOpen.value)performanceMode.value=false;
     rememberOpenedSongId(localSongId.value);libraryReady.value=true;saveStatus.value='Autosave on · stored in this browser';
-  }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';}
+  }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';homeOpen.value=true;performanceMode.value=false;}
+  finally{libraryLoading.value=false;}
 }
 // Keep topical menus mutually exclusive and close them after an action or outside click.
 function onTopbarMenuToggle(event:Event){
@@ -839,6 +837,7 @@ function resetProjectHistory(){
   historyBaseline=snapshotProject(project.value);
 }
 function handleHistoryShortcut(event:KeyboardEvent){
+  if(homeOpen.value)return;
   if(!(event.ctrlKey||event.metaKey)||event.altKey||event.key.toLowerCase()!=='z')return;
   const target=event.target as HTMLElement|null;
   // Let native undo work while typing in text fields.
@@ -1411,7 +1410,7 @@ function reprocessInstrumentTiming(raw=false):void{
 type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number;stringMidi?:number}>();
 const captureMonitorPitches=new Set<number>();
-const captureBandoneonVoices=new Map<number,BandoneonVoice>();
+const captureModeledVoices=new Map<number,Pick<VoiceGuideHandle,'release'>>();
 const captureHeldDisplay=ref<number[]>([]);
 function heldCaptureKeysHasPitch(pitch:number){return [...heldCaptureKeys.values()].some(held=>held.pitch===pitch);}
 function updateCaptureHeldDisplay(){captureHeldDisplay.value=[...heldCaptureKeys.values()].map(held=>held.pitch);}
@@ -1423,9 +1422,9 @@ function monitorCapturePitch(pitch:number){
  if(!Tone||captureMonitorPitches.has(pitch))return;
  captureMonitorPitches.add(pitch);
  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
- if(noteInst.value.startsWith('Bandoneon')){
-  const voice=renderBandoneon(noteInst.value,{pitch:transposed,durationSeconds:1,velocity:91},Tone.now(),undefined,undefined,true);
-  if(voice)captureBandoneonVoices.set(pitch,voice);
+ if(usesModeledAudio(noteInst.value)){
+  const voice=renderModeledPart(noteInst.value,{pitch:transposed,durationSeconds:1,velocity:91},Tone.now(),undefined,undefined,true);
+  if(voice)captureModeledVoices.set(pitch,voice);
   return;
  }
  ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
@@ -1433,8 +1432,8 @@ function monitorCapturePitch(pitch:number){
 function releaseCaptureMonitorPitch(pitch:number){
  if(heldCaptureKeysHasPitch(pitch)||!captureMonitorPitches.has(pitch))return;
  captureMonitorPitches.delete(pitch);
- const reed=captureBandoneonVoices.get(pitch);
- if(reed){reed.release();captureBandoneonVoices.delete(pitch);return;}
+ const modeled=captureModeledVoices.get(pitch);
+ if(modeled){modeled.release();captureModeledVoices.delete(pitch);return;}
  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
  if(Tone)captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
 }
@@ -1600,8 +1599,8 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
-          if(inst.startsWith('Bandoneon'))
-            renderBandoneon(inst,{...event,durationSeconds:duration,velocity:event.velocity*.8,endVelocity:event.endVelocity===undefined?undefined:event.endVelocity*.8},onset,event.bandoneonStaff);
+          if(usesModeledAudio(inst))
+            renderModeledPart(inst,{...event,durationSeconds:duration,velocity:event.velocity*.8,endVelocity:event.endVelocity===undefined?undefined:event.endVelocity*.8},onset,event.bandoneonStaff);
           else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
             playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
@@ -1929,7 +1928,7 @@ function capturePianoKey(event:PointerEvent,pitch:number){
  try{(event.currentTarget as HTMLElement).setPointerCapture(id);}catch{/* Released before capture. */}
  // A sounding voice is owned by pitch, not a particular touch. A second
  // pointer holding the same note cannot release it prematurely.
- if(Tone&&(captureKeySynth||noteInst.value.startsWith('Bandoneon')))monitorCapturePitch(pitch);
+ if(Tone&&(captureKeySynth||usesModeledAudio(noteInst.value)))monitorCapturePitch(pitch);
  else void startAudioFromGesture().then(tone=>{
   Tone=tone;
   if(!heldCaptureKeys.has(id))return;
@@ -2260,7 +2259,7 @@ async function auditionPitchPreview():Promise<void>{
    const sounding=n.pitch+(project.value.transposeSemitones??0);
    if(sounding<0||sounding>127)continue;
    const duration=Math.max(0.07,n.durationBeats*secondsPerBeat*0.9),time=origin+n.startBeat*secondsPerBeat;
-   if(noteInst.value.startsWith('Bandoneon'))renderBandoneon(noteInst.value,{pitch:sounding,durationSeconds:duration,velocity:83},time);
+   if(usesModeledAudio(noteInst.value))renderModeledPart(noteInst.value,{pitch:sounding,durationSeconds:duration,velocity:83},time);
    else voice.triggerAttackRelease(Tone.Frequency(sounding,'midi').toFrequency(),duration,time,0.65);
   }
   pitchPostprocessStatus.value='Auditioning the proposal with its original rests and note positions.';
@@ -2349,7 +2348,7 @@ async function auditionDraft(notes:Array<CapturedMelodyNote&{startBeat?:number}>
    const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));
    const startBeat=n.startBeat??nextBeat,duration=n.duration*secondsPerBeat;
    const sounding=Math.max(0.01,duration*0.9),time=origin+startBeat*secondsPerBeat;
-   if(noteInst.value.startsWith('Bandoneon'))renderBandoneon(noteInst.value,{pitch,durationSeconds:sounding,velocity:89},time);
+   if(usesModeledAudio(noteInst.value))renderModeledPart(noteInst.value,{pitch,durationSeconds:sounding,velocity:89},time);
    else synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),sounding,time,0.7);
    nextBeat=startBeat+n.duration;
   }
@@ -3813,7 +3812,7 @@ async function importFile(e:Event){
     }
     if(/\.tango(?:\.json|\.zip)?$/i.test(file.name)){
       await flushAutosave();const imported=await loadProject(file);await adoptLocalSong(imported);
-      structureOpen.value=false;message.value='Portable project imported as a separate local song.';closeImportDialog();
+      structureOpen.value=false;active.value='arrange';message.value='Portable project imported as a separate local song.';closeImportDialog();
     }else{
       const result=await readScoreImport(file),parsed=result.parsed;
       pendingParsed.value=parsed;pendingSourceName.value=file.name;pendingSourceXml.value=result.sourceXml;
@@ -3903,8 +3902,8 @@ const instrumentSynths=new Map<string,PolySynth>();
 function instrumentSynth(inst:string):PolySynth{
   const existing=instrumentSynths.get(inst);if(existing)return existing;
   const name=inst.toLowerCase();
-  const oscillator=name.includes('violin')||name.includes('voice')?'sawtooth':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
-  const attack=name.includes('violin')?0.08:name.includes('voice')?0.09:0.008;
+  const oscillator=name.includes('violin')?'sawtooth':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
+  const attack=name.includes('violin')?0.08:0.008;
   const release=name.includes('violin')?0.32:name.includes('bass')?0.18:0.12;
   const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:name.includes('violin')?0.045:0.12,sustain:name.includes('violin')?0.93:0.72,release}}).toDestination();
   voice.volume.value=-7+instrumentGainDb(inst);
@@ -3931,12 +3930,16 @@ function updateInstrumentGain(inst:string,event:Event){
  const sampler=samplePlayers.get(inst);if(sampler)sampler.volume.value=-5+instrumentGainDb(inst);
  setArcoSustainGain(inst,-5+instrumentGainDb(inst));
  if(Tone&&inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+ if(Tone&&isVoiceGuidePart(inst))setVoiceGuideGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers]){const pizz=players.get(inst);if(pizz)pizz.volume.value=-5+instrumentGainDb(inst);}
  const voice=instrumentSynths.get(inst);if(voice)voice.volume.value=-7+instrumentGainDb(inst);
 }
 function resetInstrumentMix(){
  instrumentMix.value={};
- if(Tone)for(const inst of projectInstruments(project.value))if(inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+ if(Tone)for(const inst of projectInstruments(project.value)){
+  if(inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+  if(isVoiceGuidePart(inst))setVoiceGuideGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+ }
  try{localStorage.removeItem(mixStorageKey);}catch{/* Storage unavailable. */}
  for(const [inst,sampler] of samplePlayers){sampler.volume.value=-5+instrumentGainDb(inst);setArcoSustainGain(inst,-5+instrumentGainDb(inst));}
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,sampler] of players)sampler.volume.value=-5+instrumentGainDb(inst);
@@ -3951,7 +3954,11 @@ function focusInstrumentAudible(inst:string):boolean{
 function setFocusMonitorMode(mode:'solo'|'mute'){
  focusMonitorMode.value=focusMonitorMode.value===mode?'all':mode;
  stopArcoSustain(inst=>!focusInstrumentAudible(inst));
- if(Tone)stopBandoneonVoices(Tone.getContext().rawContext as AudioContext,inst=>!focusInstrumentAudible(inst));
+ if(Tone){
+  const context=Tone.getContext().rawContext as AudioContext;
+  stopBandoneonVoices(context,inst=>!focusInstrumentAudible(inst));
+  stopVoiceGuide(context,inst=>!focusInstrumentAudible(inst));
+ }
  for(const [inst,voice] of instrumentSynths)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const [inst,voice] of samplePlayers)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,voice] of players)if(!focusInstrumentAudible(inst))voice.releaseAll();
@@ -3966,7 +3973,7 @@ const pizzicatoSoftPlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
 const pizzicatoAttackIndices=new Map<string,number>();
 function sampleName(inst:string):string{
  const n=inst.toLowerCase();
- return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('voice')?'harmonium':'piano';
+ return n.includes('violin')?'violin':n.includes('bass')?'contrabass':'piano';
 }
 function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'primary'|'alternate'|'soft'='primary'):Promise<boolean>{
  const bank=pizzicato?(variant==='primary'?pizzicatoBank(inst):pizzicatoVariantBank(inst,variant)):arcoBank(inst)??(!legacyPiano&&openPianoAvailable?openPianoBank(inst,import.meta.env.BASE_URL):undefined);
@@ -3980,7 +3987,7 @@ function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'prim
   const finish=(ok:boolean)=>{if(finished)return;finished=true;clearTimeout(timeout);if(ok&&player)players.set(inst,player);else player?.dispose();resolve(ok);};
   const timeout=setTimeout(()=>finish(false),bank&&!pizzicato?15000:7000);
   try{
-   player=new Tone.Sampler({urls:bank?.urls??(sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:sampleName(inst)==='harmonium'?{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}),baseUrl:bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
+   player=new Tone.Sampler({urls:bank?.urls??(sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}),baseUrl:bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
    player.volume.value=-5+instrumentGainDb(inst);
   }catch{finish(false);}
  });
@@ -3990,8 +3997,8 @@ function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'prim
 let openPianoAvailable=false;
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
- instruments=instruments.filter(inst=>!inst.startsWith('Bandoneon'));
- if(!instruments.length){sampleStatus.value='Bandoneon uses the reed synthesizer';return;}
+ instruments=instruments.filter(inst=>!usesModeledAudio(inst));
+ if(!instruments.length){sampleStatus.value='Modeled instruments ready';return;}
  sampleStatus.value='Loading samples…';
  if(instruments.some(inst=>inst.toLowerCase().includes('piano'))&&!openPianoAvailable){
   try{const response=await fetch(import.meta.env.BASE_URL+'samples/open-piano/manifest.json',{signal:AbortSignal.timeout(2000)});const manifest=response.ok?await response.json():null;openPianoAvailable=manifest?.source==='VCSL Steinway B'&&manifest?.version===1;}catch{ /* optional assets: retain legacy piano */ }
@@ -4008,14 +4015,16 @@ function selectPizzicatoPlayer(inst:string,velocity:number){
  const variant=pizzicatoVariant(velocity,index);
  return (variant==='soft'?pizzicatoSoftPlayers.get(inst):variant==='alternate'?pizzicatoAlternates.get(inst):undefined)??pizzicatoPlayers.get(inst);
 }
-function renderBandoneon(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
+function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
  if(!focusInstrumentAudible(inst))return;
+ const context=Tone.getContext().rawContext as AudioContext,options={gainDb:instrumentGainDb(inst),destination,held};
+ if(isVoiceGuidePart(inst))return playVoiceGuide(context,inst,event,time,options);
  const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonModelForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
- return playBandoneonNote(Tone.getContext().rawContext as AudioContext,inst,event,time,{hand,gainDb:instrumentGainDb(inst),destination,held});
+ return playBandoneonNote(context,inst,event,time,{...options,hand});
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
  if(!focusInstrumentAudible(inst))return;
- if(inst.startsWith('Bandoneon')){renderBandoneon(inst,{pitch,durationSeconds:duration,velocity:velocity*127},time);return;}
+ if(usesModeledAudio(inst)){renderModeledPart(inst,{pitch,durationSeconds:duration,velocity:velocity*127},time);return;}
  if(audioEngine.value==='samples'&&!usesPizzicatoBank(inst,technique)&&arcoBank(inst)&&!canUseArcoSample(inst,duration)&&playArcoSustain(Tone.getContext().rawContext as AudioContext,inst,pitch,duration,time,velocity,-5+instrumentGainDb(inst)))return;
  // Never substitute a bowed sample for missing pizzicato, or vice versa.
  const sampler=audioEngine.value!=='samples'?undefined:usesPizzicatoBank(inst,technique)?selectPizzicatoPlayer(inst,velocity):arcoBank(inst)?(canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined):!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
@@ -4027,8 +4036,8 @@ type DraftInstrumentPreview={project:Project;output:AudioNode};
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1,preview?:DraftInstrumentPreview){
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
- if(inst.startsWith('Bandoneon')){
-  renderBandoneon(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
+ if(usesModeledAudio(inst)){
+  renderModeledPart(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
   return;
  }
  const bar=Math.floor(n.start/(preview?.project??project.value).beats);
@@ -4099,8 +4108,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       },beatOffsetTicks(pauseBeat,transport.PPQ));
     }
     let noteCount=0,firstAttack=Infinity;
-    // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
-    // This is a guide tone, not sung or synthesized speech.
+    // Voice is a pitched, vowel-based rehearsal guide, not lyric synthesis.
     for(const inst of projectInstruments(project.value)){for(const n of playbackNotesInRange(score.value[inst]??[],window.startBeat,project.value.bars.length*project.value.beats,project.value.transposeSemitones??0)){
       // Musical tick positions preserve event timing when rehearsal speed is
       // changed mid-performance (unlike precomputed absolute seconds).
@@ -4234,8 +4242,8 @@ async function toggleNoteLoop(){
       // Read the current score at the start of every pass, including manual edits.
       const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats,project.value.transposeSemitones??0),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
       for(const event of events){
-        if(noteInst.value.startsWith('Bandoneon'))
-          renderBandoneon(noteInst.value,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.bandoneonStaff);
+        if(usesModeledAudio(noteInst.value))
+          renderModeledPart(noteInst.value,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.bandoneonStaff);
         else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
         else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
@@ -4260,9 +4268,9 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
   if(!auditionEnabled.value)return;
   try{
     Tone=await startAudioFromGesture();
-    if(noteInst.value.startsWith('Bandoneon')){
+    if(usesModeledAudio(noteInst.value)){
       const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
-      renderBandoneon(noteInst.value,{pitch:transposed,durationSeconds:Math.max(.025,durationSeconds),velocity},Tone.now());
+      renderModeledPart(noteInst.value,{pitch:transposed,durationSeconds:Math.max(.025,durationSeconds),velocity},Tone.now());
       return;
     }
     if(audioEngine.value==='samples'){
@@ -4282,19 +4290,19 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
 function auditionEvent(note:Note){
   if(!auditionEnabled.value)return;
   if(note.stringGlissando)note=stringGlissandoPlayback(note);
-  if(noteInst.value.startsWith('Bandoneon')){
+  if(usesModeledAudio(noteInst.value)){
     const p=project.value,inst=noteInst.value;
     void startAudioFromGesture().then(tone=>{
       if(project.value!==p||noteInst.value!==inst)return;
       Tone=tone;
       const transpose=p.transposeSemitones??0;
       const staff=note.staffOverride??note.xmlStaff;
-      renderBandoneon(inst,{
+      renderModeledPart(inst,{
         pitch:note.pitch+transpose,durationSeconds:Math.max(.025,noteSoundingDuration(note)*60/p.bpm),velocity:noteSoundingVelocity(note),
         endVelocity:note.swellTo,slideTo:note.slideTo===undefined?undefined:note.slideTo+transpose,
         gesture:note.gesture?transposeTangoGesture(note.gesture,transpose):undefined,
       },Tone.now(),staff);
-    }).catch(error=>{message.value='Bandoneon preview unavailable: '+String(error);});
+    }).catch(error=>{message.value=inst+' preview unavailable: '+String(error);});
     return;
   }
   if(note.pianoGlissando||note.pianoPedalBeats){
@@ -5966,10 +5974,35 @@ const currentNotes=computed(()=>INSTRUMENTS.map(inst=>({inst,notes:(score.value[
 function addBar(){const previous=project.value.bars.at(-1);project.value.bars.push({chord:previous?.chord??'',melody:[],section:previous?.section??'A'});selectedBar.value=project.value.bars.length-1;}
 function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement).value;}
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
+const homeExamples=[{id:'__example_pequena_2__',title:'Pequeña 2',description:'Final variation'},{id:'__example_tigre_viejo__',title:'Tigre Viejo',description:'Bowed expression'},{id:'__example_hasta_siempre__',title:'Hasta Siempre Amor',description:'75 measures · 7 parts'},{id:'__example_la_melodia__',title:'La Melodia de Nuestros Adios',description:'Vocal C/D'}];
+function showHome(){
+ stopPlayback();
+ closePerformanceInstrument();
+ performanceMode.value=false;
+ newSongOpen.value=false;
+ homePracticePick.value=false;
+ homeError.value='';
+ homeOpen.value=true;
+ if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
+ performanceStageCompact.value=false;
+ // Finish any pending edit without waiting for the normal autosave debounce.
+ if(localSongId.value)void flushAutosave().catch(error=>{homeError.value='Could not save the current song: '+String(error);});
+}
+function startHomeSong(method:'blank'|'score'){homePracticePick.value=false;newSongStart.value=method;newSongOpen.value=true;}
+async function homeChooseSong(id:string,activity:'arrange'|'practice'|'perform'){
+ if(homeBusy.value)return;homeBusy.value=true;homeError.value='';
+ try{const previous=localSongId.value;await openSongById(id);if(!localSongId.value||(!id.startsWith('__example_')&&localSongId.value!==id)||(id.startsWith('__example_')&&localSongId.value===previous))throw Error(message.value||'Could not open song');
+  performanceMode.value=false;closePerformanceInstrument();homeOpen.value=activity==='practice';homePracticePick.value=activity==='practice';
+  if(activity==='perform'){performanceMode.value=true;}
+  if(activity==='arrange'&&active.value==='about')active.value='arrange';
+ }catch(error){homeError.value=String(error);homeOpen.value=true;}finally{homeBusy.value=false;}
+}
+async function homePractise(inst:Instrument){homePracticePick.value=false;homeOpen.value=false;performanceMode.value=true;performanceView.value='ensemble';await nextTick();focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=undefined;performanceExpandedInstrument.value=inst;performanceScoreView.value='off';enterInstrumentLearn();}
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
-  <button class="brand brand-link" type="button" :disabled="performanceMode" @click="active='about'" aria-label="About Tango Arranger and release notes" title="About Tango Arranger and release notes"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
+  <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
+  <template v-if="!homeOpen && !libraryLoading && localSongId">
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'"><span>{{performanceShortTitle}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -6002,7 +6035,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_tigre_viejo__">＋ Tigre Viejo — bowed expression (new copy)</option><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_tigre_viejo__">＋ Tigre Viejo — bowed expression (new copy)</option><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
     <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
@@ -6068,6 +6101,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
         </template>
         <template v-else>
           <strong class="files-group-title">Performance display</strong>
+          <button type="button" class="secondary" @click="showHome">Tango Arranger home</button>
           <button type="button" class="secondary" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble diagrams</button>
           <button type="button" class="secondary" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
           <button type="button" class="secondary" @click="togglePerformanceFullscreen"><AppIcon name="maximize"/> {{performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Full screen'}}</button>
@@ -6085,11 +6119,13 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
       <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
     </div>
     <div class="performance-stage-actions">
+      <button type="button" class="secondary performance-stage-action" title="Home" aria-label="Tango Arranger home" @click="showHome"><AppIcon name="home"/><span>Home</span></button>
       <button type="button" class="secondary performance-stage-action performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen (if supported)'" :aria-label="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen'" @click="togglePerformanceFullscreen">
         <AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/><span>{{performanceFullscreenActive||performanceStageCompact?'Exit screen':'Full screen'}}</span>
       </button>
     </div>
   </div>
+  </template>
 </header>
 <div v-if="availableAppBuild&&(!performanceMode||!appUpdateBusy)&&!(active==='notes'&&noteEditorTab==='capture')" class="topbar-status app-update-banner">
   <span role="status">{{updateError||(appUpdateBusy?'Update available after playback or recording.':'A new version of Tango Arranger is available.')}}</span>
@@ -6129,7 +6165,24 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div class="app-modal-actions"><button type="button" class="secondary" @click="closeImportDialog">Close</button></div>
   </section>
 </div>
- <section v-if="performanceMode" class="performance-workspace performance-expanded">
+ <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
+ <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
+  <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p></div>
+  <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
+  <p v-if="homeError" role="alert">{{homeError}}</p>
+  <div v-if="homePracticePick" class="editor"><h2>Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p><div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" @click="homePractise(inst)">{{rosterDisplayName(inst)}}</button><button type="button" class="secondary" @click="homePracticePick=false">Back</button></div></div>
+  <template v-else>
+   <div class="home-activities">
+    <article class="editor"><h2>Arrange</h2><p>Create, import and refine your arrangements.</p><div class="home-actions"><button class="primary" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button><button v-if="localSongId" class="secondary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'arrange')">Continue arrangement</button></div></article>
+    <article class="editor"><h2>Practice</h2><p>Rehearse your instrument or vocal part using the existing learning tools.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'practice')">Practise current song</button><a href="#home-songs">Choose a song below</a></div></article>
+    <article class="editor"><h2>Perform</h2><p>Use the focused stage display for ensemble playing, notes and vocal cues.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'perform')">Perform current song</button><a href="#home-songs">Choose a song below</a></div></article>
+   </div>
+   <section id="home-songs" class="editor" aria-labelledby="home-songs-title"><h2 id="home-songs-title">Your songs</h2><p v-if="!localSongs.length">No saved songs yet. Create one or explore an example below.</p><div v-for="song in localSongs" :key="song.id" class="home-song-row"><div><strong>{{song.title||'Untitled tango'}}</strong><small>{{song.measures}} measures</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
+   <section class="editor"><h2>Explore example songs</h2><p>Open an independent editable copy. The built-in original stays unchanged.</p><div v-for="song in homeExamples" :key="song.id" class="home-song-row"><div><strong>{{song.title}}</strong><small>{{song.description}}</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
+   <details class="editor"><summary>Getting started</summary><p>Start with an example to listen to a complete arrangement. Arrange lets you edit melody, harmony, orchestration and individual notes. Practice opens instrument learning, and Perform opens the stage display. Your songs are saved in this browser; export a portable backup to move them to another device.</p></details>
+  </template>
+ </section>
+ <section v-else-if="performanceMode" class="performance-workspace performance-expanded">
   <div class="performance-stage-top" role="region" aria-label="Performance measure, section and beat">
    
    <div class="performance-stage-controls">
@@ -6394,7 +6447,9 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <label class="file-picker">Select MusicXML or MIDI (.xml, .musicxml, .mid, .midi)<input type="file" accept=".xml,.musicxml,.mid,.midi" @change="createSongFromScore"/></label>
     <p class="hint">The source will be reviewed before it changes the newly created song. Your current arrangement remains in your local library.</p>
   </div>
-</div><nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
+</div>
+<template v-if="!homeOpen">
+<nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active='arrange'">Orchestration</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm editor</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
     <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
@@ -7594,6 +7649,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <span v-else class="hint">Select a note in the grid to edit its timing, articulation and duration here.</span>
   </div>
 </section>
+</template>
 </main></div><footer v-if="!performanceMode">Local-first prototype · IndexedDB autosave and multiple local songs · Export .tango.json backups · MusicXML for MuseScore</footer></div>
 </template>
 

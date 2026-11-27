@@ -23,7 +23,15 @@ check('song settings gear still opens dialog',()=>assert.match(app,/aria-control
 check('responsive compact toolbar styles',()=>assert.match(css,/\.topbar-song\{order:2;flex:1 1 240px/));
 check('consistent SVG topic icons',()=>{for(const name of ['folder-open','volume-2','chevron-down','sliders-horizontal'])assert.ok(icon.includes("'"+name+"':"),name)});
 check('topic menus close on action, escape and outside click',()=>{for(const name of ['onTopbarMenuToggle','closeTopbarMenuOnAction','closeTopbarMenuFromKey','closeOpenTopbarMenusOnOutside'])assert.ok(app.includes('function '+name+'('),name);assert.match(app,/@toggle="onTopbarMenuToggle"/);assert.match(app,/@keydown.esc.stop.prevent="closeTopbarMenuFromKey\(\$event\)"/);assert.match(app,/@click="closeTopbarMenuOnAction\(\$event\)"/)});
-check('El Choclo is offered as a new copy in selector',()=>{assert.match(app,/<optgroup label="Example songs">/);assert.match(app,/value="__example_el_choclo__"/);assert.match(app,/await adoptLocalSong\(study\)/)});
+check('El Choclo is not promoted as a built-in example, while saved songs keep their regular routes',()=>{
+ assert.match(app,/<optgroup label="Example songs">/);
+ assert.doesNotMatch(app,/__example_el_choclo__|createElChocloStudy/);
+ for(const id of ['tigre_viejo','hasta_siempre','pequena_2','la_melodia']){
+  assert.ok(app.includes('value="__example_'+id+'__"'),id);
+  assert.ok(app.includes("id:'__example_"+id+"__'"),id);
+ }
+ assert.match(app,/await openLocalSong\(id\)/);
+});
 check('source is earlier 64-measure two-four transcription',()=>{assert.equal(source.bars.length,64);assert.equal(source.beats,2);assert.deepEqual([...new Set(source.bars.map(b=>b.section))],['A1','B1','A2','B2','C'])});
 check('preset pairs 2/4 source measures into 4/4 without losing melody',()=>{assert.equal(p.bars.length,32);assert.equal(p.beats,4);for(let i=0;i<32;i++){const expected=[...source.bars[i*2].melody,...source.bars[i*2+1].melody.map(n=>({...n,start:n.start+2}))];assert.equal(JSON.stringify(p.bars[i].melody),JSON.stringify(expected));}});
 check('preset uses modern settings',()=>{assert.equal(p.difficulty,'advanced');assert.equal(p.sectionKeys.A1,'Am');assert.equal(p.sectionKeys.C,'A');assert.equal(p.orchestration.contrabass.C,'habanera');assert.equal(p.pianoFigures.A2,'melody_response');assert.equal(p.melodyDucking.enabled,true);assert.ok(p.expressionRanges.length>0);assert.ok(Object.keys(p.measureDynamics).length>0)});

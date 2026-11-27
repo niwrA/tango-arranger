@@ -64,7 +64,7 @@ check('performance exposes ensemble, karaoke, harmony and split note slices',()=
   assert.ok(app.includes(needle),needle);
 });
 check('top panel retains compact seek section and shared beat counter',()=>{
- const section=app.slice(app.indexOf('<section v-if="performanceMode"'),app.indexOf('<div v-else class="layout">'));
+ const section=app.slice(app.indexOf('<section v-else-if="performanceMode" class="performance-workspace'),app.indexOf('<div v-else class="layout">'));
  assert.ok(section.includes('class="performance-stage-top"'));
  assert.ok(section.includes('class="performance-stage-controls"'));
  assert.ok(section.includes('class="performance-seek-index"'));

@@ -1,3 +1,12 @@
+## Example song selection (2026-11-27)
+
+- Retire the generated El Choclo study from Home and the song picker. Existing editable copies and exported projects are unchanged.
+
+## Sung-vowel voice guide (2026-11-27)
+
+- Voice parts use a sample-free, vowel-shaped rehearsal tone in both audio modes. Short and sustained notes share the same timbre, with gentle breath, pressure swells and restrained delayed vibrato.
+- Arrangement, note-loop, staged audition and Learn playback use the new guide. Learn honors the tuning reference and keeps an unmarked target straight. Lyrics remain display text.
+
 ## Bandoneon layouts and reed synthesis (2026-11-27)
 
 - Choose a documented bandoneon keyboard layout per part in **Structure, Keys & Ensemble → Ensemble**. Existing projects default to 142 Rheinische. The layout describes the pitches available on each hand across both bellows directions, not whether a whole chord fits one direction or hand position.

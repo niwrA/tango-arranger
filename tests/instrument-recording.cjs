@@ -21,7 +21,7 @@ const states=['capturePlaying','captureRecording','captureLoopEnabled','rhythmCa
  'captureFrom','captureTo','captureLatency','captureMetronome','captureCountIn','captureCountingIn',
  'captureSpeed','captureTranspose','captureQuantize','captureDurationQuantize','captureTakeMode','captureRecordedPass',
  'instrumentCaptureEvents','instrumentCaptureBase','instrumentCaptureSession','instrumentCaptureRangeMatches',
- 'heldCaptureKeys','captureMonitorPitches','captureBandoneonVoices','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
+ 'heldCaptureKeys','captureMonitorPitches','captureModeledVoices','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
  'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureSelectedString','captureEditedRhythms',
  'captureSession','captureSynth','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
  'captureBarNumbers','captureInputSource','captureMuteBacking'];
@@ -72,7 +72,8 @@ function harness(){
  const project=demoProject();project.bpm=120;project.beats=4;project.bars=project.bars.slice(0,4);
  const reeds=[];
  const ctx={console,module:{exports:{}},ref,computed,project:ref(project),reeds,
-  renderBandoneon(inst,event,time,_staff,_destination,held){const reed={inst,event,time,held,released:false,release(){this.released=true;}};reeds.push(reed);return reed;},
+  usesModeledAudio:load('src/voiceGuideAudio.ts').usesModeledAudio,
+  renderModeledPart(inst,event,time,_staff,_destination,held){const reed={inst,event,time,held,released:false,release(){this.released=true;}};reeds.push(reed);return reed;},
   active:ref('notes'),noteInst:ref('Piano'),noteLoopFrom:ref(1),noteLoopTo:ref(1),
   plannedPhrasesByMeasure:ref({}),score:ref({Piano:[],'Violin I':[]}),INSTRUMENTS:['Piano','Violin I'],Tone:tone,
   startAudioFromGesture:async()=>tone,stopMicrophoneCapture(){},playExpressiveEvent(){},
@@ -112,6 +113,12 @@ function harness(){
   assert.equal(h.ctx.reeds[0].event.pitch,38);
   h.up(1,1);assert.equal(h.ctx.reeds[0].released,false);
   h.up(2,2);assert.equal(h.ctx.reeds[0].released,true);
+ });
+ await check('Voice uses the modeled held guide for capture monitoring',async()=>{
+  const h=harness();h.ctx.noteInst.value='Voice II';
+  h.down(1,62,0);await settle();
+  assert.equal(h.ctx.reeds[0].inst,'Voice II');assert.equal(h.ctx.reeds[0].held,true);
+  h.up(1,1);assert.equal(h.ctx.reeds[0].released,true);
  });
  await check('held keyboard notes use independent onset and duration grids',async()=>{
   const h=harness();h.state().captureQuantize.value='0.5';h.state().captureDurationQuantize.value='0.25';

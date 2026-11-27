@@ -1,3 +1,4 @@
+import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide} from './voiceGuideAudio';
 import {playBandoneonNote} from './bandoneonAudio';
 import {measureLoopEvents,type MeasureLoopEvent} from './measureLoop';
 import {playbackNotesInRange} from './arrangementPlayback';
@@ -25,17 +26,18 @@ function fetchSample(url:string){
 }
 function midi(name:string){const m=/^([A-G])(#?)(-?\d+)$/.exec(name);return m?12*(Number(m[3])+1)+({C:0,D:2,E:4,F:5,G:7,A:9,B:11}[m[1]]??0)+(m[2]?1:0):60;}
 export async function loadPreviewBank(ctx:AudioContext,inst:string,pizzicato=false):Promise<Anchor[]>{
- if(inst.startsWith('Bandoneon'))return [];
+ if(usesModeledAudio(inst))return [];
  const bank=pizzicato?pizzicatoBank(inst):undefined;
  if(pizzicato&&!bank)return [];
- const id=inst.toLowerCase(),name=id.includes('violin')?'violin':id.includes('bass')?'contrabass':id.includes('voice')?'harmonium':'piano';
- const pitches=name==='violin'?['A3','C4','C5','C6']:name==='contrabass'?['C2','E2','E3']:name==='harmonium'?['C3','C4','C5']:['C3','C4','C5','C6'];
+ const id=inst.toLowerCase(),name=id.includes('violin')?'violin':id.includes('bass')?'contrabass':'piano';
+ const pitches=name==='violin'?['A3','C4','C5','C6']:name==='contrabass'?['C2','E2','E3'] :['C3','C4','C5','C6'];
  const urls=bank?.urls??Object.fromEntries(pitches.map(p=>[p,p+'.mp3']));
  const base=bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+name+'/';
  const result=await Promise.all(Object.entries(urls).map(async ([p,file])=>{try{const bytes=await fetchSample(base+file);return bytes?{pitch:midi(p),buffer:await ctx.decodeAudioData(bytes.slice(0))}:null;}catch{return null;}}));
  return result.filter((a):a is Anchor=>a!==null);
 }
 export function renderPracticePreview(ctx:AudioContext,event:PreviewEvent,at:number,inst:string,referenceHz:number,ordinary:Anchor[],pizzicato:Anchor[]){
+ if(isVoiceGuidePart(inst)){playVoiceGuide(ctx,inst,event,at,{referenceHz,vibrato:event.vibrato===true});return;}
  if(inst.startsWith('Bandoneon')){
   playBandoneonNote(ctx,inst,event,at,{referenceHz,hand:event.bandoneonStaff===2?'left':event.bandoneonStaff===1?'right':undefined});
   return;

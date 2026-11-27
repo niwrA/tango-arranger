@@ -9,6 +9,7 @@ import {stringPitchAtBeat,type Project} from './music';
 import {usesPizzicatoBank} from './pizzicatoSamples';
 import {bandoneonModelForPart} from './bandoneon';
 import {stopBandoneonVoices} from './bandoneonAudio';
+import {stopVoiceGuide,usesModeledAudio} from './voiceGuideAudio';
 import {instrumentFamily,partStaffForNote,noteSoundingDuration,type Instrument,type Note} from './music';
 import {detectMonophonicPitch} from './microphonePitch';
 import {deviationCents,expectedFrequency,matchesPracticePitch,practiceMidi,sensitivityThresholdDb} from './learnPitch';
@@ -303,7 +304,7 @@ function stopDemo(){
  demoBeat.value=null;
  const previous=demoAudio;
  demoAudio=null;
- if(previous){stopBandoneonVoices(previous);demoTailUntil=performance.now()+180;void previous.close().catch(()=>{});}
+ if(previous){stopBandoneonVoices(previous);stopVoiceGuide(previous);demoTailUntil=performance.now()+180;void previous.close().catch(()=>{});}
  demoPlaying.value=false;
 }
 async function listenToNotes(){
@@ -320,7 +321,7 @@ async function listenToNotes(){
   const rangeEnd=to.value*props.beatsPerMeasure;
   const selected=targets.value.map(note=>({...note,pitch:targetPitch(note),technique:props.resolveTechnique?.(note)??note.technique}));
   const events=buildPracticePreview(selected,rangeStart,rangeEnd,props.bpm,props.beatsPerMeasure,props.concertTranspose,previewDuration.value==='written',props.instrument,props.project);
-  const sampleMode=props.audioEngine!=='synth'&&!props.instrument.startsWith('Bandoneon');
+  const sampleMode=props.audioEngine!=='synth'&&!usesModeledAudio(props.instrument);
   const [ordinary,pizzicato]=sampleMode?await Promise.all([
    loadPreviewBank(ctx,props.instrument),
    events.some(e=>usesPizzicatoBank(props.instrument,e.technique))?loadPreviewBank(ctx,props.instrument,true):Promise.resolve([])
