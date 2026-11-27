@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi,midiOutputEnabled,sendMidiNote,panicMidi} from "./midiSession";
+import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi,midiOutputEnabled,sendMidiNote,sendMidiPedal,panicMidi} from "./midiSession";
 import MidiDiagnostics from './MidiDiagnostics.vue';
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import {applyOrchestrationRangeSettings,orchestrationMeasureRange,readOrchestrationRangeSettings,type RangeSettingField} from './orchestrationRangeSettings';
@@ -4191,6 +4191,7 @@ type DraftInstrumentPreview={project:Project;output:AudioNode};
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1,preview?:DraftInstrumentPreview){
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
+ if(inst==='Piano'&&midiOutputEnabled.value&&n.pianoPedalBeats&&sendMidiNote(event.pitch,velocity,duration,Math.max(0,time-Tone.now()))){const seconds=60/(Tone.getTransport().bpm.value||project.value.bpm);sendMidiPedal(n.pianoPedalBeats*seconds,Math.max(0,time-Tone.now())+(n.pianoPedalOffset??0)*seconds);return;}
  if(usesModeledAudio(inst)){
   renderModeledPart(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
   return;
