@@ -1,5 +1,5 @@
 import {brushPitchAt,type BrushStroke} from './brushGesture';
-import {chordAt,chordTones,defaultInstrumentSettings,figureMeasure,generate,instrumentFamily,instrumentRange,keyPitchClasses,sectionKey,suggestedEditorNote,type Instrument,type Note,type Project,type Role} from './music';
+import {chordAt,chordTones,defaultInstrumentSettings,figureMeasure,generate,instrumentFamily,keyPitchClasses,sectionKey,suggestedEditorNote,writtenInstrumentRange,writtenInstrumentPitchPlayable,type Instrument,type Note,type Project,type Role} from './music';
 import {rhythmSlots,type RhythmPreset} from './rhythmEditor';
 
 export const musicalBrushes=[
@@ -29,7 +29,9 @@ export function composeMusicalBrush(project:Project,instrument:Instrument,existi
  const {beats}=project;
  const first=Math.floor(fromBeat/beats),last=Math.ceil(toBeat/beats)-1;
  const bars=Array.from({length:last-first+1},(_,i)=>first+i);
- const [low,high]=instrumentRange(instrument),pool=Array.from({length:high-low+1},(_,i)=>low+i);
+ const [low,high]=writtenInstrumentRange(instrument,project);
+ const pool=Array.from({length:high-low+1},(_,i)=>low+i).filter(pitch=>writtenInstrumentPitchPlayable(instrument,pitch,project));
+ if(!pool.length)return [];
  const contour=(beat:number)=>brushPitchAt(points,beat,referencePitch);
  const relevant=(start:number)=>start>=fromBeat-1e-7&&start<toBeat-1e-7;
  const localBeat=(start:number)=>start-Math.floor(start/beats)*beats;
@@ -49,7 +51,8 @@ export function composeMusicalBrush(project:Project,instrument:Instrument,existi
   const descending=contour(toBeat)<contour(fromBeat);
   const piano=instrument.startsWith('Piano'),split=project.pianoSplitPitch??60;
   const notes=kind==='arpeggio'?bars.flatMap(bar=>figureMeasure(context,instrument,bar,descending?'notes_down':'notes_up',0,existing)):generate(context)[instrument]??[];
-  const result=notes.filter(note=>relevant(note.start)&&(kind==='bass'||!piano||note.pitch>=split)).map(clip);
+  const result=notes.filter(note=>relevant(note.start)&&(kind==='bass'||!piano||note.pitch>=split)&&
+   (kind==='arpeggio'?pitchChoices([note.pitch%12]).some(pitch=>!piano||pitch>=split):pool.includes(note.pitch))).map(clip);
   if(kind==='arpeggio'){
    let previous:number|undefined;
    for(const note of result){
@@ -77,7 +80,7 @@ export function composeMusicalBrush(project:Project,instrument:Instrument,existi
  return starts.map(({start,duration,accent},index)=>{
   let pitch=repeated;
   if(kind==='melody')pitch=nearestPitch(pitchChoices(accent&&chords(start)?chordTones(chords(start)):scale(start)),contour(start));
-  if(kind==='chromatic')pitch=Math.max(low,Math.min(high,resolution+direction*Math.min(4,starts.length-index)));
+  if(kind==='chromatic')pitch=nearestPitch(pool,resolution+direction*Math.min(4,starts.length-index));
   if(kind==='diatonic'){
    const side=pitchChoices(scale(start)).filter(value=>direction<0?value<resolution:value>resolution).sort((a,b)=>direction*(a-b));
    pitch=side[Math.min(side.length-1,3,starts.length-index-1)]??nearestPitch(pitchChoices(scale(start)),resolution);

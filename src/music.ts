@@ -1,5 +1,6 @@
 import {bandoneonHandForPitch,bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId} from './bandoneon';
 import type {TempoExpressions} from './tempoExpressions';
+import type {DynamicsCurve} from './dynamicsCurve';
 import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
 import type {MergeBackup,MergePlan} from './musicXmlMerge';
 import type {RhythmAttachment} from './rhythmSnap';
@@ -129,7 +130,7 @@ export const defaultExpression=():ExpressionSettings=>({enabled:true,sections:{A
  * not a claim that any composer used one invariant accompaniment pattern. */
 export type FigureKind = 'notes_up'|'notes_down'|'chords_up'|'chords_down'|'countermelody'|'melody_response';
 export const FIGURE_KINDS:FigureKind[]=['notes_up','notes_down','chords_up','chords_down','countermelody','melody_response'];
-export type ExpressionRange={instrument:Instrument;startMeasure:number;endMeasure:number;startBeat?:number;endBeat?:number;from:number;to:number};
+export type ExpressionRange={instrument:Instrument;startMeasure:number;endMeasure:number;startBeat?:number;endBeat?:number;from:number;to:number;curve?:DynamicsCurve};
 export function expressionVelocity(p:Pick<Project,'expressionRanges'|'beats'>,inst:Instrument,absoluteBeat:number,base:number):number {
   let velocity=base;
   for(const range of p.expressionRanges??[]){
