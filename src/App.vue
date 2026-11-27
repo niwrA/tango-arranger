@@ -180,8 +180,8 @@ function stopPlayback(){
   for(const voice of instrumentSynths.values())safeRelease(()=>voice.releaseAll());
   for(const voice of samplePlayers.values())safeRelease(()=>voice.releaseAll());
   if(typeof pizzicatoPlayers!=='undefined')for(const voice of [...pizzicatoPlayers.values(),...pizzicatoAlternates.values(),...pizzicatoSoftPlayers.values()])safeRelease(()=>voice.releaseAll());
-  safeRelease(()=>loopSynth?.releaseAll());safeRelease(()=>rhythmLoopSynth?.triggerRelease());
-  safeRelease(()=>captureSynth?.releaseAll());safeRelease(()=>captureKeySynth?.releaseAll());
+  safeRelease(()=>rhythmLoopSynth?.triggerRelease());
+  safeRelease(()=>captureKeySynth?.releaseAll());
   safeRelease(()=>captureClickSynth?.triggerRelease());
   if(cleanupError)audioStatus.value='Audio cleanup warning: '+String(cleanupError);
   playing.value=false;playbackOrigin.value=null;
@@ -1024,7 +1024,7 @@ function saveIfHidden(){
  if(document.visibilityState==='hidden')saveOnLeave();
  else void checkAppUpdate();
 }
-onBeforeUnmount(()=>{document.removeEventListener('fullscreenchange',onPerformanceFullscreenChange);window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);window.removeEventListener('resize',refreshNoteGridViewportOnResize);if(noteGridScrollFrame)cancelAnimationFrame(noteGridScrollFrame);stopPlayback();void flushAutosave().catch(()=>{});auditionSynth?.dispose();synth?.dispose();loopSynth?.dispose();rhythmLoopSynth?.dispose();captureSynth?.dispose();captureClickSynth?.dispose();});
+onBeforeUnmount(()=>{document.removeEventListener('fullscreenchange',onPerformanceFullscreenChange);window.removeEventListener('keydown',handleHistoryShortcut);if(performanceTicker)clearInterval(performanceTicker);document.removeEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.removeEventListener('visibilitychange',saveIfHidden);window.removeEventListener('pagehide',saveOnLeave);window.removeEventListener('resize',refreshNoteGridViewportOnResize);if(noteGridScrollFrame)cancelAnimationFrame(noteGridScrollFrame);stopPlayback();void flushAutosave().catch(()=>{});synth?.dispose();rhythmLoopSynth?.dispose();captureClickSynth?.dispose();});
 function keyForSection(section:string){return sectionKey(project.value,section);}
 const pendingKeyChange=ref<{section:string;from:string;to:string}|null>(null);
 const keyChangeMode=ref<SectionKeyChangeMode>('chords');
@@ -1505,7 +1505,6 @@ const captureEndPitch=ref(83);
 const captureEditedRhythms=ref<Record<number,RhythmSlot[]>>({});
 const captureEditBar=ref(1);
 let captureSession=0;
-let captureSynth:PolySynth|null=null;
 let captureKeySynth:PolySynth|null=null;
 let captureClickSynth:Synth|null=null;
 const captureKind=computed((): 'rhythm'|'melody'=>active.value==='notes'?'melody':'rhythm');
@@ -4444,7 +4443,6 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
 const noteLoopPlaying=ref(false);
 const noteLoopBeat=ref(-1);
 let noteLoopSession=0;
-let loopSynth:PolySynth|null=null;
 function stopNoteLoop(){noteLoopMeasure.value=-1;if(noteLoopPlaying.value)stopPlayback();else noteLoopSession++;}
 async function toggleNoteLoop(){
   if(noteLoopPlaying.value){stopNoteLoop();return;}
@@ -4497,69 +4495,33 @@ watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
-let auditionSynth:Synth|null=null;
 async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
-  if(!auditionEnabled.value)return;
-  if(midiPianoAvailable(noteInst.value)&&sendMidiNote(pitch+(project.value.transposeSemitones??0),velocity,durationSeconds))return;
-  try{
-    Tone=await startAudioFromGesture();
-    if(usesModeledAudio(noteInst.value)){
-      const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
-      renderModeledPart(noteInst.value,{pitch:transposed,durationSeconds:Math.max(.025,durationSeconds),velocity},Tone.now());
-      return;
-    }
-    if(audioEngine.value==='samples'){
-      await prepareSamples([noteInst.value]);
-      const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
-      triggerInstrument(noteInst.value,transposed,Math.max(0.025,durationSeconds),Tone.now(),Math.max(0.1,Math.min(1,velocity/127)));
-      return;
-    }
-    if(!auditionSynth){
-      auditionSynth=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.008,decay:0.09,sustain:0.22,release:0.16}}).toDestination();
-      auditionSynth.volume.value=-11;
-    }
-    const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
-    auditionSynth.triggerAttackRelease(Tone.Frequency(transposed,'midi').toFrequency(),Math.max(0.025,durationSeconds),undefined,Math.max(0.1,Math.min(1,velocity/127)));
-  }catch(error){message.value=`Note preview unavailable: ${String(error)}. Check browser audio permissions.`;}
+ if(!auditionEnabled.value)return;
+ const p=project.value,inst=noteInst.value;
+ const transposed=Math.max(0,Math.min(127,pitch+(p.transposeSemitones??0)));
+ if(midiPianoAvailable(inst)&&sendMidiNote(transposed,velocity,durationSeconds))return;
+ try{
+  Tone=await startAudioFromGesture();
+  await prepareSamples([inst]);
+  if(project.value!==p||noteInst.value!==inst||!auditionEnabled.value)return;
+  triggerInstrument(inst,transposed,Math.max(.025,durationSeconds),Tone.now(),Math.max(.1,Math.min(1,velocity/127)));
+ }catch(error){message.value='Note preview unavailable: '+String(error);}
 }
 function auditionEvent(note:Note){
-  if(!auditionEnabled.value)return;
-  if(note.stringGlissando)note=stringGlissandoPlayback(note);
-  if(usesModeledAudio(noteInst.value)){
-    const p=project.value,inst=noteInst.value;
-    void startAudioFromGesture().then(tone=>{
-      if(project.value!==p||noteInst.value!==inst)return;
-      Tone=tone;
-      const transpose=p.transposeSemitones??0;
-      const staff=note.staffOverride??note.xmlStaff;
-      renderModeledPart(inst,{
-        pitch:note.pitch+transpose,durationSeconds:Math.max(.025,noteSoundingDuration(note)*60/p.bpm),velocity:noteSoundingVelocity(note),
-        endVelocity:note.swellTo,slideTo:note.slideTo===undefined?undefined:note.slideTo+transpose,
-        gesture:note.gesture?transposeTangoGesture(note.gesture,transpose):undefined,
-      },Tone.now(),staff);
-    }).catch(error=>{message.value=inst+' preview unavailable: '+String(error);});
-    return;
+ if(!auditionEnabled.value)return;
+ const p=project.value,inst=noteInst.value;
+ void (async()=>{
+  Tone=await startAudioFromGesture();
+  await prepareSamples([inst]);
+  if(project.value!==p||noteInst.value!==inst||!auditionEnabled.value||homeOpen.value||performanceMode.value||active.value!=='notes')return;
+  const transpose=p.transposeSemitones??0,seconds=60/p.bpm,at=Tone.now(),nativePedal=midiPianoAvailable(inst);
+  if(nativePedal)for(const span of pianoPedalWindows([note],note.start,Infinity))
+   sendMidiPedal((span.end-span.start)*seconds,midiTransportDelay(at+(span.start-note.start)*seconds));
+  for(const attack of playbackNotesInRange([note],note.start,Infinity,transpose,nativePedal)){
+   const event=measureLoopEvents([attack],Math.floor(attack.start/p.beats),p.beats,p.bpm,transpose,p.expressionRanges??[],inst,p,true)[0];
+   if(event)renderArrangementNote(inst,attack,event,Math.max(.025,noteSoundingDuration(attack)*seconds),at+(attack.start-note.start)*seconds);
   }
-  if(note.pianoGlissando||note.pianoPedalBeats){
-    const song=project.value,inst=noteInst.value;
-    void startAudioFromGesture().then(tone=>{
-      if(project.value!==song||noteInst.value!==inst||homeOpen.value||performanceMode.value||active.value!=='notes')return;
-      Tone=tone;const transpose=song.transposeSemitones??0,seconds=60/song.bpm,at=Tone.now(),nativePedal=midiPianoAvailable(inst);
-      if(nativePedal)for(const span of pianoPedalWindows([note],note.start,Infinity))
-       sendMidiPedal((span.end-span.start)*seconds,midiTransportDelay(at+(span.start-note.start)*seconds));
-      for(const attack of playbackNotesInRange([note],note.start,Infinity,transpose,nativePedal))
-       triggerInstrument(inst,attack.pitch+transpose,noteSoundingDuration(attack)*seconds,at+(attack.start-note.start)*seconds,noteSoundingVelocity(attack)/127);
-    }).catch(error=>{message.value='Piano audition unavailable: '+String(error);});return;
-  }
-  if(note.gesture||note.slideTo!==undefined||note.swellTo!==undefined||note.bowedTremolo){
-    void startAudioFromGesture().then(tone=>{Tone=tone;playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{
-      pitch:note.pitch+(project.value.transposeSemitones??0),
-      slideTo:note.slideTo===undefined?undefined:note.slideTo+(project.value.transposeSemitones??0),
-      gesture:note.gesture?transposeTangoGesture(note.gesture,project.value.transposeSemitones??0):undefined,
-      durationSeconds:Math.max(0.025,noteSoundingDuration(note)*60/project.value.bpm),
-      velocity:noteSoundingVelocity(note),endVelocity:note.swellTo,bowedTremolo:note.bowedTremolo,bowedStrokeCount:note.bowedTremolo?.mode==='measured'?noteSoundingDuration(note)*2**note.bowedTremolo.strokes:undefined
-    },Tone.now());}).catch(error=>{message.value=`Expressive audition unavailable: ${String(error)}`;});
-  }else void auditionPitch(note.pitch,noteSoundingVelocity(note),noteSoundingDuration(note)*60/project.value.bpm);
+ })().catch(error=>{message.value=inst+' preview unavailable: '+String(error);});
 }
 function selectNoteEvent(i:number){noteSelected.value=i;const note=noteMeasure.value[i];if(note)auditionEvent(note);}
 // Click-to-edit, beat-aligned piano roll. Notes remain concert pitch internally.
