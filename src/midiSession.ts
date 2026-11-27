@@ -60,6 +60,10 @@ export function sendMidiNote(pitch:number,velocity:number,duration:number,delay=
  try{const now=performance.now()+Math.max(0,delay)*1000;p.send(on,now);p.send(off,now+Math.max(25,duration*1000));midiSent.value+=2;log('OUT queued',p.name||p.id,on);log('OUT queued',p.name||p.id,off);return true;}
  catch(e){midiStatus.value='MIDI send failed: '+String(e);return false;}
 }
+export function sendMidiPedal(duration:number,delay=0){
+ const p=midiOutput.value;if(!p||p.state!=='connected'||duration<=0)return;
+ try{const now=performance.now()+Math.max(0,delay)*1000;p.send([176|midiChannel.value,64,127],now);p.send([176|midiChannel.value,64,0],now+duration*1000);}catch(e){midiStatus.value='MIDI pedal send failed: '+String(e);}
+}
 export function panicMidi(){
  for(const p of midiOutputs.value){if(p.connection!=='open')continue;try{(p as MIDIOutput & {clear?:()=>void}).clear?.();for(let ch=0;ch<16;ch++){p.send([176|ch,64,0]);p.send([176|ch,123,0]);p.send([176|ch,120,0]);}}catch{/* disconnected */}}
 }
