@@ -17,15 +17,15 @@ const rows=computed(()=>Array.from({length:props.draft.measures},(_,i)=>i));
 const grid=computed(()=>Array.from({length:Math.ceil(total.value/step.value)},(_,i)=>i*step.value));
 let drag:{kind:'chord'|'syllable';id:number;pointer:number;x:number;moved:boolean}|null=null;
 const ghost=ref<number|null>(null);
-function position(e:PointerEvent){return Math.max(0,Math.min(total.value-.001,(e.clientX-(timeline.value?.getBoundingClientRect().left??0))/zoom.value));}
+function position(e:MouseEvent){return Math.max(0,Math.min(total.value-.001,(e.clientX-(timeline.value?.getBoundingClientRect().left??0))/zoom.value));}
 function snap(at:number,kind:'chord'|'syllable'){
  if(kind==='chord')return Math.min(total.value-1,Math.round(at));
- const chord=props.draft.chords.find(c=>Math.abs(c.start-at)<.2);
- if(chord)return chord.start;
  if(props.draft.existing){
   const starts=props.voice.map(n=>n.start).filter(n=>n>=props.draft.pickup&&n<total.value);
   if(starts.length)return starts.reduce((best,n)=>Math.abs(n-at)<Math.abs(best-at)?n:best);
  }
+ const chord=props.draft.chords.find(c=>Math.abs(c.start-at)<.2);
+ if(chord&&chord.start>=props.draft.pickup)return chord.start;
  return Math.max(props.draft.pickup,Math.min(total.value-step.value,Math.round(at/step.value)*step.value));
 }
 function move(kind:'chord'|'syllable',id:number,at:number){
@@ -43,7 +43,8 @@ function down(e:PointerEvent,kind:'chord'|'syllable',id:number){
 function moving(e:PointerEvent){if(!drag||drag.pointer!==e.pointerId)return;if(Math.abs(e.clientX-drag.x)>5)drag.moved=true;if(drag.moved)ghost.value=snap(position(e),drag.kind);}
 function up(e:PointerEvent){if(!drag||drag.pointer!==e.pointerId)return;const d=drag;drag=null;if(d.moved)move(d.kind,d.id,snap(position(e),d.kind));ghost.value=null;}
 function cancel(){drag=null;ghost.value=null;}
-function place(e:PointerEvent){if(props.playing)return;const at=position(e);if(selected.value)move(selected.value.kind,selected.value.id,snap(at,selected.value.kind));else{cursor.value=Math.floor(at/step.value)*step.value;emit('seek',Math.floor(at/props.draft.beats));}}
+function clearSelection(){cancel();selected.value=null;feedback.value='';}
+function place(e:MouseEvent){if(props.playing)return;const at=position(e);if(selected.value)move(selected.value.kind,selected.value.id,snap(at,selected.value.kind));else{cursor.value=Math.floor(at/step.value)*step.value;emit('seek',Math.floor(at/props.draft.beats));}}
 function choose(kind:'chord'|'syllable',id:number,at:number){if(props.playing)return;if(kind==='chord'&&selected.value?.kind==='syllable'){move('syllable',selected.value.id,at);return;}selected.value={kind,id};cursor.value=at;emit('seek',Math.floor(at/props.draft.beats));}
 function nudge(delta:number){const s=selected.value;if(!s)return;const item=s.kind==='chord'?props.draft.chords.find(c=>c.id===s.id):props.draft.syllables.find(c=>c.id===s.id);if(item)move(s.kind,s.id,snap(item.start+delta*(s.kind==='chord'?1:step.value),s.kind));}
 watch(()=>props.selectedMeasure,m=>{if(!props.playing&&Math.floor(cursor.value/props.draft.beats)!==m)cursor.value=m*props.draft.beats;});
@@ -51,18 +52,18 @@ watch(beat,b=>{if(!props.playing||!scroll.value)return;const x=b*zoom.value;if(x
 onBeforeUnmount(cancel);
 </script>
 <template>
- <section class="alignment-visual" aria-label="Visual lyrics and chord alignment">
-  <div class="alignment-toolbar"><label>Lyric snap <select v-model.number="step"><option :value="1">Quarter</option><option :value=".5">Eighth</option><option :value=".25">Sixteenth</option></select></label><label>Zoom <input type="range" min="48" max="140" v-model.number="zoom"/></label><button type="button" class="secondary" :disabled="!selected||playing" @click="nudge(-1)">←</button><button type="button" class="secondary" :disabled="!selected||playing" @click="nudge(1)">→</button><small>Chords snap to quarter beats. {{draft.existing?'Lyrics snap to existing vocal onsets.':'Lyric timings are provisional.'}}</small></div>
-  <div class="alignment-scroll" ref="scroll"><div ref="timeline" class="alignment-timeline" :style="{width:width+'px'}" @pointerdown.self="place">
+ <section class="alignment-visual" aria-label="Visual lyrics and chord alignment" @keydown.esc.stop="clearSelection">
+  <div class="alignment-toolbar"><label>Lyric snap <select v-model.number="step"><option :value="1">Quarter</option><option :value=".5">Eighth</option><option :value=".25">Sixteenth</option></select></label><label>Zoom <input type="range" min="48" max="140" v-model.number="zoom"/></label><button type="button" class="secondary" :disabled="!selected||playing" aria-label="Move selected item earlier" @click="nudge(-1)">←</button><button type="button" class="secondary" :disabled="!selected||playing" aria-label="Move selected item later" @click="nudge(1)">→</button><small>Chords snap to quarter beats. {{draft.existing?'Lyrics snap to existing vocal onsets.':'Lyric timings are provisional.'}}</small></div>
+  <div class="alignment-scroll" ref="scroll"><div ref="timeline" class="alignment-timeline" :style="{width:width+'px'}" @click.self="place">
    <div v-for="m in rows" :key="m" class="alignment-measure" :style="{left:m*draft.beats*zoom+'px',width:draft.beats*zoom+'px'}"><span>M{{m+1}}</span></div>
    <div v-for="at in grid" :key="at" class="alignment-gridline" :class="{strong:Number.isInteger(at)}" :style="{left:at*zoom+'px'}"><small v-if="Number.isInteger(at)">{{at%draft.beats+1}}</small></div>
    <div v-if="draft.pickup" class="alignment-pickup" :style="{width:draft.pickup*zoom+'px'}"></div>
    <div v-for="c in draft.chords" :key="c.id" class="alignment-anchor-line" :style="{left:c.start*zoom+'px'}"></div>
-   <button v-for="c in draft.chords" :key="'c'+c.id" type="button" class="alignment-chip chord" :class="{selected:selected?.kind==='chord'&&selected.id===c.id}" :style="{left:c.start*zoom+'px'}" :aria-label="c.symbol+' at beat '+(c.start+1)" @pointerdown.stop="down($event,'chord',c.id)" @pointermove="moving" @pointerup="up" @pointercancel="cancel" @click="($event.detail===0)&&choose('chord',c.id,c.start)">{{c.symbol}}</button>
-   <button v-for="s in draft.syllables" :key="'s'+s.id" type="button" class="alignment-chip syllable" :class="{pinned:s.anchor,selected:selected?.kind==='syllable'&&selected.id===s.id}" :style="{left:s.start*zoom+'px',top:100+(s.id%3)*34+'px'}" :aria-label="s.text+' at beat '+(s.start+1)" @pointerdown.stop="down($event,'syllable',s.id)" @pointermove="moving" @pointerup="up" @pointercancel="cancel" @click="($event.detail===0)&&choose('syllable',s.id,s.start)">{{s.text}}</button>
+   <button v-for="c in draft.chords" :key="'c'+c.id" type="button" class="alignment-chip chord" :class="{selected:selected?.kind==='chord'&&selected.id===c.id}" :style="{left:c.start*zoom+'px'}" :aria-pressed="selected?.kind==='chord'&&selected.id===c.id" :aria-label="c.symbol+' at beat '+(c.start+1)" @pointerdown.stop="down($event,'chord',c.id)" @pointermove="moving" @pointerup="up" @pointercancel="cancel" @click="($event.detail===0)&&choose('chord',c.id,c.start)">{{c.symbol}}</button>
+   <button v-for="s in draft.syllables" :key="'s'+s.id" type="button" class="alignment-chip syllable" :class="{pinned:s.anchor,selected:selected?.kind==='syllable'&&selected.id===s.id}" :style="{left:s.start*zoom+'px',top:100+(s.id%3)*34+'px'}" :aria-pressed="selected?.kind==='syllable'&&selected.id===s.id" :aria-label="s.text+' at beat '+(s.start+1)" @pointerdown.stop="down($event,'syllable',s.id)" @pointermove="moving" @pointerup="up" @pointercancel="cancel" @click="($event.detail===0)&&choose('syllable',s.id,s.start)">{{s.text}}</button>
    <div class="alignment-playhead" :style="{left:beat*zoom+'px'}"></div><div v-if="ghost!==null" class="alignment-drop" :style="{left:ghost*zoom+'px'}"></div>
   </div></div>
-  <small>Drag a chord to a beat, or a syllable to a chord or beat. Tap an item then tap a destination. Blue syllables are pinned.</small>
+  <small>Drag a chord to a beat, or a syllable to a chord or beat. Tap an item then tap a destination. Blue syllables are pinned. Applying lyric moves replaces the active verse’s alignment, not the melody or the other verse.</small>
   <p v-if="feedback||error" role="alert">{{feedback||error}}</p>
   <PerformanceLyricLine :notes="preview" :beat="beat" :beats-per-measure="draft.beats" :measure-count="draft.measures" :line-starts="draft.syllables.filter((s,i)=>i===0||s.line!==draft.syllables[i-1].line).map(s=>s.start)" :chords="bars" :effective-bpm="bpm" instrument="Alignment preview"/>
   <div class="alignment-toolbar"><small>{{playing?'Following song playback (applied harmony)':'Static draft preview'}}</small><button type="button" class="secondary" :disabled="playing" @click="emit('reset')">Reset draft</button><button type="button" class="primary" :disabled="playing||!!error" @click="emit('apply')">Apply alignment</button></div>

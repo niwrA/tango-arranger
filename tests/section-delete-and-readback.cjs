@@ -79,7 +79,7 @@ check('read existing Voice note and chord markers with precise bar positions',()
 });
 check('loading from song does not change the project until applying',()=>{
  assert.ok(app.includes('function loadLeadLyricsFromSong()'));
- assert.ok(app.includes('leadLyricsSource.value=leadLyricsFromSong('));
+ assert.ok(app.includes('leadLyricsSource.value=serializeVisualAlignment(createLeadAlignment('));
  assert.ok(app.includes('@click="loadLeadLyricsFromSong"'));
  assert.ok(app.includes('function deleteLeadSection(i:number)'));
  assert.ok(app.includes('deleteProjectSection(project.value,i)'));

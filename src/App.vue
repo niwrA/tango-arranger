@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
+import {shallowReactive,computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import {applyOrchestrationRangeSettings,orchestrationMeasureRange,readOrchestrationRangeSettings,type RangeSettingField} from './orchestrationRangeSettings';
 import AppIcon from './AppIcon.vue';
 import {useDisplayFeatures} from './displayFeatures';
@@ -30,7 +30,7 @@ import PerformanceChordDiagram from './PerformanceChordDiagram.vue';
 import PerformanceRoleCues from './PerformanceRoleCues.vue';
 import PerformanceLyricLine from './PerformanceLyricLine.vue';
 import LeadAlignmentView from './LeadAlignmentView.vue';
-import {createLeadAlignment,alignmentBars,alignmentPreviewNotes,type LeadAlignment} from './leadAlignment';
+import {createLeadAlignment,alignmentBars,applyAlignmentVoice,importAlignmentChords,serializeVisualAlignment,type LeadAlignment} from './leadAlignment';
 import {stageDynamicAlpha,stageDynamicMeter} from './stageDynamics';
 import PianoFocusView from './PianoFocusView.vue';
 import InstrumentLearnView,{type PracticeDisplay} from './InstrumentLearnView.vue';
@@ -193,7 +193,7 @@ function selectProjectInEditor(p:Project){
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   noteLoopFrom.value=1;noteLoopTo.value=firstNoteSectionEnd(p.bars);
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
-  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadVerseDrafts.value={};leadLyricsVerse.value=1;leadAlignmentDraft.value=null;leadAlignmentMode.value='visual';leadDisplayMode.value='sheet';
+  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadVerseDrafts.value={};delete leadVisualSnapshots[1];delete leadVisualSnapshots[2];leadLyricsVerse.value=1;leadAlignmentDraft.value=null;leadAlignmentMode.value='visual';leadDisplayMode.value='sheet';
 }
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
@@ -785,9 +785,10 @@ const performanceVocalCue=computed(()=>{
  const firstBar=Math.floor(Math.floor(beat/beats)/2)*2;
  const visible=notes.some(n=>n.start<(firstBar+3)*beats&&n.start+Math.max(.001,n.duration)>firstBar*beats);
  const source=project.value.leadLyrics?.['1']?.source??project.value.leadLyrics?.['2']?.source;
- const plan=source?parseLeadLyrics(source,beats):null;
+ let plan:ReturnType<typeof parseLeadLyrics>|null=null;
+ try{if(source)plan=parseLeadLyrics(source,beats);}catch{/* A malformed saved source must not break playback. */}
  // Sources read back from the score use one structural row per bar.
- const lineStarts=plan&&!source?.includes('||')?lyricLineStarts(plan,notes.map(n=>n.start)):[];
+ const lineStarts=plan&&(!source?.includes('||')||plan.notes.every(n=>n.absolute))?lyricLineStarts(plan,notes.map(n=>n.start)):[];
  return {instrument,notes:practiceScore.value[instrument]??notes,count,visible,lineStarts};
 });
 const stagePlaybackBpm=computed(()=>Math.round(arrangementCountingIn.value?effectivePlaybackBpm.value:performanceTempoAtBeat(project.value,performanceBeat.value)*rehearsalSpeed.value));
@@ -3279,8 +3280,11 @@ const leadDisplayMode=ref<'edit'|'sheet'|'alignment'>('sheet');
 const leadAlignmentMode=ref<'visual'|'advanced'>('visual');
 const leadPrintableSource=computed(()=>{
  const source=leadLyricsSource.value.trim();
- if(source)return source;
  const voice=leadLyricsExisting.value;
+ if(/(?:^|\s)~(?:single|begin|middle|end):/.test(source)){
+  try{return serializeVisualAlignment(createLeadAlignment(project.value,source,alignmentVoice.value,leadLyricsVerse.value,leadLyricsUseMelody.value));}
+  catch{/* Fall back to the committed song when the source cannot be parsed. */}
+ }else if(source)return source;
  return voice?leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value):'';
 });
 const leadPrintableText=computed(()=>readableLeadSheet(leadPrintableSource.value));
@@ -5184,7 +5188,14 @@ const quickSelectedDisplayNotes=computed(()=>{
 });
 const quickSelectionCount=computed(()=>quickScope.value==='notes'?resolvedQuickSelection.value.notes.length:resolvedQuickSelection.value.measures.length);
 const quickCategories=computed(()=>editCategories.filter(c=>musicalEditActions(c.id,noteInst.value).length));
-const quickNoteActions=computed(()=>musicalEditActions(quickNoteCategory.value,noteInst.value));
+const quickActionSelectionCount=computed(()=>quickNoteCategory.value==='bow'?resolvedQuickSelection.value.notes.length:quickSelectionCount.value);
+const quickNoteActions=computed(()=>{
+ const actions=musicalEditActions(quickNoteCategory.value,noteInst.value);
+ if(quickNoteCategory.value!=='bow')return actions;
+ // One pair of notation marks: assign a single note, or plan a selected passage.
+ const planning=quickActionSelectionCount.value>1;
+ return actions.filter(action=>planning? !['down','up'].includes(action.value):!['plan-down','plan-up'].includes(action.value));
+});
 function quickNoteSelected(n:Note){return quickSelectedDisplayNotes.value.has(n);}
 function toggleQuickNote(n:Note){
  const key=quickNoteKey(n);multiNoteKeys.value=multiNoteKeys.value.includes(key)?multiNoteKeys.value.filter(k=>k!==key):[...multiNoteKeys.value,key];
@@ -5583,185 +5594,182 @@ function lyricSlotShift(direction:-1|1,throughPhrase=false){
 /** A persisted editable lyrics source is shared by the lead sheet and the Voice score.
  * Chord anchors and original line breaks remain in the source for export and karaoke.
  */
-const leadAlignmentDraft=ref<LeadAlignment|null>(null);
+const leadAlignmentDraft=shallowRef<LeadAlignment|null>(null);
 const leadAlignmentBase=shallowRef<Project|null>(null);
 const leadAlignmentError=ref('');
-const leadVerseDrafts=ref<Partial<Record<1|2,{source?:string;useExistingMelody?:boolean}>>>({});
+const leadAlignmentDirty=ref(false);
+const leadAlignmentLyricsDirty=ref(false);
+const leadVisualSnapshots=shallowReactive<Partial<Record<1|2,{base:Project;source:string;useExisting:boolean;draft:LeadAlignment;writeLyrics:boolean}>>>({});
+let visualVerse:1|2=1;
+let visualSource='';
+let visualUseExisting=false;
+const leadVerseDrafts=ref<Partial<Record<1|2,{source?:string;useExistingMelody?:boolean;includeChords?:boolean;sourceEdited?:boolean}>>>({});
 const leadLyricsVerse=ref<1|2>(1);
 const currentLeadDraft=computed(()=>leadVerseDrafts.value[leadLyricsVerse.value]);
 const savedLeadVerse=computed(()=>project.value.leadLyrics?.[String(leadLyricsVerse.value)]);
 const leadLyricsSource=computed({
  get:()=>currentLeadDraft.value?.source??savedLeadVerse.value?.source??'',
- set:(source:string)=>{leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,source};}
+ set:(source:string)=>{leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,source,sourceEdited:true};}
 });
 const leadLyricsUseMelody=computed({
  get:():boolean=>currentLeadDraft.value?.useExistingMelody??savedLeadVerse.value?.useExistingMelody??Boolean(leadLyricsMatches.value.length),
  set:(useExistingMelody:boolean)=>{leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,useExistingMelody};}
 });
-const leadLyricsPlan=computed(()=>parseLeadLyrics(leadLyricsSource.value,project.value.beats));
-const leadLyricsExisting=computed(()=>projectInstruments(project.value).find(i=>i.startsWith('Voice')));
-const leadLyricsMatches=computed(()=>{
-  const voice=leadLyricsExisting.value;
-  return voice?(score.value[voice]??[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
+const leadLyricsIncludeChords=computed({
+ get:()=>currentLeadDraft.value?.includeChords??false,
+ set:(includeChords:boolean)=>{leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,includeChords};}
 });
-const leadLyricsPreview=computed(()=>leadLyricsPlan.value.notes.map((token,i)=>{
-  const existing=leadLyricsUseMelody.value?(token.absolute
-    ?leadLyricsMatches.value.find(n=>Math.abs(n.start-token.start)<1e-7)
-    :leadLyricsMatches.value[i]):undefined;
-  return {...token,beat:existing?.start??token.start,pitch:existing?.pitch??60,provisional:!existing};
-}));
+const parsedLeadLyrics=computed(()=>{
+ try{return {plan:parseLeadLyrics(leadLyricsSource.value,project.value.beats),error:''};}
+ catch(error){return {plan:parseLeadLyrics('',project.value.beats),error:String(error)};}
+});
+const leadLyricsPlan=computed(()=>parsedLeadLyrics.value.plan);
+const leadLyricsExisting=computed(()=>projectInstruments(project.value).find(i=>i.startsWith('Voice')));
+const alignmentVoice=computed(()=>leadLyricsExisting.value?(sourceScore.value[leadLyricsExisting.value]??[]):[]);
+const leadLyricsMatches=alignmentVoice;
+function sourceAlignment(forVisual=false){
+ const p=project.value,verse=leadLyricsVerse.value,source=leadLyricsSource.value,useExisting=leadLyricsUseMelody.value;
+ const snapshot=leadVisualSnapshots[verse];
+ const cached=snapshot?.base===p;
+ // A move in the visual editor remains pending through a mode or verse
+ // switch. Stale snapshots and saved per-verse chord text are never applied.
+ const hasLyrics=forVisual&&useExisting&&alignmentVoice.value.some(n=>Boolean((verse===1?n.lyric:n.lyric2)?.trim()));
+ const fromNotes=hasLyrics&&!currentLeadDraft.value?.sourceEdited&&!/(?:^|\s)~(?:single|begin|middle|end):/.test(source);
+ let draft=cached&&snapshot.source===source&&snapshot.useExisting===useExisting?snapshot.draft:
+  createLeadAlignment(p,fromNotes?'':source,alignmentVoice.value,verse,useExisting);
+ if(cached&&snapshot.draft!==draft)draft={...draft,chords:snapshot.draft.chords};
+ if(leadLyricsIncludeChords.value)
+  draft=importAlignmentChords(draft,p,source);
+ return draft;
+}
+function validateLeadAlignment(d:LeadAlignment,writeLyrics:boolean){
+ if(writeLyrics){
+ if(!leadLyricsExisting.value&&d.syllables.length)return 'Add a Voice part before applying lyrics.';
+ if(d.syllables.some((n,i)=>!Number.isFinite(n.start)||n.start<d.pickup||n.start>=d.measures*d.beats||
+  i>0&&n.start<=d.syllables[i-1].start))return 'Syllables must be ordered within the song.';
+ if(d.existing&&d.syllables.some(n=>n.noteIndex===undefined))return 'Some syllables do not have a vocal note. Align them or use provisional timing.';
+ }
+ try{alignmentBars(d,project.value);}catch(error){return String(error);}
+ return '';
+}
+function advancedWritesLyrics(){
+ const snapshot=leadVisualSnapshots[leadLyricsVerse.value];
+ return !snapshot||snapshot.base!==project.value||snapshot.source!==leadLyricsSource.value||
+  snapshot.useExisting!==leadLyricsUseMelody.value||snapshot.writeLyrics||Boolean(currentLeadDraft.value?.sourceEdited);
+}
+const advancedLeadDraft=computed(()=>{
+ if(parsedLeadLyrics.value.error)return {draft:null,error:parsedLeadLyrics.value.error};
+ try{
+  const draft=sourceAlignment();
+  const error=!leadLyricsPlan.value.notes.length&&!leadLyricsIncludeChords.value&&advancedWritesLyrics()?'Enter at least one lyric syllable.':validateLeadAlignment(draft,advancedWritesLyrics());
+  return {draft,error};
+ }catch(error){return {draft:null,error:String(error)};}
+});
+const leadLyricsPreview=computed(()=>{
+ const notes=[...alignmentVoice.value].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+ return advancedLeadDraft.value.draft?.syllables.map(token=>({
+  ...token,beat:token.start,pitch:token.noteIndex===undefined?60:notes[token.noteIndex]?.pitch??60,
+  provisional:token.noteIndex===undefined
+ }))??[];
+});
 const leadLyricsChordPreview=computed(()=>{
+ if(!leadLyricsIncludeChords.value)return [];
  try{return positionLeadChords(leadLyricsPlan.value,project.value.beats,project.value.bars.length,leadLyricsPreview.value.map(n=>n.beat));}
  catch{return [];}
 });
-const leadLyricsValidation=computed(()=>{
- const plan=leadLyricsPlan.value;
- if(!plan.notes.length)return 'Enter at least one lyric syllable.';
- const available=project.value.bars.length*project.value.beats;
- const existing=leadLyricsUseMelody.value?leadLyricsMatches.value:[];
- if(existing.length&&plan.notes.length>existing.length)return `Only ${existing.length} existing Voice notes for ${plan.notes.length} syllables.`;
- if(!existing.length&&plan.notes.some(n=>n.start>=available))return 'The lyrics extend beyond the song. Add measures.';
- try{positionLeadChords(plan,project.value.beats,project.value.bars.length,leadLyricsPreview.value.map(n=>n.beat));}
- catch(error){return String(error);}
- return '';
-});
-
-// Visual alignment is a separate transactional draft. Existing pitches and
-// durations remain untouched when lyrics are attached to existing vocal notes.
-const alignmentVoice=computed(()=>leadLyricsExisting.value?(sourceScore.value[leadLyricsExisting.value]??[]):[]);
+const leadLyricsValidation=computed(()=>advancedLeadDraft.value.error);
 const alignmentBarsPreview=computed(()=>{try{return leadAlignmentDraft.value?alignmentBars(leadAlignmentDraft.value,project.value):project.value.bars;}catch{return project.value.bars;}});
-const alignmentValidation=computed(()=>{
- const d=leadAlignmentDraft.value;if(!d)return leadAlignmentError.value;
- if(!leadLyricsExisting.value&&d.syllables.length)return 'Add a Voice part before applying lyrics.';
- if(d.syllables.some((n,i)=>n.start<d.pickup||n.start>=d.measures*d.beats||i>0&&n.start<=d.syllables[i-1].start))return 'Syllables must be ordered within the song.';
- if(d.existing&&d.syllables.some(n=>n.noteIndex===undefined))return 'Some syllables do not have a vocal note. Align them or use provisional timing.';
- try{alignmentBars(d,project.value);}catch(error){return String(error);}
- return '';
-});
-function resetLeadAlignment(){
- try{leadAlignmentDraft.value=createLeadAlignment(project.value,leadLyricsSource.value,alignmentVoice.value,leadLyricsVerse.value,leadLyricsUseMelody.value);leadAlignmentBase.value=project.value;leadAlignmentError.value='';}
- catch(error){leadAlignmentDraft.value=null;leadAlignmentError.value=String(error);}
+const visualWritesLyrics=computed(()=>leadAlignmentLyricsDirty.value||Boolean(currentLeadDraft.value?.sourceEdited));
+const alignmentValidation=computed(()=>leadAlignmentDraft.value?validateLeadAlignment(leadAlignmentDraft.value,visualWritesLyrics.value):leadAlignmentError.value);
+function loadVisualAlignment(){
+ const verse=leadLyricsVerse.value;
+ try{
+  leadAlignmentDraft.value=sourceAlignment(true);leadAlignmentBase.value=project.value;
+  visualVerse=verse;visualSource=leadLyricsSource.value;visualUseExisting=leadLyricsUseMelody.value;
+  leadAlignmentDirty.value=leadVisualSnapshots[verse]?.base===project.value||leadLyricsIncludeChords.value;
+  leadAlignmentLyricsDirty.value=leadVisualSnapshots[verse]?.base===project.value&&Boolean(leadVisualSnapshots[verse]?.writeLyrics);
+  leadAlignmentError.value='';
+ }catch(error){leadAlignmentDraft.value=null;leadAlignmentError.value=String(error);}
 }
-function serializeVisualAlignment(d:LeadAlignment):string{
- const events=[...d.chords.map(c=>({start:c.start,text:'['+c.symbol+']',line:-1,order:0})),...d.syllables.map(t=>({start:t.start,text:'~'+t.syllabic+':'+t.text+(t.melisma?'_':''),line:t.line,order:1}))].sort((a,b)=>a.start-b.start||a.order-b.order);
- let bar=0,line=-1,source='';
- for(const e of events){
-  const target=Math.floor(e.start/d.beats);
-  while(bar<target){source+=' || ';bar++;}
-  if(e.line>=0&&line>=0&&e.line!==line)source+='\n';
-  if(e.line>=0)line=e.line;
-  source+=' @'+Number((e.start-target*d.beats+1).toFixed(6))+' '+e.text;
- }
- return source.trim();
+function preserveVisualAlignment(){
+ if(!leadAlignmentDraft.value||!leadAlignmentDirty.value||leadAlignmentBase.value!==project.value)return;
+ leadVisualSnapshots[visualVerse]={base:project.value,source:visualSource,useExisting:visualUseExisting,draft:leadAlignmentDraft.value,writeLyrics:leadAlignmentLyricsDirty.value};
+}
+function discardLeadAlignment(){
+ delete leadVisualSnapshots[leadLyricsVerse.value];
+ delete leadVerseDrafts.value[leadLyricsVerse.value];
+ loadVisualAlignment();
 }
 function changeLeadAlignmentMode(mode:'visual'|'advanced'){
  if(mode===leadAlignmentMode.value)return;
- if(mode==='advanced'&&leadAlignmentDraft.value){leadLyricsSource.value=serializeVisualAlignment(leadAlignmentDraft.value);leadLyricsUseMelody.value=leadAlignmentDraft.value.existing;}
+ if(mode==='advanced'&&leadAlignmentDraft.value){
+  if(leadAlignmentDirty.value||!leadLyricsSource.value.trim()){
+   leadVerseDrafts.value[leadLyricsVerse.value]={...currentLeadDraft.value,source:serializeVisualAlignment(leadAlignmentDraft.value),useExistingMelody:leadAlignmentDraft.value.existing};
+   visualSource=leadLyricsSource.value;visualUseExisting=leadLyricsUseMelody.value;
+  }
+  preserveVisualAlignment();
+ }
  leadAlignmentMode.value=mode;
 }
-function applyVisualAlignment(){
- const d=leadAlignmentDraft.value,voice=leadLyricsExisting.value;
- if(!d||alignmentValidation.value||leadAlignmentBase.value!==project.value)return;
- try{
-  const bars=alignmentBars(d,project.value);
-  let next={...project.value,bars};
-  if(voice&&d.syllables.length){
-   const all=[...alignmentVoice.value].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
-   const verse=leadLyricsVerse.value,field=verse===1?'lyric':'lyric2',syll=verse===1?'syllabic':'syllabic2',mel=verse===1?'melisma':'melisma2';
-   const prefix='lead:'+verse+':';
-   if(!d.existing&&all.some(n=>!n.leadToken?.startsWith(prefix)))throw Error('Existing vocal notes would overlap provisional notes. Use existing melody or edit the vocal part first.');
-   const updated=d.existing?all.map(n=>({...n,[field]:undefined,[syll]:undefined,[mel]:undefined})):all.filter(n=>!n.leadToken?.startsWith(prefix)).map(n=>({...n}));
-   const preview=alignmentPreviewNotes(d,all);
-   d.syllables.forEach((token,i)=>{
-    const lyric={[field]:token.text,[syll]:token.syllabic,[mel]:Boolean(token.melisma)};
-    if(d.existing&&token.noteIndex!==undefined)Object.assign(updated[token.noteIndex],lyric);
-    else updated.push({...preview[i],lyric:undefined,syllabic:undefined,melisma:undefined,...lyric,velocity:80,source:'manual',leadToken:prefix+i});
-   });
-   const dirty=new Set([...all,...updated].map(n=>Math.floor(n.start/next.beats)));
-   let working=sourceScore.value;
-   for(const bar of [...dirty].sort((a,b)=>a-b)){
-    if(bar<0||bar>=next.bars.length)continue;
-    const from=bar*next.beats,to=from+next.beats;
-    next=replaceInstrumentMeasure(next,working,voice,bar,updated.filter(n=>n.start>=from&&n.start<to));
-    working=next.generatedScore!;
-   }
-   // Retain original lyric line grouping and exact anchors in the advanced
-   // source using explicit beat markers; the parser recognizes syllable flags.
-   const source=serializeVisualAlignment(d);
-   next.leadLyrics={...next.leadLyrics,[String(verse)]:{source:source.trim(),useExistingMelody:d.existing}};
-  }
-  stopPlayback();next.generatedScore=Object.values(next.protectedBars??{}).some(Boolean)?mergeScores(next,generate(next)):undefined;
-  project.value=next;delete leadVerseDrafts.value[leadLyricsVerse.value];resetLeadAlignment();message.value='Applied visual lyric and chord alignment.';
- }catch(error){leadAlignmentError.value=String(error);}
+function updateLeadAlignment(draft:LeadAlignment){
+ if(draft.syllables!==leadAlignmentDraft.value?.syllables)leadAlignmentLyricsDirty.value=true;
+ leadAlignmentDraft.value=draft;leadAlignmentDirty.value=true;leadAlignmentError.value='';
 }
-watch([leadDisplayMode,leadAlignmentMode,leadLyricsVerse],([view,mode,verse],[,oldMode,oldVerse])=>{if(view==='alignment'&&mode==='visual'&&(!leadAlignmentDraft.value||oldMode!==mode||oldVerse!==verse))resetLeadAlignment();});
-watch(project,()=>{if(leadAlignmentDraft.value&&leadAlignmentBase.value!==project.value){leadAlignmentDraft.value=null;leadAlignmentError.value='Song changed. Reload the alignment.';}},{flush:'sync'});
+function commitLeadAlignment(d:LeadAlignment,source:string,writeVoice:boolean,preserveUnmapped=false){
+ const p=project.value,voice=leadLyricsExisting.value,verse=leadLyricsVerse.value;
+ const bars=alignmentBars(d,p);
+ const harmonyChanged=bars.some((bar,i)=>bar!==p.bars[i]);
+ let next=harmonyChanged?{...p,bars}:p;
+ if(voice&&writeVoice&&d.syllables.length){
+  next=applyAlignmentVoice(next,sourceScore.value,voice,d,verse,preserveUnmapped);
+  if(source!==p.leadLyrics?.[String(verse)]?.source||d.existing!==p.leadLyrics?.[String(verse)]?.useExistingMelody)
+   next={...next,leadLyrics:{...next.leadLyrics,[String(verse)]:{source,useExistingMelody:d.existing}}};
+ }
+ if(next!==p){
+  if(harmonyChanged||next.generatedScore!==p.generatedScore)
+   next={...next,generatedScore:Object.values(next.protectedBars??{}).some(Boolean)?mergeScores(next,generate(next)):undefined};
+  stopPlayback();
+  project.value=next;
+ }
+ delete leadVisualSnapshots[verse];delete leadVerseDrafts.value[verse];
+ if(leadAlignmentMode.value==='visual')loadVisualAlignment();
+ message.value='Applied '+(harmonyChanged?'lyric and chord alignment.':'lyric alignment; harmony unchanged.');
+}
+function applyVisualAlignment(){
+ const d=leadAlignmentDraft.value;
+ if(!d||alignmentValidation.value||leadAlignmentBase.value!==project.value||playing.value)return;
+ try{commitLeadAlignment(d,serializeVisualAlignment(d,false),visualWritesLyrics.value);}
+ catch(error){leadAlignmentError.value=String(error);}
+}
+watch([leadDisplayMode,leadAlignmentMode,leadLyricsVerse],([view,mode,verse],[oldView,oldMode,oldVerse])=>{
+ if(oldView==='alignment'&&oldMode==='visual'&&(oldVerse!==verse||view!=='alignment'))preserveVisualAlignment();
+ if(view==='alignment'&&mode==='visual'&&(oldView!==view||oldMode!==mode||oldVerse!==verse))loadVisualAlignment();
+});
+watch(project,()=>{
+ if(leadAlignmentDraft.value&&leadAlignmentBase.value!==project.value){
+  leadAlignmentDraft.value=null;leadAlignmentDirty.value=false;leadAlignmentLyricsDirty.value=false;leadAlignmentError.value='Song changed. Reload the alignment.';
+ }
+},{flush:'sync'});
 
 function loadLeadLyricsFromSong(){
-  const voice=leadLyricsExisting.value;
-  if(!voice){message.value='This song has no Voice part. Add Voice before reading back the vocal lyrics.';return;}
-  if(leadLyricsSource.value.trim()&&!window.confirm('Replace the current Lyrics & Chords editor text with the chords and Voice lyrics already stored in this song? The project itself will not change until Apply.'))return;
-  try{
-    leadLyricsSource.value=leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value);
-    leadLyricsUseMelody.value=true;
-    message.value=`Loaded readable lyrics and chords for verse ${leadLyricsVerse.value}. Existing Voice notes supply precise pitches and timing when you apply.`;
-  }catch(error){message.value='Cannot load lyrics from song: '+String(error);}
+ const voice=leadLyricsExisting.value;
+ if(!voice){message.value='This song has no Voice part. Add Voice before reading back the vocal lyrics.';return;}
+ if(leadLyricsSource.value.trim()&&!window.confirm('Replace the current editor text with the chords and Voice lyrics from this song? Nothing is saved until Apply.'))return;
+ try{
+  delete leadVisualSnapshots[leadLyricsVerse.value];
+  leadLyricsSource.value=serializeVisualAlignment(createLeadAlignment(project.value,'',alignmentVoice.value,leadLyricsVerse.value,true));
+  leadLyricsUseMelody.value=true;leadLyricsIncludeChords.value=false;
+  message.value=`Loaded lyrics and chords for verse ${leadLyricsVerse.value}. Existing Voice notes supply precise pitches and timing.`;
+ }catch(error){message.value='Could not read the song lyrics: '+String(error);}
 }
 function applyLeadLyrics(){
-  const plan=leadLyricsPlan.value,voice=leadLyricsExisting.value;
-  if(!voice){message.value='Add a Voice instrument before applying song lyrics.';return;}
-  if(leadLyricsValidation.value){message.value=leadLyricsValidation.value;return;}
-  const field=leadLyricsVerse.value===1?'lyric':'lyric2';
-  const syll=leadLyricsVerse.value===1?'syllabic':'syllabic2';
-  const melisma=leadLyricsVerse.value===1?'melisma':'melisma2';
-  const all=score.value[voice]??[];
-  const prefix='lead:'+leadLyricsVerse.value+':';
-  const useExisting=leadLyricsUseMelody.value&&all.length>0;
-  const sorted=useExisting?[...all].sort((a,b)=>a.start-b.start||a.pitch-b.pitch):[];
-  const existing=useExisting?plan.notes.map((token,i)=>token.absolute
-    ?sorted.find(n=>Math.abs(n.start-token.start)<1e-7)??sorted[i]
-    :sorted[i]):[];
-  const oldGenerated=all.filter(n=>n.leadToken?.startsWith(prefix));
-  const tagged=new Map(oldGenerated.map(n=>[n.leadToken!,n]));
-  const changes=new Map<Note,Note>();
-  const written=plan.notes.map((token,i)=>{
-    const id=prefix+i;
-    const prior=useExisting?existing[i]:tagged.get(id);
-    const original:Note=prior?{...prior}:{pitch:60,start:token.start,duration:1,velocity:80,source:'manual',leadToken:id};
-    const edited={...original,[field]:token.text,[syll]:token.syllabic,[melisma]:Boolean(token.melisma)};
-    if(useExisting&&prior)changes.set(prior,edited);
-    return edited;
-  });
-  // Reapplying a verse updates its tagged notes rather than duplicating them.
-  // Existing Voice melody notes keep their pitch, onset and duration.
-  const updated=all.filter(n=>useExisting||!n.leadToken?.startsWith(prefix)).map(n=>changes.get(n)??{...n});
-  if(!useExisting)updated.push(...written);
-  updated.sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
-  const dirty=new Set([...oldGenerated,...written].map(n=>Math.floor(n.start/project.value.beats)));
-  let next=project.value;
-  for(const bar of [...dirty].sort((a,b)=>a-b)){
-    const from=bar*project.value.beats,to=from+project.value.beats;
-    next=replaceInstrumentMeasure(next,next.generatedScore??generate(next),voice,bar,updated.filter(n=>n.start>=from&&n.start<to));
-  }
-  const chords=positionLeadChords(plan,project.value.beats,project.value.bars.length,written.map(n=>n.start));
-  const anchors=new Map<number,Map<number,string>>();
-  for(const change of chords){
-    if(!anchors.has(change.measure))anchors.set(change.measure,new Map());
-    anchors.get(change.measure)!.set(change.beat,change.chord);
-  }
-  const bars=next.bars.map((bar,index)=>{
-    const edits=anchors.get(index);
-    if(!edits)return bar;
-    const merged=new Map(parseChordSequence(bar.chord,project.value.beats).map(c=>[c.beat,c.chord]));
-    for(const [beat,chord] of edits)merged.set(beat,chord);
-    if(!merged.has(0))merged.set(0,edits.values().next().value!);
-    return {...bar,chord:chordSequenceFromBeats([...merged].map(([beat,chord])=>({beat,chord})),project.value.beats)};
-  });
-  project.value={...next,bars,leadLyrics:{...(next.leadLyrics??{}),[String(leadLyricsVerse.value)]:{
-    source:leadLyricsSource.value,useExistingMelody:leadLyricsUseMelody.value}}};
-  delete leadVerseDrafts.value[leadLyricsVerse.value];
-  const snapped=chords.filter(c=>c.snapped).length;
-  message.value=`Aligned ${plan.notes.length} syllables and ${chords.length} chords; retained ${plan.lines.length} original lyric lines.${snapped?' '+snapped+' chord(s) rounded to the nearest quarter-note beat.':''}`;
+ const {draft,error}=advancedLeadDraft.value;
+ if(!draft||error||playing.value)return;
+ const snapshot=leadVisualSnapshots[leadLyricsVerse.value];
+ const exactVisualEdit=snapshot?.base===project.value&&snapshot.writeLyrics&&
+  snapshot.source===leadLyricsSource.value&&snapshot.useExisting===leadLyricsUseMelody.value;
+ try{commitLeadAlignment(draft,leadLyricsSource.value,advancedWritesLyrics()&&Boolean(leadLyricsPlan.value.notes.length),!exactVisualEdit);}
+ catch(error){message.value='Could not apply alignment: '+String(error);}
 }
 function exportLeadTab(){
   const text=exportLeadLyricsTab(leadLyricsSource.value||project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source||'');
@@ -6106,7 +6114,8 @@ type Activity='arrange'|'practice'|'perform';
 type ActivityContext={arrange?:{tab:WorkspaceTab;bar:number;instrument:Instrument;range:[number,number]};practice?:{instrument:Instrument;range?:[number,number];measure?:number;display:PracticeDisplay};perform?:{bar:number;view:'ensemble'|'notes'}};
 const activityContexts:Record<string,ActivityContext>=(()=>{try{const value=JSON.parse(localStorage.getItem('tango-activity-context-v1')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}})();
 const currentActivity=computed<Activity>(()=>instrumentLearnMode.value?'practice':performanceMode.value?'perform':'arrange');
-const {keepPracticeAwake,keepPerformanceAwake,keepEditingAwake,wakeSupported,wakeActive,canInstall,installApp}=useDisplayFeatures(computed(()=>homeOpen.value||libraryLoading.value||!localSongId.value?null:currentActivity.value));
+const openingPractice=ref(false);
+const {keepPracticeAwake,keepPerformanceAwake,keepEditingAwake,wakeSupported,canInstall,installApp}=useDisplayFeatures(computed(()=>homeOpen.value||openingPractice.value||libraryLoading.value||!localSongId.value?null:currentActivity.value));
 
 function activityContext(){const id=localSongId.value;if(!activityContexts[id]||typeof activityContexts[id]!=='object')activityContexts[id]={};return activityContexts[id];}
 function saveActivityContexts(){try{localStorage.setItem('tango-activity-context-v1',JSON.stringify(activityContexts));}catch{/* UI preferences are optional. */}}
@@ -6308,28 +6317,38 @@ async function homeChooseSong(id:string,activity:Activity){
  }catch(error){homeError.value=String(error);homeOpen.value=true;}
  finally{homeBusy.value=false;}
 }
+function closeHomeDisplaySettings(event:KeyboardEvent){
+ const details=event.currentTarget as HTMLDetailsElement;
+ if(!details.open)return;
+ details.open=false;
+ details.querySelector('summary')?.focus();
+}
 async function homePractise(inst:Instrument){
  if(!activeRoster.value.includes(inst))return;
- const saved=activityContext().practice;
- closeDirectPracticePicker(false);homePracticePick.value=false;homeOpen.value=false;
- performanceView.value='ensemble';performanceMode.value=true;
- focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=clampActivityBar(selectedBar.value)+1;practiceDisplay.value='score-diagram';
- if(saved?.instrument===inst){
-  if(Array.isArray(saved.range))resumedPracticeRange.value=clampActivityRange(saved.range);
-  if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;
-  if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;
- }
- performanceExpandedInstrument.value=inst;performanceScoreView.value='off';
- // The focus panel and its Teleport targets must be in the document before Learn mounts.
- await nextTick();
- if(performanceExpandedInstrument.value!==inst||!performanceMode.value||homeOpen.value)return;
- enterInstrumentLearn();
- await nextTick();
- document.querySelector<HTMLElement>('.instrument-focus-learn')?.focus();
+ // The focused panel briefly uses the Performance shell before Learn mounts.
+ openingPractice.value=true;
+ try{
+  const saved=activityContext().practice;
+  closeDirectPracticePicker(false);homePracticePick.value=false;homeOpen.value=false;
+  performanceView.value='ensemble';performanceMode.value=true;
+  focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=clampActivityBar(selectedBar.value)+1;practiceDisplay.value='score-diagram';
+  if(saved?.instrument===inst){
+   if(Array.isArray(saved.range))resumedPracticeRange.value=clampActivityRange(saved.range);
+   if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;
+   if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;
+  }
+  performanceExpandedInstrument.value=inst;performanceScoreView.value='off';
+  // The focus panel and its Teleport targets must be in the document before Learn mounts.
+  await nextTick();
+  if(performanceExpandedInstrument.value!==inst||!performanceMode.value||homeOpen.value)return;
+  enterInstrumentLearn();
+  await nextTick();
+  document.querySelector<HTMLElement>('.instrument-focus-learn')?.focus();
+ }finally{openingPractice.value=false;}
 }
 </script>
 <template>
-<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
+<div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode,'is-home':homeOpen&&!newSongOpen}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo" aria-hidden="true">𝄞</span><span class="home-brand-icon" aria-hidden="true"><AppIcon name="home"/></span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
   <template v-if="!homeOpen && !libraryLoading && localSongId">
   
@@ -6448,7 +6467,7 @@ async function homePractise(inst:Instrument){
       <button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble</button>
       <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
     </div>
-    <div class="performance-stage-actions"><button v-if="wakeSupported" type="button" class="secondary performance-stage-action" :aria-pressed="keepPerformanceAwake" :title="wakeActive?'Screen is being kept awake':'Screen wake lock is inactive'" @click="keepPerformanceAwake=!keepPerformanceAwake">Keep awake</button>
+    <div class="performance-stage-actions">
 
       <button type="button" class="secondary performance-stage-action performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen (if supported)'" :aria-label="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen'" @click="togglePerformanceFullscreen">
         <AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/><span>{{performanceFullscreenActive||performanceStageCompact?'Exit screen':'Full screen'}}</span>
@@ -6499,24 +6518,23 @@ async function homePractise(inst:Instrument){
   <div v-if="directPracticePick" class="app-modal-backdrop" @click.self="closeDirectPracticePicker()" @keydown.esc.stop.prevent="closeDirectPracticePicker()" @keydown.tab="trapModalTab">
    <section id="activity-practice-picker" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="activity-practice-title">
     <h2 id="activity-practice-title">Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p>
-    <div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" :disabled="homeBusy" @click="choosePracticeInstrument(inst)">{{rosterDisplayName(inst)}}</button>
-     <button type="button" class="secondary" @click="closeDirectPracticePicker()">Back</button>
-    </div>
+    <div class="home-actions practice-picker-grid" role="group" aria-label="Choose instrument"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary practice-instrument-card" :disabled="homeBusy" @click="choosePracticeInstrument(inst)"><InstrumentBadge :instrument="inst" :roster="activeRoster" :label="rosterDisplayName(inst)"/><strong>{{rosterDisplayName(inst)}}</strong><AppIcon name="play"/></button></div><div class="practice-picker-footer"><button type="button" class="secondary" @click="closeDirectPracticePicker()"><AppIcon name="arrow-left"/> Back</button></div>
    </section>
   </div>
  </Teleport>
  <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
  <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
-  <div class="home-intro"><h1 id="home-title" tabindex="-1">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button></div>
-  <details class="editor"><summary>Display preferences</summary><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></details>
+  <div class="home-intro"><div><h1 id="home-title" tabindex="-1">Your tango workspace</h1><p>Arrange, practise and perform.</p></div><div class="home-intro-actions"><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button><details class="home-display-settings" @keydown.esc.stop="closeHomeDisplaySettings"><summary aria-label="Display preferences" title="Display preferences"><AppIcon name="settings"/><span>Settings</span></summary><div class="home-settings-popover"><strong>Display preferences</strong><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></div></details></div></div>
+  
   <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
   <p v-if="homeError" role="alert">{{homeError}}</p>
-  <div v-if="homePracticePick" class="editor"><h2>Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p><div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" @click="choosePracticeInstrument(inst)" :disabled="homeBusy">{{rosterDisplayName(inst)}}</button><button type="button" class="secondary" @click="homePracticePick=false">Back</button></div></div>
+  <div v-if="homePracticePick" class="editor home-practice-picker"><div class="practice-picker-heading"><button type="button" class="secondary" @click="homePracticePick=false"><AppIcon name="arrow-left"/> Back</button><div><h2>Choose your part</h2><p>{{project.title||'Untitled tango'}} · Practice</p></div></div><div class="home-actions practice-picker-grid" role="group" aria-label="Choose instrument"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary practice-instrument-card" :disabled="homeBusy" @click="choosePracticeInstrument(inst)"><InstrumentBadge :instrument="inst" :roster="activeRoster" :label="rosterDisplayName(inst)"/><strong>{{rosterDisplayName(inst)}}</strong><AppIcon name="play"/></button></div></div>
   <template v-else>
+   <section v-if="localSongId" class="home-current-song" aria-label="Current song"><span class="home-current-icon"><AppIcon name="music"/></span><div><small>Current song</small><strong id="home-current-song-name">{{project.title.trim()||'Untitled tango'}}</strong></div></section>
    <div class="home-activities">
-    <article class="editor"><h2>Arrange</h2><p>Create, import and refine your arrangements.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'arrange')">Continue · {{project.title.trim()||'Untitled tango'}}</button><button :class="localSongId?'secondary':'primary'" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button></div></article>
-    <article class="editor"><h2>Practice</h2><p>Rehearse your instrument or vocal part using the existing learning tools.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'practice')">Practise · {{project.title.trim()||'Untitled tango'}}</button><a href="#home-songs">Choose a song below</a></div></article>
-    <article class="editor"><h2>Perform</h2><p>Use the focused stage display for ensemble playing, notes and vocal cues.</p><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'perform')">Perform · {{project.title.trim()||'Untitled tango'}}</button><a href="#home-songs">Choose a song below</a></div></article>
+    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="layers"/></span><div><h2>Arrange</h2><p>Create and edit arrangements.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'arrange')">Continue arrangement <AppIcon name="play"/></button><button :class="localSongId?'secondary':'primary'" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button></div></article>
+    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="graduation-cap"/></span><div><h2>Practice</h2><p>Rehearse your own part.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'practice')">Choose your part <AppIcon name="play"/></button><a class="home-other-song" href="#home-songs">Choose another song</a></div></article>
+    <article class="editor home-activity-card"><div class="home-activity-heading"><span class="home-activity-icon"><AppIcon name="presentation"/></span><div><h2>Perform</h2><p>Play with the stage display.</p></div></div><div class="home-actions"><button v-if="localSongId" class="primary" :disabled="homeBusy" aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'perform')">Open stage <AppIcon name="play"/></button><a class="home-other-song" href="#home-songs">Choose another song</a></div></article>
    </div>
    <section id="home-songs" class="editor" aria-labelledby="home-songs-title"><h2 id="home-songs-title">Your songs</h2><p v-if="!localSongs.length">No saved songs yet. Create one or explore an example below.</p><div v-for="song in localSongs" :key="song.id" class="home-song-row"><div><strong>{{song.title||'Untitled tango'}}</strong><small>{{song.measures}} measures</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
    <section class="editor"><h2>Explore example songs</h2><p>Open an independent editable copy. The built-in original stays unchanged.</p><div v-for="song in homeExamples" :key="song.id" class="home-song-row"><div><strong>{{song.title}}</strong><small>{{song.description}}</small></div><div class="home-actions"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" class="secondary" :disabled="homeBusy" :aria-label="activity+' '+song.title" @click="homeChooseSong(song.id,activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></div></div></section>
@@ -6624,7 +6642,7 @@ async function homePractise(inst:Instrument){
             <button type="button" class="secondary performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="performanceMode=false"><AppIcon name="arrow-left"/></button>
            </div>
            <button v-if="instrumentLearnMode" type="button" class="secondary icon-action" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :aria-label="performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Enter full screen'" :title="performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Enter full screen'" @click="togglePerformanceFullscreen"><AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/></button>
-           <button v-if="wakeSupported" type="button" class="secondary" :aria-pressed="instrumentLearnMode?keepPracticeAwake:keepPerformanceAwake" :title="wakeActive?'Screen is being kept awake':'Screen wake lock is inactive'" @click="instrumentLearnMode?keepPracticeAwake=!keepPracticeAwake:keepPerformanceAwake=!keepPerformanceAwake">Keep awake</button>
+           
            <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-learn" aria-label="Learn this instrument's notes" title="Enter Learn mode for this instrument" @click="enterInstrumentLearn"><AppIcon name="graduation-cap"/></button>
            <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="presentation"/><span class="focus-button-label">Performance</span></button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
@@ -7010,7 +7028,7 @@ async function homePractise(inst:Instrument){
     <button type="button" :class="leadDisplayMode==='alignment'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='alignment'" @click="showLeadLyricsEditor">Alignment</button>
     <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Measures</button>
   </div>
-  
+
   <div class="lead-preview-controls" role="group" aria-label="Chord preview">
     <button type="button" class="secondary" title="Preview chords from the beginning" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button>
     <button type="button" class="secondary" title="Preview chords from the selected measure" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button>
@@ -7031,19 +7049,19 @@ async function homePractise(inst:Instrument){
 </section>
 <div v-if="leadDisplayMode==='edit'&&copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
 <section v-if="leadDisplayMode==='alignment'" class="lead-alignment-workspace">
- <div class="lead-lyrics-toolbar"><button type="button" :class="leadAlignmentMode==='visual'?'primary':'secondary'" @click="changeLeadAlignmentMode('visual')">Visual</button><button type="button" :class="leadAlignmentMode==='advanced'?'primary':'secondary'" @click="changeLeadAlignmentMode('advanced')">Advanced</button><label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label><label v-if="leadAlignmentMode==='visual'"><input type="checkbox" v-model="leadLyricsUseMelody" @change="resetLeadAlignment"/> Use existing Voice melody</label></div>
- <template v-if="leadAlignmentMode==='visual'"><LeadAlignmentView v-if="leadAlignmentDraft" :draft="leadAlignmentDraft" :voice="alignmentVoice" :bars="alignmentBarsPreview" :playing="playing" :play-beat="performanceBeat" :selected-measure="selectedBar" :bpm="effectivePlaybackBpm" :error="alignmentValidation||leadAlignmentError" @change="leadAlignmentDraft=$event;leadAlignmentError=''" @seek="selectLeadMeasure" @apply="applyVisualAlignment" @reset="resetLeadAlignment"/><div v-else><p role="alert">{{leadAlignmentError}}</p><button type="button" @click="resetLeadAlignment">Reload alignment</button></div><p v-if="leadAlignmentDraft&&!leadAlignmentDraft.syllables.length">No syllables yet. Paste lyrics in Advanced, then return to Visual.</p></template>
+ <div class="lead-lyrics-toolbar"><button type="button" :class="leadAlignmentMode==='visual'?'primary':'secondary'" @click="changeLeadAlignmentMode('visual')">Visual</button><button type="button" :class="leadAlignmentMode==='advanced'?'primary':'secondary'" @click="changeLeadAlignmentMode('advanced')">Advanced</button><label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label><label v-if="leadAlignmentMode==='visual'"><input type="checkbox" v-model="leadLyricsUseMelody" @change="preserveVisualAlignment();loadVisualAlignment()"/> Use existing Voice melody</label></div>
+ <template v-if="leadAlignmentMode==='visual'"><LeadAlignmentView v-if="leadAlignmentDraft" :draft="leadAlignmentDraft" :voice="alignmentVoice" :bars="alignmentBarsPreview" :playing="playing" :play-beat="performanceBeat" :selected-measure="selectedBar" :bpm="effectivePlaybackBpm" :error="alignmentValidation||leadAlignmentError" @change="updateLeadAlignment" @seek="selectLeadMeasure" @apply="applyVisualAlignment" @reset="discardLeadAlignment"/><div v-else><p role="alert">{{leadAlignmentError}}</p><button type="button" @click="loadVisualAlignment">Reload alignment</button></div><p v-if="leadAlignmentDraft&&!leadAlignmentDraft.syllables.length">No syllables yet. Paste lyrics in Advanced, then return to Visual.</p></template>
  <section v-if="leadAlignmentMode==='advanced'" class="lead-lyrics-workspace">
   <strong>Advanced lyric and chord source</strong>
   <p class="hint">Paste ordinary song lyrics with chords in square brackets, such as [D]Donde el río se queda. Line breaks are preserved but do not end a measure. The editor aligns words to existing Voice notes automatically; add | only to clarify note-group boundaries and || only to force a measure boundary. Hyphens split sung syllables. Existing melody pitches and timing are preserved when selected; otherwise C4 notes are editable placeholders.</p>
   <div class="lead-lyrics-toolbar">
-    <label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label>
     <label><input type="checkbox" v-model="leadLyricsUseMelody"/> Use existing Voice melody ({{leadLyricsMatches.length}} notes)</label>
+    <label><input type="checkbox" v-model="leadLyricsIncludeChords"/> Apply chord markers to shared harmony</label>
     <button type="button" class="secondary" @click="loadLeadLyricsFromSong">Load from song</button>
     <button type="button" class="secondary" @click="exportLeadTab">Export chord / lyrics tab</button>
   </div>
   <label class="lead-lyrics-input">Song text, chords and boundaries<textarea v-model="leadLyricsSource" rows="7" spellcheck="false" placeholder="[D]Donde el río se queda&#10;[B7]y la luna se va&#10;[Em]donde nadie ha llegado&#10;[A7]ni puede llegar"></textarea></label>
-  <p class="hint">{{leadLyricsPlan.notes.length}} syllable positions · {{leadLyricsPlan.chords.length}} chord anchors · {{leadLyricsPlan.lines.length}} original lines. Applying the text also writes its chord markers to the existing lead-sheet measures.</p>
+  <p class="hint">{{leadLyricsPlan.notes.length}} syllable positions · {{leadLyricsPlan.chords.length}} chord anchors · {{leadLyricsPlan.lines.length}} original lines. Lyrics on unmatched existing notes stay in place. Chord markers will not change the song unless you select the harmony option.</p>
   <p v-if="leadLyricsValidation" role="alert" class="hint">{{leadLyricsValidation}}</p>
   <p v-if="leadLyricsChordPreview.some(c=>c.snapped)" class="hint">Some chord onsets fall between quarter-note beats and will be rounded when saved.</p>
   <div v-if="leadLyricsChordPreview.length" class="lead-lyrics-chord-preview" aria-label="Chord anchor preview"><span v-for="(chord,i) in leadLyricsChordPreview" :key="i"><strong>{{chord.chord}}</strong> · m{{chord.measure+1}} beat {{chord.beat+1}}</span></div>
@@ -7051,7 +7069,7 @@ async function homePractise(inst:Instrument){
     <div v-for="(token,i) in leadLyricsPreview.slice(0,120)" :key="i" class="lead-lyrics-syllable"><small>m{{Math.floor(token.beat/project.beats)+1}} · {{Number(token.beat%project.beats+1).toFixed(2)}}</small><strong>{{token.text}}</strong><span>{{displayPitch(token.pitch)}}{{token.provisional?'*':''}}</span></div>
     <span v-if="leadLyricsPreview.length>120" class="hint">Showing first 120 positions</span>
   </div>
-  <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="!!leadLyricsValidation" @click="applyLeadLyrics">Apply lyric alignment to Voice notes</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
+  <div class="lead-lyrics-toolbar"><button type="button" class="primary" :disabled="playing||!!leadLyricsValidation" @click="applyLeadLyrics">{{leadLyricsIncludeChords?'Apply lyric and chord markers':'Apply lyric alignment to Voice notes'}}</button><span class="hint">* Provisional pitches can be adjusted in the Note Editor.</span></div>
 </section>
 </section>
 <div v-if="leadDisplayMode==='edit'" class="lead-sections">
@@ -7468,7 +7486,7 @@ async function homePractise(inst:Instrument){
      <label>Pitch <input type="number" v-model.number="quickPitch" :min="noteCtx.range[0]" :max="noteCtx.range[1]"/></label>
      <label>Beat <input type="number" v-model.number="quickBeat" min="1" :max="project.beats" :step="noteStep"/></label>
     </template>
-    <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)">{{action.label}}</button>
+    <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickActionSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)"><svg v-if="quickNoteCategory==='bow'&&['down','up','plan-down','plan-up'].includes(action.value)" class="bow-mark-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path v-if="action.value==='down'||action.value==='plan-down'" d="M5 5h14v4H5z M5 9h2v10H5z M17 9h2v10h-2z" fill="currentColor"/><path v-else d="M5 5l7 14 7-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="miter" stroke-linecap="square"/></svg><template v-else>{{action.label}}</template></button>
     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
    </div>
    <div v-if="quickMode==='create'" class="musical-edit-row">
@@ -9739,7 +9757,7 @@ async function homePractise(inst:Instrument){
 .musical-edit-row select{width:auto;max-width:180px}
 .musical-edit-row label{display:flex;align-items:center;gap:4px;font-size:12px}
 .musical-edit-row input[type=number]{width:58px;min-width:0}
-.musical-edit-row .quick-note-action{font-size:14px}
+.musical-edit-row .quick-note-action{font-size:14px}.bow-mark-icon{display:inline-block;vertical-align:middle;flex:none;pointer-events:none}
 .musical-preview-row{border-top:1px solid #69d5d9;padding-top:4px;color:#69d5d9}
 .musical-preview-row strong{flex:1;font-size:12px}
 </style>
@@ -9787,4 +9805,12 @@ async function homePractise(inst:Instrument){
  }
  .shell.performance-live>.app-topbar>.topbar-compact-actions{grid-area:more;justify-self:end;align-self:start}
 }
+</style>
+
+<style scoped>
+.home-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}.home-intro-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.home-display-settings{position:relative}.home-display-settings summary{display:flex;align-items:center;gap:6px;cursor:pointer;list-style:none;padding:8px 10px;border:1px solid #637686;border-radius:8px;min-height:42px}.home-display-settings summary::-webkit-details-marker{display:none}.home-settings-popover{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:min(320px,85vw);background:#233440;border:1px solid #637686;border-radius:10px;padding:14px;box-shadow:0 10px 24px #0008}.home-settings-popover label{display:flex;align-items:center;gap:8px}.home-settings-popover input{width:auto}.home-settings-popover p{margin:10px 0}.practice-picker-heading{display:flex;align-items:center;gap:14px;margin-bottom:16px}.practice-picker-heading h2,.practice-picker-heading p{margin:0}.home-actions.practice-picker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:10px}.practice-picker-grid .practice-instrument-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:110px;padding:12px;background:#233b49;border:1px solid #597689;border-radius:12px;color:#e3edf3}.practice-instrument-card :deep(.instrument-badge){width:48px;height:48px;flex-basis:48px}.practice-instrument-card :deep(.instrument-badge-icon){width:44px;height:44px}.practice-instrument-card>.app-icon{width:15px;height:15px;color:#83c6e7}.practice-instrument-card:hover,.practice-instrument-card:focus-visible{border-color:#83c6e7;background:#294858}.home-practice-picker{max-width:900px;margin-inline:auto;width:100%}.practice-picker-footer{margin-top:12px}@media(max-width:480px){.home-display-settings summary span:not(.app-icon){display:none}.practice-picker-grid .practice-instrument-card{min-height:94px}}
+</style>
+
+<style scoped>
+.shell.is-home>.app-topbar{display:flex!important;align-items:center;justify-content:space-between;min-height:58px!important;padding:8px 14px!important}.shell.is-home>.app-topbar>.brand.brand-link{display:flex!important;width:auto!important;min-height:42px!important;justify-content:flex-start!important;gap:8px!important;margin:0!important}.shell.is-home>.app-topbar>.brand.brand-link .logo{display:inline-flex!important}.shell.is-home>.app-topbar>.brand.brand-link .brand-label{display:flex!important;flex-direction:column;align-items:flex-start}.shell.is-home>.app-topbar>.brand.brand-link .brand-label strong{font-size:clamp(16px,4vw,20px)!important;letter-spacing:0}.shell.is-home>.app-topbar>.brand.brand-link .brand-label small{font-size:11px!important;text-align:left!important}.shell.is-home>.app-topbar>.brand.brand-link .home-brand-icon{display:none!important}.home-workspace{max-width:1160px;margin-inline:auto;display:grid;gap:14px;padding:clamp(12px,2.4vw,24px);width:100%;box-sizing:border-box}.home-intro{align-items:center;gap:8px}.home-intro h1{font-size:clamp(22px,4vw,32px);margin:0 0 3px}.home-intro p{margin:0;color:#aabfce;font-size:14px}.home-current-song{display:flex;align-items:center;gap:12px;padding:12px 14px;background:linear-gradient(110deg,#243d4b,#1d2e39);border:1px solid #536e80;border-radius:12px;min-width:0}.home-current-song>div{display:grid;gap:3px;min-width:0}.home-current-song small{font-size:11px;color:#a9c5d6;text-transform:uppercase;letter-spacing:.07em}.home-current-song strong{font-size:clamp(15px,2.4vw,20px);line-height:1.35;overflow-wrap:anywhere}.home-current-icon,.home-activity-icon{display:flex;align-items:center;justify-content:center;flex:0 0 42px;height:42px;background:#344b59;border-radius:10px;color:#ecd0a5}.home-current-icon :deep(.app-icon),.home-activity-icon :deep(.app-icon){width:23px;height:23px}.home-activities{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.home-activities .home-activity-card{display:flex;flex-direction:column;justify-content:flex-start;gap:12px;min-height:0!important;padding:14px;margin:0;background:#1a2934;border:1px solid #435866;border-radius:12px}.home-activity-heading{display:flex;align-items:center;gap:10px}.home-activity-heading h2{font-size:20px;margin:0 0 2px}.home-activity-heading p{font-size:13px;color:#b9c9d4;line-height:1.35;margin:0}.home-activity-card .home-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0}.home-activity-card .home-actions>button.primary{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:44px;font-size:14px;padding:8px 12px}.home-activity-card .home-actions>button.secondary{min-height:40px;font-size:12px;padding:6px 9px}.home-other-song{font-size:13px;color:#a9c9df;text-decoration:none;padding:6px 2px}.home-other-song:hover{text-decoration:underline}.home-workspace :focus-visible{outline-offset:3px}.home-workspace .home-song-row{gap:8px;flex-wrap:wrap}.home-workspace .home-song-row>div:first-child{min-width:0;overflow-wrap:anywhere}.home-workspace .home-song-row .home-actions{gap:5px}.home-workspace .home-song-row .home-actions button{font-size:12px;min-height:38px;padding:6px 9px}@media(max-width:720px){.home-activities{grid-template-columns:1fr}.home-workspace{gap:10px;padding:12px}.home-activity-card .home-actions>button.primary{min-height:42px}.home-activity-heading h2{font-size:18px}.home-activity-heading p{font-size:13px}.home-activities .home-activity-card{gap:9px;padding:11px}.home-current-song{padding:10px}.home-intro-actions{margin-left:auto}.home-settings-popover{right:0;width:min(310px,calc(100vw - 32px));box-sizing:border-box}.home-intro h1{font-size:20px}.home-workspace .home-song-row{align-items:flex-start}.home-workspace .home-song-row .home-actions{width:100%}} 
 </style>
