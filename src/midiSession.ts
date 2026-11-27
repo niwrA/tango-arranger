@@ -61,5 +61,5 @@ export function sendMidiNote(pitch:number,velocity:number,duration:number,delay=
  catch(e){midiStatus.value='MIDI send failed: '+String(e);return false;}
 }
 export function panicMidi(){
- for(const p of midiOutputs.value){if(p.connection!=='open')continue;try{p.clear();for(let ch=0;ch<16;ch++){p.send([176|ch,64,0]);p.send([176|ch,123,0]);p.send([176|ch,120,0]);}}catch{/* disconnected */}}
+ for(const p of midiOutputs.value){if(p.connection!=='open')continue;try{(p as MIDIOutput & {clear?:()=>void}).clear?.();for(let ch=0;ch<16;ch++){p.send([176|ch,64,0]);p.send([176|ch,123,0]);p.send([176|ch,120,0]);}}catch{/* disconnected */}}
 }
