@@ -2,6 +2,7 @@
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import {applyOrchestrationRangeSettings,orchestrationMeasureRange,readOrchestrationRangeSettings,type RangeSettingField} from './orchestrationRangeSettings';
 import AppIcon from './AppIcon.vue';
+import {useDisplayFeatures} from './displayFeatures';
 import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditContext,type MusicalEditResult,type EditSelection,type NoteEntryEdit,type NoteGeometryEdit,type NoteNotationEdit} from './musicalEdit';
 import {projectEditPreview,type PreviewOriginal} from './editPreview';
 import {draftAuditionEvents} from './editAudition';
@@ -6025,6 +6026,8 @@ type Activity='arrange'|'practice'|'perform';
 type ActivityContext={arrange?:{tab:WorkspaceTab;bar:number;instrument:Instrument;range:[number,number]};practice?:{instrument:Instrument;range?:[number,number];measure?:number;display:PracticeDisplay};perform?:{bar:number;view:'ensemble'|'notes'}};
 const activityContexts:Record<string,ActivityContext>=(()=>{try{const value=JSON.parse(localStorage.getItem('tango-activity-context-v1')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}})();
 const currentActivity=computed<Activity>(()=>instrumentLearnMode.value?'practice':performanceMode.value?'perform':'arrange');
+const {keepPracticeAwake,keepPerformanceAwake,keepEditingAwake,wakeSupported,wakeActive,canInstall,installApp}=useDisplayFeatures(computed(()=>homeOpen.value||libraryLoading.value||!localSongId.value?null:currentActivity.value));
+
 function activityContext(){const id=localSongId.value;if(!activityContexts[id]||typeof activityContexts[id]!=='object')activityContexts[id]={};return activityContexts[id];}
 function saveActivityContexts(){try{localStorage.setItem('tango-activity-context-v1',JSON.stringify(activityContexts));}catch{/* UI preferences are optional. */}}
 function rememberActivity(){
@@ -6288,7 +6291,7 @@ async function homePractise(inst:Instrument){
       <button type="button" :class="{selected:performanceView==='ensemble'}" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble</button>
       <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
     </div>
-    <div class="performance-stage-actions">
+    <div class="performance-stage-actions"><button v-if="wakeSupported" type="button" class="secondary performance-stage-action" :aria-pressed="keepPerformanceAwake" :title="wakeActive?'Screen is being kept awake':'Screen wake lock is inactive'" @click="keepPerformanceAwake=!keepPerformanceAwake">Keep awake</button>
       <button type="button" class="secondary performance-stage-action" title="Home" aria-label="Tango Arranger home" @click="showHome"><AppIcon name="home"/><span>Home</span></button>
       <button type="button" class="secondary performance-stage-action performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen (if supported)'" :aria-label="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen'" @click="togglePerformanceFullscreen">
         <AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/><span>{{performanceFullscreenActive||performanceStageCompact?'Exit screen':'Full screen'}}</span>
@@ -6347,7 +6350,8 @@ async function homePractise(inst:Instrument){
  </Teleport>
  <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
  <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
-  <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p></div>
+  <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button></div>
+  <details class="editor"><summary>Display preferences</summary><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></details>
   <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
   <p v-if="homeError" role="alert">{{homeError}}</p>
   <div v-if="homePracticePick" class="editor"><h2>Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p><div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" @click="choosePracticeInstrument(inst)" :disabled="homeBusy">{{rosterDisplayName(inst)}}</button><button type="button" class="secondary" @click="homePracticePick=false">Back</button></div></div>
@@ -6462,6 +6466,8 @@ async function homePractise(inst:Instrument){
             </details>
             <button type="button" class="secondary performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="performanceMode=false"><AppIcon name="arrow-left"/></button>
            </div>
+           <button v-if="instrumentLearnMode" type="button" class="secondary icon-action" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :aria-label="performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Enter full screen'" :title="performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Enter full screen'" @click="togglePerformanceFullscreen"><AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/></button>
+           <button v-if="wakeSupported" type="button" class="secondary" :aria-pressed="instrumentLearnMode?keepPracticeAwake:keepPerformanceAwake" :title="wakeActive?'Screen is being kept awake':'Screen wake lock is inactive'" @click="instrumentLearnMode?keepPracticeAwake=!keepPracticeAwake:keepPerformanceAwake=!keepPerformanceAwake">Keep awake</button>
            <button v-if="!instrumentLearnMode" type="button" class="secondary instrument-focus-learn" aria-label="Learn this instrument's notes" title="Enter Learn mode for this instrument" @click="enterInstrumentLearn"><AppIcon name="graduation-cap"/></button>
            <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="presentation"/><span class="focus-button-label">Performance</span></button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
