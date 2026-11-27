@@ -31,6 +31,13 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
         explicitBeat=false;
         continue;
       }
+      // Visual alignment serializes individual syllables with explicit grouping.
+      const marked=part.match(/^~(single|begin|middle|end):(.+)$/);
+      if(marked){
+        const melisma=marked[2].endsWith('_'),text=marked[2].replace(/_+$/,'');
+        if(text)notes.push({text,line:lineNumber,start:beat,absolute:true,syllabic:marked[1] as LeadLyricToken['syllabic'],...(melisma?{melisma:true}:{})});
+        beat++;explicitBeat=false;continue;
+      }
       const fragments=part.split('-').filter(Boolean);
       fragments.forEach((fragment,i)=>{
         const melisma=fragment.endsWith('_');
@@ -46,7 +53,7 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
 }
 /** A readable chord-over-text export with original lyric line breaks. */
 export function exportLeadLyricsTab(source:string):string {
- return source.replace(/\r\n?/g,'\n').split('\n').map(line=>{
+ return source.replace(/(^|\s)@\d+(?:\.\d+)?(?=\s|$)/g,'$1').replace(/~(?:single|begin|middle|end):/g,'').replace(/\r\n?/g,'\n').split('\n').map(line=>{
   let lyric='',chordLine='',cursor=0;
   for(let i=0;i<line.length;){
    if(line[i]==='['){
