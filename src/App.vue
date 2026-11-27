@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi,midiOutputEnabled,sendMidiNote,panicMidi} from "./midiSession";
 import MidiDiagnostics from './MidiDiagnostics.vue';
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick,defineAsyncComponent} from 'vue';
 import {applyOrchestrationRangeSettings,orchestrationMeasureRange,readOrchestrationRangeSettings,type RangeSettingField} from './orchestrationRangeSettings';
@@ -158,6 +159,8 @@ function stopPlayback(){
   // Continue cleanup so the next Play click can start a fresh audio session.
   let cleanupError:unknown=null;
   const safeRelease=(release:()=>void)=>{try{release();}catch(error){cleanupError??=error;}};
+  if(typeof finishMidiCapture==='function')safeRelease(()=>finishMidiCapture());
+  if(typeof panicMidi==='function')safeRelease(()=>panicMidi());
   // Keep the final held notes when Stop is pressed before the selected range ends.
   if(captureRecording.value)for(const id of [...heldCaptureKeys.keys()])
     safeRelease(()=>releaseCapturePianoKey({pointerId:id,type:'transport-end'} as PointerEvent));
@@ -1398,7 +1401,12 @@ function prepareInstrumentCapture(elapsedBeats:number):void{
 function updateInstrumentCaptureDraft():void{
  const s=instrumentCaptureSession.value;
  if(!s)return;
- const notes=quantizeInstrumentCapture(instrumentCaptureEvents.value,{
+ const events=typeof midiCapturePattern!=='undefined'&&midiCapturePattern.value!=='off'&&captureInputSource.value==='midi'?instrumentCaptureEvents.value.map(event=>{
+  const beats=s.beatsPerMeasure,local=event.startBeat%beats;
+  const slot=nearestRhythmSlot(local,midiCapturePattern.value as RhythmPreset,beats,s.instrument,project.value.profile,.5);
+  return slot?{...event,startBeat:event.startBeat+(slot.beat-local)*midiCaptureStrength.value/100}:event;
+ }):instrumentCaptureEvents.value;
+ const notes=quantizeInstrumentCapture(events,{
   ...s,onsetGrid:captureGrid,durationGrid:bar=>captureDurationQuantize.value==='auto'?captureGrid(bar):Number(captureDurationQuantize.value)
  });
  melodyCaptureTaps.value=notes.reduce((take,note)=>addCapturedTap(take,note,'melody'),[...instrumentCaptureBase.value] as CapturedTap[]);
@@ -1414,7 +1422,7 @@ function recordInstrumentCapture(event:InstrumentCaptureEvent):void{
 }
 function reprocessInstrumentTiming(raw=false):void{
  if(capturePlaying.value||!instrumentCaptureEvents.value.length||!instrumentCaptureRangeMatches.value)return;
- if(raw){captureQuantize.value='0';captureDurationQuantize.value='0';}
+ if(raw){captureQuantize.value='0';captureDurationQuantize.value='0';midiCapturePattern.value='off';}
  updateInstrumentCaptureDraft();
  captureFeedback.value=raw?'Restored recorded timing in the draft. The score is unchanged.':
   'Reprocessed recorded starts and durations in the draft. The score is unchanged.';
@@ -1683,7 +1691,72 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
   }
 }
 // Microphone audio is local to the browser; no audio is uploaded.
-const captureInputSource=ref<'instrument'|'microphone'>('instrument');
+const captureInputSource=ref<'instrument'|'microphone'|'midi'>('instrument');
+const midiCaptureHeld=new Map<string,{pitch:number;startBeat:number;velocity:number}>();
+const midiCapturePattern=ref<'off'|RhythmPreset>('off');
+const midiCaptureStrength=ref(100);
+const midiCaptureMatch=ref('');
+const midiStepEntry=ref(false);
+const midiStepHeld=new Set<string>();
+let midiStepTimer:ReturnType<typeof setTimeout>|undefined;
+let midiStepPitches=new Set<number>();
+async function enableEditorMidi(){await enableMidi();if(!midiInputId.value)captureFeedback.value=midiStatus.value+' — connect a MIDI input.';}
+function analyseMidiCapture(){
+ const beats=project.value.beats;
+ const attacks=[...new Set(instrumentCaptureEvents.value.map(e=>Math.round((e.startBeat%beats)*16)/16))];
+ if(!attacks.length)return;
+ const candidates=RHYTHM_PRESETS.map(p=>{
+  const slots=rhythmSlots(p.id,beats,noteInst.value,project.value.profile);
+  const distance=attacks.reduce((sum,a)=>sum+Math.min(...slots.map(s=>Math.abs(s.beat-a))),0)/attacks.length;
+  const missing=slots.reduce((sum,s)=>sum+Math.min(...attacks.map(a=>Math.abs(s.beat-a))),0)/slots.length;
+  return {label:p.label,score:distance+missing};
+ }).sort((a,b)=>a.score-b.score);
+ const role=effectiveRole(noteInst.value,captureFirst.value);
+ midiCaptureMatch.value='Closest rhythm templates: '+candidates.slice(0,3).map(p=>p.label).join(' / ')+' · Current role: '+role+' (not inferred).';
+}
+function finishMidiCapture(){
+ if(captureRecording.value&&Tone)for(const held of midiCaptureHeld.values())
+  recordInstrumentCapture({...held,durationBeats:Math.max(.001,captureElapsedBeats()-held.startBeat)});
+ midiCaptureHeld.clear();
+}
+function cancelMidiStep(){clearTimeout(midiStepTimer);midiStepTimer=undefined;midiStepPitches.clear();midiStepHeld.clear();}
+const removeEditorMidi=subscribeMidi(e=>{
+ if(e.kind==='reset'){finishMidiCapture();cancelMidiStep();return;}
+ if(homeOpen.value||active.value!=='notes')return;
+ const key=e.channel+':'+e.pitch;
+ if(noteEditorTab.value==='capture'&&captureInputSource.value==='midi'&&captureRecording.value&&Tone){
+  if(e.kind==='on'){
+   const startBeat=captureElapsedBeats();if(startBeat<0)return;
+   prepareInstrumentCapture(startBeat);
+   const pitch=e.pitch-(project.value.transposeSemitones??0);
+   if(pitch<0||pitch>127)return;
+   midiCaptureHeld.set(key,{pitch,startBeat,velocity:e.velocity});
+  }else if(e.kind==='off'){
+   const held=midiCaptureHeld.get(key);if(!held)return;
+   midiCaptureHeld.delete(key);
+   recordInstrumentCapture({...held,durationBeats:Math.max(.001,captureElapsedBeats()-held.startBeat)});
+   captureFeedback.value='Recorded MIDI '+midiName(held.pitch)+' · review before applying.';
+  }
+ }else if(midiStepEntry.value&&noteEditorTab.value==='notes'&&!capturePlaying.value&&!quickDraft.value){
+  if(e.kind==='off'){midiStepHeld.delete(key);return;}
+  if(e.kind!=='on')return;
+  midiStepHeld.add(key);
+  const pitch=e.pitch-(project.value.transposeSemitones??0);
+  if(pitch<0||pitch>127)return;
+  midiStepPitches.add(pitch);
+  if(midiStepTimer!==undefined)return;
+  const bar=selectedBar.value,inst=noteInst.value,beat=Math.max(0,Math.min(project.value.beats-.25,quickBeat.value-1));
+  midiStepTimer=setTimeout(()=>{
+   midiStepTimer=undefined;
+   const pitches=[...midiStepPitches];midiStepPitches.clear();
+   if(!midiStepEntry.value||homeOpen.value||active.value!=='notes'||noteEditorTab.value!=='notes'||bar!==selectedBar.value||inst!==noteInst.value)return;
+   for(const p of pitches)if(noteAt(p,beat)<0)toggleNote(p,beat);
+  },85);
+ }
+});
+onBeforeUnmount(()=>{removeEditorMidi();cancelMidiStep();});
+
+
 const captureMuteBacking=ref(true);
 const microphoneStatus=ref('');
 const microphoneEstimate=ref<ReturnType<typeof detectMonophonicPitch>>(null);
@@ -1887,9 +1960,10 @@ function toggleCapturePlay(){
   if(capturePlaying.value){stopPlayback();return;}
   void startCaptureTransport(false);
 }
-function toggleCaptureRecord(){
+async function toggleCaptureRecord(){
   if(captureRecording.value){stopPlayback();return;}
   if(active.value==='notes'&&captureInputSource.value==='microphone'){void recordFromMicrophone();return;}
+  if(active.value==='notes'&&captureInputSource.value==='midi'){await enableEditorMidi();if(!midiInputId.value)return;}
   void startCaptureTransport(true);
 }
 function captureTap(pitch?:number,stringMidi?:number){
@@ -4077,6 +4151,7 @@ function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,sta
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
  if(!focusInstrumentAudible(inst))return;
+ if(inst==='Piano'&&midiOutputEnabled.value&&sendMidiNote(pitch,velocity*127,duration,Math.max(0,time-Tone.now())))return;
  if(usesModeledAudio(inst)){renderModeledPart(inst,{pitch,durationSeconds:duration,velocity:velocity*127},time);return;}
  if(audioEngine.value==='samples'&&!usesPizzicatoBank(inst,technique)&&arcoBank(inst)&&!canUseArcoSample(inst,duration)&&playArcoSustain(Tone.getContext().rawContext as AudioContext,inst,pitch,duration,time,velocity,-5+instrumentGainDb(inst)))return;
  // Never substitute a bowed sample for missing pizzicato, or vice versa.
@@ -4319,6 +4394,7 @@ const auditionEnabled=ref(true);
 let auditionSynth:Synth|null=null;
 async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
   if(!auditionEnabled.value)return;
+  if(noteInst.value==='Piano'&&midiOutputEnabled.value&&sendMidiNote(pitch+(project.value.transposeSemitones??0),velocity,durationSeconds))return;
   try{
     Tone=await startAudioFromGesture();
     if(usesModeledAudio(noteInst.value)){
@@ -7429,8 +7505,8 @@ async function homePractise(inst:Instrument){
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
       <div class="capture-microphone-source" role="group" aria-label="Melody recording input source">
-        <label class="capture-source-select">Recording input<select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option value="microphone">Microphone · single-note pitch</option></select></label>
-        <label>Speed<select v-model.number="captureSpeed" :disabled="capturePlaying||microphoneStarting" aria-label="Recording speed"><option :value="1">100%</option><option :value="0.75">75%</option><option :value="0.5">50%</option></select></label>
+        <label class="capture-source-select">Recording input<select v-model="captureInputSource" :disabled="capturePlaying"><option value="instrument">Keyboard / Strings</option><option v-if="midiSupported" value="midi">MIDI keyboard · polyphonic</option><option value="microphone">Microphone · single-note pitch</option></select></label>
+        <button v-if="captureInputSource==='midi'" type="button" class="secondary" @click="enableEditorMidi">{{midiInputId?'MIDI connected':'Connect MIDI'}}</button><label>Speed<select v-model.number="captureSpeed" :disabled="capturePlaying||microphoneStarting" aria-label="Recording speed"><option :value="1">100%</option><option :value="0.75">75%</option><option :value="0.5">50%</option></select></label>
         <label v-if="captureInputSource==='microphone'">Recording key<select v-model.number="captureTranspose" :disabled="capturePlaying||microphoneStarting" aria-label="Recording key shift"><option v-for="shift in 25" :key="shift" :value="shift-13">{{shift===13?'Original key':(shift>13?'+':'')+(shift-13)+' semitones'}}</option></select></label>
         <button v-if="captureInputSource==='microphone'" type="button" class="secondary capture-mic-test" :disabled="capturePlaying" :aria-pressed="microphoneMonitoring" @click="recordFromMicrophone(true)">{{microphoneStarting?'Cancel microphone request':microphoneMonitoring?'Stop microphone test':'Test microphone'}}</button>
       </div>
@@ -7441,7 +7517,7 @@ async function homePractise(inst:Instrument){
         @play="toggleCapturePlay" @record="toggleCaptureRecord" @loop="captureLoopEnabled=!captureLoopEnabled"
         @metronome="captureMetronome=!captureMetronome" @count-in="captureCountIn=!captureCountIn">
         <template #extras>
-         <template v-if="captureInputSource==='instrument'">
+         <template v-if="captureInputSource!=='microphone'">
           <div v-if="captureFingerboardRows.length" class="capture-layout-switch" role="group" aria-label="Live input layout">
             <button type="button" :class="{selected:captureInputLayout==='fingerboard'}" :aria-pressed="captureInputLayout==='fingerboard'" @click="captureInputLayout='fingerboard'">Strings</button>
             <button type="button" :class="{selected:captureInputLayout==='keyboard'}" :aria-pressed="captureInputLayout==='keyboard'" @click="captureInputLayout='keyboard'">Keys</button>
@@ -7453,7 +7529,7 @@ async function homePractise(inst:Instrument){
         <template #settings>
          <div class="capture-settings-grid">
           <label>Loop take<select v-model="captureTakeMode" :disabled="capturePlaying"><option value="replace">Replace each pass</option><option value="overdub">Overdub (add notes)</option></select></label>
-          <CaptureTimingControls v-if="captureInputSource==='instrument'" v-model:onset="captureQuantize" v-model:duration="captureDurationQuantize" auto :disabled="capturePlaying"/>
+          <CaptureTimingControls v-if="captureInputSource!=='microphone'" v-model:onset="captureQuantize" v-model:duration="captureDurationQuantize" auto :disabled="capturePlaying"/>
           <CaptureTimingControls v-else v-model:onset="pitchProcessing.onsetGridBeats" v-model:duration="pitchProcessing.durationGridBeats" :disabled="capturePlaying||microphoneListening||microphoneStarting"/>
           <label>Latency correction (ms)<input type="number" min="0" max="300" step="10" v-model.number="captureLatency"/></label>
           <label v-if="captureInputSource==='microphone'" for="capture-mic-sensitivity">Sensitivity · {{microphoneSensitivity}}%<input id="capture-mic-sensitivity" type="range" min="0" max="100" step="5" v-model.number="microphoneSensitivity" aria-label="Microphone sensitivity"/></label>
@@ -7545,7 +7621,7 @@ async function homePractise(inst:Instrument){
         </select></label>
         <label class="capture-setting-check"><input type="checkbox" v-model="vocalAlignmentEnabled"/> Align lyrics on Apply</label>
       </div>
-    <template v-if="captureInputSource==='instrument'">
+    <template v-if="captureInputSource!=='microphone'">
       <span class="capture-violin-expression" role="status">{{captureLastExpression||"\u00a0"}}</span>
     <template v-if="captureInputLayout==='fingerboard'&&captureFingerboardRows.length">
      <div class="capture-fingerboard-scroll capture-gesture-surface" :class="{'capture-violin-gesture-surface':noteInst.startsWith('Violin'),'capture-large-instrument':captureLargeView}" role="group" :aria-label="`Playable ${noteInst} string positions`">
@@ -7577,8 +7653,9 @@ async function homePractise(inst:Instrument){
     </template>
       <details class="capture-draft-review">
         <summary>Review melody take · {{melodyCaptureTaps.length}} notes</summary>
-        <details v-if="captureInputSource==='instrument'&&instrumentCaptureEvents.length" class="capture-postprocess" open>
+        <details v-if="captureInputSource!=='microphone'&&instrumentCaptureEvents.length" class="capture-postprocess" open>
           <summary>Reprocess timing · {{instrumentCaptureEvents.length}} recorded attacks</summary>
+          <template v-if="captureInputSource==='midi'"><label>Rhythm target<select v-model="midiCapturePattern" :disabled="capturePlaying"><option value="off">Free / grid</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label><label>Style snap strength {{midiCaptureStrength}}%<input type="range" min="0" max="100" step="5" v-model.number="midiCaptureStrength" :disabled="capturePlaying"/></label><button type="button" class="secondary" :disabled="capturePlaying" @click="analyseMidiCapture">Detect rhythmic pattern</button><p v-if="midiCaptureMatch">{{midiCaptureMatch}}</p></template>
           <div class="capture-settings-grid">
             <CaptureTimingControls v-model:onset="captureQuantize" v-model:duration="captureDurationQuantize" auto :disabled="capturePlaying"/>
           </div>
@@ -7749,7 +7826,7 @@ async function homePractise(inst:Instrument){
   <div class="editor note-editor-panel">
     <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
   <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
-      <label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
+      <label v-if="midiSupported"><input type="checkbox" v-model="midiStepEntry" @change="midiStepEntry?enableEditorMidi():cancelMidiStep()"/> MIDI chord step entry at selected beat</label><label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
       <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option><option :value="1/3">Eighth triplet</option><option :value="1/6">Sixteenth triplet</option></select></label>
       <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option><option :value="1/6">Sixteenth triplet</option><option :value="1/3">Eighth triplet</option><option :value="2/3">Quarter triplet</option><option :value="4/3">Half triplet</option></select></label>
       <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
