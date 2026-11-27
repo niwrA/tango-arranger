@@ -52,8 +52,10 @@ import {noteGridViewport,NOTE_GRID_CELL_PX,NOTE_GRID_LABEL_PX,type NoteGridViewp
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent} from './expressiveAudio';
-import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique} from './pizzicatoSamples';
+import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
+import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
+import {prepareArcoSustain,playArcoSustain,stopArcoSustain,setArcoSustainGain,playSampleGesture} from './arcoSustain';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
@@ -145,9 +147,10 @@ function stopPlayback(){
     safeRelease(()=>{Tone.getTransport().stop();Tone.getTransport().cancel();});
   }
   safeRelease(()=>synth?.releaseAll());
+  if(typeof stopArcoSustain==='function')safeRelease(()=>stopArcoSustain());
   for(const voice of instrumentSynths.values())safeRelease(()=>voice.releaseAll());
   for(const voice of samplePlayers.values())safeRelease(()=>voice.releaseAll());
-  if(typeof pizzicatoPlayers!=='undefined')for(const voice of pizzicatoPlayers.values())safeRelease(()=>voice.releaseAll());
+  if(typeof pizzicatoPlayers!=='undefined')for(const voice of [...pizzicatoPlayers.values(),...pizzicatoAlternates.values(),...pizzicatoSoftPlayers.values()])safeRelease(()=>voice.releaseAll());
   safeRelease(()=>loopSynth?.releaseAll());safeRelease(()=>rhythmLoopSynth?.triggerRelease());
   safeRelease(()=>captureSynth?.releaseAll());safeRelease(()=>captureKeySynth?.releaseAll());
   safeRelease(()=>captureClickSynth?.triggerRelease());
@@ -3893,14 +3896,15 @@ function updateInstrumentGain(inst:string,event:Event){
  instrumentMix.value={...instrumentMix.value,[inst]:Math.max(-18,Math.min(12,value))};
  try{localStorage.setItem(mixStorageKey,JSON.stringify(instrumentMix.value));}catch{/* Private browsing may deny storage. */}
  const sampler=samplePlayers.get(inst);if(sampler)sampler.volume.value=-5+instrumentGainDb(inst);
- const pizz=pizzicatoPlayers.get(inst);if(pizz)pizz.volume.value=-5+instrumentGainDb(inst);
+ setArcoSustainGain(inst,-5+instrumentGainDb(inst));
+ for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers]){const pizz=players.get(inst);if(pizz)pizz.volume.value=-5+instrumentGainDb(inst);}
  const voice=instrumentSynths.get(inst);if(voice)voice.volume.value=-7+instrumentGainDb(inst);
 }
 function resetInstrumentMix(){
  instrumentMix.value={};
  try{localStorage.removeItem(mixStorageKey);}catch{/* Storage unavailable. */}
- for(const [inst,sampler] of samplePlayers)sampler.volume.value=-5+instrumentGainDb(inst);
- for(const [inst,sampler] of pizzicatoPlayers)sampler.volume.value=-5+instrumentGainDb(inst);
+ for(const [inst,sampler] of samplePlayers){sampler.volume.value=-5+instrumentGainDb(inst);setArcoSustainGain(inst,-5+instrumentGainDb(inst));}
+ for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,sampler] of players)sampler.volume.value=-5+instrumentGainDb(inst);
  for(const [inst,voice] of instrumentSynths)voice.volume.value=-7+instrumentGainDb(inst);
 }
 // Focus monitoring affects playback only, never the score or stored mix.
@@ -3911,49 +3915,66 @@ function focusInstrumentAudible(inst:string):boolean{
 }
 function setFocusMonitorMode(mode:'solo'|'mute'){
  focusMonitorMode.value=focusMonitorMode.value===mode?'all':mode;
+ stopArcoSustain(inst=>!focusInstrumentAudible(inst));
  for(const [inst,voice] of instrumentSynths)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const [inst,voice] of samplePlayers)if(!focusInstrumentAudible(inst))voice.releaseAll();
- for(const [inst,voice] of pizzicatoPlayers)if(!focusInstrumentAudible(inst))voice.releaseAll();
+ for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,voice] of players)if(!focusInstrumentAudible(inst))voice.releaseAll();
 }
 const audioEngine=ref<'samples'|'synth'>('samples');
 const sampleStatus=ref('Samples load when playback starts');
 const samplePlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
 const samplePending=new Map<string,Promise<boolean>>();
 const pizzicatoPlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
+const pizzicatoAlternates=new Map<string,InstanceType<typeof Tone.Sampler>>();
+const pizzicatoSoftPlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
+const pizzicatoAttackIndices=new Map<string,number>();
 function sampleName(inst:string):string{
  const n=inst.toLowerCase();
  return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('bandoneon')?'harmonium':n.includes('voice')?'harmonium':'piano';
 }
-function loadSamples(inst:string,pizzicato=false):Promise<boolean>{
- const bank=pizzicato?pizzicatoBank(inst):undefined;
+function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'primary'|'alternate'|'soft'='primary'):Promise<boolean>{
+ const bank=pizzicato?(variant==='primary'?pizzicatoBank(inst):pizzicatoVariantBank(inst,variant)):arcoBank(inst)??(!legacyPiano&&openPianoAvailable?openPianoBank(inst,import.meta.env.BASE_URL):undefined);
  if(pizzicato&&!bank)return Promise.resolve(true);
- const players=pizzicato?pizzicatoPlayers:samplePlayers,key=inst+(pizzicato?':pizzicato':'');
+ const players=pizzicato?(variant==='alternate'?pizzicatoAlternates:variant==='soft'?pizzicatoSoftPlayers:pizzicatoPlayers):samplePlayers,key=inst+(pizzicato?':pizzicato:'+variant:'');
  if(players.has(inst))return Promise.resolve(true);
  if(samplePending.has(key))return samplePending.get(key)!;
  const promise=new Promise<boolean>(resolve=>{
   let finished=false;
   let player:InstanceType<typeof Tone.Sampler>|undefined;
   const finish=(ok:boolean)=>{if(finished)return;finished=true;clearTimeout(timeout);if(ok&&player)players.set(inst,player);else player?.dispose();resolve(ok);};
-  const timeout=setTimeout(()=>finish(false),7000);
+  const timeout=setTimeout(()=>finish(false),bank&&!pizzicato?15000:7000);
   try{
    player=new Tone.Sampler({urls:bank?.urls??(sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:sampleName(inst)==='harmonium'?{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}),baseUrl:bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
    player.volume.value=-5+instrumentGainDb(inst);
   }catch{finish(false);}
  });
- samplePending.set(key,promise);void promise.then(ok=>{if(!ok)samplePending.delete(key);});return promise;
+ const result=promise.then(ok=>{if(!ok){samplePending.delete(key);if(!pizzicato&&!legacyPiano&&openPianoAvailable&&openPianoBank(inst,import.meta.env.BASE_URL))return loadSamples(inst,false,true);}return ok;});
+ samplePending.set(key,result);return result;
 }
+let openPianoAvailable=false;
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
  sampleStatus.value='Loading samples…';
+ if(instruments.some(inst=>inst.toLowerCase().includes('piano'))&&!openPianoAvailable){
+  try{const response=await fetch(import.meta.env.BASE_URL+'samples/open-piano/manifest.json',{signal:AbortSignal.timeout(2000)});const manifest=response.ok?await response.json():null;openPianoAvailable=manifest?.source==='VCSL Steinway B'&&manifest?.version===1;}catch{ /* optional assets: retain legacy piano */ }
+ }
  const results=await Promise.all(instruments.flatMap(inst=>[loadSamples(inst),...(pizzicatoBank(inst)?[loadSamples(inst,true)]:[])]));
+ // Optional sustain and variations load after the primary banks.
+ for(const inst of instruments)if(arcoBank(inst))void prepareArcoSustain(Tone.getContext().rawContext as AudioContext,inst);
+ // Optional variations load after the primary banks; failure does not block playback.
+ for(const inst of instruments)if(pizzicatoBank(inst)){void loadSamples(inst,true,false,'alternate');void loadSamples(inst,true,false,'soft');}
  sampleStatus.value=results.every(Boolean)?'Sampled instruments ready':results.some(Boolean)?'Some samples unavailable; using synth fallback':'Samples unavailable; using synth fallback';
+}
+function selectPizzicatoPlayer(inst:string,velocity:number){
+ const index=pizzicatoAttackIndices.get(inst)??0;pizzicatoAttackIndices.set(inst,index+1);
+ const variant=pizzicatoVariant(velocity,index);
+ return (variant==='soft'?pizzicatoSoftPlayers.get(inst):variant==='alternate'?pizzicatoAlternates.get(inst):undefined)??pizzicatoPlayers.get(inst);
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
  if(!focusInstrumentAudible(inst))return;
- // Finite violin sample tails cannot sustain a bow stroke. Explicit pizzicato
- // remains a percussive sample until separate style banks are licensed.
- const bowedViolin=inst.toLowerCase().includes('violin')&&technique!=='pizzicato';
- const sampler=audioEngine.value==='samples'&&usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst)??(inst.toLowerCase().includes('bass')?samplePlayers.get(inst):undefined):audioEngine.value==='samples'&&!bowedViolin&&!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
+ if(audioEngine.value==='samples'&&!usesPizzicatoBank(inst,technique)&&arcoBank(inst)&&!canUseArcoSample(inst,duration)&&playArcoSustain(Tone.getContext().rawContext as AudioContext,inst,pitch,duration,time,velocity,-5+instrumentGainDb(inst)))return;
+ // Never substitute a bowed sample for missing pizzicato, or vice versa.
+ const sampler=audioEngine.value!=='samples'?undefined:usesPizzicatoBank(inst,technique)?selectPizzicatoPlayer(inst,velocity):arcoBank(inst)?(canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined):!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
  if(sampler)sampler.triggerAttackRelease(Tone.Frequency(pitch,'midi').toNote(),duration,time,velocity);
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }
@@ -3962,10 +3983,14 @@ function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measur
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
  const technique=resolveStringTechnique(inst,n.technique,violinTechnique(inst as Instrument,Math.floor(n.start/project.value.beats)),Boolean(n.stringGlissando||n.bowedTremolo||n.gesture||n.slideTo!==undefined||n.approachSlideFrom!==undefined));
+ if(audioEngine.value==='samples'&&arcoBank(inst)&&!usesPizzicatoBank(inst,technique)&&event.endVelocity!==undefined&&!event.gesture&&event.slideTo===undefined&&!event.bowedTremolo&&playArcoSustain(Tone.getContext().rawContext as AudioContext,inst,event.pitch,duration,time,velocity/127,-5+instrumentGainDb(inst),Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))/127))return;
  // Piano dynamics affect the attack; a held piano string cannot crescendo.
  // Never substitute a triangle oscillator for a piano merely due to a wedge.
  if(!inst.toLowerCase().includes('piano')&&!usesPizzicatoBank(inst,technique)&&(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)){
-  playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
+  const expressive={...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))};
+  const ctx=Tone.getContext().rawContext as AudioContext;
+  if(audioEngine.value==='samples'&&arcoBank(inst)&&playSampleGesture(ctx,inst,expressive,time,-5+instrumentGainDb(inst)))return;
+  playExpressiveEvent(ctx,expressive,time);
  }else triggerInstrument(inst,event.pitch,duration,time,velocity/127,technique);
 }
 let synth:PolySynth|null=null;

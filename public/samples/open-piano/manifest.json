@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "source": "VCSL Steinway B",
+  "license": "CC0-1.0",
+  "commit": "c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e",
+  "anchors": [
+    "A#0",
+    "E1",
+    "A#1",
+    "E2",
+    "A#2",
+    "E3",
+    "A#3",
+    "E4",
+    "A#4",
+    "E5",
+    "A#5",
+    "E6",
+    "A#6",
+    "E7"
+  ]
+}
