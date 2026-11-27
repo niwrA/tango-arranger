@@ -59,7 +59,7 @@ const pianoHands=computed(()=>{
 });
 const showPianoFinger=ref(true);
 function pianoFeedback(midi:number){return {'is-piano-detected':props.learn&&props.pianoDetected===midi,'is-piano-correct':props.learn&&props.pianoDetected===midi&&props.pianoMatch,'is-piano-incorrect':props.learn&&props.pianoDetected===midi&&!props.pianoMatch};}
-function pianoFingerLabel(midi:number,hand:string){return showPianoFinger.value&&isTarget(midi)&&(!props.pianoHand||props.pianoHand===hand)&&props.pianoFinger!=null&&Number.isInteger(props.pianoFinger)&&props.pianoFinger>=1&&props.pianoFinger<=5?props.pianoFinger:null;}
+function pianoFingerLabel(midi:number,hand:string){return showPianoFinger.value&&isTarget(midi)&&(!props.pianoHand||props.pianoHand===hand)?((props.pianoFinger!=null&&Number.isInteger(props.pianoFinger)&&props.pianoFinger>=1&&props.pianoFinger<=5)?String(props.pianoFinger):null):null;}
 const plannedPianoPitches=computed(()=>new Set(props.measurePitches??[]));
 function isPianoMeasurePitch(midi:number){return plannedPianoPitches.value.has(midi);}
 function isPianoBassMidi(midi:number){return midi<(props.splitPitch??60);}
@@ -190,7 +190,7 @@ const diagramDescription=computed(()=>{
               'is-learn-target':isTarget(midi),'is-piano-measure':isPianoMeasurePitch(midi),'is-piano-bass':hand.id==='bass'&&(isPianoMeasurePitch(midi)||isPlayingPitch(midi)),
               'is-piano-upper':hand.id==='upper'&&(isPianoMeasurePitch(midi)||isPlayingPitch(midi))}"
             :title="midiLabel(midi)+(isPianoMeasurePitch(midi)?' · '+hand.label:'')">
-            <span v-if="isPianoMeasurePitch(midi)||isPlayingPitch(midi)||isTarget(midi)">{{noteName(midi)}}</span>
+            <span v-if="isPianoMeasurePitch(midi)||isPlayingPitch(midi)||isTarget(midi)||props.pianoDetected===midi">{{noteName(midi)}}</span>
             <b v-if="pianoFingerLabel(midi,hand.id)" class="piano-finger-hint">{{pianoFingerLabel(midi,hand.id)}}</b>
           </div>
         </div>
@@ -200,7 +200,7 @@ const diagramDescription=computed(()=>{
               'is-learn-target':isTarget(key.pitch),'is-piano-measure':isPianoMeasurePitch(key.pitch),'is-piano-bass':hand.id==='bass'&&(isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch)),
               'is-piano-upper':hand.id==='upper'&&(isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch))}"
             :style="{left:key.left+'%'}" :title="midiLabel(key.pitch)">
-            <span v-if="isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch)||isTarget(key.pitch)">{{noteName(key.pitch)}}</span>
+            <span v-if="isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch)||isTarget(key.pitch)||props.pianoDetected===key.pitch">{{noteName(key.pitch)}}</span>
             <b v-if="pianoFingerLabel(key.pitch,hand.id)" class="piano-finger-hint">{{pianoFingerLabel(key.pitch,hand.id)}}</b>
           </span>
         </div>
@@ -734,7 +734,7 @@ const diagramDescription=computed(()=>{
 <style scoped>
 /* Piano practice: fixed responsive playing surface, independent of spare flex space. */
 .performance-instrument-diagram.is-focus.is-learn:has(.diagram-piano) .diagram-piano{
- height:clamp(92px,min(22dvh,32vw),240px);min-height:0;max-height:240px;flex:none;width:100%;align-self:center;
+ height:clamp(92px,min(22dvh,32vw),240px);min-height:0;max-height:240px;flex:none;width:100%;align-self:center;box-sizing:border-box;
 }
 .performance-instrument-diagram.is-focus.is-learn:has(.diagram-piano) .diagram-visual-stage{flex:0 0 auto!important;min-height:0;height:auto}
 .piano-practice-key{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px;font-size:11px;color:#b9cbd6}
