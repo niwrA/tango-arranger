@@ -59,6 +59,7 @@ function loadModule(name){
  return mod.exports;
 }
 const {measureLoopEvents}=loadModule('measureLoop');
+const {usesModeledAudio}=loadModule('voiceGuideAudio');
 const {playbackNotesInRange}=loadModule('arrangementPlayback');
 const {chordAt,chordTones}=loadModule('music');
 const {addCapturedTap}=loadModule('tapCapture');
@@ -72,7 +73,7 @@ async function settle(){await Promise.resolve();await Promise.resolve();}
 
 function harness(){
  const permissions=[],unlocks=[],resumes=[],streams=[],contexts=[],frames=new Map(),watches=[];
- const expressive=[];let frameId=0,permissionCalls=0,unlockCalls=0,sharedAudioContext=null;
+ const expressive=[],modeled=[];let frameId=0,permissionCalls=0,unlockCalls=0,sharedAudioContext=null;
  const transport={seconds:0,position:0,bpm:{value:120},repeats:[],once:[],starts:0,
   stop(){},cancel(){this.repeats=[];this.once=[];},start(){this.starts++;},
   scheduleRepeat(callback,interval,at){this.repeats.push({callback,interval,at});},
@@ -98,6 +99,8 @@ function harness(){
   },
   measureLoopEvents,playbackNotesInRange,chordAt,chordTones,addCapturedTap,microphoneScoreMidi,quantizeInstrumentCapture,
   reprocessPitchFrames,DEFAULT_PITCH_POSTPROCESS,
+  usesModeledAudio,
+  renderModeledPart:(instrument,event,time)=>modeled.push({instrument,event,time}),
   playExpressiveEvent:(_audio,event,time)=>expressive.push({event,time}),
   detectMonophonicPitch:()=>ctx.estimate,
   estimate:{midi:69,frequency:440,clarity:0.99},sampleAmplitude:0.1,
@@ -138,7 +141,7 @@ function harness(){
   const entry=frames.entries().next().value;assert.ok(entry,'An animation frame is scheduled');
   frames.delete(entry[0]);entry[1]();
  }
- return {api,state,ctx,tone,transport,expressive,permissions,unlocks,resumes,streams,contexts,frames,
+ return {api,state,ctx,tone,transport,expressive,modeled,permissions,unlocks,resumes,streams,contexts,frames,
   makeStream,change,frame,get permissionCalls(){return permissionCalls;},get unlockCalls(){return unlockCalls;}};
 }
 
@@ -230,7 +233,7 @@ function harness(){
   assert.equal(h.state().rawPitchSession.value.songTransposeSemitones,2);
   assert.equal(h.state().rawPitchSession.value.soundingTransposeSemitones,14);
   h.transport.repeats.find(item=>item.interval==='1m').callback(0);
-  assert.equal(h.state().captureSynth.calls[0].pitch,74);
+  assert.equal(h.modeled[0].instrument,'Voice');assert.equal(h.modeled[0].event.pitch,74);
   h.ctx.estimate={midi:83.12,frequency:990,clarity:0.99};
   for(const beat of [0,0.1,0.2,0.4,0.7])h.frame(beat);
   assert.equal(h.state().microphoneEstimate.value.midi,83.12);
@@ -244,10 +247,11 @@ function harness(){
    {pitch:62,start:2,duration:1,gesture:{kind:'sirena',contour:'up',points:[{at:0,pitch:62},{at:1,pitch:64}],partner:[{at:0,pitch:50},{at:1,pitch:52}]}}];
   assert.equal(await h.api.startCaptureTransport(true),14);
   h.transport.repeats.find(item=>item.interval==='1m').callback(0);
-  assert.equal(h.state().captureSynth.calls[0].pitch,74);
-  assert.equal(h.expressive[0].event.pitch,79);assert.equal(h.expressive[0].event.slideTo,81);
-  assert.deepEqual(Array.from(h.expressive[1].event.gesture.points,point=>point.pitch),[76,78]);
-  assert.deepEqual(Array.from(h.expressive[1].event.gesture.partner,point=>point.pitch),[64,66]);
+  assert.equal(h.modeled[0].instrument,'Voice');assert.equal(h.modeled[0].event.pitch,74);
+  assert.equal(h.modeled[1].event.pitch,79);assert.equal(h.modeled[1].event.slideTo,81);
+  assert.equal(h.expressive.length,0,'expressive Voice remains on the vowel guide');
+  assert.deepEqual(Array.from(h.modeled[2].event.gesture.points,point=>point.pitch),[76,78]);
+  assert.deepEqual(Array.from(h.modeled[2].event.gesture.partner,point=>point.pitch),[64,66]);
   h.transport.repeats.find(item=>item.interval==='4n').callback(0);
   assert.equal(h.state().captureKeySynth.calls[0].pitch,74);h.api.stopPlayback();
  });
@@ -258,7 +262,7 @@ function harness(){
    h.ctx.score.value.Voice=[{pitch:60,start:0,duration:1}];
    assert.equal(await h.api.startCaptureTransport(true),2);
    h.transport.repeats.find(item=>item.interval==='1m').callback(0);
-   assert.equal(h.state().captureSynth.calls[0].pitch,62);h.api.stopPlayback();
+   assert.equal(h.modeled[0].instrument,'Voice');assert.equal(h.modeled[0].event.pitch,62);h.api.stopPlayback();
   }
  });
  await check('raw pitch records fractional estimates, silence and unlocked signal in microphone tests',async()=>{

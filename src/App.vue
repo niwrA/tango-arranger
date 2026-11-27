@@ -56,7 +56,8 @@ import {noteGridSpan,noteGridViewport,NOTE_GRID_CELL_PX,NOTE_GRID_LABEL_PX,type 
 import {EDITION_LEVELS,applyPhrasePlan,currentEditionLevel,getEditionInfo,regenerateInstrumentEdition,snapshotActiveEditions,switchInstrumentEdition} from './editions';
 import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as plannedViolinTechnique,effectiveBassTechnique as plannedBassTechnique,plannedArticulation,plannedMeasureActive,phraseMeasureMap,type PhrasePlan} from './phrasePlan';
 import {playExpressiveEvent,type ExpressiveEvent} from './expressiveAudio';
-import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain,type BandoneonVoice} from './bandoneonAudio';
+import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain} from './bandoneonAudio';
+import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide,stopVoiceGuide,setVoiceGuideGain,type VoiceGuideHandle} from './voiceGuideAudio';
 import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
@@ -155,7 +156,8 @@ function stopPlayback(){
   safeRelease(()=>synth?.releaseAll());
   if(typeof stopArcoSustain==='function')safeRelease(()=>stopArcoSustain());
   if(typeof stopBandoneonVoices==='function'&&typeof Tone!=='undefined'&&Tone)safeRelease(()=>stopBandoneonVoices(Tone.getContext().rawContext as AudioContext));
-  if(typeof captureBandoneonVoices!=='undefined')captureBandoneonVoices.clear();
+  if(typeof stopVoiceGuide==='function'&&typeof Tone!=='undefined'&&Tone)safeRelease(()=>stopVoiceGuide(Tone.getContext().rawContext as AudioContext));
+  if(typeof captureModeledVoices!=='undefined')captureModeledVoices.clear();
   for(const voice of instrumentSynths.values())safeRelease(()=>voice.releaseAll());
   for(const voice of samplePlayers.values())safeRelease(()=>voice.releaseAll());
   if(typeof pizzicatoPlayers!=='undefined')for(const voice of [...pizzicatoPlayers.values(),...pizzicatoAlternates.values(),...pizzicatoSoftPlayers.values()])safeRelease(()=>voice.releaseAll());
@@ -1411,7 +1413,7 @@ function reprocessInstrumentTiming(raw=false):void{
 type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number;stringMidi?:number}>();
 const captureMonitorPitches=new Set<number>();
-const captureBandoneonVoices=new Map<number,BandoneonVoice>();
+const captureModeledVoices=new Map<number,Pick<VoiceGuideHandle,'release'>>();
 const captureHeldDisplay=ref<number[]>([]);
 function heldCaptureKeysHasPitch(pitch:number){return [...heldCaptureKeys.values()].some(held=>held.pitch===pitch);}
 function updateCaptureHeldDisplay(){captureHeldDisplay.value=[...heldCaptureKeys.values()].map(held=>held.pitch);}
@@ -1423,9 +1425,9 @@ function monitorCapturePitch(pitch:number){
  if(!Tone||captureMonitorPitches.has(pitch))return;
  captureMonitorPitches.add(pitch);
  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
- if(noteInst.value.startsWith('Bandoneon')){
-  const voice=renderBandoneon(noteInst.value,{pitch:transposed,durationSeconds:1,velocity:91},Tone.now(),undefined,undefined,true);
-  if(voice)captureBandoneonVoices.set(pitch,voice);
+ if(usesModeledAudio(noteInst.value)){
+  const voice=renderModeledPart(noteInst.value,{pitch:transposed,durationSeconds:1,velocity:91},Tone.now(),undefined,undefined,true);
+  if(voice)captureModeledVoices.set(pitch,voice);
   return;
  }
  ensureCaptureKeySynth().triggerAttack(Tone.Frequency(transposed,'midi').toFrequency(),undefined,0.72);
@@ -1433,8 +1435,8 @@ function monitorCapturePitch(pitch:number){
 function releaseCaptureMonitorPitch(pitch:number){
  if(heldCaptureKeysHasPitch(pitch)||!captureMonitorPitches.has(pitch))return;
  captureMonitorPitches.delete(pitch);
- const reed=captureBandoneonVoices.get(pitch);
- if(reed){reed.release();captureBandoneonVoices.delete(pitch);return;}
+ const modeled=captureModeledVoices.get(pitch);
+ if(modeled){modeled.release();captureModeledVoices.delete(pitch);return;}
  const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
  if(Tone)captureKeySynth?.triggerRelease(Tone.Frequency(transposed,'midi').toFrequency());
 }
@@ -1600,8 +1602,8 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
         for(const event of events){
           const onset=time+event.onsetSeconds/captureSpeed.value;
           const duration=event.durationSeconds/captureSpeed.value;
-          if(inst.startsWith('Bandoneon'))
-            renderBandoneon(inst,{...event,durationSeconds:duration,velocity:event.velocity*.8,endVelocity:event.endVelocity===undefined?undefined:event.endVelocity*.8},onset,event.bandoneonStaff);
+          if(usesModeledAudio(inst))
+            renderModeledPart(inst,{...event,durationSeconds:duration,velocity:event.velocity*.8,endVelocity:event.endVelocity===undefined?undefined:event.endVelocity*.8},onset,event.bandoneonStaff);
           else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
             playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration},onset);
           else captureSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),
@@ -1929,7 +1931,7 @@ function capturePianoKey(event:PointerEvent,pitch:number){
  try{(event.currentTarget as HTMLElement).setPointerCapture(id);}catch{/* Released before capture. */}
  // A sounding voice is owned by pitch, not a particular touch. A second
  // pointer holding the same note cannot release it prematurely.
- if(Tone&&(captureKeySynth||noteInst.value.startsWith('Bandoneon')))monitorCapturePitch(pitch);
+ if(Tone&&(captureKeySynth||usesModeledAudio(noteInst.value)))monitorCapturePitch(pitch);
  else void startAudioFromGesture().then(tone=>{
   Tone=tone;
   if(!heldCaptureKeys.has(id))return;
@@ -2260,7 +2262,7 @@ async function auditionPitchPreview():Promise<void>{
    const sounding=n.pitch+(project.value.transposeSemitones??0);
    if(sounding<0||sounding>127)continue;
    const duration=Math.max(0.07,n.durationBeats*secondsPerBeat*0.9),time=origin+n.startBeat*secondsPerBeat;
-   if(noteInst.value.startsWith('Bandoneon'))renderBandoneon(noteInst.value,{pitch:sounding,durationSeconds:duration,velocity:83},time);
+   if(usesModeledAudio(noteInst.value))renderModeledPart(noteInst.value,{pitch:sounding,durationSeconds:duration,velocity:83},time);
    else voice.triggerAttackRelease(Tone.Frequency(sounding,'midi').toFrequency(),duration,time,0.65);
   }
   pitchPostprocessStatus.value='Auditioning the proposal with its original rests and note positions.';
@@ -2349,7 +2351,7 @@ async function auditionDraft(notes:Array<CapturedMelodyNote&{startBeat?:number}>
    const pitch=Math.max(0,Math.min(127,n.pitch+(project.value.transposeSemitones??0)));
    const startBeat=n.startBeat??nextBeat,duration=n.duration*secondsPerBeat;
    const sounding=Math.max(0.01,duration*0.9),time=origin+startBeat*secondsPerBeat;
-   if(noteInst.value.startsWith('Bandoneon'))renderBandoneon(noteInst.value,{pitch,durationSeconds:sounding,velocity:89},time);
+   if(usesModeledAudio(noteInst.value))renderModeledPart(noteInst.value,{pitch,durationSeconds:sounding,velocity:89},time);
    else synth.triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),sounding,time,0.7);
    nextBeat=startBeat+n.duration;
   }
@@ -3903,8 +3905,8 @@ const instrumentSynths=new Map<string,PolySynth>();
 function instrumentSynth(inst:string):PolySynth{
   const existing=instrumentSynths.get(inst);if(existing)return existing;
   const name=inst.toLowerCase();
-  const oscillator=name.includes('violin')||name.includes('voice')?'sawtooth':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
-  const attack=name.includes('violin')?0.08:name.includes('voice')?0.09:0.008;
+  const oscillator=name.includes('violin')?'sawtooth':name.includes('bass')?'triangle':name.includes('piano')?'triangle':'sine';
+  const attack=name.includes('violin')?0.08:0.008;
   const release=name.includes('violin')?0.32:name.includes('bass')?0.18:0.12;
   const voice=new Tone.PolySynth(Tone.Synth,{oscillator:{type:oscillator as 'sine'|'square'|'triangle'|'sawtooth'},envelope:{attack,decay:name.includes('violin')?0.045:0.12,sustain:name.includes('violin')?0.93:0.72,release}}).toDestination();
   voice.volume.value=-7+instrumentGainDb(inst);
@@ -3931,12 +3933,16 @@ function updateInstrumentGain(inst:string,event:Event){
  const sampler=samplePlayers.get(inst);if(sampler)sampler.volume.value=-5+instrumentGainDb(inst);
  setArcoSustainGain(inst,-5+instrumentGainDb(inst));
  if(Tone&&inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+ if(Tone&&isVoiceGuidePart(inst))setVoiceGuideGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers]){const pizz=players.get(inst);if(pizz)pizz.volume.value=-5+instrumentGainDb(inst);}
  const voice=instrumentSynths.get(inst);if(voice)voice.volume.value=-7+instrumentGainDb(inst);
 }
 function resetInstrumentMix(){
  instrumentMix.value={};
- if(Tone)for(const inst of projectInstruments(project.value))if(inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+ if(Tone)for(const inst of projectInstruments(project.value)){
+  if(inst.startsWith('Bandoneon'))setBandoneonGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+  if(isVoiceGuidePart(inst))setVoiceGuideGain(Tone.getContext().rawContext as AudioContext,inst,instrumentGainDb(inst));
+ }
  try{localStorage.removeItem(mixStorageKey);}catch{/* Storage unavailable. */}
  for(const [inst,sampler] of samplePlayers){sampler.volume.value=-5+instrumentGainDb(inst);setArcoSustainGain(inst,-5+instrumentGainDb(inst));}
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,sampler] of players)sampler.volume.value=-5+instrumentGainDb(inst);
@@ -3951,7 +3957,11 @@ function focusInstrumentAudible(inst:string):boolean{
 function setFocusMonitorMode(mode:'solo'|'mute'){
  focusMonitorMode.value=focusMonitorMode.value===mode?'all':mode;
  stopArcoSustain(inst=>!focusInstrumentAudible(inst));
- if(Tone)stopBandoneonVoices(Tone.getContext().rawContext as AudioContext,inst=>!focusInstrumentAudible(inst));
+ if(Tone){
+  const context=Tone.getContext().rawContext as AudioContext;
+  stopBandoneonVoices(context,inst=>!focusInstrumentAudible(inst));
+  stopVoiceGuide(context,inst=>!focusInstrumentAudible(inst));
+ }
  for(const [inst,voice] of instrumentSynths)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const [inst,voice] of samplePlayers)if(!focusInstrumentAudible(inst))voice.releaseAll();
  for(const players of [pizzicatoPlayers,pizzicatoAlternates,pizzicatoSoftPlayers])for(const [inst,voice] of players)if(!focusInstrumentAudible(inst))voice.releaseAll();
@@ -3966,7 +3976,7 @@ const pizzicatoSoftPlayers=new Map<string,InstanceType<typeof Tone.Sampler>>();
 const pizzicatoAttackIndices=new Map<string,number>();
 function sampleName(inst:string):string{
  const n=inst.toLowerCase();
- return n.includes('violin')?'violin':n.includes('bass')?'contrabass':n.includes('voice')?'harmonium':'piano';
+ return n.includes('violin')?'violin':n.includes('bass')?'contrabass':'piano';
 }
 function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'primary'|'alternate'|'soft'='primary'):Promise<boolean>{
  const bank=pizzicato?(variant==='primary'?pizzicatoBank(inst):pizzicatoVariantBank(inst,variant)):arcoBank(inst)??(!legacyPiano&&openPianoAvailable?openPianoBank(inst,import.meta.env.BASE_URL):undefined);
@@ -3980,7 +3990,7 @@ function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'prim
   const finish=(ok:boolean)=>{if(finished)return;finished=true;clearTimeout(timeout);if(ok&&player)players.set(inst,player);else player?.dispose();resolve(ok);};
   const timeout=setTimeout(()=>finish(false),bank&&!pizzicato?15000:7000);
   try{
-   player=new Tone.Sampler({urls:bank?.urls??(sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:sampleName(inst)==='harmonium'?{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}),baseUrl:bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
+   player=new Tone.Sampler({urls:bank?.urls??(sampleName(inst)==='violin'?{A3:'A3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}:sampleName(inst)==='contrabass'?{C2:'C2.mp3',E2:'E2.mp3',E3:'E3.mp3'}:{C3:'C3.mp3',C4:'C4.mp3',C5:'C5.mp3',C6:'C6.mp3'}),baseUrl:bank?.baseUrl??'https://raw.githubusercontent.com/nbrosowsky/tonejs-instruments/master/samples/'+sampleName(inst)+'/',onload:()=>finish(true),onerror:()=>finish(false)}).toDestination();
    player.volume.value=-5+instrumentGainDb(inst);
   }catch{finish(false);}
  });
@@ -3990,8 +4000,8 @@ function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'prim
 let openPianoAvailable=false;
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
- instruments=instruments.filter(inst=>!inst.startsWith('Bandoneon'));
- if(!instruments.length){sampleStatus.value='Bandoneon uses the reed synthesizer';return;}
+ instruments=instruments.filter(inst=>!usesModeledAudio(inst));
+ if(!instruments.length){sampleStatus.value='Modeled instruments ready';return;}
  sampleStatus.value='Loading samples…';
  if(instruments.some(inst=>inst.toLowerCase().includes('piano'))&&!openPianoAvailable){
   try{const response=await fetch(import.meta.env.BASE_URL+'samples/open-piano/manifest.json',{signal:AbortSignal.timeout(2000)});const manifest=response.ok?await response.json():null;openPianoAvailable=manifest?.source==='VCSL Steinway B'&&manifest?.version===1;}catch{ /* optional assets: retain legacy piano */ }
@@ -4008,14 +4018,16 @@ function selectPizzicatoPlayer(inst:string,velocity:number){
  const variant=pizzicatoVariant(velocity,index);
  return (variant==='soft'?pizzicatoSoftPlayers.get(inst):variant==='alternate'?pizzicatoAlternates.get(inst):undefined)??pizzicatoPlayers.get(inst);
 }
-function renderBandoneon(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
+function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
  if(!focusInstrumentAudible(inst))return;
+ const context=Tone.getContext().rawContext as AudioContext,options={gainDb:instrumentGainDb(inst),destination,held};
+ if(isVoiceGuidePart(inst))return playVoiceGuide(context,inst,event,time,options);
  const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonModelForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
- return playBandoneonNote(Tone.getContext().rawContext as AudioContext,inst,event,time,{hand,gainDb:instrumentGainDb(inst),destination,held});
+ return playBandoneonNote(context,inst,event,time,{...options,hand});
 }
 function triggerInstrument(inst:string,pitch:number,duration:number,time:number,velocity:number,technique?:Note['technique']){
  if(!focusInstrumentAudible(inst))return;
- if(inst.startsWith('Bandoneon')){renderBandoneon(inst,{pitch,durationSeconds:duration,velocity:velocity*127},time);return;}
+ if(usesModeledAudio(inst)){renderModeledPart(inst,{pitch,durationSeconds:duration,velocity:velocity*127},time);return;}
  if(audioEngine.value==='samples'&&!usesPizzicatoBank(inst,technique)&&arcoBank(inst)&&!canUseArcoSample(inst,duration)&&playArcoSustain(Tone.getContext().rawContext as AudioContext,inst,pitch,duration,time,velocity,-5+instrumentGainDb(inst)))return;
  // Never substitute a bowed sample for missing pizzicato, or vice versa.
  const sampler=audioEngine.value!=='samples'?undefined:usesPizzicatoBank(inst,technique)?selectPizzicatoPlayer(inst,velocity):arcoBank(inst)?(canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined):!needsSustainingSynth(inst,duration)?samplePlayers.get(inst):undefined;
@@ -4027,8 +4039,8 @@ type DraftInstrumentPreview={project:Project;output:AudioNode};
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1,preview?:DraftInstrumentPreview){
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
- if(inst.startsWith('Bandoneon')){
-  renderBandoneon(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
+ if(usesModeledAudio(inst)){
+  renderModeledPart(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
   return;
  }
  const bar=Math.floor(n.start/(preview?.project??project.value).beats);
@@ -4099,8 +4111,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       },beatOffsetTicks(pauseBeat,transport.PPQ));
     }
     let noteCount=0,firstAttack=Infinity;
-    // Voice is a pitched score part: play its notes with the same synthesizer as the instruments.
-    // This is a guide tone, not sung or synthesized speech.
+    // Voice is a pitched, vowel-based rehearsal guide, not lyric synthesis.
     for(const inst of projectInstruments(project.value)){for(const n of playbackNotesInRange(score.value[inst]??[],window.startBeat,project.value.bars.length*project.value.beats,project.value.transposeSemitones??0)){
       // Musical tick positions preserve event timing when rehearsal speed is
       // changed mid-performance (unlike precomputed absolute seconds).
@@ -4234,8 +4245,8 @@ async function toggleNoteLoop(){
       // Read the current score at the start of every pass, including manual edits.
       const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats,project.value.transposeSemitones??0),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
       for(const event of events){
-        if(noteInst.value.startsWith('Bandoneon'))
-          renderBandoneon(noteInst.value,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.bandoneonStaff);
+        if(usesModeledAudio(noteInst.value))
+          renderModeledPart(noteInst.value,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.bandoneonStaff);
         else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
           playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
         else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
@@ -4260,9 +4271,9 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
   if(!auditionEnabled.value)return;
   try{
     Tone=await startAudioFromGesture();
-    if(noteInst.value.startsWith('Bandoneon')){
+    if(usesModeledAudio(noteInst.value)){
       const transposed=Math.max(0,Math.min(127,pitch+(project.value.transposeSemitones??0)));
-      renderBandoneon(noteInst.value,{pitch:transposed,durationSeconds:Math.max(.025,durationSeconds),velocity},Tone.now());
+      renderModeledPart(noteInst.value,{pitch:transposed,durationSeconds:Math.max(.025,durationSeconds),velocity},Tone.now());
       return;
     }
     if(audioEngine.value==='samples'){
@@ -4282,19 +4293,19 @@ async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
 function auditionEvent(note:Note){
   if(!auditionEnabled.value)return;
   if(note.stringGlissando)note=stringGlissandoPlayback(note);
-  if(noteInst.value.startsWith('Bandoneon')){
+  if(usesModeledAudio(noteInst.value)){
     const p=project.value,inst=noteInst.value;
     void startAudioFromGesture().then(tone=>{
       if(project.value!==p||noteInst.value!==inst)return;
       Tone=tone;
       const transpose=p.transposeSemitones??0;
       const staff=note.staffOverride??note.xmlStaff;
-      renderBandoneon(inst,{
+      renderModeledPart(inst,{
         pitch:note.pitch+transpose,durationSeconds:Math.max(.025,noteSoundingDuration(note)*60/p.bpm),velocity:noteSoundingVelocity(note),
         endVelocity:note.swellTo,slideTo:note.slideTo===undefined?undefined:note.slideTo+transpose,
         gesture:note.gesture?transposeTangoGesture(note.gesture,transpose):undefined,
       },Tone.now(),staff);
-    }).catch(error=>{message.value='Bandoneon preview unavailable: '+String(error);});
+    }).catch(error=>{message.value=inst+' preview unavailable: '+String(error);});
     return;
   }
   if(note.pianoGlissando||note.pianoPedalBeats){

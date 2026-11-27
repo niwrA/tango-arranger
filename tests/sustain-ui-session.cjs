@@ -25,15 +25,16 @@ check('normal score playback does not clip sustained note duration at the measur
  // Exercise the shared renderer with a sustained note and an expressive piano note.
  const body=renderer.slice(renderer.indexOf('{')+1,renderer.lastIndexOf('}'));
  const calls=[];
- const render=new Function('inst','n','event','duration','time','focusGain','preview','focusInstrumentAudible','usesPizzicatoBank','resolveStringTechnique','violinTechnique','plannedViolinTechnique','project','playExpressiveEvent','triggerInstrument','Tone','audioEngine','arcoBank','playSampleGesture','instrumentGainDb',body.replaceAll(' as AudioContext','').replaceAll(' as Instrument',''));
+ const render=new Function('inst','n','event','duration','time','focusGain','preview','focusInstrumentAudible','usesPizzicatoBank','resolveStringTechnique','violinTechnique','plannedViolinTechnique','project','playExpressiveEvent','triggerInstrument','Tone','audioEngine','arcoBank','playSampleGesture','instrumentGainDb','usesModeledAudio','renderModeledPart',body.replaceAll(' as AudioContext','').replaceAll(' as Instrument',''));
  const output={};
  const previewProject={beats:4,technique:'pizzicato'};
- const run=(inst,n,event,preview)=>render(inst,n,event,3.25,10,1,preview,()=>true,()=>false,(_inst,explicit,planned)=>explicit??planned,()=>undefined,p=>p.technique,{value:{beats:4}},(_ctx,e,_time,destination)=>calls.push(['expressive',e.durationSeconds,destination]),(_inst,_pitch,duration,_time,_velocity,technique)=>calls.push(['instrument',duration,technique]),{getContext:()=>({rawContext:{}})},{value:'samples'},name=>name==='Violin I'?{}:undefined,()=>false,()=>0);
+ const run=(inst,n,event,preview)=>render(inst,n,event,3.25,10,1,preview,()=>true,()=>false,(_inst,explicit,planned)=>explicit??planned,()=>undefined,p=>p.technique,{value:{beats:4}},(_ctx,e,_time,destination)=>calls.push(['expressive',e.durationSeconds,destination]),(_inst,_pitch,duration,_time,_velocity,technique)=>calls.push(['instrument',duration,technique]),{getContext:()=>({rawContext:{}})},{value:'samples'},name=>name==='Violin I'?{}:undefined,()=>false,()=>0,inst=>inst.startsWith('Voice')||inst.startsWith('Bandoneon'),(inst,event,_time,_staff,destination)=>calls.push(['modeled',inst,event.durationSeconds,event.endVelocity,destination]));
  run('Violin I',{technique:'arco'},{pitch:76,velocity:80,slideTo:79});
  run('Piano',{}, {pitch:60,velocity:80,endVelocity:100});
  run('Violin I',{technique:'arco'},{pitch:76,velocity:80,slideTo:79},{project:previewProject,output});
  run('Violin I',{start:0},{pitch:76,velocity:80},{project:previewProject,output});
- assert.deepEqual(calls,[['expressive',3.25,undefined],['instrument',3.25,undefined],['expressive',3.25,output],['instrument',3.25,'pizzicato']]);
+ run('Voice II',{start:0},{pitch:60,velocity:80,endVelocity:109},{project:previewProject,output});
+ assert.deepEqual(calls,[['expressive',3.25,undefined],['instrument',3.25,undefined],['expressive',3.25,output],['instrument',3.25,'pizzicato'],['modeled','Voice II',3.25,109,output]]);
 });
 check('bowed strings without a usable sample retain the sustaining synth fallback',()=>{
  const trigger=app.slice(app.indexOf('function triggerInstrument('),app.indexOf('function renderArrangementNote('));
