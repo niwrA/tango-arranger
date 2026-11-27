@@ -450,7 +450,7 @@ function handleNoteTabKey(event:KeyboardEvent){
 const noteDetailsPopup=ref(false);
 function scrollMapEditPanel(){document.querySelector('.overview-edit')?.scrollIntoView({behavior:'smooth',block:'center'});}
 const statusVisible=ref(false);const statusDismissed=ref(false);const projectDrawerOpen=ref(false);const importDialogOpen=ref(false);const noteEditorSettingsOpen=ref(false);const audioStatus=ref('Audio not tested');const project=ref<Project>(blankProject());const phrasePlanDraft=ref<PhrasePlan|undefined>();type WorkspaceTab='structure'|'lead'|'arrange'|'rhythm'|'notes'|'about';
-const workspaceTabs:readonly WorkspaceTab[]=['structure','lead','arrange','rhythm','notes','about'];
+const workspaceTabs:readonly WorkspaceTab[]=['structure','lead','arrange','notes','rhythm','about'];
 function initialWorkspaceTab():WorkspaceTab{
   try{
     const saved=localStorage.getItem('tango-active-tab');
@@ -6696,7 +6696,7 @@ async function homePractise(inst:Instrument){
   </div>
 </div>
 <template v-if="!homeOpen">
-<nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Structure, Keys &amp; Ensemble</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'||active==='rhythm'}" @click="active==='rhythm'?returnArrangementRhythm():active='arrange'">Arrangement</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
+<nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Song</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active==='rhythm'?returnArrangementRhythm():active='arrange'">Arrangement</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm designer</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
     <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
