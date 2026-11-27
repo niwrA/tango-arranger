@@ -190,7 +190,7 @@ function selectProjectInEditor(p:Project){
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   noteLoopFrom.value=1;noteLoopTo.value=firstNoteSectionEnd(p.bars);
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
-  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;
+  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;leadLyricsSource.value='';leadLyricsOpen.value=false;leadLyricsVerse.value=1;leadDisplayMode.value='sheet';
 }
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
@@ -3272,14 +3272,16 @@ function editLeadSectionStart(index:number,newStart:number){
    message.value=`Moved the start of section ${current.label} to measure ${newStart+1}. Existing notes, chords and protected measure edits retain their absolute positions.`;
  }catch(error){message.value='Cannot move section boundary: '+String(error);}
 }
-const leadDisplayMode=ref<'edit'|'sheet'>('edit');
+const leadDisplayMode=ref<'edit'|'sheet'>('sheet');
 const leadPrintableSource=computed(()=>{
- const stored=leadLyricsSource.value.trim()||project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source?.trim();
+ const stored=project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source?.trim();
  if(stored)return stored;
+ if(leadLyricsSource.value.trim())return leadLyricsSource.value.trim();
  const voice=leadLyricsExisting.value;
  return voice?leadLyricsFromSong(project.value,score.value,voice,leadLyricsVerse.value):'';
 });
 const leadPrintableText=computed(()=>readableLeadSheet(leadPrintableSource.value));
+function showLeadLyricsEditor(){leadLyricsOpen.value=true;void nextTick(()=>{const panel=document.querySelector<HTMLDetailsElement>('.lead-lyrics-workspace');if(panel){panel.open=true;panel.querySelector('summary')?.focus({preventScroll:true});}});}
 function exportReadableLeadSheet(){
  if(!leadPrintableText.value.trim()){message.value='No leadsheet text to export.';return;}
  const filename=(project.value.title.replace(/[^a-z0-9-]+/gi,'-')||'tango').toLowerCase();
@@ -5628,7 +5630,7 @@ function onLeadLyricsToggle(event:Event){
   leadLyricsOpen.value=opened;
   if(opened)openLeadLyrics();
 }
-watch(leadLyricsVerse,()=>{if(leadLyricsOpen.value)openLeadLyrics();});
+watch(leadLyricsVerse,()=>{leadLyricsSource.value=project.value.leadLyrics?.[String(leadLyricsVerse.value)]?.source??'';if(leadLyricsOpen.value)openLeadLyrics();});
 function applyLeadLyrics(){
   const plan=leadLyricsPlan.value,voice=leadLyricsExisting.value;
   if(!voice){message.value='Add a Voice instrument before applying song lyrics.';return;}
@@ -6121,7 +6123,7 @@ async function switchActivity(activity:Activity,event?:MouseEvent){
 }
 // Arrangement views share the existing map range; explicit multi-part targets never follow the display filter.
 const arrangementView=ref<'map'|'score'|'dynamics'|'rhythm'>('map');
-const arrangementOperation=ref<'select'|'role'|'dynamics'|'rhythm'|'articulation'|'pitch'|'create'>('select');
+const arrangementOperation=ref<'select'|'role'|'dynamics'|'rhythm'|'articulation'|'pitch'|'create'|'tempo'>('select');
 const arrangementExtraParts=ref<Instrument[]>([]);
 const arrangementParts=computed(()=>[...new Set([overviewInstrument.value,...arrangementExtraParts.value])].filter(inst=>activeRoster.value.includes(inst)));
 const arrangementBounds=computed(()=>orchestrationMeasureRange(project.value.bars.length,overviewStart.value,overviewEnd.value));
@@ -6130,7 +6132,7 @@ const arrangementProject=computed(()=>arrangementDraft.value?.project??project.v
 const arrangementScore=computed(()=>{const p=arrangementProject.value;if(!arrangementDraft.value)return score.value;const base=p.generatedScore??generate(p);return adaptTransposedScore(p.importedScore&&Object.values(p.protectedBars??{}).some(Boolean)?mergeScores(p,base):base,p);});
 const arrangementActions=computed(()=>{
  const category=arrangementOperation.value;
- if(category==='select'||category==='rhythm'||!arrangementParts.value.length)return [];
+ if(category==='select'||category==='rhythm'||category==='tempo'||!arrangementParts.value.length)return [];
  const first=musicalEditActions(category,arrangementParts.value[0]);
  return first.filter(a=>!(category==='create'&&a.value==='insert')&&arrangementParts.value.every(inst=>musicalEditActions(category,inst).some(b=>b.value===a.value)));
 });
@@ -6147,7 +6149,7 @@ function arrangementSelectCell(inst:Instrument,bar:number,extend:boolean){select
 function stageArrangementEdit(value:string){
  if(arrangementDraft.value)return;
  const category=arrangementOperation.value,range=arrangementBounds.value;
- if(category==='select'||category==='rhythm'||!range||!arrangementParts.value.length)return;
+ if(category==='select'||category==='rhythm'||category==='tempo'||!range||!arrangementParts.value.length)return;
  try{
   let next=project.value,working=sourceScore.value;const warnings:string[]=[];let count=0;
   for(const inst of arrangementParts.value){
@@ -6905,56 +6907,15 @@ async function homePractise(inst:Instrument){
 <div class="overview-actions"><button type="button" class="primary" @click="active='lead'">Continue to Lead Sheet →</button></div></section>
 <section v-else-if="active==='lead'">
 
-<details class="expressive-timing-editor">
- <summary>Tempo &amp; holds · {{expressiveTiming.ritardandos.length+expressiveTiming.fermatas.length+expressiveTiming.aTempoMeasures.length}} markings</summary>
- <div class="expressive-timing-marks" aria-label="Saved expressive timing markings">
-  <div v-for="(rit,index) in expressiveTiming.ritardandos" :key="'r'+rit.startMeasure">
-   <span><strong>rit.</strong> · Measures {{rit.startMeasure+1}}–{{rit.endMeasure+1}} · {{project.bpm}} → {{Math.round(project.bpm*rit.toPercent/100)}} BPM ({{rit.toPercent}}%)</span>
-   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('rit',rit.startMeasure)">Edit</button><button type="button" @click="removeRitardando(index)">Remove</button></span>
-  </div>
-  <div v-for="(mark,index) in expressiveTiming.fermatas" :key="'f'+mark.measure">
-   <span><strong>Fermata</strong> · Measure {{mark.measure+1}} · {{rosterDisplayName(mark.instrument)}} · {{mark.stretch}}× hold{{mark.waitForCue?' · wait for cue':''}}</span>
-   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('fermata',mark.measure)">Edit</button><button type="button" @click="removeFermataCue(index)">Remove</button></span>
-  </div>
-  <div v-for="(mark,index) in expressiveTiming.aTempoMeasures" :key="'a'+mark">
-   <span><strong>A tempo</strong> · Measure {{mark+1}}</span>
-   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('tempo',mark)">Edit</button><button type="button" @click="removeATempo(index)">Remove</button></span>
-  </div>
- </div>
- <div class="expressive-actions">
-  <button type="button" @click="openExpressiveMark('rit')">Add ritardando</button>
-  <button type="button" @click="openExpressiveMark('fermata')">Add fermata</button>
-  <button type="button" @click="openExpressiveMark('tempo')">Add a tempo</button>
- </div>
- <form v-if="expressiveMark" class="expressive-timing-form" @submit.prevent="saveExpressiveMark">
-  <strong>{{expressiveOriginal===null?'Add':'Edit'}} {{expressiveMark==='rit'?'ritardando':expressiveMark==='fermata'?'fermata':'a tempo'}}</strong>
-  <div class="expressive-timing-grid" v-if="expressiveMark==='rit'">
-   <label>Start measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitFrom"/></label>
-   <SectionRangePicker :measures="project.bars" :from="expressiveRitFrom" compact @select="(start,end)=>{expressiveRitFrom=start;expressiveRitTo=end}"/><label>End measure<input required type="number" :min="expressiveRitFrom" :max="project.bars.length" v-model.number="expressiveRitTo"/></label>
-   <label>End tempo (% of written BPM)<input required type="number" min="35" max="99" v-model.number="expressiveRitPercent"/></label>
-   <output>{{project.bpm}} → {{Math.round(project.bpm*expressiveRitPercent/100)}} BPM</output>
-   <button type="button" @click="expressiveRitFrom=Math.max(1,project.bars.length-2);expressiveRitTo=project.bars.length">Use last 3 measures</button>
-  </div>
-  <div class="expressive-timing-grid" v-else-if="expressiveMark==='fermata'">
-   <label>Measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveFermataMeasure"/></label><SectionRangePicker :measures="project.bars" :from="expressiveFermataMeasure" compact @select="start=>expressiveFermataMeasure=start"/>
-   <label>Mark this part<select v-model="expressiveFermataInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-   <label>Hold (× last beat)<input required type="number" min="1.25" max="5" step="any" v-model.number="expressiveFermataStretch"/></label>
-   <label class="expressive-cue-toggle"><input type="checkbox" v-model="expressiveWaitForCue"/> Wait for singer or conductor</label>
-  </div>
-  <div class="expressive-timing-grid" v-else>
-   <label>Return to {{project.bpm}} BPM at measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveATempoMeasure"/></label><SectionRangePicker :measures="project.bars" :from="expressiveATempoMeasure" compact @select="start=>expressiveATempoMeasure=start"/>
-  </div>
-  <p v-if="expressiveTimingError" role="alert">{{expressiveTimingError}}</p>
-  <div class="expressive-actions"><button type="submit" class="primary">Save marking</button><button type="button" @click="expressiveMark=null">Cancel</button></div>
- </form>
-</details>
+
 
 <div class="lead-command-bar" role="group" aria-label="Lead sheet controls">
   <button type="button" class="secondary" @click="openContextImport('lead')">Import lead sheet…</button>
   <div class="lead-display-switch" role="group" aria-label="Lead sheet view">
-    <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Edit measures</button>
-    <button type="button" :class="leadDisplayMode==='sheet'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='sheet'" @click="leadDisplayMode='sheet'">Readable leadsheet</button>
+    <button type="button" :class="leadDisplayMode==='sheet'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='sheet'" @click="leadDisplayMode='sheet'">Lyrics &amp; chords</button>
+    <button type="button" :class="leadDisplayMode==='edit'?'primary':'secondary'" :aria-pressed="leadDisplayMode==='edit'" @click="leadDisplayMode='edit'">Measures</button>
   </div>
+  <button type="button" class="secondary" @click="showLeadLyricsEditor">Edit lyrics / align chords…</button>
   <div class="lead-preview-controls" role="group" aria-label="Chord preview">
     <button type="button" class="secondary" title="Preview chords from the beginning" @click="previewPart('lead',0,project.bars.length-1)">▶ Chords from start</button>
     <button type="button" class="secondary" title="Preview chords from the selected measure" @click="previewPart('lead',selectedBar,project.bars.length-1)">▶ Chords from selected measure {{selectedBar+1}}</button>
@@ -6965,16 +6926,16 @@ async function homePractise(inst:Instrument){
     <button type="button" class="secondary" title="Redo the last undone project edit" aria-label="Redo last edit" :disabled="!redoHistory.length" @click="restoreHistory('redo')">↷ Redo</button>
   </div>
   <span class="lead-measure-count" aria-label="Number of measures">{{project.bars.length}} measures</span>
-</div><p class="muted">Compose melody and harmony here; use Orchestration for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
+</div><p v-if="leadDisplayMode==='edit'&&!compactHelp" class="muted">Compose melody and harmony here; use Arrangement for instrument roles and techniques. Each section displays its key and measure range. Enter chords directly in any measure. <strong>Enter</strong> saves and advances to the next chord field; <strong>Tab</strong> / <strong>Shift+Tab</strong> move forward / back between chord fields. Type any valid chord symbol freely; suggestions are optional. Tap <strong>Suggestions</strong> to browse variants for the chord under the caret, or simply keep typing. Repeated chords like <code>C,C</code> are allowed. Completion changes only the chord at the cursor, so <code>Dm,A7</code> stays intact when you edit the second chord. For 4/4, <code>D,G</code> changes on beat 3 and <code>D,D,D,G</code> on beat 4. Diminished: <code>Ddim</code> (triad), <code>Ddim7</code> (fully diminished seventh), <code>Dm7b5</code> (half-diminished). Click a measure number to select its melody below; double-click it to focus the melody text editor.</p>
 <section v-if="leadDisplayMode==='sheet'" class="lead-printable" aria-label="Printable lead sheet">
-  <div class="lead-print-actions"><button type="button" class="secondary" @click="exportReadableLeadSheet">Export text</button><button type="button" class="primary" @click="printReadableLeadSheet">Print / Save as PDF</button></div>
+  <div class="lead-print-actions"><label>Verse <select v-model.number="leadLyricsVerse"><option :value="1">1</option><option :value="2">2</option></select></label><button type="button" class="secondary" @click="exportReadableLeadSheet">Export text</button><button type="button" class="primary" @click="printReadableLeadSheet">Print / Save as PDF</button></div>
   <h2>{{project.title}}</h2>
   <p class="lead-print-meta">{{project.beats}}/4 · {{project.bpm}} BPM · {{project.bars.length-(pickupBeats?1:0)}} measures<span v-if="pickupBeats"> · {{pickupBeats}}-beat pickup</span></p>
   <pre v-if="leadPrintableText.trim()" class="lead-sheet-typography">{{leadPrintableText}}</pre>
-  <p v-else class="muted">No lyrics entered yet. Open the editable Lyrics &amp; Chords workspace, paste a leadsheet or load existing Voice lyrics.</p>
+  <div v-else class="lead-instrumental-fallback"><p>No lyrics for this verse. Chord progression:</p><div v-for="span in leadEditorSpans" :key="span.start"><strong>{{span.label}}</strong><div class="lead-instrumental-chords"><button v-for="offset in span.measures" :key="offset" type="button" @click="leadDisplayMode='edit';selectLeadMeasure(span.start+offset-1)"><small>{{measureLabel(span.start+offset-1)}}</small><strong>{{project.bars[span.start+offset-1].chord||'—'}}</strong></button></div></div></div>
 </section>
 <div v-if="leadDisplayMode==='edit'&&copySectionMode" class="lead-copy-banner" role="status"><span><strong>Copy section {{sectionLetter(copySourceIndex)}}</strong> · click the destination section header to paste. Melody, keys and instrument settings will not change.</span><button type="button" class="secondary" @click="cancelSectionCopy">Cancel</button></div>
-<details v-if="leadDisplayMode==='edit'" class="lead-lyrics-workspace" @toggle="onLeadLyricsToggle">
+<details class="lead-lyrics-workspace" :open="leadLyricsOpen" @toggle="onLeadLyricsToggle">
   <summary>Lyrics &amp; chords · editable song source</summary>
   <p class="hint">Paste ordinary song lyrics with chords in square brackets, such as [D]Donde el río se queda. Line breaks are preserved but do not end a measure. The editor aligns words to existing Voice notes automatically; add | only to clarify note-group boundaries and || only to force a measure boundary. Hyphens split sung syllables. Existing melody pitches and timing are preserved when selected; otherwise C4 notes are editable placeholders.</p>
   <div class="lead-lyrics-toolbar">
@@ -7037,9 +6998,10 @@ async function homePractise(inst:Instrument){
 <section v-else-if="active==='arrange'" class="overview-section">
 <div class="arrangement-commandbar" role="group" aria-label="Arrangement views and operations">
  <div class="arrangement-views" role="group" aria-label="Arrangement representation"><button v-for="view in (['map','score','dynamics','rhythm'] as const)" :key="view" type="button" class="secondary" :aria-pressed="arrangementView===view" @click="arrangementView=view">{{view==='map'?'Map':view==='score'?'Score':view==='dynamics'?'Dynamics':'Rhythm'}}</button></div>
- <label class="arrangement-operation">Action <select v-model="arrangementOperation" :disabled="!!arrangementDraft"><option value="select">Select</option><option value="role">Roles</option><option value="dynamics">Dynamics</option><option value="rhythm">Rhythm</option><option value="articulation">Articulation</option><option value="pitch">Pitch</option><option value="create">Generate</option></select></label>
+ <label class="arrangement-operation">Action <select v-model="arrangementOperation" :disabled="!!arrangementDraft"><option value="select">Select</option><option value="role">Roles</option><option value="dynamics">Dynamics</option><option value="rhythm">Rhythm</option><option value="articulation">Articulation</option><option value="pitch">Pitch</option><option value="create">Generate</option><option value="tempo">Tempo &amp; holds</option></select></label>
  <div v-if="arrangementDraft" class="arrangement-context-actions"><button type="button" class="primary" @click="commitArrangementDraft">Apply</button><button type="button" class="secondary" @click="cancelArrangementDraft">Cancel</button><small role="status">{{arrangementDraft.description}}<span v-if="arrangementView==='map'"> · Switch to Score, Dynamics or Rhythm to see proposed notes</span><span v-if="arrangementDraft.warnings.length"> · {{arrangementDraft.warnings.join('; ')}}</span></small></div>
  <div v-else-if="arrangementOperation==='rhythm'" class="arrangement-context-actions"><select v-model="rhythmPreset" aria-label="Rhythm pattern"><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option><option v-for="pattern in customRhythms.filter(r=>r.beats===project.beats)" :key="pattern.id" :value="pattern.id">{{pattern.name}}</option></select><select v-model="rhythmMode" aria-label="Rhythm application mode"><option value="rhythm">Reshape rhythm</option><option value="accents">Accents only</option></select><button type="button" class="secondary" @click="openArrangementRhythm">Design / record…</button><button type="button" class="secondary" @click="stageArrangementRhythm">Preview pattern</button></div>
+ <div v-else-if="arrangementOperation==='tempo'" class="arrangement-context-actions"><small>Arrangement-wide expressive timing · existing markings and holds</small></div>
  <div v-else-if="arrangementOperation!=='select'" class="arrangement-context-actions"><button v-for="action in arrangementActions" :key="action.value" type="button" class="secondary" :title="action.title" :aria-label="action.title" @click="stageArrangementEdit(action.value)">{{action.label}}</button></div>
  <details class="arrangement-selection-menu"><summary>{{arrangementParts.length}} part{{arrangementParts.length===1?'':'s'}} · M{{overviewStart}}–{{overviewEnd}}</summary><div class="arrangement-selection-popover">
  <label>Primary part <select v-model="overviewInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
@@ -7049,6 +7011,49 @@ async function homePractise(inst:Instrument){
  <SectionRangePicker :measures="project.bars" :from="overviewStart" @select="(_start,_end,index)=>selectOverviewSectionRange(index)"/>
  </div></details>
 </div>
+<details v-if="arrangementOperation==='tempo'" class="expressive-timing-editor" open>
+ <summary>Tempo &amp; holds · {{expressiveTiming.ritardandos.length+expressiveTiming.fermatas.length+expressiveTiming.aTempoMeasures.length}} markings</summary>
+ <div class="expressive-timing-marks" aria-label="Saved expressive timing markings">
+  <div v-for="(rit,index) in expressiveTiming.ritardandos" :key="'r'+rit.startMeasure">
+   <span><strong>rit.</strong> · Measures {{rit.startMeasure+1}}–{{rit.endMeasure+1}} · {{project.bpm}} → {{Math.round(project.bpm*rit.toPercent/100)}} BPM ({{rit.toPercent}}%)</span>
+   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('rit',rit.startMeasure)">Edit</button><button type="button" @click="removeRitardando(index)">Remove</button></span>
+  </div>
+  <div v-for="(mark,index) in expressiveTiming.fermatas" :key="'f'+mark.measure">
+   <span><strong>Fermata</strong> · Measure {{mark.measure+1}} · {{rosterDisplayName(mark.instrument)}} · {{mark.stretch}}× hold{{mark.waitForCue?' · wait for cue':''}}</span>
+   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('fermata',mark.measure)">Edit</button><button type="button" @click="removeFermataCue(index)">Remove</button></span>
+  </div>
+  <div v-for="(mark,index) in expressiveTiming.aTempoMeasures" :key="'a'+mark">
+   <span><strong>A tempo</strong> · Measure {{mark+1}}</span>
+   <span class="expressive-actions"><button type="button" @click="openExpressiveMark('tempo',mark)">Edit</button><button type="button" @click="removeATempo(index)">Remove</button></span>
+  </div>
+ </div>
+ <div class="expressive-actions">
+  <button type="button" @click="openExpressiveMark('rit')">Add ritardando</button>
+  <button type="button" @click="openExpressiveMark('fermata')">Add fermata</button>
+  <button type="button" @click="openExpressiveMark('tempo')">Add a tempo</button>
+ </div>
+ <form v-if="expressiveMark" class="expressive-timing-form" @submit.prevent="saveExpressiveMark">
+  <strong>{{expressiveOriginal===null?'Add':'Edit'}} {{expressiveMark==='rit'?'ritardando':expressiveMark==='fermata'?'fermata':'a tempo'}}</strong>
+  <div class="expressive-timing-grid" v-if="expressiveMark==='rit'">
+   <label>Start measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveRitFrom"/></label>
+   <SectionRangePicker :measures="project.bars" :from="expressiveRitFrom" compact @select="(start,end)=>{expressiveRitFrom=start;expressiveRitTo=end}"/><label>End measure<input required type="number" :min="expressiveRitFrom" :max="project.bars.length" v-model.number="expressiveRitTo"/></label>
+   <label>End tempo (% of written BPM)<input required type="number" min="35" max="99" v-model.number="expressiveRitPercent"/></label>
+   <output>{{project.bpm}} → {{Math.round(project.bpm*expressiveRitPercent/100)}} BPM</output>
+   <button type="button" @click="expressiveRitFrom=Math.max(1,project.bars.length-2);expressiveRitTo=project.bars.length">Use last 3 measures</button>
+  </div>
+  <div class="expressive-timing-grid" v-else-if="expressiveMark==='fermata'">
+   <label>Measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveFermataMeasure"/></label><SectionRangePicker :measures="project.bars" :from="expressiveFermataMeasure" compact @select="start=>expressiveFermataMeasure=start"/>
+   <label>Mark this part<select v-model="expressiveFermataInstrument"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+   <label>Hold (× last beat)<input required type="number" min="1.25" max="5" step="any" v-model.number="expressiveFermataStretch"/></label>
+   <label class="expressive-cue-toggle"><input type="checkbox" v-model="expressiveWaitForCue"/> Wait for singer or conductor</label>
+  </div>
+  <div class="expressive-timing-grid" v-else>
+   <label>Return to {{project.bpm}} BPM at measure<input required type="number" min="1" :max="project.bars.length" v-model.number="expressiveATempoMeasure"/></label><SectionRangePicker :measures="project.bars" :from="expressiveATempoMeasure" compact @select="start=>expressiveATempoMeasure=start"/>
+  </div>
+  <p v-if="expressiveTimingError" role="alert">{{expressiveTimingError}}</p>
+  <div class="expressive-actions"><button type="submit" class="primary">Save marking</button><button type="button" @click="expressiveMark=null">Cancel</button></div>
+ </form>
+</details>
 <template v-if="arrangementView==='score'"><div class="arrangement-score-controls"><button type="button" class="secondary" :aria-pressed="arrangementScoreSelectionOnly" @click="arrangementScoreSelectionOnly=!arrangementScoreSelectionOnly">{{arrangementScoreSelectionOnly?'Show entire score':'Show selected range'}}</button><small>Click a staff measure; Shift+click extends range.</small></div><ArrangementScore :project="arrangementProject" :score="arrangementScore" :from="arrangementScoreSelectionOnly?overviewStart:1" :to="arrangementScoreSelectionOnly?overviewEnd:project.bars.length" :selected-from="overviewStart" :selected-to="overviewEnd" :selected-parts="arrangementParts" @select="arrangementSelectCell"/></template>
 <div v-if="arrangementView==='dynamics'||arrangementView==='rhythm'" class="arrangement-timeline">
  <div class="arrangement-timeline-caption"><small>{{arrangementView==='dynamics'?'Mean written note velocity (not playback intensity)':'Written attacks within each measure'}} · song overview</small><button type="button" class="secondary" :disabled="arrangementMeasurePage===0" @click="arrangementMeasurePage--">‹</button><small>{{arrangementMeasurePage+1}} / {{arrangementPageCount}}</small><button type="button" class="secondary" :disabled="arrangementMeasurePage+1>=arrangementPageCount" @click="arrangementMeasurePage++">›</button></div>
@@ -9654,4 +9659,8 @@ async function homePractise(inst:Instrument){
 
 <style scoped>
 .arrangement-score-controls{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px}.arrangement-score-controls button{min-height:34px;padding:4px 8px;font-size:12px}.arrangement-commandbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 7px;min-width:0}.arrangement-views,.arrangement-context-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}.arrangement-commandbar button{font-size:12px;min-height:36px;padding:4px 8px}.arrangement-views button[aria-pressed=true]{background:#23465b;border-color:#83c6e7;color:#e2f6ff}.arrangement-operation{display:flex;align-items:center;gap:4px;font-size:12px}.arrangement-operation select,.arrangement-context-actions select{width:auto;max-width:180px;margin:0;font-size:12px;min-height:36px}.arrangement-selection-menu{position:relative;margin-left:auto;font-size:12px}.arrangement-selection-menu summary{cursor:pointer;color:#c5e9fb;padding:8px;white-space:nowrap}.arrangement-selection-popover{position:absolute;right:0;top:100%;z-index:35;display:grid;gap:5px;width:min(310px,85vw);max-height:65dvh;overflow:auto;background:#233440;border:1px solid #83c6e7;border-radius:8px;padding:10px;box-shadow:0 12px 30px #0009}.arrangement-selection-popover label{display:flex;align-items:center;gap:6px}.arrangement-selection-popover input[type=checkbox]{width:auto;margin:0}.arrangement-timeline{border:1px solid #536a7d;border-radius:8px;padding:5px}.arrangement-timeline-caption,.arrangement-designer-return{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.arrangement-timeline-scroll{overflow:auto}.arrangement-timeline table{border-collapse:collapse;min-width:100%}.arrangement-timeline th{font-size:11px;white-space:nowrap;padding:4px}.arrangement-timeline td{padding:2px}.arrangement-timeline td button{position:relative;overflow:hidden;min-width:38px;width:100%;height:34px;background:#1a2934;border:1px solid #536a7d;padding:0}.arrangement-timeline td button.arrangement-target{border-color:#83c6e7}.arrangement-velocity{position:absolute;bottom:0;left:0;right:0;background:#529fcb55}.arrangement-timeline td small{position:relative}.arrangement-attack{position:absolute;top:25%;height:50%;background:#d1a875;border-radius:2px;min-width:2px}.arrangement-designer-return{justify-content:space-between;margin-bottom:6px}@media(max-width:760px){.arrangement-commandbar{gap:4px}.arrangement-commandbar button{min-height:40px;padding:4px 6px}.arrangement-selection-menu{margin-left:0}.arrangement-context-actions{max-width:100%}}
+</style>
+
+<style scoped>
+.lead-instrumental-chords{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:4px;margin:6px 0 14px}.lead-instrumental-chords button{display:grid;gap:2px;text-align:left;background:#eeede7;color:#202934;border:1px solid #bac2c8;border-radius:4px;min-height:42px;padding:4px 8px}.lead-instrumental-chords button small{color:#53616a;font-size:10px}.lead-print-actions label{display:flex;align-items:center;gap:5px;font-size:12px}.lead-print-actions select{width:auto}.lead-lyrics-workspace:not([open]){padding:7px 10px;margin:7px 0}.lead-lyrics-workspace:not([open])>summary{font-size:13px}
 </style>
