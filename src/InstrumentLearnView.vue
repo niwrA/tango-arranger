@@ -683,7 +683,10 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div v-if="showDiagram" class="learn-diagram">
     <slot name="diagram" :target-pitch="diagramTarget" :current-beat="guideNote?Math.floor(guideNote.start%beatsPerMeasure)+1:1"
      :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide" :shift-duration="shiftDuration"
-     :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
+     :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"
+     :piano-detected="family==='Piano'&&listening&&detectedMidi!==null?detectedMidi-props.concertTranspose:null"
+     :piano-match="detectedPitchMatches" :piano-finger="family==='Piano'&&guideNote?Number(guideNote.finger)||null:null"
+     :piano-hand="family==='Piano'&&guideNote?(guideNote.xmlStaff===1?'upper':guideNote.xmlStaff===2?'bass':guideNote.pitch<props.staffSplit?'bass':'upper'):null"/>
    </div>
   </div>
   <button v-if="takeResult&&!feedbackOpen" type="button" class="secondary learn-feedback-reopen" @click="feedbackOpen=true">Show last recording</button>
