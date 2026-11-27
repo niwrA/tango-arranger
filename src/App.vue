@@ -339,6 +339,9 @@ const noteFocusMore=ref(false);
 const noteSettingsOpen=ref(false);
 const noteLoopFrom=ref(1);
 const noteLoopTo=ref(1);
+const independentNoteLoop=ref(false);
+const independentNoteLoopFrom=ref(1);
+const independentNoteLoopTo=ref(1);
 function firstNoteSectionEnd(bars:readonly {section:string}[]):number{
  const next=bars.findIndex(bar=>bar.section!==bars[0]?.section);
  return Math.max(1,next<0?bars.length:next);
@@ -359,6 +362,11 @@ function exitNoteFocusMode(){
 }
 function noteFocusLoopRange(){
   const max=project.value.bars.length;
+  if(independentNoteLoop.value){
+    const from=Math.max(1,Math.min(max,Math.round(Number(independentNoteLoopFrom.value)||1)));
+    const to=Math.max(from,Math.min(max,Math.round(Number(independentNoteLoopTo.value)||from)));
+    return {from:from-1,to:to-1};
+  }
   const from=Math.max(1,Math.min(max,Math.round(Number(noteLoopFrom.value)||1)));
   const to=Math.max(from,Math.min(max,Math.round(Number(noteLoopTo.value)||from)));
   noteLoopFrom.value=from;noteLoopTo.value=to;
@@ -5388,9 +5396,10 @@ function chooseQuickWorkingRange(kind:'phrase'|'part'){
  }
  quickScope.value='measures';
 }
+watch(quickNoteCategory,()=>{compactQuickAction.value='';quickParametersOpen.value=false;});
 watch(quickNoteActions,()=>{if(!quickNoteActions.value.some(a=>a.value===compactQuickAction.value))compactQuickAction.value='';});
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
-watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';quickBrush.value='';quickBrushReplace.value=false;if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
+watch([noteInst,active],()=>{independentNoteLoop.value=false;compactQuickAction.value='';quickParametersOpen.value=false;multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';quickBrush.value='';quickBrushReplace.value=false;if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
 watch([noteLoopFrom,noteLoopTo],()=>{quickDraft.value=null;});
 watch(project,()=>{quickDraft.value=null;cancelNoteDrag();},{deep:true,flush:'sync'});
 watch([noteInst,active,noteEditorTab],cancelNoteDrag,{flush:'sync'});
@@ -7649,7 +7658,7 @@ async function homePractise(inst:Instrument){
     <div class="note-toolbar-transport" role="group" aria-label="Measure selection and loop">
       <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact collapsible @change="setNoteEditorMeasureRange"/>
       <details class="note-working-presets"><summary>Range presets</summary><button type="button" class="secondary" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" @click="chooseQuickWorkingRange('phrase')">Current phrase</button><button type="button" class="secondary" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" @click="chooseQuickWorkingRange('part')">Entire part</button></details>
-      <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
+      <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':independentNoteLoop?'▶ Loop '+independentNoteLoopFrom+'–'+independentNoteLoopTo:'▶ Loop'}}</button>
     </div>
     <div class="note-toolbar-actions">
       <button v-if="noteFocusMode" type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
@@ -8054,6 +8063,7 @@ async function homePractise(inst:Instrument){
   <p v-if="false" class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
     <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
+      <details class="note-independent-loop"><summary>Independent playback range</summary><label><input type="checkbox" v-model="independentNoteLoop" :disabled="noteLoopPlaying||capturePlaying" @change="independentNoteLoopFrom=noteLoopFrom;independentNoteLoopTo=noteLoopTo"/> Override working range for loop playback</label><MeasureRangeControl v-if="independentNoteLoop" :measures="project.bars" :from="independentNoteLoopFrom" :to="independentNoteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="(from,to)=>{independentNoteLoopFrom=from;independentNoteLoopTo=to}"/></details>
   <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
       <label v-if="midiSupported"><input type="checkbox" v-model="midiStepEntry" @change="midiStepEntry?enableEditorMidi():cancelMidiStep()"/> MIDI chord step entry at selected beat</label><label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
       <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option><option :value="1/3">Eighth triplet</option><option :value="1/6">Sixteenth triplet</option></select></label>
