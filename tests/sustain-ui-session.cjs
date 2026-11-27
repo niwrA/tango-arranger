@@ -23,17 +23,19 @@ check('normal score playback does not clip sustained note duration at the measur
  assert.ok(renderer.includes('durationSeconds:duration'));
  assert.ok(renderer.includes('triggerInstrument(inst,event.pitch,duration,time,velocity/127,technique)'));
  // Exercise the shared renderer with a sustained note and an expressive piano note.
- const body=renderer.slice(renderer.indexOf('{\n')+2,renderer.lastIndexOf('}'));
+ const body=renderer.slice(renderer.indexOf('{')+1,renderer.lastIndexOf('}'));
  const calls=[];
- const render=new Function('inst','n','event','duration','time','focusGain','focusInstrumentAudible','usesPizzicatoBank','resolveStringTechnique','violinTechnique','project','playExpressiveEvent','triggerInstrument','Tone',body.replace(' as AudioContext','').replace(' as Instrument',''));
- const run=(inst,n,event)=>render(inst,n,event,3.25,10,1,()=>true,()=>false,(_inst,explicit)=>explicit,()=>undefined,{value:{beats:4}},(_ctx,e)=>calls.push(['expressive',e.durationSeconds]),(_inst,_pitch,duration,_time,_velocity,technique)=>calls.push(['instrument',duration,technique]),{getContext:()=>({rawContext:{}})});
+ const render=new Function('inst','n','event','duration','time','focusGain','focusInstrumentAudible','usesPizzicatoBank','resolveStringTechnique','violinTechnique','project','playExpressiveEvent','triggerInstrument','Tone','audioEngine','arcoBank','playSampleGesture','instrumentGainDb',body.replaceAll(' as AudioContext','').replaceAll(' as Instrument',''));
+ const run=(inst,n,event)=>render(inst,n,event,3.25,10,1,()=>true,()=>false,(_inst,explicit)=>explicit,()=>undefined,{value:{beats:4}},(_ctx,e)=>calls.push(['expressive',e.durationSeconds]),(_inst,_pitch,duration,_time,_velocity,technique)=>calls.push(['instrument',duration,technique]),{getContext:()=>({rawContext:{}})},{value:'samples'},name=>name==='Violin I'?{}:undefined,()=>false,()=>0);
  run('Violin I',{technique:'arco'},{pitch:76,velocity:80,slideTo:79});
  run('Piano',{}, {pitch:60,velocity:80,endVelocity:100});
  assert.deepEqual(calls,[['expressive',3.25],['instrument',3.25,undefined]]);
 });
-check('bowed violin uses sustained synth fallback while pizzicato may keep short sample attacks',()=>{
- assert.ok(app.includes("const bowedViolin=inst.toLowerCase().includes('violin')&&technique!=='pizzicato';"));
- assert.ok(app.includes("audioEngine.value==='samples'&&!bowedViolin&&!needsSustainingSynth(inst,duration)"));
+check('bowed strings without a usable sample retain the sustaining synth fallback',()=>{
+ const trigger=app.slice(app.indexOf('function triggerInstrument('),app.indexOf('function renderArrangementNote('));
+ assert.match(trigger,/!canUseArcoSample\(inst,duration\)&&playArcoSustain\(/);
+ assert.match(trigger,/canUseArcoSample\(inst,duration\)\?samplePlayers.get\(inst\):undefined/);
+ assert.match(trigger,/else instrumentSynth\(inst\).triggerAttackRelease\(/);
  assert.ok(app.includes("name.includes('violin')?0.93:0.72"));
  assert.ok(app.includes('sustain:0.9,release:0.23'));
 });
@@ -97,10 +99,8 @@ check('global status is error-only; dynamics editor exposes direct paint, scope 
  assert.ok(app.includes('dynamicsScope'));
  assert.ok(app.includes("noteEditorTab==='expression'"));
 });
-console.log(count+' sustain, piano, session and toolbar checks passed');
-
 check('dedicated pizzicato sample banks are routed independently of arco',()=>{
- assert.ok(app.includes('usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst)'));
+ assert.ok(app.includes('usesPizzicatoBank(inst,technique)?selectPizzicatoPlayer(inst,velocity)'));
  assert.ok(app.includes('loadSamples(inst,true)'));
  assert.ok(app.includes('!usesPizzicatoBank(inst,technique)'));
 });
@@ -113,3 +113,5 @@ check('imported violin notes inherit pizzicato unless explicitly bowed',()=>{
  assert.equal(bank.resolveStringTechnique('Violin II',undefined,'pizzicato',true), 'arco');
  assert.equal(bank.resolveStringTechnique('Violin II',undefined,'sustained'), undefined);
 });
+
+console.log(count+' sustain, piano, session and toolbar checks passed');

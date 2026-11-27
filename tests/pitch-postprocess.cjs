@@ -108,7 +108,12 @@ test('arrangement playback waits for bounded sample loading before starting',()=
  const play=app.slice(begin,end);
  assert.match(play,/await prepareSamples\(/);
  assert.ok(play.indexOf('await prepareSamples(')<play.indexOf('transport.start()'));
- assert.match(app,/setTimeout\(\(\)=>finish\(false\),7000\)/);
+ const match=/setTimeout\(\(\)=>finish\(false\),(bank&&!pizzicato\?\d+:\d+)\)/.exec(app);
+ assert.ok(match,'sampler startup must remain bounded');
+ const timeout=new Function('bank','pizzicato','return '+match[1]);
+ assert.equal(timeout({},false),15000);
+ assert.equal(timeout(undefined,false),7000);
+ assert.equal(timeout({},true),7000);
  assert.match(play,/if\(session!==noteLoopSession\)return;/);
 });
 test('piano dynamic envelopes retain the piano voice in both playback modes',()=>{

@@ -43,6 +43,19 @@ check('CC0 arco banks use original pitch anchors and bounded finite playback',()
  assert.equal(open.canUseArcoSample('Contrabass',2),false);
  assert.equal(open.canUseArcoSample('Violin I',NaN),false);
 });
+check('the bundled piano manifest and every loader URL are in public assets',()=>{
+ const bank=open.openPianoBank('Piano','/app/');
+ const publicBank=path.join(root,'public',bank.baseUrl.slice('/app/'.length));
+ const manifest=JSON.parse(fs.readFileSync(path.join(publicBank,'manifest.json'),'utf8'));
+ assert.equal(manifest.version,1);
+ assert.equal(manifest.source,'VCSL Steinway B');
+ assert.equal(manifest.license,'CC0-1.0');
+ assert.deepEqual(manifest.anchors,Object.keys(bank.urls));
+ assert.equal(manifest.anchors.length,14);
+ for(const filename of Object.values(bank.urls)){
+  assert.ok(fs.statSync(path.join(publicBank,filename)).size>0,filename);
+ }
+});
 check('pizzicato alternates actual recordings and selects soft layers',()=>{
  const p=load('src/pizzicatoSamples.ts');
  assert.equal(p.pizzicatoVariantBank('Violin I','alternate').urls.E4,'LLVln_Pizz_E4_f_RR2.wav');
