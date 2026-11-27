@@ -19,7 +19,7 @@ function testNote(){sendMidiNote(60,64,.3);}
       <label v-if="outputs.length">MIDI output<select  :value="outputId" @change="selectMidiOutput(($event.target as HTMLSelectElement).value)"><option v-for="port in outputs" :key="port.id" :value="port.id">{{port.name || port.id}}</option></select></label>
       <p v-else>No MIDI outputs detected.</p>
       <label v-if="outputs.length">Output channel<select v-model.number="midiChannel"><option v-for="channel in 16" :key="channel" :value="channel-1">{{channel}}</option></select></label>
-      <label v-if="outputs.length"><input type="checkbox" v-model="outputEnabled" @change="panicMidi"/> Send piano playback and auditions to MIDI output</label>
+      <label v-if="outputs.length"><input type="checkbox" v-model="outputEnabled"/> Send arrangement piano and note auditions to MIDI output</label>
       <button type="button" class="secondary" @click="panicMidi">All notes off</button>
       <button type="button" class="secondary" :disabled="!selectedOutput" @click="testNote">Send test note (C4)</button>
       <p class="hint">Listen for middle C on your piano. Queued output does not confirm that the piano received it. No automatic MIDI echo is enabled.</p>

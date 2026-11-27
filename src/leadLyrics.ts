@@ -3,21 +3,29 @@ import {parseChordSequence,type Project,type Score,type Instrument} from './musi
 export type LeadLyricToken={text:string;line:number;start:number;absolute?:boolean;syllabic:'single'|'begin'|'middle'|'end';melisma?:boolean};
 export type LeadChordAnchor={chord:string;line:number;start:number;absolute?:boolean};
 export type LeadLyricPlan={notes:LeadLyricToken[];chords:LeadChordAnchor[];lines:string[];end:number};
+// Escape only text that would otherwise be mistaken for source syntax.
+export function encodeLyric(text:string):string{
+ return /[\s|[\]%]|_$/.test(text)?'%'+encodeURIComponent(text).replace(/_/g,'%5F'):text;
+}
+function decodeLyric(text:string):string{
+ if(!text.startsWith('%'))return text;
+ try{return decodeURIComponent(text.slice(1));}catch{return text;}
+}
 export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
   if(!Number.isFinite(beats)||beats<=0)throw Error('Invalid beats per measure');
   const notes:LeadLyricToken[]=[],chords:LeadChordAnchor[]=[];
   const lines=source.replace(/\r\n?/g,'\n').split('\n');
   let beat=0,measureStart=0;
-  let explicitBeat=false;
+  let explicitBeat=false,boundaryCursor=0;
   lines.forEach((line,lineNumber)=>{
     const parts=line.match(/\[[^\]]+\]|\|\||\||[^\s|\[\]]+/g)??[];
     for(const part of parts){
-      if(part==='||'){measureStart=Math.max(measureStart+beats,Math.ceil((beat-1e-8)/beats)*beats);beat=measureStart;explicitBeat=false;continue;}
+      if(part==='||'){measureStart=Math.max(measureStart+beats,Math.ceil((boundaryCursor-1e-8)/beats)*beats);beat=boundaryCursor=measureStart;explicitBeat=false;continue;}
       if(part==='|')continue; // explicit note separator; the following syllable gets its own onset
       if(/^@\d+(?:\.\d+)?$/.test(part)){
         const at=Number(part.slice(1))-1;
         if(at<0||at>=beats)throw Error('Beat marker must fit inside its measure');
-        beat=measureStart+at;
+        beat=boundaryCursor=measureStart+at;
         explicitBeat=true;
         continue;
       }
@@ -31,12 +39,20 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
         explicitBeat=false;
         continue;
       }
+      // Visual alignment serializes individual syllables with explicit grouping.
+      const marked=part.match(/^~(single|begin|middle|end):(.+)$/);
+      if(marked){
+        const melisma=marked[2].endsWith('_'),text=decodeLyric(marked[2].replace(/_+$/,''));
+        if(text)notes.push({text,line:lineNumber,start:beat,absolute:true,syllabic:marked[1] as LeadLyricToken['syllabic'],...(melisma?{melisma:true}:{})});
+        boundaryCursor=explicitBeat?beat:beat+1;beat++;explicitBeat=false;continue;
+      }
       const fragments=part.split('-').filter(Boolean);
       fragments.forEach((fragment,i)=>{
         const melisma=fragment.endsWith('_');
         const text=fragment.replace(/_+$/,'');
-        if(!text){beat++;return;}
+        if(!text){boundaryCursor=++beat;return;}
         notes.push({text,line:lineNumber,start:beat,...(explicitBeat?{absolute:true}:{}),syllabic:fragments.length===1?'single':i===0?'begin':i===fragments.length-1?'end':'middle',...(melisma?{melisma:true}:{})});
+        boundaryCursor=explicitBeat?beat:beat+1;
         beat++;
         explicitBeat=false;
       });
@@ -44,9 +60,44 @@ export function parseLeadLyrics(source:string,beats:number):LeadLyricPlan {
   });
   return {notes,chords,lines,end:beat};
 }
+/** Join marked syllables into words without moving chord labels off their
+ * text anchors. A barline inside a sung word is not a word boundary. */
+function exportMarkedLyrics(source:string):string{
+ const lines:string[]=[];
+ let lyric='',chordLine='',cursor=0,inWord=false,pendingBar=false;
+ const flush=()=>{
+  if(chordLine.trim())lines.push(chordLine.trimEnd());
+  lines.push(lyric.trimEnd());
+  lyric='';chordLine='';cursor=0;pendingBar=false;
+ };
+ for(const line of source.replace(/\r\n?/g,'\n').split('\n')){
+  const tokens=line.match(/\[[^\]]+\]|\|\||\||[^\s|\[\]]+/g)??[];
+  for(const token of tokens){
+   if(/^@\d+(?:\.\d+)?$/.test(token)||token==='|')continue;
+   if(token==='||'){if(!inWord)pendingBar=true;continue;}
+   if(pendingBar){if(lyric)lyric+=' |';pendingBar=false;}
+   if(token.startsWith('[')){
+    const chord=token.slice(1,-1);
+    const at=Math.max(lyric.length+(lyric&&!inWord?1:0),cursor);
+    chordLine=chordLine.padEnd(at,' ')+chord;
+    cursor=at+chord.length+1;
+    continue;
+   }
+   const marked=token.match(/^~(single|begin|middle|end):(.+)$/);
+   const joined=Boolean(inWord&&marked&&['middle','end'].includes(marked[1]));
+   if(lyric&&!joined)lyric+=' ';
+   lyric+=marked?decodeLyric(marked[2].replace(/_+$/,'')):token;
+   inWord=Boolean(marked&&['begin','middle'].includes(marked[1]));
+  }
+  if(!inWord)flush();
+ }
+ if(lyric||chordLine)flush();
+ return lines.join('\n');
+}
 /** A readable chord-over-text export with original lyric line breaks. */
 export function exportLeadLyricsTab(source:string):string {
- return source.replace(/\r\n?/g,'\n').split('\n').map(line=>{
+ if(/(?:^|\s)~(?:single|begin|middle|end):/.test(source))return exportMarkedLyrics(source);
+ return source.replace(/(^|\s)@\d+(?:\.\d+)?(?=\s|$)/g,'$1').replace(/~(?:single|begin|middle|end):/g,'').replace(/\r\n?/g,'\n').split('\n').map(line=>{
   let lyric='',chordLine='',cursor=0;
   for(let i=0;i<line.length;){
    if(line[i]==='['){
@@ -144,6 +195,7 @@ export function leadLyricsFromSong(project:Project,score:Score,voice:Instrument,
  * lyric lines. This is a presentation transform; source timing is untouched.
  */
 export function readableLeadSheet(source:string):string {
+ if(/(?:^|\s)~(?:single|begin|middle|end):/.test(source))return exportMarkedLyrics(source).trimEnd();
  const lines=source.replace(/\r\n?/g,'\n').split('\n');
  const out:string[]=[];
  let instrumental:string[]=[];

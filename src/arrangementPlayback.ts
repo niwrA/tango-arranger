@@ -57,9 +57,9 @@ export function pianoGlissandoPitches(start:number,target:number,keys:'white'|'b
  for(let pitch=start+direction;pitch!==target;pitch+=direction)if(keys==='chromatic'||(keys==='white')===white.includes(pitch%12))result.push(pitch);
  return [...result,target];
 }
-export function pianoPlaybackNotes(notes:readonly Note[],transpose=0):Note[]{
+export function pianoPlaybackNotes(notes:readonly Note[],transpose=0,emulatePedal=true):Note[]{
  const attacks:Note[]=[];
- const pedals=notes.filter(n=>n.pianoPedalBeats&&n.pianoPedalBeats>0).map(n=>({start:n.start+(n.pianoPedalOffset??0),end:n.start+(n.pianoPedalOffset??0)+n.pianoPedalBeats!})).sort((a,b)=>a.start-b.start);
+ const pedals=emulatePedal?notes.filter(n=>n.pianoPedalBeats&&n.pianoPedalBeats>0).map(n=>({start:n.start+(n.pianoPedalOffset??0),end:n.start+(n.pianoPedalOffset??0)+n.pianoPedalBeats!})).sort((a,b)=>a.start-b.start):[];
  for(const n of notes){
   const g=n.pianoGlissando;
   const pitches=g?pianoGlissandoPitches(n.pitch+transpose,n.pitch+g.interval+transpose,g.keys).map(p=>p-transpose):[];
@@ -83,9 +83,23 @@ export function pianoPlaybackNotes(notes:readonly Note[],transpose=0):Note[]{
  }
  return sorted;
 }
-export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infinity,transpose=0):Note[]{
+/** Hardware sustain is independent of note attacks, including when starting in a held pedal. */
+export function pianoPedalWindows(notes:readonly Note[],start:number,end:number):{start:number;end:number}[]{
+ const spans=notes.flatMap(note=>{
+  const from=note.start+(note.pianoPedalOffset??0),to=from+(note.pianoPedalBeats??0);
+  const left=Math.max(start,from),right=Math.min(end,to);
+  return Number.isFinite(left)&&Number.isFinite(right)&&right>left&&note.pianoPedalBeats?[{start:left,end:right}]:[];
+ }).sort((a,b)=>a.start-b.start||a.end-b.end);
+ const merged:typeof spans=[];
+ for(const span of spans){
+  const last=merged.at(-1);
+  if(last&&span.start<last.end-1e-7)last.end=Math.max(last.end,span.end);else merged.push(span);
+ }
+ return merged;
+}
+export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infinity,transpose=0,nativePedal=false):Note[]{
  const tied=tiedPlaybackNotes(notes);
- const sounding=tied.some(n=>n.pianoGlissando||n.pianoPedalBeats)?pianoPlaybackNotes(tied,transpose):tied;
+ const sounding=tied.some(n=>n.pianoGlissando||n.pianoPedalBeats)?pianoPlaybackNotes(tied,transpose,!nativePedal):tied;
  return sounding.flatMap(n=>{
   if(n.stringGlissando){if(n.start>=end-1e-7||n.start+n.stringGlissando.beats<=start+1e-7)return [];return [stringGlissandoPlayback(n,start,end)];}
   const audibleEnd=n.start+noteSoundingDuration(n);
