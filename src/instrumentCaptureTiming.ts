@@ -4,7 +4,7 @@ import type {TangoGesture} from './tangoGestures';
 /** Original transport timing, before any note grid is applied. Starts are
  * relative to the selected recording range; a missing duration is a tap. */
 export type InstrumentCaptureEvent={
- startBeat:number;durationBeats?:number;pitch:number;stringMidi?:number;
+ startBeat:number;durationBeats?:number;pitch:number;velocity?:number;stringMidi?:number;
  approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;
 };
 export type InstrumentCaptureTimingOptions={
@@ -12,7 +12,7 @@ export type InstrumentCaptureTimingOptions={
  onsetGrid:(bar:number)=>number;durationGrid:(bar:number)=>number;
 };
 export type TimedInstrumentCapture=CapturedTap&{
- pitch:number;duration:number;stringMidi?:number;provisional?:true;
+ pitch:number;duration:number;velocity?:number;stringMidi?:number;provisional?:true;
  approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;
 };
 const round=(value:number)=>Math.round(value*1e6)/1e6;
@@ -73,6 +73,7 @@ export function quantizeInstrumentCapture(
    const segment=round(Math.min(remaining,beats-beat));
    if(segment<=0)break;
    const note:TimedInstrumentCapture={bar,beat,pitch:event.pitch,duration:segment,
+    ...(event.velocity!==undefined?{velocity:event.velocity}:{}),
     ...(event.durationBeats===undefined?{provisional:true as const}:{}),
     ...(event.stringMidi!==undefined?{stringMidi:event.stringMidi}:{}),
     ...(firstSegment&&event.approachSlideFrom!==undefined?{approachSlideFrom:event.approachSlideFrom}:{}),

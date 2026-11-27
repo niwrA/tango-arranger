@@ -24,7 +24,7 @@ const states=['capturePlaying','captureRecording','captureLoopEnabled','rhythmCa
  'heldCaptureKeys','captureMonitorPitches','captureModeledVoices','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
  'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureSelectedString','captureEditedRhythms',
  'captureSession','captureSynth','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
- 'captureBarNumbers','captureInputSource','captureMuteBacking'];
+ 'captureBarNumbers','captureInputSource','captureMuteBacking','midiCapturePattern','midiCaptureStrength'];
 const extracted=[],found=new Set();
 for(const statement of ast.statements){
  if(ts.isFunctionDeclaration(statement)&&functions.includes(statement.name?.text)){

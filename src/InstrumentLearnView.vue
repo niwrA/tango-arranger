@@ -4,6 +4,8 @@ export type PracticeDisplay='notes'|'diagram'|'both'|'score'|'score-diagram'|'ov
 
 <script setup lang="ts">
 import {computed,ref,shallowRef,watch,onBeforeUnmount} from 'vue';
+import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi} from './midiSession';
+import {assessTimedMidi,normalizeMidiTargets,recordMidiPracticeKey,type PlayedMidiNote,type ExpectedMidiNote} from './timedMidiPractice';
 import {buildPracticePreview,loadPreviewBank,renderPracticePreview} from './practicePreviewAudio';
 import {stringPitchAtBeat,type Project} from './music';
 import {usesPizzicatoBank} from './pizzicatoSamples';
@@ -152,8 +154,10 @@ const showGuide=computed(()=>guideEnabled.value||scoreEnabled.value);
 const completedTargets=ref(new Set<Note>());
 const takeBeat=ref<number|null>(null);
 const demoBeat=ref<number|null>(null);
+const midiTimedBeat=ref<number|null>(null);
+const midiTimed=ref(false);
 const scoreMeasure=computed(()=>{
- const timedBeat=demoBeat.value??takeBeat.value;
+ const timedBeat=demoBeat.value??takeBeat.value??midiTimedBeat.value;
  if(timedBeat!==null)return Math.min(to.value,from.value+Math.floor(Math.max(0,timedBeat)/props.beatsPerMeasure));
  const note=current.value??targets.value.at(-1);
  return note?Math.floor((note.start+1e-7)/props.beatsPerMeasure)+1:from.value;
@@ -282,9 +286,9 @@ watch([targets,()=>props.referenceHz,()=>props.concertTranspose,()=>props.bpm],(
 watch(allowAnyOctave,()=>{
  cancelTake();takeResult.value=null;takeExport.value=null;stableSince=0;heldProgress.value=0;armed=true;accepted.value=false;
 });
-watch([done,autoRepeat,demoPlaying],([complete,repeat,preview])=>{
+watch([done,autoRepeat,demoPlaying,midiTimed],([complete,repeat,preview,midiTaking])=>{
  clearTimeout(repeatTimer);
- if(complete&&repeat&&!preview)repeatTimer=setTimeout(()=>{
+ if(complete&&repeat&&!preview&&!midiTaking)repeatTimer=setTimeout(()=>{
   const readyForAttack=armed;
   restart();
   armed=readyForAttack;
@@ -310,7 +314,7 @@ function stopDemo(){
 }
 async function listenToNotes(){
  if(demoPlaying.value){stopDemo();return;}
- if(!targets.value.length||take||busy.value)return;
+ if(!targets.value.length||take||busy.value||midiTimed.value)return;
  try{
   const ctx=new AudioContext();
   demoAudio=ctx;demoPlaying.value=true;
@@ -342,7 +346,7 @@ async function listenToNotes(){
 function cancelTake(){take=null;takeBeat.value=null;recordingClock.value=null;}
 async function startTake(){
  if(take){cancelTake();restart();return;}
- if(!targets.value.length||!microphoneSupported.value||busy.value||demoPlaying.value)return;
+ if(!targets.value.length||!microphoneSupported.value||busy.value||demoPlaying.value||midiTimed.value)return;
  if(!listening.value)await startMicrophone();
  if(!listening.value||!targets.value.length)return;
  const msPerBeat=60000/props.bpm;
@@ -408,6 +412,7 @@ function stopMicrophone(){
  micStatus.value='Microphone off';
 }
 async function startMicrophone(){
+ midiRequest++;midiRequestPending.value=false;midiPractice.value=false;clearMidiPractice();
  if(listening.value){stopMicrophone();return;}
  if(!microphoneSupported.value||busy.value)return;
  if(!navigator.mediaDevices?.getUserMedia){micStatus.value='Microphone is unavailable in this browser.';return;}
@@ -534,7 +539,109 @@ async function startMicrophone(){
   if(id===generation){stopMicrophone();micStatus.value='Microphone could not start: '+String(error);}
  }
 }
-onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
+const midiPractice=ref(false);
+const midiTimingResult=ref('');
+const midiRequestPending=ref(false);
+let midiTimedStart=0;
+let midiTimedMsPerBeat=0;
+let midiTimedLength=0;
+let midiTimedFrame=0;
+let midiTimedTimer:ReturnType<typeof setTimeout>|undefined;
+let midiTimedNotes:PlayedMidiNote[]=[];
+let midiTimedTargets:ExpectedMidiNote[]=[];
+const midiTimedHeld=new Map<string,PlayedMidiNote[]>();
+const midiRelevantNotes=computed(()=>practiceRange.value.filter(n=>!n.xmlTieContinuation&&
+ (!props.grandStaff||staff.value==='all'||partStaffForNote(n,props.instrument,props.staffSplit,0,
+  bandoneonModelForPart(props.project,props.instrument))===(staff.value==='upper'?1:2))));
+const midiTargets=computed(()=>{
+ const start=(from.value-1)*props.beatsPerMeasure;
+ return normalizeMidiTargets(midiRelevantNotes.value.flatMap(n=>[n.pitch,...(n.gesture?.partner?.slice(0,1).map(p=>p.pitch)??[])]
+  .map(pitch=>({pitch:pitch+props.concertTranspose,beat:Math.max(0,n.start-start),duration:noteSoundingDuration(n)}))));
+});
+const midiTimedProgress=computed(()=>{
+ const beat=midiTimedBeat.value;
+ if(beat===null)return '';
+ if(beat<0)return 'Count in · beat '+Math.min(props.beatsPerMeasure,Math.max(1,Math.floor(props.beatsPerMeasure+beat)+1))+' of '+props.beatsPerMeasure;
+ if(beat>=midiTimedLength)return 'Release held keys';
+ return 'Measure '+(from.value+Math.floor(beat/props.beatsPerMeasure))+' · beat '+(Math.floor(beat%props.beatsPerMeasure)+1);
+});
+function cancelMidiTimed(){
+ clearTimeout(midiTimedTimer);cancelAnimationFrame(midiTimedFrame);
+ midiTimed.value=false;midiTimedBeat.value=null;midiTimedHeld.clear();
+}
+function finishMidiTimed(){
+ if(!midiTimed.value)return;
+ const stats=assessTimedMidi(midiTimedTargets,midiTimedNotes,midiTimedStart,midiTimedMsPerBeat,performance.now());
+ midiTimingResult.value=stats.matched+' / '+midiTimedTargets.length+' notes matched · '+stats.missed+' missed · '+stats.extra+
+  ' extra'+(stats.matched?' · mean onset error '+stats.meanOnsetMs+' ms · mean duration error '+stats.meanDurationMs+' ms':'');
+ cancelMidiTimed();clearMidiKeys();
+}
+function startMidiTimed(){
+ if(midiTimed.value){finishMidiTimed();return;}
+ if(!midiPractice.value||!midiInputId.value||demoPlaying.value||takeBeat.value!==null||!midiTargets.value.length)return;
+ clearMidiKeys();midiTimedNotes=[];midiTimedTargets=midiTargets.value;midiTimingResult.value='';
+ midiTimedMsPerBeat=60000/props.bpm;
+ midiTimedLength=(to.value-from.value+1)*props.beatsPerMeasure;
+ midiTimedStart=performance.now()+props.beatsPerMeasure*midiTimedMsPerBeat;
+ midiTimed.value=true;midiTimedBeat.value=-props.beatsPerMeasure;
+ const follow=()=>{
+  if(!midiTimed.value)return;
+  midiTimedBeat.value=(performance.now()-midiTimedStart)/midiTimedMsPerBeat;
+  midiTimedFrame=requestAnimationFrame(follow);
+ };
+ midiTimedFrame=requestAnimationFrame(follow);
+ midiTimedTimer=setTimeout(finishMidiTimed,(midiTimedLength+props.beatsPerMeasure)*midiTimedMsPerBeat+500);
+}
+
+const midiHeld=ref<number[]>([]);
+const midiKeys=new Map<string,number>();
+const freshMidiKeys=new Set<number>();
+let midiAcceptedTarget:Note|null=null;
+const midiExpected=computed(()=>{
+ const n=current.value;if(!n)return [];
+ const start=(from.value-1)*props.beatsPerMeasure;
+ return midiTargets.value.filter(note=>Math.abs(note.beat-Math.max(0,n.start-start))<1e-6).map(note=>note.pitch);
+});
+const midiMissing=computed(()=>midiExpected.value.filter(p=>!midiHeld.value.includes(p)));
+const midiExtra=computed(()=>midiHeld.value.filter(p=>!midiExpected.value.includes(p)));
+function clearMidiKeys(){midiKeys.clear();midiHeld.value=[];freshMidiKeys.clear();midiAcceptedTarget=null;}
+function clearMidiPractice(){clearMidiKeys();cancelMidiTimed();midiTimingResult.value='';}
+let midiRequest=0;
+async function toggleMidiPractice(){
+ if(midiPractice.value||midiRequestPending.value){midiRequest++;midiRequestPending.value=false;midiPractice.value=false;clearMidiPractice();return;}
+ stopMicrophone();
+ const request=++midiRequest;
+ midiRequestPending.value=true;
+ await enableMidi();
+ if(request!==midiRequest)return;
+ midiRequestPending.value=false;
+ midiPractice.value=!!midiInputId.value;
+}
+watch([midiTargets,()=>props.instrument,()=>props.bpm],clearMidiPractice);
+watch(cursor,()=>{freshMidiKeys.clear();midiAcceptedTarget=null;},{flush:'sync'});
+watch(demoPlaying,playing=>{if(playing)clearMidiPractice();});
+const unsubscribeMidi=subscribeMidi(event=>{
+ if(event.kind==='reset'){clearMidiPractice();return;}
+ if(!midiPractice.value||demoPlaying.value||takeBeat.value!==null||event.kind==='pedal')return;
+ if(midiTimed.value){
+  const end=midiTimedStart+midiTimedLength*midiTimedMsPerBeat;
+  if(event.kind==='off'||(event.time>=midiTimedStart-midiTimedMsPerBeat*.5&&event.time<end))
+   recordMidiPracticeKey(midiTimedNotes,midiTimedHeld,{...event,kind:event.kind});
+  return;
+ }
+ const key=event.channel+':'+event.pitch;
+ if(event.kind==='on'){midiKeys.set(key,event.pitch);freshMidiKeys.add(event.pitch);}
+ else midiKeys.delete(key);
+ midiHeld.value=[...new Set(midiKeys.values())].sort((a,b)=>a-b);
+ const target=current.value;
+ if(!target||midiAcceptedTarget===target||!midiExpected.value.length||midiMissing.value.length||
+  midiExtra.value.length||!midiExpected.value.every(p=>freshMidiKeys.has(p)))return;
+ midiAcceptedTarget=target;
+ completedTargets.value.add(target);
+ accepted.value=true;heldProgress.value=1;
+ if(autoAdvance.value)cursor.value++;
+});
+onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
 </script>
 <template>
  <section class="learn-workspace" :class="{'learn-workspace-score':showScore}" aria-label="Learn instrument notes">
@@ -548,8 +655,8 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
      </button>
     </div>
     <div class="learn-transport-controls" role="group" aria-label="Exercise playback and recording">
-      <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||busy" :aria-pressed="demoPlaying" :aria-label="demoPlaying?'Stop preview':'Listen to notes'" :title="demoPlaying?'Stop preview':'Listen to notes'" @click="listenToNotes"><AppIcon :name="demoPlaying?'square':'play'"/></button>
-      <button v-if="microphoneSupported" type="button" class="secondary learn-record-toggle" :class="{'is-recording':takeBeat!==null}" :disabled="!targets.length||demoPlaying||busy" :aria-pressed="takeBeat!==null" :aria-label="takeBeat===null?'Record for feedback':'Cancel recording'" :title="takeBeat===null?'Record for feedback':'Cancel recording'" @click="startTake"><AppIcon :name="takeBeat===null?'record':'square'"/></button>
+      <button type="button" class="secondary" :disabled="!targets.length||takeBeat!==null||midiTimed||busy" :aria-pressed="demoPlaying" :aria-label="demoPlaying?'Stop preview':'Listen to notes'" :title="demoPlaying?'Stop preview':'Listen to notes'" @click="listenToNotes"><AppIcon :name="demoPlaying?'square':'play'"/></button>
+      <button v-if="microphoneSupported" type="button" class="secondary learn-record-toggle" :class="{'is-recording':takeBeat!==null}" :disabled="!targets.length||demoPlaying||midiTimed||busy" :aria-pressed="takeBeat!==null" :aria-label="takeBeat===null?'Record for feedback':'Cancel recording'" :title="takeBeat===null?'Record for feedback':'Cancel recording'" @click="startTake"><AppIcon :name="takeBeat===null?'record':'square'"/></button>
      </div>
      <button type="button" class="secondary learn-settings-toggle" :class="{'primary':settingsOpen}" :aria-expanded="settingsOpen" aria-controls="learn-settings" aria-label="Settings" title="Settings" @click="settingsOpen=!settingsOpen"><AppIcon name="settings"/></button>
    </div>
@@ -587,18 +694,31 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
     <label v-if="overlayScore" class="learn-setting-wide"><span class="learn-setting-inline">Score opacity <strong>{{overlayPaper}}%</strong></span><input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
    </fieldset>
   </div>
-  <p v-if="family==='Voice'" class="learn-mic-instructions">{{allowAnyOctave?'Sing the written note in any octave.':'Sing each note in its written octave.'}}</p>
+  <p v-if="midiPractice" class="learn-mic-instructions">Use a new key press for each expected attack, including repeated pitches.</p>
+  <p v-else-if="family==='Voice'" class="learn-mic-instructions">{{allowAnyOctave?'Sing the written note in any octave.':'Sing each note in its written octave.'}}</p>
   <p v-else-if="microphoneSupported" class="learn-mic-instructions">Play one note at a time for feedback. Chords and double stops use the {{chordTarget}} note{{grandStaff&&staff!=='all'?' on the '+staff+' staff':''}}. The score shows the full part.</p>
   <Teleport v-if="recordingClock" to="#practice-recording-beat">
    <PracticeRecordingBeat :clock="recordingClock" :beats="beatsPerMeasure" :first-measure="from"/>
   </Teleport>
   <Teleport to="#practice-learn-tuner">
+  <div v-if="midiSupported" class="editor" aria-label="MIDI practice">
+    <button type="button" class="secondary" :aria-pressed="midiPractice" :disabled="busy||takeBeat!==null||demoPlaying" @click="toggleMidiPractice">{{midiRequestPending?'Cancel MIDI start':midiPractice?'Stop MIDI practice':'Practise with MIDI'}}</button>
+    <template v-if="midiPractice">
+      <p role="status">{{midiInputId?'Play the complete expected attack.':midiStatus}}</p>
+      <p>Expected: {{midiExpected.map(pitchLabel).join(' · ')||'Exercise complete'}}</p>
+      <p>Held: {{midiHeld.map(pitchLabel).join(' · ')||'—'}}</p>
+      <p v-if="midiMissing.length">Missing: {{midiMissing.map(pitchLabel).join(' · ')}}</p>
+      <p v-if="midiExtra.length">Extra: {{midiExtra.map(pitchLabel).join(' · ')}}</p>
+      <button type="button" class="secondary" :disabled="!midiInputId||!midiTargets.length" @click="startMidiTimed">{{midiTimed?'Finish timed take':'Start timed MIDI take'}}</button><p v-if="midiTimed" class="midi-timed-progress">Timed take · {{midiTimedProgress}}</p><p v-if="midiTimingResult" role="status">{{midiTimingResult}}</p><p class="hint">Step practice checks attacks, not acoustic intonation. Timed takes show a silent count-in and assess onset and key duration.</p>
+    </template>
+    <p v-else class="hint">{{midiStatus}}</p>
+  </div>
   <div class="learn-tuner" :class="{'is-live-practice':listening&&!demoPlaying&&!autoTuner}" role="region" :aria-label="autoTuner?'Automatic chromatic tuner':'Target-aware pitch tuner'">
    <div class="learn-tuner-title"><div class="learn-navigation learn-practice-controls" role="group" aria-label="Note practice controls">
      <button v-if="microphoneSupported" type="button" class="learn-mic-toggle" :class="{'is-listening':listening}" :aria-label="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :title="busy?'Starting microphone':listening?'Stop microphone':'Start microphone'" :aria-pressed="listening" :disabled="busy||takeBeat!==null" @click="startMicrophone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-3 0h6"/></svg></button>
-     <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
-     <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying" @click="moveCursor(1)" aria-label="Next note" title="Next note"><span class="learn-arrow-next"><AppIcon name="arrow-left"/></span></button>
-     <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying" @click="restart" aria-label="Restart" title="Restart"><AppIcon name="refresh-cw"/></button>
+     <button type="button" class="secondary" :disabled="cursor===0||takeBeat!==null||demoPlaying||midiTimed" @click="moveCursor(-1)" aria-label="Previous note" title="Previous note"><AppIcon name="arrow-left"/></button>
+     <button type="button" class="secondary" :disabled="cursor>=targets.length||takeBeat!==null||demoPlaying||midiTimed" @click="moveCursor(1)" aria-label="Next note" title="Next note"><span class="learn-arrow-next"><AppIcon name="arrow-left"/></span></button>
+     <button type="button" class="secondary" :disabled="takeBeat!==null||demoPlaying||midiTimed" @click="restart" aria-label="Restart" title="Restart"><AppIcon name="refresh-cw"/></button>
     </div>
     
     <button v-if="microphoneSupported" type="button" class="secondary" :aria-pressed="autoTuner" :title="autoTuner?'Return to score-note intonation':'Automatic chromatic tuner'" :aria-label="autoTuner?'Switch to score-note tuner':'Switch to automatic chromatic tuner'" :disabled="takeBeat!==null" @click="autoTuner=!autoTuner;stableSince=0;heldProgress=0;accepted=false;armed=true"><AppIcon name="tuning-fork"/></button>
@@ -637,7 +757,7 @@ onBeforeUnmount(()=>{clearTimeout(repeatTimer);stopDemo();stopMicrophone();});
    <div v-if="autoTuner" class="learn-tuner-ends"><span>Flat −50¢</span><span>In tune</span><span>Sharp +50¢</span></div>
    <div class="learn-mic-row" :class="{'is-compact-mic':listening&&!autoTuner&&!demoPlaying}">
     <meter v-if="microphoneSupported" min="-90" max="0" :value="inputDb??-90" aria-label="Microphone input level" :aria-valuetext="inputDb===null?'Microphone off':inputDb+' dBFS'"/>
-    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{!autoTuner&&accepted?' · Correct pitch held':''}} · A4={{referenceHz}} Hz<span v-if="!autoTuner&&targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
+    <small role="status">{{micStatus}}{{inputDb!==null?' · '+inputDb+' dBFS':''}}{{frequency!==null?' · '+frequency.toFixed(1)+' Hz':''}}{{!autoTuner&&accepted?(midiPractice?' · MIDI attack matched':' · Correct pitch held'):''}} · A4={{referenceHz}} Hz<span v-if="!autoTuner&&targetHz!==null"> · {{allowAnyOctave?'written pitch':'target'}} {{targetHz.toFixed(1)}} Hz</span></small>
    </div>
   </div>
   </Teleport>
