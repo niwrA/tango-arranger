@@ -22,7 +22,7 @@ check('other sustaining voices have synth fallback; piano remains percussive',()
 check('sample routing applies only to tone generation; note timing is unchanged',()=>{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  assert.ok(app.includes("canUseArcoSample(inst,duration)?samplePlayers.get(inst):undefined"));
- assert.ok(app.includes("usesPizzicatoBank(inst,technique)?pizzicatoPlayers.get(inst)"));
+ assert.ok(app.includes("usesPizzicatoBank(inst,technique)?selectPizzicatoPlayer(inst,velocity)"));
  assert.ok(app.includes("instrumentSynth(inst).triggerAttackRelease"));
  assert.ok(app.includes("sampler.triggerAttackRelease"));
  assert.ok(app.includes('playbackDuration(event.durationSeconds,rehearsalSpeed.value)'));
@@ -42,6 +42,17 @@ check('CC0 arco banks use original pitch anchors and bounded finite playback',()
  assert.equal(open.canUseArcoSample('Violin I',3),false);
  assert.equal(open.canUseArcoSample('Contrabass',2),false);
  assert.equal(open.canUseArcoSample('Violin I',NaN),false);
+});
+check('pizzicato alternates actual recordings and selects soft layers',()=>{
+ const p=load('src/pizzicatoSamples.ts');
+ assert.equal(p.pizzicatoVariantBank('Violin I','alternate').urls.E4,'LLVln_Pizz_E4_f_RR2.wav');
+ assert.equal(p.pizzicatoVariantBank('Violin I','soft').urls.G3,'LLVln_Pizz_G3_p_RR1.wav');
+ assert.equal(p.pizzicatoVariantBank('Violin I','soft').urls.C7,'LLVln_Pizz_C7_f.wav');
+ assert.equal(p.pizzicatoVariantBank('Contrabass','alternate').urls['D#1'],'eb1_vl3_rr2.wav');
+ assert.equal(p.pizzicatoVariantBank('Contrabass','soft').urls['D#1'],'eb1_vl1_rr1.wav');
+ assert.equal(p.pizzicatoVariant(.3,0),'soft');
+ assert.equal(p.pizzicatoVariant(.8,0),'primary');
+ assert.equal(p.pizzicatoVariant(.8,1),'alternate');
 });
 function make(beats,profile='traditional'){
  const p=m.blankProject({sections:1,measuresPerSection:2,beats,bpm:120});
