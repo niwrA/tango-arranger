@@ -1,3 +1,7 @@
+## Example song selection (2026-11-27)
+
+- Retire the generated El Choclo study from Home and the song picker. Existing editable copies and exported projects are unchanged.
+
 ## Sung-vowel voice guide (2026-11-27)
 
 - Voice parts use a sample-free, vowel-shaped rehearsal tone in both audio modes. Short and sustained notes share the same timbre, with gentle breath, pressure swells and restrained delayed vibrato.
