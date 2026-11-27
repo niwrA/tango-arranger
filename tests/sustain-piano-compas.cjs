@@ -65,6 +65,14 @@ check('WAV loop metadata uses source sample rate and inclusive end',()=>{
  const loop=readWavLoop(buffer);assert.equal(loop.start,.5);assert.equal(loop.end,1);
  assert.equal(readWavLoop(new ArrayBuffer(4)),undefined);
 });
+check('gesture anchor bounds transposition and rejects insufficient finite tails',()=>{
+ const {gestureAnchor}=load('src/arcoSustain.ts');
+ const samples=[{pitch:60,seconds:2,loop:false},{pitch:64,seconds:2,loop:true}];
+ assert.equal(gestureAnchor([60,64],.5,samples),0);
+ assert.equal(gestureAnchor([60,64],5,samples),1);
+ assert.equal(gestureAnchor([50,75],.5,samples),undefined);
+ assert.equal(gestureAnchor([60],4,[samples[0]]),undefined);
+});
 function make(beats,profile='traditional'){
  const p=m.blankProject({sections:1,measuresPerSection:2,beats,bpm:120});
  p.profile=profile;

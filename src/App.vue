@@ -55,7 +55,7 @@ import {playExpressiveEvent} from './expressiveAudio';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
 import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
-import {prepareArcoSustain,playArcoSustain,stopArcoSustain,setArcoSustainGain} from './arcoSustain';
+import {prepareArcoSustain,playArcoSustain,stopArcoSustain,setArcoSustainGain,playSampleGesture} from './arcoSustain';
 import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWrittenNoteLeftEdge,dragAbsoluteNotePosition,dragAbsoluteNoteLeftEdge} from './noteEditing';
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
@@ -3978,7 +3978,10 @@ function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measur
  // Piano dynamics affect the attack; a held piano string cannot crescendo.
  // Never substitute a triangle oscillator for a piano merely due to a wedge.
  if(!inst.toLowerCase().includes('piano')&&!usesPizzicatoBank(inst,technique)&&(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)){
-  playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.round(event.endVelocity*focusGain))},time);
+  const expressive={...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))};
+  const ctx=Tone.getContext().rawContext as AudioContext;
+  if(audioEngine.value==='samples'&&arcoBank(inst)&&playSampleGesture(ctx,inst,expressive,time,-5+instrumentGainDb(inst)))return;
+  playExpressiveEvent(ctx,expressive,time);
  }else triggerInstrument(inst,event.pitch,duration,time,velocity/127,technique);
 }
 let synth:PolySynth|null=null;
