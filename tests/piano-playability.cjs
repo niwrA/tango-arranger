@@ -65,3 +65,32 @@ test('editor displays diagnostics without rewriting imported or manually edited 
  assert.match(app,/imported and manually edited notes are never moved automatically/);
 });
 console.log(checks+' piano playability checks passed');
+
+test('orchestra styles produce distinctive coordinated accompaniment',()=>{
+ const styles=['darienzo','disarli','troilo','fresedo','canaro','pugliese'];
+ const signatures=new Set();
+ for(const profile of styles){
+  const p=project('Dm');p.profile=profile;
+  p.roles.A.Piano='chords';p.roles.A.Contrabass='bass';p.roles.A['Bandoneon I']='chords';
+  p.instrumentSettings.Contrabass={difficulty:'advanced',activity:1};
+  p.instrumentSettings['Bandoneon I']={difficulty:'advanced',activity:1};
+  p.orchestration.contrabass.A='traditional';
+  const score=m.generate(p);
+  assertStacks(score.Piano,p);
+  const piano=score.Piano.filter(n=>n.start<4);
+  const bass=score.Contrabass.filter(n=>n.start<4);
+  assert.ok(piano.length&&bass.length,profile);
+  signatures.add(JSON.stringify([piano,bass].map(notes=>notes.map(n=>[n.start,n.pitch,n.duration,n.velocity,n.gate,n.accent]))));
+ }
+ assert.equal(signatures.size,styles.length);
+});
+test('section override inherits elsewhere and explicit piano figure wins',()=>{
+ const p=project('Dm');p.profile='darienzo';
+ const baseline=m.generate(p).Piano;
+ p.sectionStyles={A:'disarli'};
+ const changed=m.generate(p).Piano;
+ assert.notDeepEqual(changed,baseline);
+ p.pianoFigures={A:'chords_up'};
+ const explicit=m.generate(p).Piano;
+ assert.deepEqual(explicit.map(n=>[n.start,n.pitch,n.duration]),baseline.length?m.generate({...p,profile:'traditional',sectionStyles:{}}).Piano.map(n=>[n.start,n.pitch,n.duration]):[]);
+});
