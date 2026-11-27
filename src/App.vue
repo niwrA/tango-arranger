@@ -5283,7 +5283,9 @@ const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
 const multiNoteMode=ref(false);
 const multiNoteKeys=ref<string[]>([]);
 const quickNoteCategory=ref<EditCategory>('pitch');
-const quickScope=ref<'notes'|'measures'|'phrase'|'part'>('notes');
+const quickScope=ref<'notes'|'measures'>('notes');
+const compactQuickAction=ref('');
+const quickParametersOpen=ref(false);
 const quickMode=ref<'select'|'create'|'erase'>('select');
 const quickBrush=ref<BrushKind|''>('');
 const quickBrushReplace=ref(false);
@@ -5344,8 +5346,6 @@ const quickSelection=computed<EditSelection>(()=>{
    const from=clamp(noteLoopFrom.value-1);
    return {kind:'measures',from,to:Math.max(from,clamp(noteLoopTo.value-1))};
   }
-  case 'phrase':return {kind:'phrase',measure:clamp(selectedBar.value)};
-  case 'part':return {kind:'part'};
   default:return {kind:'notes',keys:multiNoteMode.value?multiNoteKeys.value:selectedEvent.value?[quickNoteKey(selectedEvent.value)]:[]};
  }
 });
@@ -5380,6 +5380,15 @@ function quickNoteSelected(n:Note){return quickSelectedDisplayNotes.value.has(n)
 function toggleQuickNote(n:Note){
  const key=quickNoteKey(n);multiNoteKeys.value=multiNoteKeys.value.includes(key)?multiNoteKeys.value.filter(k=>k!==key):[...multiNoteKeys.value,key];
 }
+function chooseQuickWorkingRange(kind:'phrase'|'part'){
+ if(kind==='part')setNoteEditorMeasureRange(1,project.value.bars.length);
+ else{
+  const selection=resolveEditSelection(project.value,[],{kind:'phrase',measure:selectedBar.value});
+  if(selection.measures.length)setNoteEditorMeasureRange(selection.measures[0]+1,selection.measures[selection.measures.length-1]+1);
+ }
+ quickScope.value='measures';
+}
+watch(quickNoteActions,()=>{if(!quickNoteActions.value.some(a=>a.value===compactQuickAction.value))compactQuickAction.value='';});
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
 watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';quickBrush.value='';quickBrushReplace.value=false;if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
 watch([noteLoopFrom,noteLoopTo],()=>{quickDraft.value=null;});
@@ -7638,7 +7647,8 @@ async function homePractise(inst:Instrument){
       <label>Edition<select :disabled="captureRecording&&captureInputSource==='midi'" :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     </div>
     <div class="note-toolbar-transport" role="group" aria-label="Measure selection and loop">
-      <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="setNoteEditorMeasureRange"/>
+      <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact collapsible @change="setNoteEditorMeasureRange"/>
+      <details class="note-working-presets"><summary>Range presets</summary><button type="button" class="secondary" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" @click="chooseQuickWorkingRange('phrase')">Current phrase</button><button type="button" class="secondary" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" @click="chooseQuickWorkingRange('part')">Entire part</button></details>
       <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':'▶ Loop'}}</button>
     </div>
     <div class="note-toolbar-actions">
@@ -7653,15 +7663,15 @@ async function homePractise(inst:Instrument){
     <span v-if="noteFocusMode&&noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
   <div v-if="noteEditorTab==='notes'||noteEditorTab==='score'" class="note-quick-tools musical-edit-tools" role="group" aria-label="Musical editing commands">
-   <div class="musical-edit-row">
+   <div class="musical-edit-row musical-mode-row">
     <button v-for="mode in (['select','create','erase'] as const)" :key="mode" type="button" class="secondary" :aria-pressed="quickMode===mode" @click="setQuickMode(mode)">{{mode==='select'?'Select':mode==='create'?'Create':'Erase'}}</button>
-    <select v-model="quickScope" aria-label="Selection scope"><option value="notes">Notes</option><option value="measures">Measures</option><option value="phrase">Current phrase</option><option value="part">Entire part</option></select>
+    <select v-model="quickScope" aria-label="Selection scope"><option value="notes">Notes</option><option value="measures">Measures in working range</option></select>
     <button v-if="quickScope==='notes'" type="button" class="secondary" :aria-pressed="multiNoteMode" @click="multiNoteMode=!multiNoteMode;multiNoteKeys=selectedEvent?[quickNoteKey(selectedEvent)]:[]">{{multiNoteMode?'Done selecting':'Select notes'}}</button>
     <span class="quick-note-count" role="status">{{quickSelectionCount}} {{quickScope==='notes'?'notes':'measures'}} selected</span>
     <label><input type="checkbox" v-model="quickPreview"/> Preview</label>
     <button type="button" class="secondary" :aria-pressed="quickSplit" @click="quickSplit=!quickSplit">Split</button>
    </div>
-   <div class="musical-edit-row">
+   <div class="musical-edit-row musical-desktop-actions">
     <select v-model="quickNoteCategory" aria-label="Quick edit type"><option v-for="category in quickCategories" :key="category.id" :value="category.id">{{category.label}}</option></select>
     <template v-if="quickNoteCategory==='create'">
      <select v-model="quickRole" aria-label="Creation role"><option value="inherit">Current role</option><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select>
@@ -7670,6 +7680,29 @@ async function homePractise(inst:Instrument){
     </template>
     <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickActionSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)"><svg v-if="quickNoteCategory==='bow'&&['down','up','plan-down','plan-up'].includes(action.value)" class="bow-mark-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path v-if="action.value==='down'||action.value==='plan-down'" d="M5 5h14v4H5z M5 9h2v10H5z M17 9h2v10h-2z" fill="currentColor"/><path v-else d="M5 5l7 14 7-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="miter" stroke-linecap="square"/></svg><template v-else>{{action.label}}</template></button>
     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
+   </div>
+   <div class="musical-compact-controls">
+    <div class="musical-compact-selectors">
+     <select :value="quickMode" aria-label="Interaction mode" :disabled="!!quickDraft" @change="setQuickMode(($event.target as HTMLSelectElement).value as 'select'|'create'|'erase')"><option value="select">Select</option><option value="create">Create</option><option value="erase">Erase</option></select>
+     <select v-model="quickNoteCategory" aria-label="Action category" :disabled="!!quickDraft"><option v-for="category in quickCategories" :key="category.id" :value="category.id">{{category.label}}</option></select>
+     <select v-model="compactQuickAction" aria-label="Musical action" :disabled="!!quickDraft" @change="quickParametersOpen=quickNoteCategory==='create'"><option value="" disabled>Action…</option><option v-for="action in quickNoteActions" :key="action.value" :value="action.value">{{action.label}}</option></select>
+    </div>
+    <div class="musical-compact-status">
+     <select v-model="quickScope" aria-label="Editing target" :disabled="!!quickDraft"><option value="notes">Notes</option><option value="measures">Measures</option></select>
+     <span role="status">{{quickSelectionCount}} selected</span>
+     <button v-if="quickNoteCategory==='create'&&compactQuickAction" type="button" class="secondary" :aria-expanded="quickParametersOpen" @click="quickParametersOpen=!quickParametersOpen">Params</button>
+     <button type="button" class="primary" :disabled="!!quickDraft||!compactQuickAction||!quickNoteActions.some(a=>a.value===compactQuickAction)||(!quickActionSelectionCount&&!(quickNoteCategory==='create'&&compactQuickAction==='insert'))" @click="applyQuickNote(compactQuickAction)">{{quickPreview?'Preview':'Run'}}</button>
+    </div>
+    <details class="musical-compact-options"><summary>Selection options</summary><div class="musical-edit-row">
+     <button v-if="quickScope==='notes'" type="button" class="secondary" :aria-pressed="multiNoteMode" @click="multiNoteMode=!multiNoteMode;multiNoteKeys=selectedEvent?[quickNoteKey(selectedEvent)]:[]">{{multiNoteMode?'Done selecting':'Select notes'}}</button>
+     <label><input type="checkbox" v-model="quickPreview"/> Preview</label>
+     <button type="button" class="secondary" :aria-pressed="quickSplit" @click="quickSplit=!quickSplit">Split</button>
+     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
+    </div></details>
+    <div v-if="quickParametersOpen&&quickNoteCategory==='create'&&compactQuickAction" class="musical-edit-row">
+     <select v-if="compactQuickAction!=='insert'" v-model="quickRole" aria-label="Creation role"><option value="inherit">Current role</option><option v-for="role in roles" :key="role" :value="role">{{role}}</option></select>
+     <template v-else><label>Pitch <input type="number" v-model.number="quickPitch" :min="noteCtx.range[0]" :max="noteCtx.range[1]"/></label><label>Beat <input type="number" v-model.number="quickBeat" min="1" :max="project.beats" :step="noteStep"/></label></template>
+    </div>
    </div>
    <div v-if="quickMode==='create'" class="musical-edit-row">
     <label>Brush <select v-model="quickBrush" aria-label="Musical brush" :disabled="!!quickDraft"><option value="">Single notes</option><option v-for="brush in quickBrushOptions" :key="brush.id" :value="brush.id">{{brush.label}}</option></select></label>
