@@ -18,7 +18,11 @@ test('UI shows the deployed build ID',()=>{
  assert.match(app,/const appDisplayBuild=appBuildId/);
  assert.match(app,/\{\{appDisplayBuild\}\}/);
  assert.doesNotMatch(app,/prototype 2\.0/);
- assert.match(app,/loopSynth\?\.triggerAttackRelease\(Tone\.Frequency\(event\.pitch,'midi'\)\.toFrequency\(\)/);
+ const loop=app.slice(app.indexOf('async function toggleRhythmLoop('),app.indexOf('// Live tap recording'));
+ assert.match(loop,/renderArrangementNote\(inst,note,event,playbackDuration\(event.durationSeconds,rehearsalSpeed.value\)/);
+ const compare=app.slice(app.indexOf('async function auditionRhythmComparison('),app.indexOf('const rhythmMeasures='));
+ assert.match(compare,/const inst=rhythmPreviewTarget\.value/);
+ assert.match(compare,/triggerInstrument\(inst,pitch,/);
 });
 test('piano generated lower staff is monophonic and within bass range',()=>{
  const lower=score.Piano.filter(n=>n.pitch<(p.pianoSplitPitch??60));

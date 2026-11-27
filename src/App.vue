@@ -75,7 +75,7 @@ import {clampWrittenDuration,dragWrittenDuration,dragWrittenNotePosition,dragWri
 import {RHYTHM_PRESETS,rhythmSlots,applyRhythmPattern,validateRhythmPattern,quantizeRhythmPreset,addRhythmAttack,updateRhythmAttack,splitRhythmAttack,retimeMeasure,type RhythmSlot,type RhythmPreset,type RhythmMode} from './rhythmEditor';
 import {listCustomRhythms,saveCustomRhythm,deleteCustomRhythm,type CustomRhythm} from './customRhythms';
 import {rhythmPreviewForSelection,rhythmPreviewAudioPlan,type RhythmPreviewRow} from './rhythmPreview';
-import {presetRhythmSlots,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel} from './rhythmSnap';
+import {committedNamedRhythmPreset,presetRhythmSlots,nearestRhythmSlot,rhythmAttachmentValid,rhythmAttachmentLabel} from './rhythmSnap';
 import {createLongPressMenu,isContextMenuKey} from './contextPress';
 import {selectMapMeasure} from './mapSelection';
 import {GESTURE_PRESETS,createTangoGesture,validateGesture,transposeTangoGesture,gestureLabel,gestureSvgPoints,type GesturePreset} from './tangoGestures';
@@ -337,6 +337,20 @@ watch(noteEditorTab,tab=>{try{localStorage.setItem('tango-note-editor-subtab',ta
 const noteFocusMode=ref(false);
 const noteFocusMore=ref(false);
 const noteSettingsOpen=ref(false);
+watch(noteSettingsOpen,open=>{void nextTick(()=>{
+  if(open)noteEditorRegion.value?.querySelector<HTMLElement>('.note-settings-dialog')?.focus();
+  else noteEditorRegion.value?.querySelector<HTMLElement>('.note-settings-icon')?.focus({preventScroll:true});
+});});
+function trapNoteSettingsTab(event:KeyboardEvent){
+ const dialog=(event.currentTarget as HTMLElement).querySelector('.note-settings-dialog');
+ if(!dialog)return;
+ const items=Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),input:not(:disabled),summary,[href]'))
+  .filter(item=>item.getClientRects().length>0&&item.tabIndex>=0);
+ const first=items[0],last=items.at(-1),current=document.activeElement;
+ if(event.shiftKey&&(current===first||current===dialog)){event.preventDefault();last?.focus();}
+ else if(!event.shiftKey&&current===last){event.preventDefault();first?.focus();}
+}
+
 const noteLoopFrom=ref(1);
 const noteLoopTo=ref(1);
 const independentNoteLoop=ref(false);
@@ -513,6 +527,7 @@ const dailyReleases=(()=>{
  return [...groups].sort(([a],[b])=>a==='archive'?1:b==='archive'?-1:b.localeCompare(a)).map(([date,entries])=>({date,entries}));
 })();
 const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>(initialWorkspaceTab());
+watch(active,tab=>{if(tab!=='notes')noteSettingsOpen.value=false;});
 const structureSubtab=ref<'form'|'keys'|'transpose'|'ensemble'>('form');
 const transposePreviewSemitones=ref(0);
 const transposeAdapt=ref(true);
@@ -1322,13 +1337,14 @@ async function toggleRhythmLoop(){
     if(session!==rhythmLoopSession||active.value!=='rhythm')return;
     rhythmLoopSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.045,sustain:0.05,release:0.06}}).toDestination();
     rhythmLoopSynth.volume.value=-13;
-    await prepareSamples([rhythmPreviewInstrument.value]);
+    if(rhythmLoopSound.value==='instrument')await prepareSamples([rhythmPreviewInstrument.value]);
     if(session!==rhythmLoopSession||active.value!=='rhythm')return;
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
     transport.bpm.value=effectivePlaybackBpm.value;
     transport.scheduleRepeat(time=>{
+      if(session!==rhythmLoopSession||active.value!=='rhythm')return;
       // The pattern is read on every repetition so edits are audible immediately.
       const slots=rhythmPattern.value;
       const b=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(rhythmLoopMeasure.value)-1));
@@ -1351,6 +1367,10 @@ async function toggleRhythmLoop(){
     transport.start();
   }catch(error){rhythmFeedback.value=`Rhythm loop unavailable: ${String(error)}`;stopPlayback();}
 }
+watch([rhythmPreviewInstrument,rhythmLoopSound],()=>{
+ if(Tone&&rhythmLoopPlaying.value&&rhythmLoopSound.value==='instrument')
+  void prepareSamples([rhythmPreviewInstrument.value]);
+});
 // Live tap recording is a draft take. A separate full-arrangement loop is shared
 // by the rhythm and note editors; switching tabs or projects cancels the loop.
 const capturePlaying=ref(false);
@@ -1613,7 +1633,11 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
   try{
     Tone=await startAudioFromGesture();
     if(session!==captureSession||active.value!==editor)return;
-    await prepareSamples([...new Set([...projectInstruments(project.value),'Piano',noteInst.value])]);
+    const mutedBacking=recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value;
+    const needed=mutedBacking?[]:projectInstruments(project.value).filter(inst=>score.value[inst]?.length);
+    if(recording&&editor==='notes'&&captureCountIn.value&&chordAt(project.value.bars[first]?.chord??'',project.value.beats,0).trim())
+      needed.push('Piano');
+    if(needed.length)await prepareSamples([...new Set(needed)]);
     if(session!==captureSession||active.value!==editor)return;
     captureClickSynth??=new Tone.Synth({oscillator:{type:'triangle'},envelope:{attack:0.002,decay:0.04,sustain:0,release:0.04}}).toDestination();
     captureClickSynth.volume.value=-18;
@@ -1624,9 +1648,10 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
     const countInSeconds=countInBeats*60/(project.value.bpm*captureSpeed.value);
     let measure=0;
     transport.scheduleRepeat(time=>{
+      if(session!==captureSession||active.value!==editor)return;
       const b=first+measure%(last-first+1);measure++;
       const currentScore=score.value;
-       if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
+      if(recording&&editor==='notes'&&captureInputSource.value==='microphone'&&captureMuteBacking.value)return;
       for(const inst of projectInstruments(project.value)){
         const p=project.value,beats=p.beats,notes=currentScore[inst]??[],nativePedal=midiPianoAvailable(inst);
         if(nativePedal)for(const span of pianoPedalWindows(notes,first*beats,(last+1)*beats)){
@@ -1640,6 +1665,7 @@ async function startCaptureTransport(recording:boolean,frozenPlaybackTranspose?:
     },'1m',countInBeats?'1m':0);
     let beatCount=0;
     transport.scheduleRepeat(time=>{
+      if(session!==captureSession||active.value!==editor)return;
       const countIn=beatCount<countInBeats;
       const beat=beatCount%project.value.beats;
       const recordedBeat=Math.max(0,beatCount-countInBeats);
@@ -2399,11 +2425,12 @@ function auditionPitchPreviewNote(n:ProcessedPitchNote):void{
 async function auditionPitchPreview():Promise<void>{
  const s=rawPitchSession.value;
  if(!s||capturePlaying.value||pitchPreviewStale.value||!pitchPreviewNotes.value.length)return;
+ const p=project.value,inst=noteInst.value,session=noteLoopSession;
  try{
   const readyTone=await startAudioFromGesture();Tone=readyTone;
-  const inst=noteInst.value;
+  if(!editorAuditionCurrent(p,inst,session,'notes')||rawPitchSession.value!==s||capturePlaying.value)return;
   await prepareSamples([inst]);
-  if(rawPitchSession.value!==s||noteInst.value!==inst||capturePlaying.value)return;
+  if(!editorAuditionCurrent(p,inst,session,'notes')||rawPitchSession.value!==s||capturePlaying.value||pitchPreviewStale.value)return;
   const secondsPerBeat=60/(s.tempoBpm*s.recordingSpeed);
   const origin=Tone.now()+0.08;
   for(const n of pitchPreviewNotes.value){
@@ -2490,10 +2517,12 @@ async function copyCaptureTake(){
 
 async function auditionDraft(notes:Array<CapturedMelodyNote&{startBeat?:number}>){
  if(capturePlaying.value||!notes.length)return;
+ const p=project.value,inst=noteInst.value,session=noteLoopSession,editor=active.value;
  try{
-  const inst=noteInst.value;
-  Tone=await startAudioFromGesture();await prepareSamples([inst]);
-  if(noteInst.value!==inst||capturePlaying.value)return;
+  Tone=await startAudioFromGesture();
+  if(!editorAuditionCurrent(p,inst,session,editor)||capturePlaying.value)return;
+  await prepareSamples([inst]);
+  if(!editorAuditionCurrent(p,inst,session,editor)||capturePlaying.value)return;
   const origin=Tone.now()+0.05,secondsPerBeat=60/(project.value.bpm*captureSpeed.value);
   let nextBeat=0;
   for(const n of notes){
@@ -2676,7 +2705,8 @@ async function auditionRhythmComparison(version:'before'|'after'):Promise<void>{
   stopPlayback();if(same)return;
  }else stopPlayback();
  const session=rhythmLoopSession;
- const rows=rhythmPreviewRows.value.slice(0,24);
+ const inst=rhythmPreviewTarget.value,plannedRows=rhythmPreviewRows.value;
+ const rows=plannedRows.slice(0,24);
  if(!rows.length){rhythmFeedback.value='Choose at least one instrument and add attacks before auditioning.';return;}
  if(!rows.some(row=>(version==='after'?row.after:row.before).length)){
   rhythmFeedback.value='There are no sounding notes in this selected preview.';return;
@@ -2684,9 +2714,8 @@ async function auditionRhythmComparison(version:'before'|'after'):Promise<void>{
  try{
   Tone=await startAudioFromGesture();
   if(session!==rhythmLoopSession||active.value!=='rhythm')return;
-  const inst=rhythmPreviewInstrument.value;
   await prepareSamples([inst]);
-  if(session!==rhythmLoopSession||active.value!=='rhythm'||rhythmPreviewInstrument.value!==inst)return;
+  if(session!==rhythmLoopSession||active.value!=='rhythm'||rhythmPreviewTarget.value!==inst||rhythmPreviewRows.value!==plannedRows)return;
   const transport=Tone.getTransport();
   transport.stop();transport.cancel();transport.position=0;transport.timeSignature=project.value.beats;
   transport.bpm.value=effectivePlaybackBpm.value;
@@ -2697,6 +2726,7 @@ async function auditionRhythmComparison(version:'before'|'after'):Promise<void>{
    const pitch=note.pitch+transposition;
    if(pitch<0||pitch>127)continue;
    transport.scheduleOnce(time=>{
+    if(session!==rhythmLoopSession||active.value!=='rhythm'||rhythmPreviewTarget.value!==inst||rhythmPreviewRows.value!==plannedRows)return;
     triggerInstrument(inst,pitch,Math.max(0.06,note.durationBeats*secondsPerBeat*0.92),time,Math.max(0.15,Math.min(1,note.velocity/127)));
    },note.atBeat*secondsPerBeat);
   }
@@ -4203,8 +4233,8 @@ function loadSamples(inst:string,pizzicato=false,legacyPiano=false,variant:'prim
 let openPianoAvailable=false;
 async function prepareSamples(instruments:string[]){
  if(audioEngine.value!=='samples')return;
- instruments=instruments.filter(inst=>!usesModeledAudio(inst));
- if(!instruments.length){sampleStatus.value='Modeled instruments ready';return;}
+ instruments=instruments.filter(inst=>!usesModeledAudio(inst)&&!midiPianoAvailable(inst));
+ if(!instruments.length){sampleStatus.value='Instrument playback ready';return;}
  sampleStatus.value='Loading samples…';
  if(instruments.some(inst=>inst.toLowerCase().includes('piano'))&&!openPianoAvailable){
   try{const response=await fetch(import.meta.env.BASE_URL+'samples/open-piano/manifest.json',{signal:AbortSignal.timeout(2000)});const manifest=response.ok?await response.json():null;openPianoAvailable=manifest?.source==='VCSL Steinway B'&&manifest?.version===1;}catch{ /* optional assets: retain legacy piano */ }
@@ -4409,7 +4439,9 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
           const durationBeats=Math.max(0.1,(bar*beats+next-onset)*0.88);
           const pitches=chordTones(change.chord).map(pc=>60+pc);
           const cueBeat=onset-startBeat;
-          transport.schedule(t=>{for(const pitch of pitches)triggerInstrument('Piano',pitch,durationBeats*60/effectivePlaybackBpm.value,t,.55);},beatOffsetTicks(cueBeat,transport.PPQ));
+          transport.schedule(t=>{
+            if(session===noteLoopSession)for(const pitch of pitches)triggerInstrument('Piano',pitch,durationBeats*60/effectivePlaybackBpm.value,t,.55);
+          },beatOffsetTicks(cueBeat,transport.PPQ));
           count++;
         }
       }
@@ -4462,6 +4494,7 @@ async function toggleNoteLoop(){
     let loopPass=0;
     let lastRangeKey='';
     transport.scheduleRepeat(time=>{
+      if(session!==noteLoopSession||active.value!=='notes'||noteInst.value!==inst)return;
       const range=noteFocusLoopRange();
       const rangeKey=range.from+':'+range.to;
       if(rangeKey!==lastRangeKey){loopPass=0;lastRangeKey=rangeKey;}
@@ -4495,32 +4528,49 @@ watch(()=>project.value.bpm,bpm=>{if(!Tone||!Number.isFinite(bpm)||bpm<=0)return
 watch(()=>project.value.beats,()=>{if(noteLoopPlaying.value||rhythmLoopPlaying.value||capturePlaying.value)stopPlayback();});
 // Note audition is user-gesture initiated (browser audio policy); independent of playback.
 const auditionEnabled=ref(true);
+function editorAuditionCurrent(p:Project,inst:Instrument,session:number,editor:string){
+ return project.value===p&&noteInst.value===inst&&noteLoopSession===session&&active.value===editor&&
+   !homeOpen.value&&!performanceMode.value;
+}
 async function auditionPitch(pitch:number,velocity=85,durationSeconds=0.24){
  if(!auditionEnabled.value)return;
- const p=project.value,inst=noteInst.value;
+ const p=project.value,inst=noteInst.value,session=noteLoopSession,editor=active.value;
  const transposed=Math.max(0,Math.min(127,pitch+(p.transposeSemitones??0)));
  if(midiPianoAvailable(inst)&&sendMidiNote(transposed,velocity,durationSeconds))return;
  try{
   Tone=await startAudioFromGesture();
+  if(!editorAuditionCurrent(p,inst,session,editor)||!auditionEnabled.value)return;
   await prepareSamples([inst]);
-  if(project.value!==p||noteInst.value!==inst||!auditionEnabled.value)return;
+  if(!editorAuditionCurrent(p,inst,session,editor)||!auditionEnabled.value)return;
   triggerInstrument(inst,transposed,Math.max(.025,durationSeconds),Tone.now(),Math.max(.1,Math.min(1,velocity/127)));
  }catch(error){message.value='Note preview unavailable: '+String(error);}
 }
+let noteSelectionAudition=0;
 function auditionEvent(note:Note){
  if(!auditionEnabled.value)return;
- const p=project.value,inst=noteInst.value;
+ const p=project.value,inst=noteInst.value,session=noteLoopSession,sequence=++noteSelectionAudition;
+ const current=()=>sequence===noteSelectionAudition&&editorAuditionCurrent(p,inst,session,'notes')&&auditionEnabled.value;
+ if(!current()||!focusInstrumentAudible(inst))return;
+ const transpose=p.transposeSemitones??0,seconds=60/p.bpm;
+ const attacks=(nativePedal:boolean)=>playbackNotesInRange([note],note.start,Infinity,transpose,nativePedal).flatMap(attack=>{
+  const event=measureLoopEvents([attack],Math.floor(attack.start/p.beats),p.beats,p.bpm,transpose,p.expressionRanges??[],inst,p,true)[0];
+  return event?[{attack,event,offset:(attack.start-note.start)*seconds}]:[];
+ });
+ // Audition connected hardware immediately, including the glissando and pedal
+ // sequence, without requiring Safari to start Web Audio or fetch a sound bank.
+ if(midiPianoAvailable(inst)){
+  for(const span of pianoPedalWindows([note],note.start,Infinity))
+   sendMidiPedal((span.end-span.start)*seconds,(span.start-note.start)*seconds);
+  if(attacks(true).every(({event,offset})=>sendMidiNote(event.pitch,event.velocity,event.durationSeconds,offset)))return;
+ }
  void (async()=>{
   Tone=await startAudioFromGesture();
+  if(!current())return;
   await prepareSamples([inst]);
-  if(project.value!==p||noteInst.value!==inst||!auditionEnabled.value||homeOpen.value||performanceMode.value||active.value!=='notes')return;
-  const transpose=p.transposeSemitones??0,seconds=60/p.bpm,at=Tone.now(),nativePedal=midiPianoAvailable(inst);
-  if(nativePedal)for(const span of pianoPedalWindows([note],note.start,Infinity))
-   sendMidiPedal((span.end-span.start)*seconds,midiTransportDelay(at+(span.start-note.start)*seconds));
-  for(const attack of playbackNotesInRange([note],note.start,Infinity,transpose,nativePedal)){
-   const event=measureLoopEvents([attack],Math.floor(attack.start/p.beats),p.beats,p.bpm,transpose,p.expressionRanges??[],inst,p,true)[0];
-   if(event)renderArrangementNote(inst,attack,event,Math.max(.025,noteSoundingDuration(attack)*seconds),at+(attack.start-note.start)*seconds);
-  }
+  if(!current())return;
+  const at=Tone.now();
+  for(const {attack,event,offset} of attacks(false))
+   renderArrangementNote(inst,attack,event,event.durationSeconds,at+offset);
  })().catch(error=>{message.value=inst+' preview unavailable: '+String(error);});
 }
 function selectNoteEvent(i:number){noteSelected.value=i;const note=noteMeasure.value[i];if(note)auditionEvent(note);}
@@ -4897,7 +4947,7 @@ watch([homeOpen,performanceMode,active,noteEditorTab,noteInst,localSongId,captur
  cancelMidiStep();
 },{flush:'sync'});
 
-watch(noteInst,inst=>{try{localStorage.setItem('tango-last-note-instrument',inst);}catch{/* Storage disabled. */}});
+watch(noteInst,inst=>{if(noteLoopPlaying.value)stopNoteLoop();try{localStorage.setItem('tango-last-note-instrument',inst);}catch{/* Storage disabled. */}});
 const noteEditorRegion=ref<HTMLElement|null>(null);
 const noteStep=ref(0.5);
 const tripletGrid=computed(()=>Math.abs(noteStep.value-1/3)<1e-8||Math.abs(noteStep.value-1/6)<1e-8);
@@ -4905,13 +4955,9 @@ const noteRhythmPreset=ref<'auto'|'off'|RhythmPreset>('auto');
 // Resolve committed per-measure provenance, never the currently auditioned draft.
 function effectiveNoteRhythmPreset(bar=selectedBar.value):RhythmPreset|'off'{
  if(noteRhythmPreset.value!=='auto')return noteRhythmPreset.value;
- const beats=project.value.beats;
- const tagged=(sourceScore.value[noteInst.value]??[]).filter(n=>Math.floor((n.start+1e-7)/beats)===bar&&rhythmAttachmentValid(n,beats)&&n.rhythmSource?.kind==='preset');
- const presets=[...new Set(tagged.map(n=>n.rhythmSource?.preset).filter((v):v is RhythmPreset=>!!v))];
- return presets.length===1?presets[0]:'off';
+ return committedNamedRhythmPreset(sourceScore.value[noteInst.value]??[],project.value.beats,bar);
 }
 const activeNoteRhythmPreset=computed(()=>effectiveNoteRhythmPreset());
-const noteRhythmTargets=computed(()=>activeNoteRhythmPreset.value==='off'?[]:presetRhythmSlots(activeNoteRhythmPreset.value,project.value.beats,noteInst.value,project.value.profile));
 const isRhythmGuideBeat=(beat:number,bar=selectedBar.value)=>{
  const preset=effectiveNoteRhythmPreset(bar);
  return preset!=='off'&&presetRhythmSlots(preset,project.value.beats,noteInst.value,project.value.profile).some(s=>Math.abs(s.beat-beat)<1e-6);
@@ -5024,7 +5070,8 @@ function moveNoteDrag(event:PointerEvent){
 function stageNoteGeometry(base:Project,instrument:Instrument,key:string,geometry:NoteGeometryEdit){
  try{
   if(base!==project.value||instrument!==noteInst.value)throw Error('The editing context changed');
-  const original=(sourceScore.value[instrument]??[]).find(n=>editPartNoteKeys(sourceScore.value[instrument]??[]).get(n)===key);
+  const written=sourceScore.value[instrument]??[], keys=editPartNoteKeys(written);
+  const original=written.find(n=>keys.get(n)===key);
   if(original&&geometry.start!==original.start&&Math.abs(geometry.duration-original.duration)<1e-7){
    const bar=Math.floor(geometry.start/base.beats),preset=effectiveNoteRhythmPreset(bar);
    const slot=preset==='off'?undefined:nearestRhythmSlot(geometry.start-bar*base.beats,preset,base.beats,instrument,base.profile,.5);
@@ -5385,7 +5432,7 @@ function chooseQuickWorkingRange(kind:'phrase'|'part'){
 watch(quickNoteCategory,()=>{compactQuickAction.value='';quickParametersOpen.value=false;});
 watch(quickNoteActions,()=>{if(!quickNoteActions.value.some(a=>a.value===compactQuickAction.value))compactQuickAction.value='';});
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
-watch([noteInst,active],()=>{independentNoteLoop.value=false;compactQuickAction.value='';quickParametersOpen.value=false;multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';quickBrush.value='';quickBrushReplace.value=false;if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
+watch([noteInst,active,localSongId],()=>{independentNoteLoop.value=false;compactQuickAction.value='';quickParametersOpen.value=false;multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';quickBrush.value='';quickBrushReplace.value=false;if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
 watch([noteLoopFrom,noteLoopTo],()=>{quickDraft.value=null;});
 watch(project,()=>{quickDraft.value=null;cancelNoteDrag();},{deep:true,flush:'sync'});
 watch([noteInst,active,noteEditorTab],cancelNoteDrag,{flush:'sync'});
@@ -7645,7 +7692,7 @@ async function homePractise(inst:Instrument){
       <label>Edition<select :disabled="captureRecording&&captureInputSource==='midi'" :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     </div>
     <div class="note-toolbar-transport" role="group" aria-label="Measure selection and loop">
-      <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact collapsible @change="setNoteEditorMeasureRange"/>
+      <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" compact collapsible @change="setNoteEditorMeasureRange"/>
       <details class="note-working-presets"><summary>Range presets</summary><button type="button" class="secondary" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" @click="chooseQuickWorkingRange('phrase')">Current phrase</button><button type="button" class="secondary" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" @click="chooseQuickWorkingRange('part')">Entire part</button></details>
       <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':independentNoteLoop?'▶ Loop '+independentNoteLoopFrom+'–'+independentNoteLoopTo:'▶ Loop'}}</button>
     </div>
@@ -7660,6 +7707,30 @@ async function homePractise(inst:Instrument){
     </div>
     <span v-if="noteFocusMode&&noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
   </div>
+  <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false" @keydown.esc.stop.prevent="noteSettingsOpen=false" @keydown.tab="trapNoteSettingsTab"><div class="note-settings-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
+      <details class="note-independent-loop"><summary>Independent playback range</summary><label><input type="checkbox" v-model="independentNoteLoop" :disabled="noteLoopPlaying||capturePlaying" @change="independentNoteLoopFrom=noteLoopFrom;independentNoteLoopTo=noteLoopTo"/> Override working range for loop playback</label><MeasureRangeControl v-if="independentNoteLoop" :measures="project.bars" :from="independentNoteLoopFrom" :to="independentNoteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="(from,to)=>{independentNoteLoopFrom=from;independentNoteLoopTo=to}"/></details>
+  <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
+      <label v-if="midiSupported"><input type="checkbox" v-model="midiStepEntry" @change="midiStepEntry?enableEditorMidi():cancelMidiStep()"/> MIDI chord step entry at selected beat</label><label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="auto">Auto · follow applied rhythm</option><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
+      <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option><option :value="1/3">Eighth triplet</option><option :value="1/6">Sixteenth triplet</option></select></label>
+      <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option><option :value="1/6">Sixteenth triplet</option><option :value="1/3">Eighth triplet</option><option :value="2/3">Quarter triplet</option><option :value="4/3">Half triplet</option></select></label>
+      <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
+      <label>Pitch labels<select v-model="editorAccidentals"><option value="auto">Follow key signature</option><option value="sharp">Use sharps (♯)</option><option value="flat">Use flats (♭)</option></select></label>
+      <label><input type="checkbox" v-model="auditionEnabled"/> Play notes when editing</label>
+    </div>
+</div>
+  <div class="note-tools-group note-tools-range-group" aria-label="Pitch range and octave"><div class="note-view-range-controls" aria-label="Visible pitch range">
+      <label>Lowest note<select v-model.number="noteViewStart" @change="changeNoteViewStart"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+      <label>Highest note<select v-model.number="noteViewEnd" @change="changeNoteViewEnd"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
+      <span class="hint">Visible pitch range · {{midiName(noteViewStart)}}–{{midiName(noteViewEnd)}}</span>
+
+  <div class="note-editor-actions"><template v-if="noteInst==='Piano'&&!noteViewCustom"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="shiftNoteView(-12)">↓ Lower octave</button><button class="secondary" @click="shiftNoteView(12)">↑ Higher octave</button></template></div>
+  <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
+
+  </div>
+  </div>
+  <div class="note-tools-group note-tools-measure-group" aria-label="Measure actions"><div class="note-measure-actions"><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div></div>
+</div>
+</div></div>
   <div v-if="noteEditorTab==='notes'||noteEditorTab==='score'" class="note-quick-tools musical-edit-tools" role="group" aria-label="Musical editing commands">
    <div class="musical-edit-row musical-mode-row">
     <button v-for="mode in (['select','create','erase'] as const)" :key="mode" type="button" class="secondary" :aria-pressed="quickMode===mode" @click="setQuickMode(mode)">{{mode==='select'?'Select':mode==='create'?'Create':'Erase'}}</button>
@@ -8051,30 +8122,7 @@ async function homePractise(inst:Instrument){
     </div>
   <p v-if="false" class="muted">Click a pitch/beat cell to hear and add a note; click the filled cell again to hear and remove it. Every semitone in the instrument's range is editable, including chromatic passing notes and notes outside the chord. Cell colors distinguish chord tones, other section-key tones, and chromatic tones; they never block entry. Notes are concert pitch; global transposition is applied during playback and export. Edits are immediately protected from regeneration. For piano, the treble and bass grids edit the same measure and sound together in the loop. Violin chord accompaniment defaults to one note per beat, with editable staccato/marcato and sounding length.</p>
   <div class="editor note-editor-panel">
-    <div v-if="noteSettingsOpen" id="note-settings-popup" class="note-settings-backdrop" @click.self="noteSettingsOpen=false"><div class="note-settings-dialog" role="dialog" aria-label="Note editor settings"><div class="note-settings-title"><strong>Note editor settings</strong><button type="button" class="secondary" @click="noteSettingsOpen=false">✕ Close</button></div><div class="note-tools-bar" aria-label="Note editor controls">
-      <details class="note-independent-loop"><summary>Independent playback range</summary><label><input type="checkbox" v-model="independentNoteLoop" :disabled="noteLoopPlaying||capturePlaying" @change="independentNoteLoopFrom=noteLoopFrom;independentNoteLoopTo=noteLoopTo"/> Override working range for loop playback</label><MeasureRangeControl v-if="independentNoteLoop" :measures="project.bars" :from="independentNoteLoopFrom" :to="independentNoteLoopTo" :disabled="noteLoopPlaying||capturePlaying" compact @change="(from,to)=>{independentNoteLoopFrom=from;independentNoteLoopTo=to}"/></details>
-  <div class="note-tools-group note-tools-entry-group" aria-label="Note entry"><div class="note-editor-controls">
-      <label v-if="midiSupported"><input type="checkbox" v-model="midiStepEntry" @change="midiStepEntry?enableEditorMidi():cancelMidiStep()"/> MIDI chord step entry at selected beat</label><label>Rhythm preset for snapping<select :value="noteRhythmPreset" @change="selectRhythmPreset(($event.target as HTMLSelectElement).value)"><option value="auto">Auto · follow applied rhythm</option><option value="off">Off · free timing</option><option v-for="preset in rhythmPresets" :key="preset.id" :value="preset.id">{{preset.label}}</option></select></label>
-      <label>Drag snap resolution<select v-model.number="noteStep"><option :value="1">Quarter note</option><option :value="0.5">Eighth note</option><option :value="0.25">Sixteenth note</option><option :value="1/3">Eighth triplet</option><option :value="1/6">Sixteenth triplet</option></select></label>
-      <label>New note duration<select v-model="noteLength"><option value="auto">Auto (written rhythm)</option><option v-for="d in [0.25,0.5,0.75,1,1.5,2,3,4]" :key="d" :value="d">{{d}} beat{{d===1?'':'s'}}</option><option :value="1/6">Sixteenth triplet</option><option :value="1/3">Eighth triplet</option><option :value="2/3">Quarter triplet</option><option :value="4/3">Half triplet</option></select></label>
-      <label>New note articulation<select v-model="newNoteArticulation"><option value="inherit">Use measure setting</option><option value="staccato">Staccato · (dot, short playback)</option><option value="marcato_staccato">Marcato &gt; (accented attack)</option><option value="legato">Legato</option></select></label>
-      <label>Pitch labels<select v-model="editorAccidentals"><option value="auto">Follow key signature</option><option value="sharp">Use sharps (♯)</option><option value="flat">Use flats (♭)</option></select></label>
-      <label><input type="checkbox" v-model="auditionEnabled"/> Play notes when editing</label>
-    </div>
-</div>
-  <div class="note-tools-group note-tools-range-group" aria-label="Pitch range and octave"><div class="note-view-range-controls" aria-label="Visible pitch range">
-      <label>Lowest note<select v-model.number="noteViewStart" @change="changeNoteViewStart"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
-      <label>Highest note<select v-model.number="noteViewEnd" @change="changeNoteViewEnd"><option v-for="pitch in noteViewOptions" :key="pitch" :value="pitch">{{midiName(pitch)}}</option></select></label>
-      <span class="hint">Visible pitch range · {{midiName(noteViewStart)}}–{{midiName(noteViewEnd)}}</span>
-
-  <div class="note-editor-actions"><template v-if="noteInst==='Piano'&&!noteViewCustom"><button class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template><template v-else><button class="secondary" @click="shiftNoteView(-12)">↓ Lower octave</button><button class="secondary" @click="shiftNoteView(12)">↑ Higher octave</button></template></div>
-  <div v-if="noteInst==='Piano'" class="piano-split-setting"><label>Split between piano staves (notes at or above this pitch use treble)<select v-model.number="pianoSplit"><option v-for="pitch in [55,57,59,60,62,64,65,67]" :key="pitch" :value="pitch">{{midiName(pitch)}} · MIDI {{pitch}}</option></select></label><span class="hint">Affects piano editor and MusicXML clef assignment, not note pitches or sounding notes.</span></div>
-    
-  </div>
-  </div>
-  <div class="note-tools-group note-tools-measure-group" aria-label="Measure actions"><div class="note-measure-actions"><button class="secondary" @click="clearNoteMeasure">Clear this measure</button><button class="secondary" @click="restoreNoteMeasure">Restore generated measure</button></div></div>
-</div>
-</div></div><div v-if="false" class="note-focus-view-tools" aria-label="Visible pitch range">
+    <div v-if="false" class="note-focus-view-tools" aria-label="Visible pitch range">
       <template v-if="noteInst==='Piano'&&!noteViewCustom"><button type="button" class="secondary" @click="shiftPianoRegister('treble',-12)">Treble ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('treble',12)">Treble ↑ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',-12)">Bass ↓ octave</button><button type="button" class="secondary" @click="shiftPianoRegister('bass',12)">Bass ↑ octave</button></template>
       <template v-else><button type="button" class="secondary" @click="shiftNoteView(-12)">↓ View octave</button><button type="button" class="secondary" @click="shiftNoteView(12)">↑ View octave</button></template>
     </div>
@@ -9953,6 +10001,12 @@ async function homePractise(inst:Instrument){
 .note-editor-section .note-unified-toolbar .note-toolbar-part>label{grid-template-rows:14px var(--note-control-height);gap:3px;line-height:14px;padding:0;margin:0}
 .note-editor-section .note-unified-toolbar .note-toolbar-actions{align-self:flex-end;align-items:flex-end}
 .note-editor-section .note-unified-toolbar .note-toolbar-part .note-focus-identity{align-self:end;min-height:var(--note-control-height);display:flex;align-items:center}
+@media(max-width:700px){
+ .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible{grid-template-columns:44px minmax(0,1fr) 44px;flex:1 1 190px;width:auto}
+ .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible :deep(.range-arrow){min-width:44px;max-width:44px;width:44px;height:44px;min-height:44px;max-height:44px}
+ .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible:not(.range-expanded) :deep(label){display:none}
+}
+
 </style>
 
 <style scoped>

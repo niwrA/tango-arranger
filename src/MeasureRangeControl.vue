@@ -80,7 +80,7 @@ function chooseSong(){emit('change',1,total());}
 .measure-range-control>label:nth-child(2){grid-column:2}
 .measure-range-control>:deep(.section-range-picker){grid-column:3}
 .measure-range-control>label:nth-of-type(2){grid-column:4}
-.measure-range-control>.range-arrow:nth-child(5){grid-column:5}
+.measure-range-control>.range-arrow:last-of-type{grid-column:5}
 .measure-range-control>.range-presets{grid-row:3}
 </style>
 
@@ -92,8 +92,9 @@ function chooseSong(){emit('change',1,total());}
  .range-collapsible>.range-arrow:first-child{grid-column:1;grid-row:1}
  .range-collapsible>.range-arrow:last-of-type{grid-column:3;grid-row:1}
  .range-collapsible:not(.range-expanded)>label,.range-collapsible:not(.range-expanded)>:deep(.section-range-picker){display:none}
- .range-collapsible.range-expanded>label:nth-of-type(1){grid-column:1/3;grid-row:2}
- .range-collapsible.range-expanded>label:nth-of-type(2){grid-column:1/3;grid-row:3}
- .range-collapsible.range-expanded>:deep(.section-range-picker){grid-column:3;grid-row:2/4}
+ .range-collapsible.range-expanded>label:nth-of-type(1){grid-column:1/4;grid-row:2}
+ .range-collapsible.range-expanded>label:nth-of-type(2){grid-column:1/4;grid-row:3}
+ .range-collapsible.range-expanded>:deep(.section-range-picker){grid-column:1/4;grid-row:4}
+ .range-collapsible.range-expanded>.range-presets{grid-row:5}
 }
 </style>

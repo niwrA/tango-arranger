@@ -48,7 +48,7 @@ test('range summary is opt-in and collapses only on phones',()=>{
  assert.match(range,/collapsible:false/);
  assert.match(range,/range-collapsible:not\(\.range-expanded\)>label/);
 });
-console.log(`${checks} focused editor checks passed`);
+
 
 test('note loop uses shared instrument rendering rather than generic synth',()=>{
  const loop=vue.slice(vue.indexOf('async function toggleNoteLoop(){'),vue.indexOf('\nwatch(active,',vue.indexOf('async function toggleNoteLoop(){')));
@@ -57,3 +57,9 @@ test('note loop uses shared instrument rendering rather than generic synth',()=>
  assert.match(loop,/midiPianoAvailable\(inst\)/);
  assert.doesNotMatch(loop,/loopSynth|new Tone\.PolySynth/);
 });
+test('shared settings dialog precedes the Score and Edit panels and restores toolbar focus',()=>{
+ const settings=editor.indexOf('id="note-settings-popup"');
+ assert.ok(settings>=0&&settings<editor.indexOf('id="note-panel-score"'));
+ assert.match(vue,/querySelector<HTMLElement>\('\.note-settings-icon'\)\?\.focus/);
+});
+console.log(`${checks} focused editor checks passed`);

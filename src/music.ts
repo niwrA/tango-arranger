@@ -917,18 +917,30 @@ export function assessPianoPlayability(notes:readonly Note[],p:Pick<Project,'bea
     issues.push({kind:'span',hand,measure,beat,message:`${hand==='left'?'Left':'Right'} hand: ${pitches[pitches.length-1]-pitches[0]}-semitone span (limit ${maxSpan})`});
   };
   if(human){
-   // Without explicit hand metadata, allow a plausible two-hand partition
-   // instead of treating a fixed notation split as physical fingering.
-   const pitches=[...new Set(active.map(n=>n.pitch))].sort((a,b)=>a-b);
-   const feasible=Array.from({length:pitches.length+1},(_,i)=>i).some(i=>{
-    const left=pitches.slice(0,i),right=pitches.slice(i);
-    const fits=(v:number[])=>v.length<=5&&(v.length<2||v[v.length-1]-v[0]<=14);
-    return fits(left)&&fits(right);
-   });
-   if(!feasible){
-    inspect('left',active.filter(n=>handOf(n)==='left'),5,14);
-    inspect('right',active.filter(n=>handOf(n)==='right'),5,14);
+   // Allow a two-hand split for unassigned keys, but never move explicitly
+   // assigned pitches to another hand just to suppress a reach warning.
+   const explicit={left:new Set<number>(),right:new Set<number>()};
+   const free=new Set<number>();
+   for(const n of active){
+    if(n.staffOverride===1||n.staffOverride===2||n.xmlStaff===1||n.xmlStaff===2)explicit[handOf(n)].add(n.pitch);
+    else free.add(n.pitch);
    }
+   for(const pitch of [...explicit.left,...explicit.right])free.delete(pitch);
+   const keys=[...free].sort((a,b)=>a-b);
+   const cost=(v:Note[])=>{
+    const pitches=[...new Set(v.map(n=>n.pitch))].sort((a,b)=>a-b);
+    return Math.max(0,pitches.length-5)*12+Math.max(0,(pitches.at(-1)??0)-(pitches[0]??0)-14);
+   };
+   let best:{left:Note[];right:Note[];cost:number}|undefined;
+   for(let i=0;i<=keys.length;i++){
+    const boundary=new Set(keys.slice(0,i));
+    const left=active.filter(n=>explicit.left.has(n.pitch)||boundary.has(n.pitch));
+    const right=active.filter(n=>explicit.right.has(n.pitch)||(free.has(n.pitch)&&!boundary.has(n.pitch)));
+    const penalty=cost(left)+cost(right);
+    if(!best||penalty<best.cost)best={left,right,cost:penalty};
+    if(!penalty)break;
+   }
+   if(best?.cost){inspect('left',best.left,5,14);inspect('right',best.right,5,14);}
    continue; // Sequential leaps alone cannot establish unplayability.
   }
   inspect('left',active.filter(n=>n.pitch<split),limits.leftNotes,12);

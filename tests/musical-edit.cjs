@@ -356,6 +356,8 @@ const harness=`
  const mergeAnchor=shallowRef();
  const active=ref('notes'),noteEditorTab=ref('notes'),noteFocusMode=ref(false),noteFocusMore=ref(false);
  const noteStep=ref(0.25),noteCtx=ref({range:[55,96]}),noteBeats=ref(Array(16)),focusVisibleMeasures=ref([0,1]);
+ function effectiveNoteRhythmPreset(){return 'off';}
+ function snapEditorEntry(entry){return entry;}
  function stopQuickAudition(){}
  function auditionEvent(){}
  function focusSelectedNoteButton(){}

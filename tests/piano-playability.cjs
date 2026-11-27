@@ -58,6 +58,21 @@ test('polyphonic overlapping left hand is reported',()=>{
 test('custom piano staff split still honors limits',()=>{
  const p=project('G7');p.pianoSplitPitch=65;assertStacks(m.figureMeasure(p,'Piano',0,'chords_up',8),p);
 });
+test('human reach allows unassigned two-hand chords but honors explicit hands',()=>{
+ const p=project();
+ const stack=[60,62,64,65,67,69].map(pitch=>({pitch,start:0,duration:1}));
+ assert.deepEqual(m.assessPianoPlayability(stack,p,'Piano','human'),[]);
+ assert.ok(m.assessPianoPlayability(stack.map(n=>({...n,xmlStaff:1})),p,'Piano','human')
+  .some(issue=>issue.kind==='polyphony'&&issue.hand==='right'));
+ const assigned=[{...stack[0],xmlStaff:1,staffOverride:2},{...stack[0],pitch:80,xmlStaff:2}];
+ assert.ok(m.assessPianoPlayability(assigned,p,'Piano','human').some(i=>i.kind==='span'&&i.hand==='left'));
+});
+test('human reach allows five-note chords and ignores brief legato overlap only',()=>{
+ const p=project(),fingered=[60,62,64,65,67].map(pitch=>({pitch,start:1,duration:1,xmlStaff:1}));
+ const release={pitch:84,start:0,duration:1.05,xmlStaff:1};
+ assert.deepEqual(m.assessPianoPlayability([release,...fingered],p,'Piano','human'),[]);
+ assert.ok(m.assessPianoPlayability([{...release,duration:1.5},...fingered],p,'Piano','human').some(i=>i.kind==='span'));
+});
 test('editor displays diagnostics without rewriting imported or manually edited notes',()=>{
  const app=fs.readFileSync(path.join(root,'src/App.vue'),'utf8');
  assert.match(app,/assessPianoPlayability\(score\.value\[noteInst\.value\]/);

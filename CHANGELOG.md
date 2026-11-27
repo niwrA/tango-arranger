@@ -1,3 +1,11 @@
+## Note Editor, MIDI and Home (2026-11-27)
+
+- Use compact Note Editor commands on phones, with separate Notes and Measures targets. Expand the working range to choose a section, the current phrase or the entire part. Playback can loop a separate range.
+- Auto snapping follows a single named rhythm already applied to the current measure. Mixed, custom and untagged measures stay unsnapped in Auto; a manual preset or Off remains available.
+- Note and rhythm loops, recording accompaniment and auditions use the shared instrument sounds. Piano reach warnings are advisory, respect explicit hand assignments and leave the notes unchanged.
+- Use **Home → MIDI diagnostics → Enable MIDI** to connect a compatible keyboard for chord practice, timed feedback, note entry or recording. Arrangement piano can optionally play through a selected MIDI output. Diagnostics only collect messages while the panel is open; closing it does not disconnect MIDI.
+- Home has an instrument-card Practice picker and a compact Display preferences panel. The visual lyric alignment editor preserves the song’s harmony and the other verse unless you explicitly edit them.
+
 ## Example song selection (2026-11-27)
 
 - Retire the generated El Choclo study from Home and the song picker. Existing editable copies and exported projects are unchanged.

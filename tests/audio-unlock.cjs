@@ -28,7 +28,12 @@ test('Full playback and measure loop unlock on their user gestures',()=>{
  assert.ok(matches.length>=6,'all playback and audition entry points must unlock audio on a user gesture');
 });
 test('Expressive audition also unlocks audio before accessing Tone',()=>{
- assert.match(app,/startAudioFromGesture\(\)\.then\(tone=>\{Tone=tone;playExpressiveEvent/);
+ const event=app.slice(app.indexOf('function auditionEvent('),app.indexOf('function selectNoteEvent('));
+ const unlock=event.indexOf('await startAudioFromGesture()');
+ const prepare=event.indexOf('await prepareSamples([inst])');
+ const render=event.indexOf('renderArrangementNote(');
+ assert.ok(unlock>=0&&prepare>unlock&&render>prepare);
+ assert.match(event,/if\(!current\(\)\)return;\s+const at=Tone.now\(\)/);
 });
 test('Audio session and Vue setup script parse as TypeScript',()=>{
  let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
