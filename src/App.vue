@@ -7386,7 +7386,7 @@ async function homePractise(inst:Instrument){
      <label>Pitch <input type="number" v-model.number="quickPitch" :min="noteCtx.range[0]" :max="noteCtx.range[1]"/></label>
      <label>Beat <input type="number" v-model.number="quickBeat" min="1" :max="project.beats" :step="noteStep"/></label>
     </template>
-    <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)">{{action.label}}</button>
+    <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)"><svg v-if="quickNoteCategory==='bow'&&(action.value==='down'||action.value==='up')" class="bow-mark-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path v-if="action.value==='down'" d="M5 5h14v4H5z M5 9h2v10H5z M17 9h2v10h-2z" fill="currentColor"/><path v-else d="M5 5l7 14 7-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="miter" stroke-linecap="square"/></svg><template v-else>{{action.label}}</template></button>
     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
    </div>
    <div v-if="quickMode==='create'" class="musical-edit-row">
@@ -9657,7 +9657,7 @@ async function homePractise(inst:Instrument){
 .musical-edit-row select{width:auto;max-width:180px}
 .musical-edit-row label{display:flex;align-items:center;gap:4px;font-size:12px}
 .musical-edit-row input[type=number]{width:58px;min-width:0}
-.musical-edit-row .quick-note-action{font-size:14px}
+.musical-edit-row .quick-note-action{font-size:14px}.bow-mark-icon{display:inline-block;vertical-align:middle;flex:none;pointer-events:none}
 .musical-preview-row{border-top:1px solid #69d5d9;padding-top:4px;color:#69d5d9}
 .musical-preview-row strong{flex:1;font-size:12px}
 </style>
