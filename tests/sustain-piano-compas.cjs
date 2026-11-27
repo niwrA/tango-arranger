@@ -28,7 +28,7 @@ check('sample routing applies only to tone generation; note timing is unchanged'
  assert.ok(app.includes('playbackDuration(event.durationSeconds,rehearsalSpeed.value)'));
  assert.ok(app.includes('captureKeySynth?.triggerRelease('));
  assert.ok(app.includes('ensureCaptureKeySynth().triggerAttack('));
- assert.ok(app.includes('sustain:0.85,release:0.25'));
+ assert.ok(app.includes('renderArrangementNote(inst,note,event,event.durationSeconds/captureSpeed.value'));
 });
 check('CC0 arco banks use original pitch anchors and bounded finite playback',()=>{
  assert.equal(open.arcoBank('Violin I').urls.E4,'LLVln_ArcoVib_E4_f.wav');

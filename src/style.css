@@ -1935,3 +1935,23 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 .home-song-row > div:first-child{min-width:0;max-width:100%;overflow-wrap:anywhere}
 .home-song-row small{display:block;opacity:.75;margin-top:3px}
 @media(max-width:760px){.home-activities{grid-template-columns:1fr}.home-song-row .home-actions{width:100%}.home-song-row .home-actions button{flex:1}}
+
+/* Compact shared Score/Edit toolbar. Desktop keeps direct action buttons. */
+.musical-compact-controls{display:none}
+.note-working-presets{font-size:12px;min-width:0}
+.note-working-presets>summary{cursor:pointer;padding:7px;min-height:30px;box-sizing:border-box}
+@media(max-width:700px){
+ .musical-edit-tools .musical-mode-row,.musical-edit-tools .musical-desktop-actions{display:none!important}
+ .musical-compact-controls{display:grid;gap:5px;width:100%;min-width:0}
+ .musical-compact-selectors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;min-width:0}
+ .musical-compact-selectors select,.musical-compact-status select{width:100%;min-width:0;max-width:100%;min-height:44px;box-sizing:border-box;padding:4px;font-size:13px;margin:0}
+ .musical-compact-status{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px;align-items:center;min-width:0}
+ .musical-compact-status>span{font-size:11px;white-space:nowrap}
+ .musical-compact-status>button{min-height:44px;padding:5px;font-size:12px;min-width:0}
+ .musical-compact-options>summary{cursor:pointer;font-size:12px;min-height:32px;display:flex;align-items:center}
+ .note-unified-toolbar .note-toolbar-transport{display:flex;flex-wrap:wrap;align-items:center;gap:4px;width:100%;min-width:0}
+ .note-unified-toolbar .note-toolbar-transport>.measure-range-control{flex:1 1 190px;min-width:0;width:auto}
+ .note-unified-toolbar .note-toolbar-transport>.note-working-presets{order:3;flex:1 1 100%}
+ .note-unified-toolbar .note-toolbar-part{min-width:0;gap:4px}
+ .note-unified-toolbar .note-toolbar-actions{gap:4px}
+}

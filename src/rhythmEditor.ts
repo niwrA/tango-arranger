@@ -1,4 +1,5 @@
-import {orchestraPulses} from './orchestraStyle';
+import {isOrchestraStyle,orchestraPulses,phraseStyleKey,styleForMeasure} from './orchestraStyle';
+import {phraseMeasureMap} from './phrasePlan';
 import {INSTRUMENTS,generate,mergeScores,replaceInstrumentMeasure,type Instrument,type Note,type Project,type Score} from './music';
 
 /** User-selectable tango rhythm templates, not literal transcriptions of historic orchestras.
@@ -7,7 +8,7 @@ import {INSTRUMENTS,generate,mergeScores,replaceInstrumentMeasure,type Instrumen
 export type RhythmPreset = 'marcato_four'|'marcato_two'|'syncopa'|'tres_tres_dos'|'habanera'|'offbeat'|'style'|'profile_darienzo'|'profile_disarli'|'profile_troilo'|'profile_pugliese'|'profile_fresedo'|'profile_canaro'|'profile_traditional';
 export type RhythmMode = 'rhythm'|'accents';
 export const RHYTHM_PRESETS:ReadonlyArray<{id:RhythmPreset;label:string;description:string}> = [
-  {id:'style',label:'Current orchestra style',description:'Accents follow the selected orchestra profile; one pulse per beat.'},
+  {id:'style',label:'Current orchestra style',description:'Follow effective orchestra style by measure. Editing the loaded grid makes it a fixed pattern.'},
   {id:'marcato_four',label:'Marcato en cuatro',description:'Four quarter-note pulses in 4/4, with accents on the main beats.'},
   {id:'marcato_two',label:'Marcato en dos',description:'Bass on beats 1 and 3; chord instruments answer on beats 2 and 4 in 4/4.'},
   {id:'syncopa',label:'Síncopa',description:'Offbeat attacks and syncopated emphasis.'},
@@ -27,7 +28,7 @@ const round=(n:number)=>Math.round(n*1000000)/1000000;
 export function rhythmSlots(preset:RhythmPreset,beats:number,inst:Instrument='Piano',profile='traditional'):RhythmSlot[]{
   if(!Number.isInteger(beats)||beats<2||beats>4)throw Error('Rhythm editor supports 2/4, 3/4 and 4/4');
   if(!RHYTHM_PRESETS.some(p=>p.id===preset))throw Error('Unknown rhythm preset');
-  const bass=inst==='Contrabass'||inst==='Piano';
+  const bass=inst.startsWith('Contrabass')||inst.startsWith('Piano');
   let units:number[],accents:number[];
   switch(preset){
     case 'marcato_two': units=bass?[0,4]:[2,6];accents=[0,4,2,6];break;
@@ -85,6 +86,16 @@ export function retimeMeasure(notes:Note[],inst:Instrument,barIndex:number,beats
   }
   return groups.flat().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
 }
+export function orchestraStyleRhythmForMeasure(p:Project,bar:number,phrases=phraseMeasureMap(p)):RhythmPreset{
+ const phrase=phrases[bar],style=styleForMeasure(p,p.bars[bar]?.section??'',phrase?phraseStyleKey(phrase):undefined);
+ return isOrchestraStyle(style)?`profile_${style}`:'profile_traditional';
+}
+export function presetMeasureSlots(p:Project,preset:RhythmPreset,inst:Instrument){
+ const slots=rhythmSlots(preset,p.beats,inst,p.profile);
+ const upper=inst==='Piano'&&['marcato_two','profile_disarli','profile_fresedo'].includes(preset)
+  ?rhythmSlots(preset,p.beats,'Bandoneon I',p.profile):undefined;
+ return {slots,upper};
+}
 export type RhythmApplication={instruments:Instrument[];measures:number[];preset:RhythmPreset;mode:RhythmMode;overwriteProtected?:boolean};
 export type RhythmApplyResult={project:Project;updated:number;skippedProtected:number;skippedEmpty:number};
 export function applyRhythmPreset(p:Project,source:Score|undefined,options:RhythmApplication):RhythmApplyResult{
@@ -95,15 +106,16 @@ export function applyRhythmPreset(p:Project,source:Score|undefined,options:Rhyth
   if(instruments.some(i=>!INSTRUMENTS.includes(i))||measures.some(i=>!Number.isInteger(i)||i<0||i>=p.bars.length))throw Error('Invalid rhythm targets');
   let next=p,updated=0,skippedProtected=0,skippedEmpty=0;
   let current=source??p.generatedScore??mergeScores(p,generate(p));
+  const phrases=options.preset==='style'?phraseMeasureMap(p):[];
   for(const b of measures){
+    const preset=options.preset==='style'?orchestraStyleRhythmForMeasure(p,b,phrases):options.preset;
     for(const inst of instruments){
       const key=`${inst}:${b}`;
       if(next.protectedBars[key]&&!options.overwriteProtected){skippedProtected++;continue;}
       const original=current[inst]?.filter(n=>Math.floor((n.start+1e-7)/p.beats)===b)??[];
       if(!original.length){skippedEmpty++;continue;}
-      const slots=rhythmSlots(options.preset,p.beats,inst,p.profile);
-      const upperSlots=inst==='Piano'&&(['marcato_two','profile_disarli','profile_fresedo'].includes(options.preset)||options.preset==='style'&&['disarli','fresedo'].includes(p.profile))?rhythmSlots(options.preset,p.beats,'Bandoneon I',p.profile):undefined;
-      const notes=retimeMeasure(original,inst,b,p.beats,slots,options.mode,p.pianoSplitPitch??60,upperSlots,options.preset);
+      const {slots,upper}=presetMeasureSlots(p,preset,inst);
+      const notes=retimeMeasure(original,inst,b,p.beats,slots,options.mode,p.pianoSplitPitch??60,upper,preset);
       next=replaceInstrumentMeasure(next,current,inst,b,notes);
       current=next.generatedScore!;
       updated++;

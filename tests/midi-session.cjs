@@ -98,6 +98,36 @@ const messages=port=>port.sent.map(e=>e.data);
  assert.ok(!messages(legacy).some(x=>x[0]===0x90||x[0]===0x80));
  console.log('PASS queued attacks stay cancellable when MIDIOutput.clear is unavailable');
 
+ const d=setup(),keys=d.input('keys'),speaker=d.output('speaker');
+ await d.midi.enableMidi();
+ let delivered=0,expanded=false;
+ d.midi.subscribeMidi(()=>delivered++);
+ const unmount=d.midi.observeMidiDiagnostics(()=>expanded);
+ function play(pitch){
+  keys.key([0x90,pitch,80]);
+  assert.equal(d.midi.sendMidiNote(pitch,80,.1),true);
+ }
+ play(60);d.tick(100);
+ assert.equal(delivered,1);assert.equal(speaker.sent.length,2);
+ assert.equal(d.midi.midiReceived.value,0);assert.equal(d.midi.midiSent.value,0);
+ assert.deepEqual(d.midi.midiLog.value,[]);
+ expanded=true;play(61);d.tick(200);
+ assert.equal(d.midi.midiReceived.value,1);assert.equal(d.midi.midiSent.value,2);
+ assert.equal(d.midi.midiLog.value.length,3);
+ const before=d.midi.midiLog.value;
+ expanded=false;play(62);d.tick(300);
+ assert.equal(delivered,3);assert.equal(speaker.sent.length,6);
+ assert.equal(d.midi.midiReceived.value,1);assert.equal(d.midi.midiSent.value,2);
+ assert.equal(d.midi.midiLog.value,before);
+ expanded=true;
+ for(let i=0;i<110;i++)keys.key([0x90,63,80]);
+ assert.equal(d.midi.midiReceived.value,111);
+ assert.equal(d.midi.midiLog.value.length,100);
+ unmount();play(64);d.tick(400);
+ assert.equal(delivered,114);assert.equal(speaker.sent.length,8);
+ assert.equal(d.midi.midiReceived.value,111);assert.equal(d.midi.midiSent.value,2);
+ console.log('PASS closed and unmounted diagnostics freeze counters and history without blocking MIDI');
+
  const {capturedPedalSpans,assignCapturedPedal}=createDomainLoader()('src/midiCapture.ts');
  const pedal=[
   {beat:3,channel:0,down:true},{beat:4.5,channel:1,down:true},

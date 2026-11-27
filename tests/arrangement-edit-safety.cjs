@@ -37,7 +37,7 @@ const selectionContext={
  rhythmPattern:{value:[{beat:0,duration:1,accent:true}]},rhythmGridStep:.25,
  rhythmMode:{value:'accents'},rhythmOverwrite:{value:true},rhythmProtectedCount:{value:1},
  rhythmFeedback:{value:''},message:{value:''},effectiveRole:()=> 'chords',
- window:{confirm:()=>true},applyRhythmPattern,validateRhythmPattern
+ window:{confirm:()=>true},rhythmFollowsStyle:{value:false},applyRhythmPattern,validateRhythmPattern
 };
 function runHandler(name,context){
  const source=app.match(new RegExp('function '+name+'\\(\\)\\{[\\s\\S]*?\\n}'))?.[0];

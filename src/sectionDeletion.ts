@@ -58,7 +58,7 @@ export function deleteProjectSection(original:Project,index:number):Project {
    bandoneon:sectionMap(current.orchestration.bandoneon)
  }:undefined;
  return {...current,bars,tempoExpressions:moveTempoExpressions(current.tempoExpressions,'delete',begin,finish),
-   sectionKeys:sectionMap(current.sectionKeys),
+   sectionKeys:sectionMap(current.sectionKeys),sectionStyles:sectionMap(current.sectionStyles),
    roles:sectionMap(current.roles),
    orchestration,
    expression:current.expression?{...current.expression,sections:sectionMap(current.expression.sections)}:undefined,
@@ -77,7 +77,7 @@ export function deleteProjectSection(original:Project,index:number):Project {
    importedScore:cloneScore(current.importedScore),
    baseScore:cloneScore(current.baseScore),
    // Old absolute positions cannot safely be reused in these derived caches.
-   partEditions:undefined,phrasePlan:undefined,
+   partEditions:undefined,phrasePlan:undefined,phraseStyles:undefined,
    // Lyrics remain attached to note events, but the manually authored source
    // has absolute bar separators: require an explicit fresh read-back.
    leadLyrics:undefined

@@ -194,7 +194,7 @@ function structuralEdit(p:Project,mode:ShiftMode,from:number,to:number):Project{
   baseScore:transformScore(p.baseScore,mode,from,to,p.beats),
   partEditions:transformEditions(p,mode,from,to),
   expressionRanges:transformRanges(p.expressionRanges,mode,from,to,p.beats),
-  phrasePlan:undefined,leadLyrics:undefined,lyricOverflow:undefined,lyricSequences:undefined
+  phrasePlan:undefined,phraseStyles:undefined,leadLyrics:undefined,lyricOverflow:undefined,lyricSequences:undefined
  };
 }
 /** Insert blank measures inside the destination section; existing absolute notes/metadata shift. */

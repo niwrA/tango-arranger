@@ -16,15 +16,17 @@ const functions=['stopPlayback','startCaptureTransport','beginMelodyPassOnNote',
  'captureGrid','captureElapsedBeats','capturedMelodyForBar','ensureCaptureKeySynth',
  'heldCaptureKeysHasPitch','updateCaptureHeldDisplay','monitorCapturePitch','releaseCaptureMonitorPitch',
  'capturePianoKey','releaseCapturePianoKey','capturePianoKeyClick','captureTap',
- 'captureViolinFingerDown','captureViolinFingerMove','auditionDraft','playDraftMeasure','playDraftAll'];
+ 'captureViolinFingerDown','captureViolinFingerMove','auditionDraft','playDraftMeasure','playDraftAll',
+ 'editorAuditionCurrent','auditionEvent'];
 const states=['capturePlaying','captureRecording','captureLoopEnabled','rhythmCaptureTaps','melodyCaptureTaps','captureTaps',
  'captureFrom','captureTo','captureLatency','captureMetronome','captureCountIn','captureCountingIn',
  'captureSpeed','captureTranspose','captureQuantize','captureDurationQuantize','captureTakeMode','captureRecordedPass',
  'instrumentCaptureEvents','instrumentCaptureBase','instrumentCaptureSession','instrumentCaptureRangeMatches',
  'heldCaptureKeys','captureMonitorPitches','captureModeledVoices','captureHeldDisplay','captureViolinMode','captureViolinTraces','captureLastExpression',
  'capturePlayBar','capturePlayBeat','captureFeedback','capturePitch','captureSelectedString','captureEditedRhythms',
- 'captureSession','captureSynth','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
- 'captureBarNumbers','captureInputSource','captureMuteBacking','midiCapturePattern','midiCaptureStrength'];
+ 'captureSession','captureKeySynth','captureClickSynth','rhythmAuditionPlaying','captureKind','captureFirst','captureLast',
+ 'captureBarNumbers','captureInputSource','captureMuteBacking','midiCapturePattern','midiCaptureStrength',
+ 'auditionEnabled','noteSelectionAudition'];
 const extracted=[],found=new Set();
 for(const statement of ast.statements){
  if(ts.isFunctionDeclaration(statement)&&functions.includes(statement.name?.text)){
@@ -45,14 +47,15 @@ const load=createDomainLoader();
 const {quantizeInstrumentCapture}=load('src/instrumentCaptureTiming.ts');
 const {classifyViolinCapture}=load('src/violinCapture.ts');
 const {capturePosition,addCapturedTap,melodyFromTaps}=load('src/tapCapture.ts');
-const {demoProject,measureArticulation,chordAt,chordTones,midiName}=load('src/music.ts');
+const {demoProject,measureArticulation,chordAt,chordTones,midiName,projectInstruments}=load('src/music.ts');
+const {playbackNotesInRange,pianoPedalWindows}=load('src/arrangementPlayback.ts');
 const {measureLoopEvents}=load('src/measureLoop.ts');
 const ref=value=>({value});
 const computed=definition=>({get value(){return typeof definition==='function'?definition():definition.get();},
  set value(value){assert.equal(typeof definition.set,'function');definition.set(value);}});
 const plain=value=>JSON.parse(JSON.stringify(value));
 const near=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-6,`${actual} should equal ${expected}`);
-async function settle(){await Promise.resolve();await Promise.resolve();}
+async function settle(){for(let turn=0;turn<6;turn++)await Promise.resolve();}
 
 function harness(){
  const transport={seconds:0,position:0,bpm:{value:120},repeats:[],once:[],starts:0,stops:0,
@@ -70,8 +73,17 @@ function harness(){
  const tone={Synth,PolySynth:Synth,getTransport:()=>transport,getContext:()=>({rawContext:{}}),now:()=>100,
   getDraw:()=>({schedule:callback=>callback()}),Frequency:pitch=>({toFrequency:()=>pitch})};
  const project=demoProject();project.bpm=120;project.beats=4;project.bars=project.bars.slice(0,4);
- const reeds=[];
- const ctx={console,module:{exports:{}},ref,computed,project:ref(project),reeds,
+ const reeds=[],attacks=[],backing=[],banks=[],midiNotes=[],pedals=[];
+ const ctx={console,module:{exports:{}},ref,computed,project:ref(project),reeds,attacks,backing,banks,midiNotes,pedals,
+  homeOpen:ref(false),performanceMode:ref(false),
+  prepareSamples:async parts=>banks.push([...parts]),
+  triggerInstrument(inst,pitch,duration,time,velocity){attacks.push({inst,pitch,duration,time,velocity});},
+  renderArrangementNote(inst,note,event,duration,time,gain){backing.push({inst,note,event,duration,time,gain});},
+  focusInstrumentAudible:()=>true,projectInstruments,playbackNotesInRange,pianoPedalWindows,
+  midiEnabled:false,midiPianoAvailable:inst=>ctx.midiEnabled&&inst.startsWith('Piano'),
+  midiTransportDelay:time=>time-100,
+  sendMidiPedal:(duration,delay)=>pedals.push({duration,delay}),
+  sendMidiNote:(pitch,velocity,duration,delay)=>{midiNotes.push({pitch,velocity,duration,delay});return true;},
   usesModeledAudio:load('src/voiceGuideAudio.ts').usesModeledAudio,
   renderModeledPart(inst,event,time,_staff,_destination,held){const reed={inst,event,time,held,released:false,release(){this.released=true;}};reeds.push(reed);return reed;},
   active:ref('notes'),noteInst:ref('Piano'),noteLoopFrom:ref(1),noteLoopTo:ref(1),
@@ -244,7 +256,7 @@ function harness(){
  });
  await check('input monitoring transposes playback without changing captured score pitches',async()=>{
   const h=harness();h.ctx.project.value.transposeSemitones=2;h.state().captureTranspose.value=12;
-  await h.api.startCaptureTransport(true);h.down(1,60,1);h.up(1,1.5);
+  await h.api.startCaptureTransport(true);h.down(1,60,1);await settle();h.up(1,1.5);
   assert.equal(h.state().captureKeySynth.attacks[0],62);assert.equal(h.notes()[0].pitch,60);
  });
  await check('draft audition keeps opening rests, chords and silent measures at their recorded positions',async()=>{
@@ -252,12 +264,52 @@ function harness(){
   h.state().melodyCaptureTaps.value=[{bar:1,beat:0.5,pitch:60,duration:0.25},
    {bar:1,beat:0.5,pitch:64,duration:1},{bar:3,beat:1.25,pitch:67,duration:0.5}];
   h.api.playDraftAll();await settle();
-  const calls=h.state().captureKeySynth.calls;assert.equal(calls.length,3);
+  const calls=h.ctx.attacks;assert.equal(calls.length,3);
   near(calls[0].time,100.05+0.5*0.5);near(calls[1].time,calls[0].time);
   near(calls[2].time,100.05+9.25*0.5);
   near(calls[0].duration,0.25*0.5*0.9);near(calls[1].duration,1*0.5*0.9);
-  h.state().captureKeySynth.calls=[];h.api.playDraftMeasure(3);await settle();
-  near(h.state().captureKeySynth.calls[0].time,100.05+1.25*0.5);
+  h.ctx.attacks.length=0;h.api.playDraftMeasure(3);await settle();
+  near(h.ctx.attacks[0].time,100.05+1.25*0.5);
+ });
+ await check('capture accompaniment uses the current roster and schedules hardware pedal at recording speed',async()=>{
+  const h=harness();h.state().captureCountIn.value=false;h.state().captureSpeed.value=.5;h.ctx.midiEnabled=true;
+  h.ctx.project.value.instruments=['Piano II'];
+  h.ctx.score.value={
+   'Piano II':[{pitch:60,start:.5,duration:.5,gate:1,pianoPedalBeats:1.25}],
+   'Violin I':[{pitch:72,start:0,duration:.5,gate:1}],
+  };
+  await h.api.startCaptureTransport(true);
+  assert.deepEqual(h.ctx.banks,[['Piano II']]);
+  h.transport.repeats[0].callback(100);
+  assert.equal(h.ctx.backing.length,1);
+  assert.equal(h.ctx.backing[0].inst,'Piano II');
+  near(h.ctx.backing[0].time,100.5);
+  near(h.ctx.backing[0].duration,.5); // the MIDI pedal, not an inflated key duration, sustains the note
+  assert.deepEqual(h.ctx.pedals,[{duration:1.25,delay:.5}]);
+ });
+ await check('muted microphone capture without a harmony count-in does not fetch accompaniment samples',async()=>{
+  const h=harness();h.state().captureInputSource.value='microphone';h.state().captureCountIn.value=false;
+  h.state().captureMuteBacking.value=true;h.ctx.score.value.Piano=[{pitch:60,start:0,duration:1}];
+  await h.api.startCaptureTransport(true);
+  assert.deepEqual(h.ctx.banks,[]);
+  h.transport.repeats[0].callback(100);
+  assert.deepEqual(h.ctx.backing,[]);
+ });
+ await check('scored Piano hardware auditions include glissando attacks and pedal without unlocking or loading Web Audio',()=>{
+  const h=harness();h.ctx.midiEnabled=true;h.ctx.startAudioFromGesture=async()=>{assert.fail('MIDI-only audition should not unlock samples');};
+  h.api.auditionEvent({pitch:60,start:.5,duration:1,gate:1,pianoGlissando:{interval:4,beats:1,keys:'white'},pianoPedalBeats:1.5});
+  assert.deepEqual(h.ctx.midiNotes.map(n=>n.pitch),[60,62,64]);
+  assert.deepEqual(h.ctx.midiNotes.map(n=>n.delay),[0,.25,.5]);
+  assert.deepEqual(h.ctx.pedals,[{duration:.75,delay:0}]);
+  assert.deepEqual(h.ctx.banks,[]);
+ });
+ await check('Stop invalidates a scheduled draft audition still waiting for its samples',async()=>{
+  const h=harness();let ready;
+  h.ctx.prepareSamples=()=>new Promise(resolve=>{ready=resolve;});
+  const draft=h.api.auditionDraft([{pitch:60,beat:0,duration:1}]);await settle();
+  assert.equal(typeof ready,'function');
+  h.api.stopPlayback();ready();await draft;
+  assert.deepEqual(h.ctx.attacks,[]);
  });
  console.log(`${count} instrument recording integration checks passed`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

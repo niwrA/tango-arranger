@@ -27,7 +27,7 @@ export function insertSectionBoundary(project:Project,measure:number):Project{
  return {...project,bars:project.bars.map((bar,i)=>i>=measure&&i<span.start+span.measures?{...bar,section:label}:bar),
  sectionKeys:{...project.sectionKeys,[label]:sectionKey(project,span.label)},
  roles:copy(project.roles)??{},
- pianoFigures:copy(project.pianoFigures),pianoFigureVariation:copy(project.pianoFigureVariation),
+ pianoFigures:copy(project.pianoFigures),sectionStyles:copy(project.sectionStyles),pianoFigureVariation:copy(project.pianoFigureVariation),
  violinMarcatoBeats:copy(project.violinMarcatoBeats),violinArpeggioDirections:copy(project.violinArpeggioDirections),
  orchestration:project.orchestration?{...project.orchestration,violin:copy(project.orchestration.violin)??{},bandoneon:copy(project.orchestration.bandoneon)??{},contrabass:copy(project.orchestration.contrabass)}:undefined,
  expression:project.expression?{...project.expression,sections:copy(project.expression.sections)??{}}:undefined};

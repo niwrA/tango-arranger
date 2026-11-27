@@ -3,6 +3,7 @@
  * authoritative *active* workspace; other variants are durable snapshots.
  * Keeping this boundary makes old .tango files and existing editors work. */
 import {generate,mergeScores,projectInstruments,instrumentFamily,instrumentRange,instrumentPitchPlayable,chordAt,chordTones,type Difficulty,type Instrument,type Note,type PartEdition,type PartEditions,type Project,type Score} from './music';
+import {phraseStyleKey,isOrchestraStyle} from './orchestraStyle';
 import {validatePhrasePlan,type PhrasePlan} from './phrasePlan';
 
 export const EDITION_LEVELS:readonly Difficulty[]=['easy','intermediate','advanced'];
@@ -25,6 +26,9 @@ export function scoreSourceSignature(p:Project,inst:Instrument):string{
   beats:p.beats,profile:p.profile,
   sectionKeys:p.sectionKeys,roles:p.roles,measureRoles:p.measureRoles,
   phrasePlan:p.phrasePlan,
+  sectionStyles:Object.keys(p.sectionStyles??{}).length?p.sectionStyles:undefined,
+  styleStrength:p.styleStrength===1?undefined:p.styleStrength,
+  phraseStyles:Object.keys(p.phraseStyles??{}).length?p.phraseStyles:undefined,
   sectionArticulation:p.articulation,
   pianoFigures:p.pianoFigures,pianoVariation:p.pianoFigureVariation,
   orchestration:p.orchestration,melodyDucking:p.melodyDucking,
@@ -79,10 +83,21 @@ export function applyPhrasePlan(p:Project,plan?:PhrasePlan):Project{
   if(errors.length)throw Error(errors.join('; '));
  }
  const saved=snapshotActiveEditions(p);
- const next:Project={...saved,phrasePlan:plan===undefined?undefined:JSON.parse(JSON.stringify(plan)) as PhrasePlan};
- const score=mergeScores(next,generate(next));
- next.generatedScore=score;
- const editions:PartEditions={...(saved.partEditions??{})};
+ const priorKeys=new Set(p.phrasePlan&&!validatePhrasePlan(p,p.phrasePlan).length?p.phrasePlan.phrases.map(phraseStyleKey):[]);
+ const phraseStyles=plan?.phrases.flatMap(phrase=>{
+  const key=phraseStyleKey(phrase),style=p.phraseStyles?.[key];
+  return priorKeys.has(key)&&isOrchestraStyle(style)?[[key,style] as const]:[];
+ });
+ const next:Project={...saved,phrasePlan:plan===undefined?undefined:JSON.parse(JSON.stringify(plan)) as PhrasePlan,
+  phraseStyles:phraseStyles?.length?Object.fromEntries(phraseStyles):undefined};
+ return regenerateActiveArrangement(next);
+}
+/** Record the inputs used for the newly generated active score, without
+ * rewriting alternate practice editions or the protected source. */
+export function regenerateActiveArrangement(project:Project):Project{
+ const score=mergeScores(project,generate(project));
+ const next={...project,generatedScore:score};
+ const editions:PartEditions={...(project.partEditions??{})};
  for(const inst of projectInstruments(next)){
   const level=activeLevel(next,inst);
   editions[inst]={...(editions[inst]??{}),[level]:{

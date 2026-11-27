@@ -48,13 +48,16 @@ test('loop rejects invalid timing and supports empty measures',()=>{
 });
 test('note editor loop UI has play/stop, beat indicator and shortcut',()=>{
   assert.match(vue,/@click="toggleNoteLoop"/);
-  assert.match(vue,/:aria-pressed="noteLoopPlaying" @click="toggleNoteLoop"[^>]*>\{\{noteLoopPlaying\?'■ Stop':'▶ Loop'/);
+  assert.match(vue,/:aria-pressed="noteLoopPlaying" @click="toggleNoteLoop"[^>]*>\{\{noteLoopPlaying\?'■ Stop':independentNoteLoop\?'▶ Loop/);
   assert.match(vue,/note-loop-playhead/);
   assert.match(vue,/action==='loop'\)\{event\.preventDefault\(\);void toggleNoteLoop\(\)/);
   assert.match(vue,/role="status" aria-live="polite"/);
 });
 test('loop refreshes notes on every measure repeat and stops on navigation',()=>{
-  assert.match(vue,/transport\.scheduleRepeat\(time=>\{[\s\S]*?measureLoopEvents\(playbackNotesInRange\(practiceScore\.value\[noteInst\.value\]/);
+  const loop=vue.slice(vue.indexOf('async function toggleNoteLoop('),vue.indexOf('watch(active,tab',vue.indexOf('async function toggleNoteLoop(')));
+  assert.match(loop,/transport\.scheduleRepeat\(time=>\{[\s\S]*?const notes=practiceScore\.value\[inst\]/);
+  assert.match(loop,/playbackNotesInRange\(notes,[^\n]*nativePedal\)/);
+  assert.match(loop,/renderArrangementNote\(inst,note,event,playbackDuration/);
   assert.match(vue,/\},'1m',0\)/);
   assert.match(vue,/function openNoteEditor\(inst:Instrument=overviewInstrument\.value,b:number=selectedBar\.value\)\{/);
   assert.match(vue,/if\(!keepFocusLoop\)stopNoteLoop\(\)/);
