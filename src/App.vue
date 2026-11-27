@@ -1372,7 +1372,7 @@ function beginMelodyPassOnNote(elapsedBeats:number){
   melodyCaptureTaps.value=[];
   captureRecordedPass=pass;
 }
-type HeldCapture=CapturedTap&{duration?:number;provisional?:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
+type HeldCapture=CapturedTap&{velocity?:number;duration?:number;provisional?:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
 // Keep original attacks and releases so trying a coarse grid never destroys timing.
 const instrumentCaptureEvents=ref<InstrumentCaptureEvent[]>([]);
 const instrumentCaptureBase=ref<HeldCapture[]>([]);
@@ -1407,7 +1407,7 @@ function updateInstrumentCaptureDraft():void{
   return slot?{...event,startBeat:event.startBeat+(slot.beat-local)*midiCaptureStrength.value/100}:event;
  }):instrumentCaptureEvents.value;
  const notes=quantizeInstrumentCapture(events,{
-  ...s,onsetGrid:captureGrid,durationGrid:bar=>captureDurationQuantize.value==='auto'?captureGrid(bar):Number(captureDurationQuantize.value)
+  ...s,onsetGrid:bar=>typeof midiCapturePattern!=='undefined'&&midiCapturePattern.value!=='off'&&captureInputSource.value==='midi'?0:captureGrid(bar),durationGrid:bar=>captureDurationQuantize.value==='auto'?captureGrid(bar):Number(captureDurationQuantize.value)
  });
  melodyCaptureTaps.value=notes.reduce((take,note)=>addCapturedTap(take,note,'melody'),[...instrumentCaptureBase.value] as CapturedTap[]);
 }
@@ -1427,7 +1427,7 @@ function reprocessInstrumentTiming(raw=false):void{
  captureFeedback.value=raw?'Restored recorded timing in the draft. The score is unchanged.':
   'Reprocessed recorded starts and durations in the draft. The score is unchanged.';
 }
-type CapturedMelodyNote={beat:number;pitch:number;duration:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
+type CapturedMelodyNote={beat:number;pitch:number;duration:number;velocity?:number;held:boolean;approachSlideFrom?:number;vibrato?:boolean;gesture?:TangoGesture;stringMidi?:number};
 const heldCaptureKeys=new Map<number,{pitch:number;started:number;stringMidi?:number}>();
 const captureMonitorPitches=new Set<number>();
 const captureModeledVoices=new Map<number,Pick<VoiceGuideHandle,'release'>>();
@@ -1472,6 +1472,7 @@ function capturedMelodyForBar(bar:number){
   const quick:CapturedMelodyNote[]=inferred.map(t=>({...t,held:false}));
   const held:CapturedMelodyNote[]=taps.filter(t=>t.duration!==undefined).map(t=>({
    beat:t.beat,pitch:t.pitch!,duration:t.duration!,held:!t.provisional,
+   ...(t.velocity!==undefined?{velocity:t.velocity}:{}),
    ...(t.approachSlideFrom!==undefined?{approachSlideFrom:t.approachSlideFrom}:{}),
    ...(t.vibrato?{vibrato:true}:{}),...(t.gesture?{gesture:t.gesture}:{}),...(t.stringMidi!==undefined?{stringMidi:t.stringMidi}:{})
   }));
@@ -2498,6 +2499,7 @@ function applyCapturedMelody(){
     for(const b of bars){
       const notes=capturedMelodyForBar(b).map(t=>{
         const note=suggestedEditorNote(next,noteInst.value,b,t.beat,t.pitch,t.duration);
+        if(t.velocity!==undefined)note.velocity=t.velocity;
         if(alignVoice){Object.assign(note,lyricAssignments[appliedAlignmentIndex]??{});appliedAlignmentIndex++;}
         if(t.held){note.gate=1;if(note.technique==='arco')note.articulation='legato';}
         if(t.approachSlideFrom!==undefined||t.vibrato||t.gesture){
