@@ -18,6 +18,8 @@ In Preview, both views show the proposed notes alongside markers for original an
 
 In Create mode, choose a **Brush**, then draw on the score or grid. **Brush visible range** applies the same brush without a gesture. The brush preserves occupied beats by default and offers **Replace editable notes** for changing generated phrases.
 
+On violin or contrabass, select a passage and use **Position** to preview a fingering plan. **Bow** offers opening-bow alternatives. Both planners preserve existing assignments and annotate the passage at its current pitch and timing.
+
 
 ---
 

@@ -46,7 +46,6 @@ const runningAppBuild=import.meta.env.VITE_APP_BUILD_SHA||'';
 const appBuildId=runningAppBuild.slice(0,7);
 const appDisplayBuild=appBuildId||'unknown build';
 import changelogMarkdown from '../CHANGELOG.md?raw';
-import {createElChocloStudy} from './presets/el-choclo';
 import {demoProject,blankProject,generate,mergeScores,INSTRUMENTS,FACTORY_INSTRUMENTS,projectInstruments,syncActiveInstruments,setProjectRoster,INSTRUMENT_GROUPS,instrumentsForGroup,type InstrumentGroup,pianoStaffForPitch,partUsesGrandStaff,midiName,editorPitchName,parsePitch,scoreStats,type Project,type Note,type Instrument,type Role,defaultOrchestration,type ViolinTechnique,type BassTechnique,BASS_TECHNIQUES,bassTechniqueFor,type ArpeggioDirection,violinMarcatoBeatsFor,type FollowTarget,type FollowMethod,type Difficulty,type DynamicMark,DYNAMIC_MARKS,defaultInstrumentSettings,defaultExpression,convertTwoFourToFour,parseChordSequence,chordSequenceFromBeats,chordAt,chordTones,chordCompletions,completeChordToken,changeSectionKey,type SectionKeyChangeMode,instrumentActivity,transposeScore,defaultArticulation,measureArticulation,type Articulation,MAJOR_KEYS,MINOR_KEYS,sectionKey,soundingChord,stageHarmonyAt,transposeKeySignature,parseKeySignature,inferSectionKeys,sectionSpans,openingPickupBeats,sectionLetter,resizeSections,copySectionChords,noteEditorContext,noteEditorPitchClass,newNoteWrittenDuration,suggestedEditorNote,replaceInstrumentMeasure,resetInstrumentMeasure,instrumentRange,instrumentPitchPlayable,writtenInstrumentRange,writtenInstrumentPitchPlayable,editablePitchRange,adaptTransposedScore,planAdaptiveTransposition,planRegisterTransposition,instrumentFamily,noteSoundingDuration,noteSoundingVelocity,stringGlissandoPlayback,stringPitchAtBeat,ARTICULATION_GATES,figureMeasure,FIGURE_KINDS,assessPianoPlayability,type FigureKind} from './music';
 import {listRosterPresets,saveRosterPreset,removeRosterPreset,getDefaultRoster,setDefaultRoster,type RosterPreset} from './rosterPresets';
 import {download,exportMusicXml,exportCompressedMusicXml,exportMuseScoreMscz,exportAbc,exportMobileSheetsBundle,validateMusicXmlDurations,saveProject,loadProject,importMusicXml,importMidi,scoreFromParts,exportEditionPrintPack} from './io';
@@ -94,6 +93,8 @@ const homeOpen=ref(true);
 const libraryLoading=ref(true);
 const homeBusy=ref(false);
 const homePracticePick=ref(false);
+const directPracticePick=ref(false);
+let practicePickerTrigger:HTMLElement|null=null;
 const homeError=ref('');
 const localSongs=ref<LocalSongSummary[]>([]);
 const libraryReady=ref(false);
@@ -181,12 +182,12 @@ function selectProjectInEditor(p:Project){
   phrasePlanDraft.value=undefined;
   stopPlayback();rawPitchFrames.value=[];rawPitchSession.value=null;pitchPreviewNotes.value=[];originalMicrophoneTake.value=[];pitchRawRevision.value++;
   instrumentCaptureEvents.value=[];instrumentCaptureSession.value=null;instrumentCaptureBase.value=[];
-  syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;
+  syncActiveInstruments(p);restoringHistory=true;project.value=p;resetProjectHistory();restoringHistory=false;selectedBar.value=0;overviewFocus.value=0;performanceBeat.value=0;
   overviewStart.value=1;overviewEnd.value=Math.min(8,p.bars.length);mapRangeAnchor.value=null;
   chosenSection.value=p.bars[0]?.section??'A';noteSelected.value=-1;
   noteLoopFrom.value=1;noteLoopTo.value=firstNoteSectionEnd(p.bars);
   chordEditorOpen.value=false;pending.value=[];newSongOpen.value=false;rhythmCaptureTaps.value=[];melodyCaptureTaps.value=[];captureEditedRhythms.value={};
-  leadDrafts.value={};pendingKeyChange.value=null;
+  leadDrafts.value={};pendingKeyChange.value=null;scoreEditReturn=null;
 }
 async function adoptLocalSong(p:Project){
   const id=newLocalSongId();
@@ -197,7 +198,10 @@ async function chooseSongFromPicker(event:Event){
   const select=event.target as HTMLSelectElement;
   const id=select.value;
   select.value=localSongId.value;
+  rememberActivity();
+  const previous=localSongId.value;
   await openSongById(id);
+  if(localSongId.value!==previous&&!id.startsWith('__example_'))restoreArrange(true);
 }
 async function openSongById(id:string){
   if(id==='__example_tigre_viejo__'){
@@ -229,17 +233,6 @@ async function openSongById(id:string){
     }catch(error){message.value=`Could not open built-in song: ${String(error)}`;}
     return;
   }
-  if(id==='__example_el_choclo__'){
-    // Reset the native picker while the asynchronous copy is being created.
-    try{
-      await flushAutosave();
-      const study=createElChocloStudy();
-      await adoptLocalSong(study);
-      active.value='arrange';
-      message.value='Opened a new editable El Choclo orchestral study (32 measures, 4/4). Melody/harmony adapted from the earlier ABC transcription; orchestration generated with current features, not a historical score.';
-    }catch(error){message.value=`Could not create El Choclo study: ${String(error)}`;}
-    return;
-  }
   await openLocalSong(id);
 }
 async function openLocalSong(id:string){
@@ -262,9 +255,9 @@ async function deleteCurrentLocalSong(){
   if(!window.confirm(`Permanently delete "${project.value.title||'Untitled Tango'}" from this browser? Export a .tango.json backup first if needed.`))return;
   try{
     await flushAutosave();const id=localSongId.value;
-    await deleteLocalSong(id);await refreshLocalSongs();
+    await deleteLocalSong(id);delete activityContexts[id];saveActivityContexts();await refreshLocalSongs();
     const next=localSongs.value[0];
-    if(next){const loaded=await readLocalSong(next.id);if(!loaded)throw Error('Next song is unavailable');localSongId.value=next.id;rememberOpenedSongId(next.id);selectProjectInEditor(loaded);}
+    if(next){const loaded=await readLocalSong(next.id);if(!loaded)throw Error('Next song is unavailable');localSongId.value=next.id;rememberOpenedSongId(next.id);selectProjectInEditor(loaded);restoreArrange(true);}
     else{localSongId.value='';rememberOpenedSongId('');showHome();}
     saveStatus.value='Local song deleted';message.value='Deleted selected song from this browser. Other songs are unchanged.';
   }catch(error){message.value=`Delete failed: ${String(error)}`;}
@@ -290,7 +283,8 @@ async function initializeLocalLibrary(){
     homeOpen.value=!localSongId.value;
     if(homeOpen.value)performanceMode.value=false;
     rememberOpenedSongId(localSongId.value);libraryReady.value=true;saveStatus.value='Autosave on · stored in this browser';
-    if(localSongId.value&&performanceMode.value){const saved=activityContext().practice;try{if(localStorage.getItem('tango-last-activity')==='practice'&&saved&&activeRoster.value.includes(saved.instrument))await homePractise(saved.instrument);}catch{/* Keep stage restoration as fallback. */}}
+    libraryLoading.value=false;
+    if(localSongId.value)await restoreStartupActivity();
   }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';homeOpen.value=true;performanceMode.value=false;}
   finally{libraryLoading.value=false;}
 }
@@ -5380,7 +5374,8 @@ function returnFromScoreEdit(){
  if(saved.instrument){
   resumedPracticeRange.value=saved.range;resumedPracticeMeasure.value=saved.measure;
   performanceMode.value=true;performanceView.value='ensemble';performanceExpandedInstrument.value=saved.instrument;
-  performanceScoreView.value=saved.view;instrumentLearnMode.value=saved.learn;selectedBar.value=saved.bar;
+  performanceScoreView.value=saved.view;selectedBar.value=saved.bar;
+  if(saved.learn)void nextTick(()=>{if(performanceMode.value&&performanceExpandedInstrument.value===saved.instrument)enterInstrumentLearn();});
  }else{noteEditorTab.value='score';noteFocusMode.value=saved.focus;}
  return true;
 }
@@ -5988,26 +5983,105 @@ function addBar(){const previous=project.value.bars.at(-1);project.value.bars.pu
 function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement).value;}
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
 // Activity preferences are UI-only and keyed by stable local song ID.
+type Activity='arrange'|'practice'|'perform';
 type ActivityContext={arrange?:{tab:WorkspaceTab;bar:number;instrument:Instrument;range:[number,number]};practice?:{instrument:Instrument;range?:[number,number];measure?:number;display:PracticeDisplay};perform?:{bar:number;view:'ensemble'|'notes'}};
 const activityContexts:Record<string,ActivityContext>=(()=>{try{const value=JSON.parse(localStorage.getItem('tango-activity-context-v1')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}})();
-const currentActivity=computed(()=>instrumentLearnMode.value?'practice':performanceMode.value?'perform':'arrange');
+const currentActivity=computed<Activity>(()=>instrumentLearnMode.value?'practice':performanceMode.value?'perform':'arrange');
 function activityContext(){const id=localSongId.value;if(!activityContexts[id]||typeof activityContexts[id]!=='object')activityContexts[id]={};return activityContexts[id];}
 function saveActivityContexts(){try{localStorage.setItem('tango-activity-context-v1',JSON.stringify(activityContexts));}catch{/* UI preferences are optional. */}}
-function rememberActivity(){if(!localSongId.value||homeOpen.value)return;try{localStorage.setItem('tango-last-activity',currentActivity.value);}catch{}const ctx=activityContext();if(currentActivity.value==='arrange'){if(workspaceTabs.includes(active.value as WorkspaceTab)&&active.value!=='about')ctx.arrange={tab:active.value as WorkspaceTab,bar:selectedBar.value,instrument:noteInst.value,range:[noteLoopFrom.value,noteLoopTo.value]};}else if(currentActivity.value==='perform'){ctx.perform={bar:performanceBar.value,view:performanceView.value};}else if(performanceExpandedInstrument.value){const prev=ctx.practice;ctx.practice={...((prev?.instrument===performanceExpandedInstrument.value)?prev:{}),instrument:performanceExpandedInstrument.value,display:practiceDisplay.value};}saveActivityContexts();}
-function rememberPracticeContext(context:{range:[number,number];measure:number}){if(!localSongId.value||!performanceExpandedInstrument.value||!instrumentLearnMode.value)return;activityContext().practice={instrument:performanceExpandedInstrument.value,range:context.range,measure:context.measure,display:practiceDisplay.value};saveActivityContexts();}
+function rememberActivity(){
+ if(!localSongId.value||homeOpen.value||libraryLoading.value)return;
+ const activity=currentActivity.value;
+ try{localStorage.setItem('tango-last-activity',activity);}catch{/* UI preferences are optional. */}
+ const ctx=activityContext();
+ if(activity==='arrange'){
+  if(workspaceTabs.includes(active.value as WorkspaceTab)&&active.value!=='about')
+   ctx.arrange={tab:active.value as WorkspaceTab,bar:selectedBar.value,instrument:noteInst.value,range:[noteLoopFrom.value,noteLoopTo.value]};
+ }else if(activity==='perform'){
+  ctx.perform={bar:performanceBar.value,view:performanceView.value};
+ }else if(performanceExpandedInstrument.value){
+  const prev=ctx.practice;
+  ctx.practice={...(prev?.instrument===performanceExpandedInstrument.value?prev:{}),instrument:performanceExpandedInstrument.value,display:practiceDisplay.value};
+ }
+ saveActivityContexts();
+}
+function rememberPracticeContext(context:{range:[number,number];measure:number}){
+ if(!localSongId.value||!performanceExpandedInstrument.value||!instrumentLearnMode.value)return;
+ activityContext().practice={instrument:performanceExpandedInstrument.value,range:context.range,measure:context.measure,display:practiceDisplay.value};saveActivityContexts();
+}
 function clampActivityBar(bar:number){return Math.max(0,Math.min(project.value.bars.length-1,Number.isFinite(bar)?Math.floor(bar):0));}
-async function switchActivity(activity:'arrange'|'practice'|'perform'){if(homeBusy.value||!localSongId.value||(!homeOpen.value&&currentActivity.value===activity))return;
+function clampActivityRange(range:[number,number]):[number,number]{
+ const first=clampActivityBar(range[0]-1)+1;
+ return [first,Math.max(first,clampActivityBar(range[1]-1)+1)];
+}
+function restoreArrange(newSong=false){
+ const saved=activityContext().arrange;
+ if(saved&&workspaceTabs.includes(saved.tab)&&saved.tab!=='about'){
+  active.value=saved.tab;selectedBar.value=clampActivityBar(saved.bar);overviewFocus.value=selectedBar.value;
+  if(activeRoster.value.includes(saved.instrument))noteInst.value=saved.instrument;
+  if(Array.isArray(saved.range))[noteLoopFrom.value,noteLoopTo.value]=clampActivityRange(saved.range);
+ }else if(newSong||active.value==='about')active.value='arrange';
+}
+function restorePerform(fallbackBar=selectedBar.value,legacyView=false){
+ const saved=activityContext().perform;
+ const bar=clampActivityBar(saved?.bar??fallbackBar);
+ performanceView.value=saved?saved.view==='notes'?'notes':'ensemble':legacyView?performanceView.value:'ensemble';
+ selectedBar.value=bar;
+ performanceBeat.value=bar===0&&pickupBeats.value?project.value.beats-pickupBeats.value:bar*project.value.beats;
+ performanceMode.value=true;
+}
+async function restoreStartupActivity(){
+ let last:string|null=null;
+ try{last=localStorage.getItem('tango-last-activity');}catch{/* Preserve legacy startup fallback. */}
+ const saved=activityContext().practice;
+ if(last==='practice'&&saved&&activeRoster.value.includes(saved.instrument)){
+  await homePractise(saved.instrument);
+ }else if(last==='perform'||(!last&&performanceMode.value)){
+  restorePerform(selectedBar.value,true);
+ }else{
+  performanceMode.value=false;restoreArrange();
+ }
+}
+function openDirectPracticePicker(trigger:HTMLElement|null){
+ practicePickerTrigger=trigger;
+ directPracticePick.value=true;
+ void nextTick(()=>document.querySelector<HTMLElement>('#activity-practice-picker .home-actions button')?.focus());
+}
+function closeDirectPracticePicker(restoreFocus=true){
+ directPracticePick.value=false;const trigger=practicePickerTrigger;practicePickerTrigger=null;
+ if(restoreFocus)void nextTick(()=>{if(trigger?.isConnected)trigger.focus();});
+}
+async function choosePracticeInstrument(inst:Instrument){
+ if(homeBusy.value)return;
  homeBusy.value=true;homeError.value='';
- try{rememberActivity();await flushAutosave();stopPlayback();closePerformanceInstrument();performanceMode.value=false;await nextTick();const ctx=activityContext();
- if(activity==='arrange'){homeOpen.value=false;homePracticePick.value=false;const saved=ctx.arrange;if(saved&&workspaceTabs.includes(saved.tab)&&saved.tab!=='about'){active.value=saved.tab;selectedBar.value=clampActivityBar(saved.bar);if(activeRoster.value.includes(saved.instrument))noteInst.value=saved.instrument;if(Array.isArray(saved.range)){noteLoopFrom.value=clampActivityBar(saved.range[0]-1)+1;noteLoopTo.value=Math.max(noteLoopFrom.value,clampActivityBar(saved.range[1]-1)+1);}}else if(active.value==='about')active.value='arrange';}
- else if(activity==='perform'){homeOpen.value=false;homePracticePick.value=false;if(ctx.perform){performanceView.value=ctx.perform.view==='notes'?'notes':'ensemble';performanceBeat.value=clampActivityBar(ctx.perform.bar)*project.value.beats;}performanceMode.value=true;}
- else if(ctx.practice&&activeRoster.value.includes(ctx.practice.instrument)){await homePractise(ctx.practice.instrument);}
- else{homeOpen.value=true;homePracticePick.value=true;}
- rememberActivity();if(activity!=='perform'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
- }catch(error){homeError.value='Could not switch activity: '+String(error);message.value=homeError.value;}finally{homeBusy.value=false;}}
-const homeExamples=[{id:'__example_el_choclo__',title:'El Choclo',description:'32-measure orchestral study'},{id:'__example_pequena_2__',title:'Pequeña 2',description:'Final variation'},{id:'__example_tigre_viejo__',title:'Tigre Viejo',description:'Bowed expression'},{id:'__example_hasta_siempre__',title:'Hasta Siempre Amor',description:'75 measures · 7 parts'},{id:'__example_la_melodia__',title:'La Melodia de Nuestros Adios',description:'Vocal C/D'}];
+ try{await homePractise(inst);}
+ catch(error){homeError.value='Could not open Practice: '+String(error);message.value=homeError.value;}
+ finally{homeBusy.value=false;}
+}
+async function switchActivity(activity:Activity,event?:MouseEvent){
+ if(homeBusy.value||directPracticePick.value||!localSongId.value||(!homeOpen.value&&currentActivity.value===activity))return;
+ const trigger=event?.currentTarget instanceof HTMLElement?event.currentTarget:null;
+ homeBusy.value=true;homeError.value='';
+ try{
+  rememberActivity();await flushAutosave();stopPlayback();
+  const ctx=activityContext();
+  if(activity==='practice'&&(!ctx.practice||!activeRoster.value.includes(ctx.practice.instrument))){
+   openDirectPracticePicker(trigger);return;
+  }
+  closePerformanceInstrument();performanceMode.value=false;await nextTick();
+  homeOpen.value=false;homePracticePick.value=false;
+  if(activity==='arrange')restoreArrange();
+  else if(activity==='perform')restorePerform();
+  else if(ctx.practice)await homePractise(ctx.practice.instrument);
+  rememberActivity();
+ }catch(error){homeError.value='Could not switch activity: '+String(error);message.value=homeError.value;}
+ finally{homeBusy.value=false;}
+}
+const homeExamples=[{id:'__example_pequena_2__',title:'Pequeña 2',description:'Final variation'},{id:'__example_tigre_viejo__',title:'Tigre Viejo',description:'Bowed expression'},{id:'__example_hasta_siempre__',title:'Hasta Siempre Amor',description:'75 measures · 7 parts'},{id:'__example_la_melodia__',title:'La Melodia de Nuestros Adios',description:'Vocal C/D'}];
 function showHome(){
+ if(homeBusy.value)return;
  rememberActivity();
+ closeDirectPracticePicker(false);
  stopPlayback();
  closePerformanceInstrument();
  performanceMode.value=false;
@@ -6021,21 +6095,46 @@ function showHome(){
  if(localSongId.value)void flushAutosave().catch(error=>{homeError.value='Could not save the current song: '+String(error);});
 }
 function startHomeSong(method:'blank'|'score'){homePracticePick.value=false;newSongStart.value=method;newSongOpen.value=true;}
-async function homeChooseSong(id:string,activity:'arrange'|'practice'|'perform'){
+async function homeChooseSong(id:string,activity:Activity){
  if(homeBusy.value)return;homeBusy.value=true;homeError.value='';
- try{rememberActivity();const previous=localSongId.value;await openSongById(id);if(!localSongId.value||(!id.startsWith('__example_')&&localSongId.value!==id)||(id.startsWith('__example_')&&localSongId.value===previous))throw Error(message.value||'Could not open song');
-  performanceMode.value=false;closePerformanceInstrument();homeOpen.value=activity==='practice';homePracticePick.value=activity==='practice';
-  if(activity==='perform'){performanceMode.value=true;}
-  if(activity==='arrange'&&active.value==='about')active.value='arrange';
- }catch(error){homeError.value=String(error);homeOpen.value=true;}finally{homeBusy.value=false;}
+ try{
+  rememberActivity();const previous=localSongId.value;
+  await openSongById(id);
+  if(!localSongId.value||(!id.startsWith('__example_')&&localSongId.value!==id)||(id.startsWith('__example_')&&localSongId.value===previous))
+   throw Error(message.value||'Could not open song');
+  closePerformanceInstrument();performanceMode.value=false;await nextTick();
+  homeOpen.value=activity==='practice';homePracticePick.value=activity==='practice';
+  if(activity==='perform')restorePerform();
+  else if(activity==='arrange')restoreArrange(localSongId.value!==previous);
+  rememberActivity();
+ }catch(error){homeError.value=String(error);homeOpen.value=true;}
+ finally{homeBusy.value=false;}
 }
-async function homePractise(inst:Instrument){if(!activeRoster.value.includes(inst))return;const saved=activityContext().practice;homePracticePick.value=false;homeOpen.value=false;performanceMode.value=true;performanceView.value='ensemble';await nextTick();focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=undefined;if(saved?.instrument===inst){if(Array.isArray(saved.range)){const first=clampActivityBar(saved.range[0]-1)+1;resumedPracticeRange.value=[first,Math.max(first,clampActivityBar(saved.range[1]-1)+1)];}if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;}performanceExpandedInstrument.value=inst;performanceScoreView.value='off';enterInstrumentLearn();rememberActivity();}
+async function homePractise(inst:Instrument){
+ if(!activeRoster.value.includes(inst))return;
+ const saved=activityContext().practice;
+ closeDirectPracticePicker(false);homePracticePick.value=false;homeOpen.value=false;
+ performanceView.value='ensemble';performanceMode.value=true;
+ focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=clampActivityBar(selectedBar.value)+1;practiceDisplay.value='score-diagram';
+ if(saved?.instrument===inst){
+  if(Array.isArray(saved.range))resumedPracticeRange.value=clampActivityRange(saved.range);
+  if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;
+  if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;
+ }
+ performanceExpandedInstrument.value=inst;performanceScoreView.value='off';
+ // The focus panel and its Teleport targets must be in the document before Learn mounts.
+ await nextTick();
+ if(performanceExpandedInstrument.value!==inst||!performanceMode.value||homeOpen.value)return;
+ enterInstrumentLearn();
+ await nextTick();
+ document.querySelector<HTMLElement>('.instrument-focus-learn')?.focus();
+}
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
   <template v-if="!homeOpen && !libraryLoading && localSongId">
-  <template v-if="!performanceExpandedInstrument"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav></template>
+  <template v-if="!performanceExpandedInstrument"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity,$event)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav></template>
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'"><span>{{performanceShortTitle}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -6068,7 +6167,7 @@ async function homePractise(inst:Instrument){if(!activeRoster.value.includes(ins
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
     <label class="topbar-song-label" for="header-song-picker">Song</label>
-    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_tigre_viejo__">＋ Tigre Viejo — bowed expression (new copy)</option><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_el_choclo__">＋ El Choclo — orchestral study (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
+    <select id="header-song-picker" class="header-song-picker" :value="localSongId" :disabled="!libraryReady" aria-label="Choose a locally saved song or create an example" @change="chooseSongFromPicker"><optgroup label="Local songs"><option v-if="!localSongs.length" value="">{{project.title||'Untitled tango'}}</option><option v-for="song in localSongs" :key="song.id" :value="song.id">{{song.title}} · {{song.measures}} bars</option></optgroup><optgroup label="Example songs"><option value="__example_tigre_viejo__">＋ Tigre Viejo — bowed expression (new copy)</option><option value="__example_hasta_siempre__">＋ Hasta Siempre Amor — 75 measures, 7 parts (new copy)</option><option value="__example_pequena_2__">＋ Pequeña 2 — Final variation (new copy)</option><option value="__example_la_melodia__">＋ La Melodia de Nuestros Adios — Vocal C/D (new copy)</option></optgroup></select>
     <details class="topbar-menu song-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)">
       <summary class="icon-action file-menu-summary" title="File: new, open, save, duplicate, delete" aria-label="File operations"><AppIcon name="folder-open"/><span class="file-menu-label">File</span><AppIcon name="chevron-down"/></summary>
       <div class="topbar-menu-panel files-organized-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="File operations">
@@ -6198,12 +6297,22 @@ async function homePractise(inst:Instrument){if(!activeRoster.value.includes(ins
     <div class="app-modal-actions"><button type="button" class="secondary" @click="closeImportDialog">Close</button></div>
   </section>
 </div>
+ <Teleport to="body">
+  <div v-if="directPracticePick" class="app-modal-backdrop" @click.self="closeDirectPracticePicker()" @keydown.esc.stop.prevent="closeDirectPracticePicker()" @keydown.tab="trapModalTab">
+   <section id="activity-practice-picker" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="activity-practice-title">
+    <h2 id="activity-practice-title">Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p>
+    <div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" :disabled="homeBusy" @click="choosePracticeInstrument(inst)">{{rosterDisplayName(inst)}}</button>
+     <button type="button" class="secondary" @click="closeDirectPracticePicker()">Back</button>
+    </div>
+   </section>
+  </div>
+ </Teleport>
  <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
  <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
   <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p></div>
   <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
   <p v-if="homeError" role="alert">{{homeError}}</p>
-  <div v-if="homePracticePick" class="editor"><h2>Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p><div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" @click="homePractise(inst)">{{rosterDisplayName(inst)}}</button><button type="button" class="secondary" @click="homePracticePick=false">Back</button></div></div>
+  <div v-if="homePracticePick" class="editor"><h2>Practise · {{project.title}}</h2><p>Choose your instrument or vocal part.</p><div class="home-actions"><button v-for="inst in activeRoster" :key="inst" type="button" class="secondary" @click="choosePracticeInstrument(inst)" :disabled="homeBusy">{{rosterDisplayName(inst)}}</button><button type="button" class="secondary" @click="homePracticePick=false">Back</button></div></div>
   <template v-else>
    <div class="home-activities">
     <article class="editor"><h2>Arrange</h2><p>Create, import and refine your arrangements.</p><div class="home-actions"><button class="primary" :disabled="homeBusy" @click="startHomeSong('blank')">New song</button><button class="secondary" :disabled="homeBusy" @click="startHomeSong('score')">Import score</button><button class="secondary" :disabled="homeBusy" @click="openContextImport('project')">Open project file</button><button v-if="localSongId" class="secondary" :disabled="homeBusy" @click="homeChooseSong(localSongId,'arrange')">Continue arrangement</button></div></article>
@@ -6285,7 +6394,7 @@ async function homePractise(inst:Instrument){if(!activeRoster.value.includes(ins
      <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" :class="{'is-learning':instrumentLearnMode}" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
        <header class="instrument-focus-header">
          <div class="instrument-focus-title"><button class="focus-home-brand" type="button" @click="showHome" aria-label="Tango Arranger home" title="Home">Tango Arranger <small>{{appDisplayBuild}}</small></button><small class="focus-title-line"><span>{{instrumentLearnMode?'Practice':'Instrument focus'}} · {{project.title||'Untitled tango'}}</span></small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
-         <div class="instrument-focus-toolbar"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav>
+         <div class="instrument-focus-toolbar"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity,$event)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav>
            <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
              <button type="button" :class="{selected:!focusShowsScore&&cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
              <button type="button" :class="{selected:performanceScoreView==='score'}" :aria-pressed="performanceScoreView==='score'" @click="performanceScoreView='score'">Score</button>
@@ -6319,9 +6428,9 @@ async function homePractise(inst:Instrument){if(!activeRoster.value.includes(ins
            <button v-else type="button" class="secondary instrument-focus-learn" aria-label="Return to performance instrument view" title="Return to performance instrument view" @click="exitInstrumentLearn"><AppIcon name="presentation"/><span class="focus-button-label">Performance</span></button>
            <button type="button" class="secondary instrument-focus-close" aria-label="Close instrument focus" title="Return to ensemble" @click="closePerformanceInstrument"><AppIcon name="minimize"/><span>Close</span></button>
          </div>
-         <div v-if="instrumentLearnMode" id="practice-learn-controls" class="instrument-focus-learn-controls"></div>
-         <div v-if="instrumentLearnMode" id="practice-learn-tuner" class="instrument-focus-learn-tuner"></div>
-         <div v-if="instrumentLearnMode" id="practice-recording-beat" class="instrument-focus-recording-beat"></div>
+         <div v-show="instrumentLearnMode" id="practice-learn-controls" class="instrument-focus-learn-controls"></div>
+         <div v-show="instrumentLearnMode" id="practice-learn-tuner" class="instrument-focus-learn-tuner"></div>
+         <div v-show="instrumentLearnMode" id="practice-recording-beat" class="instrument-focus-recording-beat"></div>
        </header>
        <div v-if="!instrumentLearnMode" class="instrument-focus-status" aria-live="off">
          <span>Measure <strong>{{measureLabel(performanceBar)}}</strong> / {{project.bars.length-(pickupBeats?1:0)}}</span>
