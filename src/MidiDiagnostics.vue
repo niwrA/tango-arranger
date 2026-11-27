@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {midiSupported as supported,midiAccess as access,midiInputs as inputs,midiOutputs as outputs,midiInputId as inputId,midiOutputId as outputId,midiOutputEnabled as outputEnabled,midiStatus as status,midiBusy as busy,midiReceived as received,midiSent as sent,midiLog as log,midiOutput as selectedOutput,enableMidi as enable,selectMidiInput,sendMidiNote,panicMidi} from './midiSession';
+import {midiSupported as supported,midiAccess as access,midiInputs as inputs,midiOutputs as outputs,midiInputId as inputId,midiOutputId as outputId,midiOutputEnabled as outputEnabled,midiStatus as status,midiBusy as busy,midiReceived as received,midiSent as sent,midiLog as log,midiOutput as selectedOutput,enableMidi as enable,selectMidiInput,selectMidiOutput,midiChannel,sendMidiNote,panicMidi} from './midiSession';
 function testNote(){sendMidiNote(60,64,.3);}
 </script>
 
@@ -16,8 +16,9 @@ function testNote(){sendMidiNote(60,64,.3);}
       <label v-if="inputs.length">Active MIDI input<select :value="inputId" @change="selectMidiInput(($event.target as HTMLSelectElement).value)"><option v-for="port in inputs" :key="port.id" :value="port.id">{{port.name || port.id}}</option></select></label>
       <p>Play a key or press a pedal on your piano to see incoming messages.</p>
       <h3>Output devices ({{outputs.length}})</h3>
-      <label v-if="outputs.length">MIDI output<select v-model="outputId" @change="panicMidi"><option v-for="port in outputs" :key="port.id" :value="port.id">{{port.name || port.id}}</option></select></label>
+      <label v-if="outputs.length">MIDI output<select  :value="outputId" @change="selectMidiOutput(($event.target as HTMLSelectElement).value)"><option v-for="port in outputs" :key="port.id" :value="port.id">{{port.name || port.id}}</option></select></label>
       <p v-else>No MIDI outputs detected.</p>
+      <label v-if="outputs.length">Output channel<select v-model.number="midiChannel"><option v-for="channel in 16" :key="channel" :value="channel-1">{{channel}}</option></select></label>
       <label v-if="outputs.length"><input type="checkbox" v-model="outputEnabled" @change="panicMidi"/> Send piano playback and auditions to MIDI output</label>
       <button type="button" class="secondary" @click="panicMidi">All notes off</button>
       <button type="button" class="secondary" :disabled="!selectedOutput" @click="testNote">Send test note (C4)</button>
