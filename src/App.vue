@@ -4458,8 +4458,9 @@ async function toggleNoteLoop(){
   try{
     Tone=await startAudioFromGesture();
     if(session!==noteLoopSession||active.value!=='notes')return;
-    loopSynth??=new Tone.PolySynth(Tone.Synth,{envelope:{attack:0.025,decay:0.07,sustain:0.9,release:0.23}}).toDestination();
-    loopSynth.volume.value=-9;
+    const inst=noteInst.value;
+    await prepareSamples([inst]);
+    if(session!==noteLoopSession||active.value!=='notes'||noteInst.value!==inst)return;
     const transport=Tone.getTransport();
     transport.stop();transport.cancel();transport.position=0;
     transport.timeSignature=project.value.beats;
@@ -4474,13 +4475,17 @@ async function toggleNoteLoop(){
       const bar=range.from+(loopPass++%(range.to-range.from+1));
       Tone.getDraw().schedule(()=>{if(session===noteLoopSession&&noteLoopPlaying.value)noteLoopMeasure.value=bar;},time);
       // Read the current score at the start of every pass, including manual edits.
-      const events=measureLoopEvents(playbackNotesInRange(practiceScore.value[noteInst.value]??[],range.from*project.value.beats,(range.to+1)*project.value.beats,project.value.transposeSemitones??0),bar,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],noteInst.value,project.value,true);
-      for(const event of events){
-        if(usesModeledAudio(noteInst.value))
-          renderModeledPart(noteInst.value,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.bandoneonStaff);
-        else if(event.gesture||event.slideTo!==undefined||event.endVelocity!==undefined||event.bowedTremolo)
-          playExpressiveEvent(Tone.getContext().rawContext as AudioContext,{...event,durationSeconds:playbackDuration(event.durationSeconds,rehearsalSpeed.value)},time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
-        else loopSynth?.triggerAttackRelease(Tone.Frequency(event.pitch,'midi').toFrequency(),playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value),event.velocity/127);
+      const p=project.value,beats=p.beats,transpose=p.transposeSemitones??0;
+      const notes=practiceScore.value[inst]??[];
+      const nativePedal=midiPianoAvailable(inst);
+      if(nativePedal)for(const span of pianoPedalWindows(notes,range.from*beats,(range.to+1)*beats)){
+        if(span.start>=bar*beats&&span.start<(bar+1)*beats&&focusInstrumentAudible(inst))
+          sendMidiPedal(playbackDuration((span.end-span.start)*60/p.bpm,rehearsalSpeed.value),midiTransportDelay(time+playbackDuration((span.start-bar*beats)*60/p.bpm,rehearsalSpeed.value)));
+      }
+      for(const note of playbackNotesInRange(notes,range.from*beats,(range.to+1)*beats,transpose,nativePedal)){
+        for(const event of measureLoopEvents([note],bar,beats,p.bpm,transpose,p.expressionRanges??[],inst,p,true)){
+          renderArrangementNote(inst,note,event,playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
+        }
       }
     },'1m',0);
     let beat=0;
