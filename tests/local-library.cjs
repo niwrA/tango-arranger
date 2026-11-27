@@ -111,12 +111,13 @@ async function run(){
   assert.match(app,/if\(localSongId.value\)void flushAutosave\(\)/);
   console.log('PASS startup restores saved songs, and empty Home has no implicit draft');
   const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
-  for(const [activity,label] of [['arrange','Continue'],['practice','Practise'],['perform','Perform']]){
-    assert.ok(app.includes(`@click="homeChooseSong(localSongId,'${activity}')">${label} · {{project.title.trim()||'Untitled tango'}}`));
+  assert.match(app,/<strong id="home-current-song-name">{{project.title.trim\(\)\|\|'Untitled tango'}}<\/strong>/);
+  for(const activity of ['arrange','practice','perform']){
+    assert.ok(app.includes(`aria-describedby="home-current-song-name" @click="homeChooseSong(localSongId,'${activity}')"`));
   }
   assert.match(css,/\.home-workspace \.home-actions button\{[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/);
   assert.match(css,/\.home-song-row > div:first-child\{[^}]*max-width:100%[^}]*overflow-wrap:anywhere/);
-  console.log('PASS Home shortcuts name the current song and can wrap long titles');
+  console.log('PASS Home shortcuts are described by the current song and long titles can wrap');
   assert.match(app,/async function auditionPitch/);
   assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
