@@ -5182,11 +5182,12 @@ const quickSelectedDisplayNotes=computed(()=>{
 });
 const quickSelectionCount=computed(()=>quickScope.value==='notes'?resolvedQuickSelection.value.notes.length:resolvedQuickSelection.value.measures.length);
 const quickCategories=computed(()=>editCategories.filter(c=>musicalEditActions(c.id,noteInst.value).length));
+const quickActionSelectionCount=computed(()=>quickNoteCategory.value==='bow'?resolvedQuickSelection.value.notes.length:quickSelectionCount.value);
 const quickNoteActions=computed(()=>{
  const actions=musicalEditActions(quickNoteCategory.value,noteInst.value);
  if(quickNoteCategory.value!=='bow')return actions;
  // One pair of notation marks: assign a single note, or plan a selected passage.
- const planning=quickSelectionCount.value>1;
+ const planning=quickActionSelectionCount.value>1;
  return actions.filter(action=>planning? !['down','up'].includes(action.value):!['plan-down','plan-up'].includes(action.value));
 });
 function quickNoteSelected(n:Note){return quickSelectedDisplayNotes.value.has(n);}
@@ -6216,6 +6217,7 @@ function showHome(){
  homePracticePick.value=false;
  homeError.value='';
  homeOpen.value=true;
+ void nextTick(()=>document.querySelector<HTMLElement>('#home-title')?.focus({preventScroll:true}));
  if(document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
  performanceStageCompact.value=false;
  // Finish any pending edit without waiting for the normal autosave debounce.
@@ -6259,9 +6261,9 @@ async function homePractise(inst:Instrument){
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
-  <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
+  <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo" aria-hidden="true">𝄞</span><span class="home-brand-icon" aria-hidden="true"><AppIcon name="home"/></span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
   <template v-if="!homeOpen && !libraryLoading && localSongId">
-  <template v-if="!performanceExpandedInstrument"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity,$event)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav></template>
+  
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'"><span>{{performanceShortTitle}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -6360,7 +6362,7 @@ async function homePractise(inst:Instrument){
         </template>
         <template v-else>
           <strong class="files-group-title">Performance display</strong>
-          <button type="button" class="secondary" @click="showHome">Tango Arranger home</button>
+
           <button type="button" class="secondary" :aria-pressed="performanceView==='ensemble'" @click="performanceView='ensemble'">Ensemble diagrams</button>
           <button type="button" class="secondary" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
           <button type="button" class="secondary" @click="togglePerformanceFullscreen"><AppIcon name="maximize"/> {{performanceFullscreenActive||performanceStageCompact?'Exit full screen':'Full screen'}}</button>
@@ -6378,7 +6380,7 @@ async function homePractise(inst:Instrument){
       <button type="button" :class="{selected:performanceView==='notes'}" :aria-pressed="performanceView==='notes'" @click="performanceView='notes'">Notes &amp; karaoke</button>
     </div>
     <div class="performance-stage-actions"><button v-if="wakeSupported" type="button" class="secondary performance-stage-action" :aria-pressed="keepPerformanceAwake" :title="wakeActive?'Screen is being kept awake':'Screen wake lock is inactive'" @click="keepPerformanceAwake=!keepPerformanceAwake">Keep awake</button>
-      <button type="button" class="secondary performance-stage-action" title="Home" aria-label="Tango Arranger home" @click="showHome"><AppIcon name="home"/><span>Home</span></button>
+
       <button type="button" class="secondary performance-stage-action performance-fullscreen-button" :aria-pressed="performanceFullscreenActive||performanceStageCompact" :title="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen (if supported)'" :aria-label="performanceFullscreenActive?'Exit browser full screen':performanceStageCompact?'Exit compact stage view':'Enter full screen'" @click="togglePerformanceFullscreen">
         <AppIcon :name="performanceFullscreenActive||performanceStageCompact?'minimize':'maximize'"/><span>{{performanceFullscreenActive||performanceStageCompact?'Exit screen':'Full screen'}}</span>
       </button>
@@ -6436,7 +6438,7 @@ async function homePractise(inst:Instrument){
  </Teleport>
  <section v-if="libraryLoading" class="editor" role="status">Opening song library…</section>
  <section v-else-if="homeOpen&&!newSongOpen" class="home-workspace" aria-labelledby="home-title">
-  <div class="home-intro"><h1 id="home-title">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button></div>
+  <div class="home-intro"><h1 id="home-title" tabindex="-1">Tango Arranger</h1><p>Arrange, practise and perform Argentine tango.</p><button v-if="canInstall" type="button" class="secondary" @click="installApp">Install Tango Arranger</button></div>
   <details class="editor"><summary>Display preferences</summary><p v-if="!wakeSupported">Screen wake lock is unavailable in this browser or connection. Your device's display timeout still applies.</p><div v-else><p><label><input type="checkbox" v-model="keepPracticeAwake"/> Keep screen awake during practice</label></p><p><label><input type="checkbox" v-model="keepPerformanceAwake"/> Keep screen awake during performance</label></p><p><label><input type="checkbox" v-model="keepEditingAwake"/> Keep screen awake while arranging</label></p></div><small class="hint">Preferences are saved on this device. Battery saving may override screen wake lock. Fullscreen is available from the practice and performance toolbars.</small></details>
   <p v-if="!libraryReady" role="alert">{{saveStatus}}. Portable project backups are recommended.</p>
   <p v-if="homeError" role="alert">{{homeError}}</p>
@@ -6521,8 +6523,8 @@ async function homePractise(inst:Instrument){
     <template v-for="part in performanceCueParts" :key="part.inst">
      <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" :class="{'is-learning':instrumentLearnMode}" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
        <header class="instrument-focus-header">
-         <div class="instrument-focus-title"><button class="focus-home-brand" type="button" @click="showHome" aria-label="Tango Arranger home" title="Home">Tango Arranger <small>{{appDisplayBuild}}</small></button><small class="focus-title-line"><span>{{instrumentLearnMode?'Practice':'Instrument focus'}} · {{project.title||'Untitled tango'}}</span></small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
-         <div class="instrument-focus-toolbar"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity,$event)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav>
+         <div class="instrument-focus-title"><button class="focus-home-brand" type="button" @click="showHome" aria-label="Tango Arranger home" title="Tango Arranger home"><span class="focus-brand-label">Tango Arranger <small>{{appDisplayBuild}}</small></span><span class="home-brand-icon" aria-hidden="true"><AppIcon name="home"/></span></button><small class="focus-title-line"><span>{{instrumentLearnMode?'Practice':'Instrument focus'}} · {{project.title||'Untitled tango'}}</span></small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
+         <div class="instrument-focus-toolbar">
            <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
              <button type="button" :class="{selected:!focusShowsScore&&cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
              <button type="button" :class="{selected:performanceScoreView==='score'}" :aria-pressed="performanceScoreView==='score'" @click="performanceScoreView='score'">Score</button>
@@ -7392,7 +7394,7 @@ async function homePractise(inst:Instrument){
      <label>Pitch <input type="number" v-model.number="quickPitch" :min="noteCtx.range[0]" :max="noteCtx.range[1]"/></label>
      <label>Beat <input type="number" v-model.number="quickBeat" min="1" :max="project.beats" :step="noteStep"/></label>
     </template>
-    <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)"><svg v-if="quickNoteCategory==='bow'&&['down','up','plan-down','plan-up'].includes(action.value)" class="bow-mark-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path v-if="action.value==='down'||action.value==='plan-down'" d="M5 5h14v4H5z M5 9h2v10H5z M17 9h2v10h-2z" fill="currentColor"/><path v-else d="M5 5l7 14 7-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="miter" stroke-linecap="square"/></svg><template v-else>{{action.label}}</template></button>
+    <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickActionSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)"><svg v-if="quickNoteCategory==='bow'&&['down','up','plan-down','plan-up'].includes(action.value)" class="bow-mark-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path v-if="action.value==='down'||action.value==='plan-down'" d="M5 5h14v4H5z M5 9h2v10H5z M17 9h2v10h-2z" fill="currentColor"/><path v-else d="M5 5l7 14 7-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="miter" stroke-linecap="square"/></svg><template v-else>{{action.label}}</template></button>
     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
    </div>
    <div v-if="quickMode==='create'" class="musical-edit-row">
@@ -9669,7 +9671,7 @@ async function homePractise(inst:Instrument){
 </style>
 
 <style scoped>
-.activity-nav{display:flex;align-items:center;gap:4px;flex:0 0 auto;flex-wrap:wrap}.activity-nav button{font-size:12px;min-height:36px;padding:4px 9px;white-space:nowrap}.activity-nav button[aria-pressed="true"]{background:#23465b;color:#e2f6ff;border-color:#83c6e7}.focus-home-brand{display:inline-flex;align-items:baseline;gap:7px;border:0;background:transparent;color:#e2f6ff;padding:2px 0;min-height:24px;font-size:12px;font-weight:700;box-shadow:none}.focus-home-brand small{font-weight:500}.focus-home-brand:focus-visible{outline:2px solid #83c6e7}@media(max-width:760px){.activity-nav button{min-height:40px;padding:4px 7px;font-size:11px}}
+.focus-home-brand{display:inline-flex;align-items:baseline;gap:7px;border:0;background:transparent;color:#e2f6ff;padding:2px 0;min-height:24px;font-size:12px;font-weight:700;box-shadow:none}.focus-home-brand small{font-weight:500}.focus-home-brand:focus-visible{outline:2px solid #83c6e7}
 </style>
 
 <style scoped>
@@ -9686,4 +9688,29 @@ async function homePractise(inst:Instrument){
 
 <style scoped>
 .lead-instrumental-chords{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:4px;margin:6px 0 14px}.lead-instrumental-chords button{display:grid;gap:2px;text-align:left;background:#eeede7;color:#202934;border:1px solid #bac2c8;border-radius:4px;min-height:42px;padding:4px 8px}.lead-instrumental-chords button small{color:#53616a;font-size:10px}.lead-print-actions label{display:flex;align-items:center;gap:5px;font-size:12px}.lead-print-actions select{width:auto}.lead-lyrics-workspace:not([open]){padding:7px 10px;margin:7px 0}.lead-lyrics-workspace:not([open])>summary{font-size:13px}
+</style>
+
+<style scoped>
+/* One Home control per visible workspace; the same action and accessible name at every size. */
+.home-brand-icon{display:none;align-items:center;justify-content:center}.home-brand-icon :deep(.app-icon){width:20px;height:20px}
+.performance-live .app-topbar>.brand.brand-link,.performance-stage-compact .app-topbar>.brand.brand-link{display:flex!important;order:-1!important;flex:0 0 auto;min-width:0;margin:0;padding:4px 6px;align-items:center;gap:5px}
+.focus-home-brand{min-height:36px}.focus-brand-label{display:inline-flex;align-items:baseline;gap:5px}
+@media(max-width:1120px){.performance-live .app-topbar>.brand.brand-link .brand-label,.performance-live .app-topbar>.brand.brand-link .logo{display:none!important}.performance-live .app-topbar>.brand.brand-link .home-brand-icon{display:inline-flex}.performance-live .app-topbar>.brand.brand-link{width:42px;min-height:42px;justify-content:center}}
+@media(max-width:760px){.shell:not(.performance-live)>.app-topbar>.brand.brand-link .brand-label,.shell:not(.performance-live)>.app-topbar>.brand.brand-link .logo{display:none!important}.shell:not(.performance-live)>.app-topbar>.brand.brand-link .home-brand-icon{display:inline-flex}.shell:not(.performance-live)>.app-topbar>.brand.brand-link{width:40px;min-height:40px;justify-content:center}.focus-home-brand .focus-brand-label{display:none}.focus-home-brand .home-brand-icon{display:inline-flex}.focus-home-brand{width:42px;min-height:42px;justify-content:center}}
+/* Give the controls their own row on narrow phones. The transport can wrap
+   when a singer cue adds another button; the workspace menu never moves off-screen. */
+@media(max-width:420px){
+ .shell.performance-live>.app-topbar{
+  display:grid!important;grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"home title title" "transport transport more";
+ }
+ .shell.performance-live>.app-topbar>.brand-link{grid-area:home}
+ .shell.performance-live>.app-topbar>.performance-topbar-song-title{
+  grid-area:title;display:flex!important;min-width:0
+ }
+ .shell.performance-live>.app-topbar>.topbar-playback{
+  grid-area:transport!important;flex-wrap:wrap;min-width:0
+ }
+ .shell.performance-live>.app-topbar>.topbar-compact-actions{grid-area:more;justify-self:end;align-self:start}
+}
 </style>

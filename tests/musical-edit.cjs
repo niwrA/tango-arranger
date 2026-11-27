@@ -6,7 +6,7 @@ const {DOMParser}=require('@xmldom/xmldom');
 const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
 const {blankProject,adaptTransposedScore,chordAt,chordTones,keyPitchClasses}=load('src/music.ts');
-const {executeMusicalEdit,editPartNoteKeys,editNoteKey}=load('src/musicalEdit.ts');
+const {executeMusicalEdit,editPartNoteKeys,editNoteKey,musicalEditActions,resolveEditSelection}=load('src/musicalEdit.ts');
 const {dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition}=load('src/noteEditing.ts');
 const {exportProjectZip,exportMusicXml,loadProject}=load('src/io.ts');
 const {readScoreEntryNotation,scoreEntryPitch,scoreEntryBeat,scoreEntryOctaveShift}=load('src/scoreEntry.ts');
@@ -317,6 +317,29 @@ function appSlice(from,to){
  assert.ok(start>=0&&end>start,'App handler is present: '+from);
  return app.slice(start,end);
 }
+// The status is allowed to count measures, but the bow controls depend on notes.
+const bowToolbar=new Function('project','score','ref','computed','resolveEditSelection','musicalEditActions',ts.transpile(`
+ const quickScope=ref('measures'),noteInst=ref('Violin I'),quickNoteCategory=ref('bow');
+ const selection=ref({kind:'measures',from:0,to:0});
+ const resolvedQuickSelection=computed(()=>resolveEditSelection(project,score['Violin I'],selection.value));
+ ${appSlice('const quickSelectionCount=', 'function quickNoteSelected(')}
+ return {selection,quickSelectionCount,quickActionSelectionCount,quickNoteActions,quickNoteCategory};
+`))(fixture,{'Violin I':[{pitch:71,start:0,duration:1},{pitch:72,start:1,duration:1},{pitch:74,start:8,duration:1}]},ref,computed,resolveEditSelection,musicalEditActions);
+const bowButtons=()=>bowToolbar.quickNoteActions.value.map(a=>a.value);
+assert.equal(bowToolbar.quickSelectionCount.value,1);
+assert.equal(bowToolbar.quickActionSelectionCount.value,2);
+assert.deepEqual(bowButtons(),['plan-down','plan-up','alternate','arco','pizzicato','clear']);
+bowToolbar.selection.value={kind:'measures',from:1,to:2};
+assert.equal(bowToolbar.quickSelectionCount.value,2);
+assert.equal(bowToolbar.quickActionSelectionCount.value,1);
+assert.deepEqual(bowButtons(),['down','up','alternate','arco','pizzicato','clear']);
+bowToolbar.selection.value={kind:'measures',from:1,to:1};
+assert.equal(bowToolbar.quickActionSelectionCount.value,0);
+bowToolbar.quickNoteCategory.value='pitch';
+assert.equal(bowToolbar.quickActionSelectionCount.value,1,'non-bow categories retain existing selection handling');
+assert.match(app,/!quickActionSelectionCount&&/);
+console.log('PASS bow toolbar uses sounding-note selection rather than measure count');
+
 const harness=`
  const project=ref(seed), sourceScore=computed(()=>project.value.generatedScore);
  const score=computed(()=>adaptTransposedScore(sourceScore.value,project.value));
