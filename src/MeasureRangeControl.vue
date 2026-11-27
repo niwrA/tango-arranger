@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import {ref} from 'vue';
 import SectionRangePicker from './SectionRangePicker.vue';
 const props=withDefaults(defineProps<{
  from:number;to:number;measures:ReadonlyArray<{section:string}>;
- disabled?:boolean;presets?:boolean;compact?:boolean;
-}>(),{disabled:false,presets:false,compact:false});
+ disabled?:boolean;presets?:boolean;compact?:boolean;collapsible?:boolean;
+}>(),{disabled:false,presets:false,compact:false,collapsible:false});
+const expanded=ref(false);
 const emit=defineEmits<{(event:'change',from:number,to:number):void}>();
 const total=()=>Math.max(1,props.measures.length);
 function clamp(value:number){return Math.max(1,Math.min(total(),Math.round(Number(value)||1)))}
@@ -24,8 +26,9 @@ function shift(delta:number){
 function chooseSong(){emit('change',1,total());}
 </script>
 <template>
- <div class="measure-range-control" :class="{'is-compact':compact}" role="group" aria-label="Measure range">
+ <div class="measure-range-control" :class="{'is-compact':compact,'range-collapsible':collapsible,'range-expanded':expanded}" role="group" aria-label="Measure range">
   <button type="button" class="secondary range-arrow" aria-label="Previous measure range" title="Previous measure range" :disabled="disabled||from<=1" @click="shift(-1)">←</button>
+  <button v-if="collapsible" type="button" class="secondary range-summary" :aria-expanded="expanded" @click="expanded=!expanded">{{from}}–{{to}} · {{measures[from-1]?.section??''}} {{expanded?'▴':'▾'}}</button>
   <label>Start measure<select :value="from" :disabled="disabled" aria-label="Start measure" @change="setStart"><option v-for="(measure,index) in measures" :key="index" :value="index+1">{{index+1}} · {{measure.section}}</option></select></label>
   <SectionRangePicker :measures="measures" :from="from" :disabled="disabled" :compact="compact" @select="(start,end)=>emit('change',start,end)"/>
   <label>End measure<select :value="to" :disabled="disabled" aria-label="End measure" @change="setEnd"><option v-for="(measure,index) in measures" :key="index" :value="index+1">{{index+1}} · {{measure.section}}</option></select></label>
@@ -79,4 +82,18 @@ function chooseSong(){emit('change',1,total());}
 .measure-range-control>label:nth-of-type(2){grid-column:4}
 .measure-range-control>.range-arrow:nth-child(5){grid-column:5}
 .measure-range-control>.range-presets{grid-row:3}
+</style>
+
+<style scoped>
+.range-summary{display:none}
+@media(max-width:700px){
+ .measure-range-control.range-collapsible{grid-template-columns:40px minmax(0,1fr) 40px;grid-template-rows:auto;align-items:center;width:100%}
+ .range-collapsible>.range-summary{display:block;grid-column:2;grid-row:1;min-width:0;min-height:44px;margin:0;padding:5px;font-size:13px}
+ .range-collapsible>.range-arrow:first-child{grid-column:1;grid-row:1}
+ .range-collapsible>.range-arrow:last-of-type{grid-column:3;grid-row:1}
+ .range-collapsible:not(.range-expanded)>label,.range-collapsible:not(.range-expanded)>:deep(.section-range-picker){display:none}
+ .range-collapsible.range-expanded>label:nth-of-type(1){grid-column:1/3;grid-row:2}
+ .range-collapsible.range-expanded>label:nth-of-type(2){grid-column:1/3;grid-row:3}
+ .range-collapsible.range-expanded>:deep(.section-range-picker){grid-column:3;grid-row:2/4}
+}
 </style>
