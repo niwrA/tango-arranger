@@ -1920,3 +1920,16 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 }
 
 @media(min-width:1450px){.shell.performance-live{max-width:none!important;width:100%;margin:0}.capture-fingerboard-grid{box-sizing:border-box}.capture-fingerboard-row,.capture-fingerboard-header{grid-template-columns:58px repeat(var(--capture-fret-columns),minmax(36px,1fr))}.capture-fingerboard-key{min-width:36px}}
+
+/* UX-01: responsive activity-first Home. */
+.home-workspace{width:min(1100px,100%);margin:0 auto;padding:clamp(12px,3vw,32px);box-sizing:border-box;display:grid;gap:16px}
+.home-intro h1{margin:0 0 .4rem;font-size:clamp(1.65rem,4vw,2.5rem)}
+.home-intro p{margin:0}
+.home-activities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.home-activities .editor{display:flex;flex-direction:column;gap:8px;margin:0;min-width:0}
+.home-activities h2,.home-workspace h2{margin-top:0}
+.home-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.home-actions button{min-height:44px}
+.home-song-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 0;border-top:1px solid currentColor;border-top-color:color-mix(in srgb,currentColor 18%,transparent)}
+.home-song-row small{display:block;opacity:.75;margin-top:3px}
+@media(max-width:760px){.home-activities{grid-template-columns:1fr}.home-song-row .home-actions{width:100%}.home-song-row .home-actions button{flex:1}}
