@@ -290,6 +290,7 @@ async function initializeLocalLibrary(){
     homeOpen.value=!localSongId.value;
     if(homeOpen.value)performanceMode.value=false;
     rememberOpenedSongId(localSongId.value);libraryReady.value=true;saveStatus.value='Autosave on · stored in this browser';
+    if(localSongId.value&&performanceMode.value){const saved=activityContext().practice;try{if(localStorage.getItem('tango-last-activity')==='practice'&&saved&&activeRoster.value.includes(saved.instrument))await homePractise(saved.instrument);}catch{/* Keep stage restoration as fallback. */}}
   }catch(error){saveStatus.value=`Local storage unavailable: ${String(error)}`;message.value='Local autosave unavailable. Use Save .tango.json to keep a backup.';homeOpen.value=true;performanceMode.value=false;}
   finally{libraryLoading.value=false;}
 }
@@ -593,8 +594,8 @@ const performanceScoreView=ref<'off'|'score'|'both'>('off');
 const focusShowsScore=computed(()=>performanceScoreView.value!=='off');
 const instrumentLearnMode=ref(false);
 const practiceDisplay=ref<PracticeDisplay>('score-diagram');
-function enterInstrumentLearn(){stopPlayback();instrumentLearnMode.value=true;}
-function exitInstrumentLearn(){instrumentLearnMode.value=false;}
+function enterInstrumentLearn(){stopPlayback();instrumentLearnMode.value=true;rememberActivity();}
+function exitInstrumentLearn(){rememberActivity();instrumentLearnMode.value=false;rememberActivity();}
 let performanceExpandTrigger:HTMLElement|null=null;
 function setPerformanceCardMode(inst:Instrument,mode:'diagram'|'cues'){
  performanceCardModes.value={...performanceCardModes.value,[inst]:mode};
@@ -1001,7 +1002,7 @@ onBeforeUnmount(()=>{
  window.removeEventListener('pageshow',checkAppUpdate);
  window.removeEventListener('online',checkAppUpdate);
 });
-function saveOnLeave(){if(libraryReady.value)void flushAutosave().catch(()=>{});}
+function saveOnLeave(){rememberActivity();if(libraryReady.value)void flushAutosave().catch(()=>{});}
 onMounted(()=>{document.addEventListener('fullscreenchange',onPerformanceFullscreenChange);window.addEventListener('keydown',handleHistoryShortcut);void initializeLocalLibrary();document.addEventListener('pointerdown',closeOpenTopbarMenusOnOutside);document.addEventListener('visibilitychange',saveIfHidden);window.addEventListener('pagehide',saveOnLeave);window.addEventListener('resize',refreshNoteGridViewportOnResize);void nextTick(()=>refreshNoteGridViewport(false));});
 function saveIfHidden(){
  if(document.visibilityState==='hidden')saveOnLeave();
@@ -5986,8 +5987,27 @@ const currentNotes=computed(()=>INSTRUMENTS.map(inst=>({inst,notes:(score.value[
 function addBar(){const previous=project.value.bars.at(-1);project.value.bars.push({chord:previous?.chord??'',melody:[],section:previous?.section??'A'});selectedBar.value=project.value.bars.length-1;}
 function changeSection(e:Event){bar.value.section=(e.target as HTMLSelectElement).value;}
 function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offset=b*project.value.beats;const notes=[...(project.value.generatedScore??generate(project.value))[inst]];const at=offset+Math.min(2,project.value.beats-1);const target=notes.find(n=>n.start>=at)?.pitch??60;notes.push({pitch:target-2,start:at-0.5,duration:0.25,source:'manual'},{pitch:target-1,start:at-0.25,duration:0.25,source:'manual'});project.value.generatedScore={...(project.value.generatedScore??generate(project.value)),[inst]:notes};message.value=`Added a simple notated piano lead-in in measure ${b+1}. This is a prototype gesture, not yet an idiomatic arrastre model.`;}
+// Activity preferences are UI-only and keyed by stable local song ID.
+type ActivityContext={arrange?:{tab:WorkspaceTab;bar:number;instrument:Instrument;range:[number,number]};practice?:{instrument:Instrument;range?:[number,number];measure?:number;display:PracticeDisplay};perform?:{bar:number;view:'ensemble'|'notes'}};
+const activityContexts:Record<string,ActivityContext>=(()=>{try{const value=JSON.parse(localStorage.getItem('tango-activity-context-v1')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}})();
+const currentActivity=computed(()=>instrumentLearnMode.value?'practice':performanceMode.value?'perform':'arrange');
+function activityContext(){const id=localSongId.value;if(!activityContexts[id]||typeof activityContexts[id]!=='object')activityContexts[id]={};return activityContexts[id];}
+function saveActivityContexts(){try{localStorage.setItem('tango-activity-context-v1',JSON.stringify(activityContexts));}catch{/* UI preferences are optional. */}}
+function rememberActivity(){if(!localSongId.value||homeOpen.value)return;try{localStorage.setItem('tango-last-activity',currentActivity.value);}catch{}const ctx=activityContext();if(currentActivity.value==='arrange'){if(workspaceTabs.includes(active.value as WorkspaceTab)&&active.value!=='about')ctx.arrange={tab:active.value as WorkspaceTab,bar:selectedBar.value,instrument:noteInst.value,range:[noteLoopFrom.value,noteLoopTo.value]};}else if(currentActivity.value==='perform'){ctx.perform={bar:performanceBar.value,view:performanceView.value};}else if(performanceExpandedInstrument.value){const prev=ctx.practice;ctx.practice={...((prev?.instrument===performanceExpandedInstrument.value)?prev:{}),instrument:performanceExpandedInstrument.value,display:practiceDisplay.value};}saveActivityContexts();}
+function rememberPracticeContext(context:{range:[number,number];measure:number}){if(!localSongId.value||!performanceExpandedInstrument.value||!instrumentLearnMode.value)return;activityContext().practice={instrument:performanceExpandedInstrument.value,range:context.range,measure:context.measure,display:practiceDisplay.value};saveActivityContexts();}
+function clampActivityBar(bar:number){return Math.max(0,Math.min(project.value.bars.length-1,Number.isFinite(bar)?Math.floor(bar):0));}
+async function switchActivity(activity:'arrange'|'practice'|'perform'){if(homeBusy.value||!localSongId.value||(!homeOpen.value&&currentActivity.value===activity))return;
+ homeBusy.value=true;homeError.value='';
+ try{rememberActivity();await flushAutosave();stopPlayback();closePerformanceInstrument();performanceMode.value=false;await nextTick();const ctx=activityContext();
+ if(activity==='arrange'){homeOpen.value=false;homePracticePick.value=false;const saved=ctx.arrange;if(saved&&workspaceTabs.includes(saved.tab)&&saved.tab!=='about'){active.value=saved.tab;selectedBar.value=clampActivityBar(saved.bar);if(activeRoster.value.includes(saved.instrument))noteInst.value=saved.instrument;if(Array.isArray(saved.range)){noteLoopFrom.value=clampActivityBar(saved.range[0]-1)+1;noteLoopTo.value=Math.max(noteLoopFrom.value,clampActivityBar(saved.range[1]-1)+1);}}else if(active.value==='about')active.value='arrange';}
+ else if(activity==='perform'){homeOpen.value=false;homePracticePick.value=false;if(ctx.perform){performanceView.value=ctx.perform.view==='notes'?'notes':'ensemble';performanceBeat.value=clampActivityBar(ctx.perform.bar)*project.value.beats;}performanceMode.value=true;}
+ else if(ctx.practice&&activeRoster.value.includes(ctx.practice.instrument)){await homePractise(ctx.practice.instrument);}
+ else{homeOpen.value=true;homePracticePick.value=true;}
+ rememberActivity();if(activity!=='perform'&&document.fullscreenElement)void document.exitFullscreen().catch(()=>{});
+ }catch(error){homeError.value='Could not switch activity: '+String(error);message.value=homeError.value;}finally{homeBusy.value=false;}}
 const homeExamples=[{id:'__example_el_choclo__',title:'El Choclo',description:'32-measure orchestral study'},{id:'__example_pequena_2__',title:'Pequeña 2',description:'Final variation'},{id:'__example_tigre_viejo__',title:'Tigre Viejo',description:'Bowed expression'},{id:'__example_hasta_siempre__',title:'Hasta Siempre Amor',description:'75 measures · 7 parts'},{id:'__example_la_melodia__',title:'La Melodia de Nuestros Adios',description:'Vocal C/D'}];
 function showHome(){
+ rememberActivity();
  stopPlayback();
  closePerformanceInstrument();
  performanceMode.value=false;
@@ -6003,18 +6023,19 @@ function showHome(){
 function startHomeSong(method:'blank'|'score'){homePracticePick.value=false;newSongStart.value=method;newSongOpen.value=true;}
 async function homeChooseSong(id:string,activity:'arrange'|'practice'|'perform'){
  if(homeBusy.value)return;homeBusy.value=true;homeError.value='';
- try{const previous=localSongId.value;await openSongById(id);if(!localSongId.value||(!id.startsWith('__example_')&&localSongId.value!==id)||(id.startsWith('__example_')&&localSongId.value===previous))throw Error(message.value||'Could not open song');
+ try{rememberActivity();const previous=localSongId.value;await openSongById(id);if(!localSongId.value||(!id.startsWith('__example_')&&localSongId.value!==id)||(id.startsWith('__example_')&&localSongId.value===previous))throw Error(message.value||'Could not open song');
   performanceMode.value=false;closePerformanceInstrument();homeOpen.value=activity==='practice';homePracticePick.value=activity==='practice';
   if(activity==='perform'){performanceMode.value=true;}
   if(activity==='arrange'&&active.value==='about')active.value='arrange';
  }catch(error){homeError.value=String(error);homeOpen.value=true;}finally{homeBusy.value=false;}
 }
-async function homePractise(inst:Instrument){homePracticePick.value=false;homeOpen.value=false;performanceMode.value=true;performanceView.value='ensemble';await nextTick();focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=undefined;performanceExpandedInstrument.value=inst;performanceScoreView.value='off';enterInstrumentLearn();}
+async function homePractise(inst:Instrument){if(!activeRoster.value.includes(inst))return;const saved=activityContext().practice;homePracticePick.value=false;homeOpen.value=false;performanceMode.value=true;performanceView.value='ensemble';await nextTick();focusScoreRange.value=null;resumedPracticeRange.value=undefined;resumedPracticeMeasure.value=undefined;if(saved?.instrument===inst){if(Array.isArray(saved.range)){const first=clampActivityBar(saved.range[0]-1)+1;resumedPracticeRange.value=[first,Math.max(first,clampActivityBar(saved.range[1]-1)+1)];}if(Number.isFinite(saved.measure))resumedPracticeMeasure.value=clampActivityBar(saved.measure!-1)+1;if(['score','diagram','notes','both','score-diagram','overlay','score-guide','overlay-guide'].includes(saved.display))practiceDisplay.value=saved.display;}performanceExpandedInstrument.value=inst;performanceScoreView.value='off';enterInstrumentLearn();rememberActivity();}
 </script>
 <template>
 <div ref="performanceShell" class="shell" :class="{'compact-help':compactHelp,'performance-stage-compact':performanceStageCompact,'performance-live':performanceMode}"><header class="app-topbar">
   <button class="brand brand-link" type="button" :disabled="homeBusy||libraryLoading" @click="showHome" aria-label="Tango Arranger home" title="Home"><span class="logo">𝄞</span><span class="brand-label"><strong>Tango Arranger</strong><small :title="runningAppBuild||'Commit unavailable'">{{appDisplayBuild}}</small></span></button>
   <template v-if="!homeOpen && !libraryLoading && localSongId">
+  <template v-if="!performanceExpandedInstrument"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav></template>
   <div v-if="performanceMode" class="performance-topbar-song-title" :title="project.title||'Untitled tango'"><span>{{performanceShortTitle}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></div>
   <div class="topbar-group topbar-playback transport-bar" role="group" aria-label="Arrangement playback">
     <button type="button" :class="['icon-action','transport-play',playing&&playbackOrigin==='beginning'?'play':'primary']" @click="play('beginning')" title="Play from beginning" aria-label="Play arrangement from beginning" :aria-pressed="playing&&playbackOrigin==='beginning'"><AppIcon name="play-from-start"/></button>
@@ -6040,9 +6061,9 @@ async function homePractise(inst:Instrument){homePracticePick.value=false;homeOp
         </label>
       </div>
     </details>
-    <button v-if="performanceMode" type="button" class="secondary icon-action performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="performanceMode=false"><AppIcon name="arrow-left"/></button>
+    <button v-if="performanceMode" type="button" class="secondary icon-action performance-editor-button" title="Return to editor" aria-label="Return to editor" @click="switchActivity('arrange')"><AppIcon name="arrow-left"/></button>
     </div>
-    <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="performanceMode=true" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
+    <button v-if="!performanceMode" type="button" class="secondary performance-topbar-button" @click="switchActivity('perform')" title="Show live performance" aria-label="Show live performance"><AppIcon name="presentation"/><span>Performance</span></button>
     <details v-if="!performanceMode" class="topbar-menu playback-menu" @toggle="onTopbarMenuToggle" @keydown.esc.stop.prevent="closeTopbarMenuFromKey($event)"><summary class="icon-action" title="Playback tools" aria-label="Playback tools"><AppIcon name="volume-2"/><AppIcon name="chevron-down" class="menu-chevron"/></summary><div class="topbar-menu-panel" @click="closeTopbarMenuOnAction($event)" role="group" aria-label="Playback tools"><label class="playback-engine-choice">Playback engine <select v-model="audioEngine" @change="stopPlayback" aria-label="Playback engine"><option value="samples">Sampled instruments (default)</option><option value="synth">Original synthesizer</option></select></label><span v-if="audioEngine==='samples'&&/unavailable/i.test(sampleStatus)" class="header-save-status" role="status">{{sampleStatus}}</span><details class="playback-mix-settings" @click.stop><summary>Instrument volumes</summary><div v-for="inst in projectInstruments(project)" :key="inst" class="playback-mix-row" style="display:flex;align-items:center;gap:.5rem;margin:.45rem 0"><label :for="'mix-'+inst" style="flex:1;min-width:6rem">{{rosterDisplayName(inst)}}</label><input :id="'mix-'+inst" type="range" min="-18" max="12" step="1" :value="instrumentGainDb(inst)" @input="updateInstrumentGain(inst,$event)" :aria-label="inst+' volume adjustment in decibels'" style="width:8rem;max-width:45%"/><output style="min-width:3rem;text-align:right">{{instrumentGainDb(inst)>0?'+':''}}{{instrumentGainDb(inst)}} dB</output></div><button type="button" class="secondary" @click="resetInstrumentMix">Reset volumes</button><small class="hint">Changes apply to sampled instruments and synthesizers; saved on this device.</small></details><button type="button" class="secondary" @click="testAudio"><AppIcon name="music"/> Test audio</button><span v-if="/fail|unavailable|error/i.test(audioStatus)" class="header-save-status" role="alert">{{audioStatus}}</span></div></details>
   </div>
   <div v-if="!performanceMode" class="topbar-group topbar-song" role="group" aria-label="Song and file operations">
@@ -6263,8 +6284,8 @@ async function homePractise(inst:Instrument){homePracticePick.value=false;homeOp
     <template v-for="part in performanceCueParts" :key="part.inst">
      <section v-if="part.inst===performanceExpandedInstrument" class="instrument-focus-panel" :class="{'is-learning':instrumentLearnMode}" role="dialog" aria-modal="true" :aria-label="'Focused '+part.display+' instrument'" :style="{'--cue-dynamic-alpha':stageDynamicAlpha(part.dynamics)}">
        <header class="instrument-focus-header">
-         <div class="instrument-focus-title"><small class="focus-title-line"><span>{{instrumentLearnMode?'Learn':'Instrument focus'}} · {{project.title||'Untitled tango'}}</span><small class="title-build" :title="runningAppBuild||'Commit unavailable'" :aria-label="'Build commit '+appDisplayBuild">{{appDisplayBuild}}</small></small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
-         <div class="instrument-focus-toolbar">
+         <div class="instrument-focus-title"><button class="focus-home-brand" type="button" @click="showHome" aria-label="Tango Arranger home" title="Home">Tango Arranger <small>{{appDisplayBuild}}</small></button><small class="focus-title-line"><span>{{instrumentLearnMode?'Practice':'Instrument focus'}} · {{project.title||'Untitled tango'}}</span></small><h2>{{part.display}} <span>{{part.role}}</span></h2></div>
+         <div class="instrument-focus-toolbar"><nav class="activity-nav" aria-label="Activities"><button v-for="activity in (['arrange','practice','perform'] as const)" :key="activity" type="button" class="secondary" :aria-pressed="currentActivity===activity" :disabled="homeBusy" @click="switchActivity(activity)">{{activity[0].toUpperCase()+activity.slice(1)}}</button></nav>
            <div v-if="!instrumentLearnMode" class="instrument-focus-mode-switch" role="group" :aria-label="part.display+' view'">
              <button type="button" :class="{selected:!focusShowsScore&&cardShowsDiagram(part.inst)}" :aria-pressed="!focusShowsScore&&cardShowsDiagram(part.inst)" @click="performanceScoreView='off';setPerformanceCardMode(part.inst,'diagram')">Diagram</button>
              <button type="button" :class="{selected:performanceScoreView==='score'}" :aria-pressed="performanceScoreView==='score'" @click="performanceScoreView='score'">Score</button>
@@ -6326,7 +6347,7 @@ async function homePractise(inst:Instrument){homePracticePick.value=false;homeOp
          <div class="instrument-focus-harmony"><small>Current chord</small><strong>{{performanceHarmony.chord||'–'}}</strong><span v-if="roleCueHarmony.chord&&roleCueHarmony.chord!=='—'">Next {{roleCueHarmony.chord}}</span></div>
        </div>
        <div class="instrument-focus-content" :class="{'instrument-focus-learn-content':instrumentLearnMode,'instrument-focus-score-content':!instrumentLearnMode&&focusShowsScore}">
-         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :project="project" :audio-engine="audioEngine" :resolve-technique="(note)=>resolveStringTechnique(part.inst,note.technique,violinTechnique(part.inst,Math.floor(note.start/project.beats)),Boolean(note.stringGlissando||note.bowedTremolo||note.gesture||note.slideTo!==undefined||note.approachSlideFrom!==undefined||note.vibrato))" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="resumedPracticeMeasure??performanceBar+1" :initial-practice-range="resumedPracticeRange" :initial-practice-measure="resumedPracticeMeasure" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event" @exit="exitInstrumentLearn">
+         <InstrumentLearnView v-if="instrumentLearnMode" :instrument="part.inst" :notes="practiceScore[part.inst]??[]" :project="project" :audio-engine="audioEngine" :resolve-technique="(note)=>resolveStringTechnique(part.inst,note.technique,violinTechnique(part.inst,Math.floor(note.start/project.beats)),Boolean(note.stringGlissando||note.bowedTremolo||note.gesture||note.slideTo!==undefined||note.approachSlideFrom!==undefined||note.vibrato))" :song-title="project.title" :beats-per-measure="project.beats" :total-measures="project.bars.length" :initial-measure="resumedPracticeMeasure??performanceBar+1" :initial-practice-range="resumedPracticeRange" :initial-practice-measure="resumedPracticeMeasure" :measures="project.bars" :reference-hz="tuningReferenceFor(project,part.inst)" :concert-transpose="project.transposeSemitones??0" :bpm="effectivePlaybackBpm" :display="practiceDisplay" :grand-staff="partUsesGrandStaff(project,part.inst,score[part.inst]??[])" :staff-split="pianoSplit" @update:display="practiceDisplay=$event;rememberActivity()" @update:context="rememberPracticeContext" @exit="exitInstrumentLearn">
            <template #score="{from,to,measure,expected,completed,playing,feedbackProgress,feedbackState,setRange}">
              <ScorePreview :project="project" :score="practiceScore" :instrument="part.inst" :from-measure="from" :to-measure="to" :active-measure="measure" :selected-note="expected" :completed-notes="completed" :playing-notes="playing" :feedback-progress="feedbackProgress" :feedback-state="feedbackState" expanded follow-measure :interactive="false" @range="setRange" @edit-range="(first,last)=>editScoreRange(part.inst,first,last,[from,to],measure)" />
            </template>
@@ -9378,4 +9399,8 @@ async function homePractise(inst:Instrument){homePracticePick.value=false;homeOp
 .musical-edit-row .quick-note-action{font-size:14px}
 .musical-preview-row{border-top:1px solid #69d5d9;padding-top:4px;color:#69d5d9}
 .musical-preview-row strong{flex:1;font-size:12px}
+</style>
+
+<style scoped>
+.activity-nav{display:flex;align-items:center;gap:4px;flex:0 0 auto;flex-wrap:wrap}.activity-nav button{font-size:12px;min-height:36px;padding:4px 9px;white-space:nowrap}.activity-nav button[aria-pressed="true"]{background:#23465b;color:#e2f6ff;border-color:#83c6e7}.focus-home-brand{display:inline-flex;align-items:baseline;gap:7px;border:0;background:transparent;color:#e2f6ff;padding:2px 0;min-height:24px;font-size:12px;font-weight:700;box-shadow:none}.focus-home-brand small{font-weight:500}.focus-home-brand:focus-visible{outline:2px solid #83c6e7}@media(max-width:760px){.activity-nav button{min-height:40px;padding:4px 7px;font-size:11px}}
 </style>
