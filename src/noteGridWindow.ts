@@ -29,3 +29,8 @@ export function noteGridViewport(
  const active=Math.min(total-1,Math.floor(focusX/measurePx));
  return {first,end,active,leftPx:first*measurePx,widthPx:(end-first)*measurePx};
 }
+
+export function noteGridSpan(note:{start:number;duration:number},fromBeat:number,toBeat:number){
+ const start=Math.max(note.start,fromBeat),end=Math.min(note.start+note.duration,toBeat);
+ return {left:100*(start-fromBeat)/(toBeat-fromBeat)+'%',width:100*(end-start)/(toBeat-fromBeat)+'%'};
+}

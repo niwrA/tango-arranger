@@ -12,7 +12,12 @@ test('changing upper bound keeps valid range',()=>assert.match(vue,/if\(noteView
 test('custom range drives note rows',()=>assert.match(vue,/noteViewCustom\.value\s*\?Array\.from\(\{length:noteViewEnd\.value-noteViewStart\.value\+1/));
 test('custom range filters both piano staves',()=>{assert.match(vue,/const trebleLo=Math\.max\(lo,pianoSplit\.value,noteViewCustom\.value/);assert.match(vue,/const bassHi=Math\.min\(hi,pianoSplit\.value-1,noteViewCustom\.value/);});
 test('focus overview derives measures from loop bounds',()=>{assert.match(vue,/const focusVisibleMeasures=computed/);assert.match(vue,/noteLoopFrom\.value/);assert.match(vue,/noteLoopTo\.value/);});
-test('focus overview renders note positions and lengths',()=>{assert.match(note,/class="note-continuous-grid"/);assert.match(note,/Math.min\(n.start\+n.duration,/);});
+test('focus overview renders note positions and lengths against the chosen range',()=>{
+ assert.match(note,/class="note-continuous-grid"/);
+ assert.match(note,/:style="gridNotePosition\(n\)"/);
+ const {noteGridSpan}=require('./load-domain.cjs').createDomainLoader()('src/noteGridWindow.ts');
+ assert.deepEqual(noteGridSpan({start:6,duration:1},4,8),{left:'50%',width:'25%'});
+});
 test('overview click selects the editable measure',()=>{assert.match(note,/@click="activateGridMeasure\(barIndex\);noteCellClick\(pitch,beat\)"/);assert.match(vue,/function activateGridMeasure\(bar:number\)/);});
 test('phrase overview scrolls horizontally',()=>assert.match(css,/\.note-focus-phrase-scroll\{display:flex;overflow-x:auto/));
 test('loop keeps playing when selecting another measure of the same instrument',()=>assert.match(vue,/const keepFocusLoop=noteLoopPlaying\.value&&inst===noteInst\.value/));

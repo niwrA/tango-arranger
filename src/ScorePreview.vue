@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay,type GraphicalMeasure,type MusicSystem} from 'opensheetmusicdisplay';
-import {exportMusicXml} from './io';
-import {midiName,openingPickupBeats,type Instrument,type Note,type Project,type Score} from './music';
+import {exportMusicXml,spellMusicXmlPitch} from './io';
+import {midiName,openingPickupBeats,partStaffForNote,sectionKey,transposeKeySignature,type Instrument,type Note,type Project,type Score} from './music';
 import {effectiveViolinTechnique} from './phrasePlan';
 import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
-import {readScoreEntryNotation,scoreEntryBeat,scoreEntryPitch,scoreEntryOctaveShift,type MeasureNotation} from './scoreEntry';
+import {readScoreEntryNotation,scoreEntryBeat,scoreEntryPitch,scoreEntryOctaveShift,scoreStaffSteps,scoreXAtBeat,type EngravedBeat,type MeasureNotation} from './scoreEntry';
 import type {NoteEntryEdit,NoteNotationEdit} from './musicalEdit';
+import type {EditPreview} from './editPreview';
 
 const props=withDefaults(defineProps<{
   project:Project;
@@ -19,6 +20,8 @@ const props=withDefaults(defineProps<{
   entryMode?:boolean;
   entryStep?:number;
   moveMode?:boolean;
+  previewMarks?:EditPreview;
+  workspaceViewport?:{beat:number;source:'grid'|'score'|'navigation'};
   completedNotes?:readonly Note[];
   playingNotes?:readonly Note[];
   feedbackProgress?:number;
@@ -28,7 +31,7 @@ const props=withDefaults(defineProps<{
   followMeasure?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
-const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[entry:NoteEntryEdit];moveNote:[note:Note,start:number,pitchDelta:number,notation?:NoteNotationEdit]}>();
+const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[entry:NoteEntryEdit];moveNote:[note:Note,start:number,pitchDelta:number,notation?:NoteNotationEdit];viewport:[beat:number]}>();
 
 const host=ref<HTMLElement|null>(null);
 const scoreAppearanceKey='tango-score-appearance';
@@ -230,7 +233,7 @@ function bindNoteheads(){
 }
 
 function eventHead(event:Event){
-  if(!props.interactive)return null;
+  if(!props.interactive||loading.value)return null;
   const element=event.target instanceof Element?event.target.closest<SVGElement>('.score-notehead'):null;
   return element&&notesByHead.has(element)?element:null;
 }
@@ -267,6 +270,38 @@ function measureAt(x:number,y:number):number|null{
  }
  return null;
 }
+let alignedViewport:{top:number;left:number}|undefined;
+let viewportFrame=0;
+function alignScoreViewport(force=false){
+ const view=props.workspaceViewport,container=host.value;
+ if(!view||!container||(!force&&view.source==='score'))return;
+ const measure=Math.floor(view.beat/props.project.beats)+1;
+ const match=scoreMeasureGroups().find(candidate=>candidate.measure===measure);
+ if(!match)return;
+ const viewRect=container.getBoundingClientRect(),target=match.group.getBoundingClientRect();
+ if(!viewRect.height)return;
+ if(target.right>viewRect.right||target.left<viewRect.left)container.scrollLeft+=target.left-viewRect.left;
+ const top=container.scrollTop+target.top-viewRect.top-12;
+ if(Math.abs(container.scrollTop-top)>2)container.scrollTop=Math.max(0,top);
+ alignedViewport={top:container.scrollTop,left:container.scrollLeft};
+}
+function onWorkspaceScroll(){
+ const container=host.value;
+ if(!props.workspaceViewport||!container||viewportFrame)return;
+ if(alignedViewport&&Math.abs(container.scrollTop-alignedViewport.top)<1&&Math.abs(container.scrollLeft-alignedViewport.left)<1)return;
+ alignedViewport=undefined;
+ viewportFrame=requestAnimationFrame(()=>{
+  viewportFrame=0;
+  if(container.scrollTop<1&&container.scrollLeft<1){emit('viewport',(displayedRange.value.first-1)*props.project.beats);return;}
+  const bounds=container.getBoundingClientRect();
+  const visible=scoreMeasureGroups().find(({group})=>{
+   const rect=group.getBoundingClientRect();
+   return rect.bottom>=bounds.top+16&&rect.top<=bounds.bottom&&rect.right>bounds.left&&rect.left<bounds.right;
+  });
+  if(visible)emit('viewport',(visible.measure-1)*props.project.beats);
+ });
+}
+watch(()=>props.workspaceViewport,()=>alignScoreViewport(),{flush:'post'});
 function paintRange(){
  const range=selectedMeasures.value;
  host.value?.querySelectorAll('.score-range-fill').forEach(node=>node.remove());
@@ -319,39 +354,58 @@ function rangeUp(event:PointerEvent){
 function cancelRange(){clearTimeout(rangeTimer);rangePointer=null;}
 watch(rangeMode,enabled=>{if(!enabled){selectedMeasures.value=null;paintRange();cancelRange();}});
 type EngravedStave={getNoteStartX():number;getNoteEndX():number;getYForLine(line:number):number};
-function scorePoint(clientX:number,clientY:number){
- if(!loaded||!host.value)return;
- const pick=openingPickupBeats(props.project);
- const candidates=[];
- for(const [bar,staves] of (osmd?.GraphicSheet?.MeasureList??[]).entries()){
-  if(bar+1<displayedRange.value.first||bar+1>displayedRange.value.last)continue;
-  for(const [index,measure] of staves.entries()){
-   const group=measure.getSVGGElement();
-   if(!group||!host.value.contains(group))continue;
-   const bounds=group.getBoundingClientRect();
-   if(clientX<bounds.left||clientX>bounds.right||clientY<bounds.top-50||clientY>bounds.bottom+50)continue;
-   const matrix=group.getScreenCTM();
-   const stave=(measure as GraphicalMeasure&{getVFStave():EngravedStave}).getVFStave();
-   if(!matrix||!stave)continue;
-   const {x,y}=new DOMPoint(clientX,clientY).matrixTransform(matrix.inverse());
-   const top=stave.getYForLine(0),bottom=stave.getYForLine(4);
-   const distance=Math.abs(y-(top+bottom)/2);
-   if(x<stave.getNoteStartX()-4||x>stave.getNoteEndX()+4||distance>(bottom-top)*1.5)continue;
-   candidates.push({bar,staff:index+1,measure,stave,x,steps:Math.round((bottom-y)*8/(bottom-top)),distance});
-  }
- }
- const target=candidates.sort((a,b)=>a.distance-b.distance)[0];
- if(!target)return;
- const {bar,staff,measure,stave,x,steps}=target;
- const length=bar===0&&pick?pick:props.project.beats;
- const columns=measure.staffEntries.flatMap(entry=>{
+type StaffGeometry={group:SVGGElement;bar:number;staff:number;top:number;bottom:number;startX:number;endX:number;length:number;columns:EngravedBeat[]};
+const staffGeometry=new Map<string,StaffGeometry>();
+const vexStave=(measure:GraphicalMeasure)=>(measure as GraphicalMeasure&{getVFStave():EngravedStave}).getVFStave();
+function engravedGroup(measure:GraphicalMeasure,bar:number,staff:number){
+ const container=host.value,group=measure.getSVGGElement();
+ if(group&&container?.contains(group))return group;
+ return container?.querySelector<SVGGElement>(`g[id="osmd-m${bar}-${staff-1}"]`);
+}
+function engravedColumns(measure:GraphicalMeasure,length:number){
+ return measure.staffEntries.flatMap(entry=>{
   const beat=entry.relInMeasureTimestamp.RealValue*4;
   if(!entry.graphicalVoiceEntries.some(voice=>voice.notes.some(({sourceNote})=>!sourceNote.isRest()||sourceNote.Length.RealValue*4<length)))return [];
   const voice=entry.graphicalVoiceEntries.find(candidate=>Number.isFinite(candidate.noteHeadsCenterX));
   const units=voice?voice.PositionAndShape.AbsolutePosition.x+voice.noteHeadsCenterX:entry.PositionAndShape.AbsolutePosition.x;
-  return [{x:units*10,beat}];
+  return [{x:units*10,beat}]; // OSMD positions are in tenths of a VexFlow pixel unit.
  });
- const beat=scoreEntryBeat(x,columns,stave.getNoteStartX(),stave.getNoteEndX(),length,props.entryStep??.25);
+}
+function captureStaffGeometry(){
+ if(!props.workspaceViewport&&!props.entryMode&&!props.moveMode&&!props.previewMarks)return;
+ const pick=openingPickupBeats(props.project);
+ for(const [bar,staves] of (osmd?.GraphicSheet?.MeasureList??[]).entries()){
+  if(bar+1<displayedRange.value.first||bar+1>displayedRange.value.last)continue;
+  for(const [index,measure] of staves.entries()){
+   const staff=index+1,key=`${bar}:${staff}`;
+   const group=engravedGroup(measure,bar,staff);
+   if(!group||staffGeometry.get(key)?.group===group)continue;
+   const stave=vexStave(measure);
+   if(!stave)continue;
+   const length=bar===0&&pick?pick:props.project.beats;
+   staffGeometry.set(key,{group,bar,staff,length,columns:engravedColumns(measure,length),
+    top:stave.getYForLine(0),bottom:stave.getYForLine(4),startX:stave.getNoteStartX(),endX:stave.getNoteEndX()});
+  }
+ }
+}
+function scorePoint(clientX:number,clientY:number){
+ if(!loaded||loading.value||!host.value)return;
+ const candidates=[];
+ for(const geometry of staffGeometry.values()){
+  const {group,top,bottom,startX,endX}=geometry;
+  const bounds=group.getBoundingClientRect();
+  if(clientX<bounds.left||clientX>bounds.right||clientY<bounds.top-50||clientY>bounds.bottom+50)continue;
+  const matrix=group.getScreenCTM();
+  if(!matrix)continue;
+  const {x,y}=new DOMPoint(clientX,clientY).matrixTransform(matrix.inverse());
+  const distance=Math.abs(y-(top+bottom)/2);
+  if(x<startX-4||x>endX+4||distance>(bottom-top)*1.5)continue;
+  candidates.push({geometry,x,steps:Math.round((bottom-y)*8/(bottom-top)),distance});
+ }
+ const target=candidates.sort((a,b)=>a.distance-b.distance)[0];
+ if(!target)return;
+ const {x,steps,geometry:{bar,staff,length,columns,startX,endX}}=target;
+ const beat=scoreEntryBeat(x,columns,startX,endX,length,props.entryStep??.25);
  const notation=entryNotation[bar];
  if(!notation)return;
  const pitch=scoreEntryPitch(notation,staff,steps,beat,props.project.transposeSemitones??0);
@@ -360,6 +414,57 @@ function scorePoint(clientX:number,clientY:number){
  const grandStaff:1|2|undefined=notation.clefs.size>1?(staff===2?2:1):undefined;
  return {bar,staff,steps,beat:beat+props.project.beats-length,pitch,notation:{staff:grandStaff,octaveShift}};
 }
+
+function drawPreviewMark(group:SVGGElement,x:number,y:number,kind:string,label?:string){
+ const namespace='http://www.w3.org/2000/svg';
+ const mark=document.createElementNS(namespace,'g');
+ mark.setAttribute('class','score-draft-marker');
+ mark.setAttribute('data-edit-preview',kind);
+ mark.setAttribute('transform',`translate(${x} ${y})`);
+ if(label){
+  mark.setAttribute('role','img');
+  mark.setAttribute('aria-label',label);
+  const head=document.createElementNS(namespace,'ellipse');
+  head.setAttribute('rx','6');head.setAttribute('ry','4');
+  mark.append(head);
+ }else mark.setAttribute('aria-hidden','true');
+ const symbol=document.createElementNS(namespace,'text');
+ symbol.setAttribute('x','7');symbol.setAttribute('y','-5');
+ symbol.textContent=kind==='added'?'+':kind==='modified'?'~':kind==='deleted'?'×':'◌';
+ mark.append(symbol);group.append(mark);
+}
+function paintEditPreview(){
+ const container=host.value;if(!container)return;
+ container.querySelectorAll('.score-draft-marker').forEach(node=>node.remove());
+ const draft=props.previewMarks;
+ for(const [head,note] of notesByHead){
+  const kind=draft?.after.get(note);
+  if(!kind){head.removeAttribute('data-edit-preview');if(props.interactive)head.setAttribute('aria-label',noteLabel(note));continue;}
+  head.setAttribute('data-edit-preview',kind);
+  if(props.interactive)head.setAttribute('aria-label',(kind==='added'?'Proposed addition, ':'Proposed change, ')+noteLabel(note));
+  const group=head.closest<SVGGElement>('g[id^="osmd-m"]'),matrix=group?.getScreenCTM();
+  if(!group||!matrix)continue;
+  const box=head.getBoundingClientRect();
+  const {x,y}=new DOMPoint(box.left+box.width/2,box.top+box.height/2).matrixTransform(matrix.inverse());
+  drawPreviewMark(group,x,y,kind);
+ }
+ if(!draft?.before.length)return;
+ const p=props.project,transpose=p.transposeSemitones??0;
+ for(const {note,kind} of draft.before){
+  const bar=Math.floor((note.start+1e-7)/p.beats),notation=entryNotation[bar];
+  if(!notation||!p.bars[bar])continue;
+  const staff=notation.clefs.size===1?1:partStaffForNote(note,props.instrument,p.pianoSplitPitch??60);
+  const geometry=staffGeometry.get(`${bar}:${staff}`);
+  if(!geometry||!container.contains(geometry.group))continue;
+  const {group,length,columns,top,bottom,startX,endX}=geometry;
+  const {step,octave}=spellMusicXmlPitch(note.pitch+transpose,transposeKeySignature(sectionKey(p,p.bars[bar].section),transpose));
+  const steps=scoreStaffSteps(notation,staff,step,octave,note.xmlOctaveShift??0);
+  if(steps===undefined)continue;
+  const x=scoreXAtBeat(note.start-(bar+1)*p.beats+length,columns,startX,endX,length);
+  drawPreviewMark(group,x,bottom-(bottom-top)*steps/8,kind,(kind==='deleted'?'Proposed removal, ':'Original note, ')+noteLabel(note));
+ }
+}
+watch(()=>props.previewMarks,paintEditPreview,{flush:'post'});
 function insertAtScorePoint(event:MouseEvent){
  const target=scorePoint(event.clientX,event.clientY);
  if(target)emit('insertAt',{bar:target.bar,beat:target.beat,pitch:target.pitch,notation:target.notation});
@@ -437,19 +542,21 @@ function renderRange(){
   renderer.zoom=props.expanded&&observedWidth>=320?1.18:1;
   renderer.setOptions({drawFromMeasureNumber:first,drawUpToMeasureNumber:last,stretchLastSystemLine:props.expanded});
   renderer.resetIncrementalRendering();
+  staffGeometry.clear();
   followedSystem=undefined;
   followedGroup=undefined;
   loading.value=true;
   error.value='';
   const draw=()=>{
     try{
-      if(props.followMeasure||last-first<12)renderer.render();
-      else if(!renderer.renderNext({measures:12}).done){
-        if(props.followMeasure)bindNoteheads();
-        layoutFrame=requestAnimationFrame(draw);
-        return;
+      if(props.followMeasure||last-first<12){renderer.render();captureStaffGeometry();}
+      else{
+        const {done}=renderer.renderNext({measures:12});
+        // Keep the geometry from the draw pass that owns each SVG group.
+        captureStaffGeometry();
+        if(!done){layoutFrame=requestAnimationFrame(draw);return;}
       }
-      bindNoteheads();paintRange();
+      bindNoteheads();paintRange();paintEditPreview();alignScoreViewport(true);
     }catch(cause){error.value=`Could not render this part: ${String(cause)}`;}
     loading.value=false;
   };
@@ -461,6 +568,8 @@ async function reloadScore(){
   if(!renderer)return;
   const current=++generation;
   cancelAnimationFrame(layoutFrame);
+  cancelAnimationFrame(viewportFrame);
+  viewportFrame=0;
   loaded=false;
   loading.value=true;
   error.value='';
@@ -495,6 +604,7 @@ async function reloadScore(){
 }
 
 function scheduleContentRender(){
+  loading.value=true;
   if(contentTimer)clearTimeout(contentTimer);
   contentTimer=setTimeout(()=>{contentTimer=undefined;void reloadScore();},180);
 }
@@ -525,6 +635,7 @@ onMounted(()=>{
     drawCredits:false,
     drawPartNames:false,
     drawMeasureNumbers:true,
+    autoGenerateMultipleRestMeasuresFromRestMeasures:!props.workspaceViewport,
     disableCursor:true,
     coloringEnabled:true,
   });
@@ -545,6 +656,7 @@ onBeforeUnmount(()=>{
   if(contentTimer)clearTimeout(contentTimer);
   if(layoutTimer)clearTimeout(layoutTimer);
   cancelAnimationFrame(layoutFrame);
+  cancelAnimationFrame(viewportFrame);
   resizeObserver?.disconnect();
   osmd?.dispose();
   osmd=undefined;
@@ -560,8 +672,8 @@ onBeforeUnmount(()=>{
     <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><span class="score-range-status" role="status">Measures {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</span><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
-    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode,'score-move-mode':moveMode}" :aria-busy="loading"
-      :tabindex="followMeasure?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':undefined" @pointerdown="scorePointerDown" @pointermove="scorePointerMove" @pointerup="scorePointerUp" @pointercancel="cancelScorePointer" @lostpointercapture="cancelScorePointer" @click="onScoreClick" @keydown="onScoreKey" />
+    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode,'score-move-mode':moveMode,'score-workspace-viewport':workspaceViewport}" :aria-busy="loading"
+      :tabindex="followMeasure||workspaceViewport?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':workspaceViewport?'Scrollable editing score':undefined" @scroll.passive="onWorkspaceScroll" @pointerdown="scorePointerDown" @pointermove="scorePointerMove" @pointerup="scorePointerUp" @pointercancel="cancelScorePointer" @lostpointercapture="cancelScorePointer" @click="onScoreClick" @keydown="onScoreKey" />
   </section>
 </template>
 
@@ -571,6 +683,7 @@ onBeforeUnmount(()=>{
 .score-preview-selection{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:.85rem}
 .score-preview-canvas{min-height:92px;overflow-x:auto}
 .score-preview-follow{height:var(--score-follow-height,300px);overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}
+.score-workspace-viewport{max-height:min(55vh,35rem);overflow:auto;overflow-anchor:none}
 .score-preview-canvas :deep(svg){display:block;max-width:100%;height:auto;overflow:visible;color:#18222c;fill:currentColor}
 .score-preview-canvas{padding-block:4px 12px;box-sizing:border-box}
 .score-preview-follow{flex:1 1 auto;min-height:0;max-height:none;align-self:stretch}
@@ -581,6 +694,9 @@ onBeforeUnmount(()=>{
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
 .score-preview-interactive :deep(.score-notehead){cursor:pointer}
 .score-move-mode :deep(.score-notehead){cursor:grab;touch-action:none}
+.score-preview-canvas :deep(.score-draft-marker){pointer-events:none;color:var(--score-ink,#18222c)}
+.score-preview-canvas :deep(.score-draft-marker ellipse){fill:none;stroke:currentColor;stroke-dasharray:2 2;stroke-width:1.5}
+.score-preview-canvas :deep(.score-draft-marker text){fill:currentColor;stroke:none;font:bold 12px sans-serif}
 .score-preview-canvas :deep(.score-note-completed),.score-preview-canvas :deep(.score-note-completed [fill]){fill:#24724f}
 .score-preview-canvas :deep(.score-measure-active .vf-stave path){stroke:#176773}
 .score-preview-canvas :deep(.score-note-playing),.score-preview-canvas :deep(.score-note-playing [fill]){fill:#006d79}

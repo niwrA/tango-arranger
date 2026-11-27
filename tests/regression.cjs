@@ -594,8 +594,13 @@ test('piano editor has two simultaneous register grids and an editable split',()
   assert.match(app,/New note articulation<select v-model="newNoteArticulation"/);
   assert.match(app,/<label>Articulation<select :value="selectedEvent.articulation/);
   assert.match(app,/Sounding length \(%\)/);
-  assert.match(app,/noteSoundingDuration\(n\)/);
-  assert.match(app,/noteSoundingVelocity\(n\)/);
+  assert.match(app,/draftAuditionEvents\(p,quickDisplayScore\.value/);
+  const p=music.blankProject({sections:1,measuresPerSection:1,beats:4});p.bpm=120;
+  const note={pitch:71,start:0,duration:1,velocity:80,articulation:'marcato_staccato'};
+  const {draftAuditionEvents}=load('src/editAudition.ts');
+  const [attack]=draftAuditionEvents(p,{'Violin I':[note]},'Violin I',0,0,1).events;
+  assert.equal(attack.duration,music.noteSoundingDuration(note)/2);
+  assert.equal(attack.event.velocity,music.noteSoundingVelocity(note));
   assert.match(app,/auditionEvent\(added\)/);
  });
 

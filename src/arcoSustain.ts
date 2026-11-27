@@ -43,7 +43,7 @@ export function prepareArcoSustain(ctx:AudioContext,inst:string):Promise<Sample[
  })).then(results=>{const samples=results.filter((s):s is Sample=>s!==undefined);ready.set(key,samples);if(!samples.length)banks.delete(key);return samples;});
  banks.set(key,task);return task;
 }
-export function playArcoSustain(ctx:AudioContext,inst:string,pitch:number,duration:number,time:number,velocity:number,db:number,endVelocity=velocity):boolean{
+export function playArcoSustain(ctx:AudioContext,inst:string,pitch:number,duration:number,time:number,velocity:number,db:number,endVelocity=velocity,destination:AudioNode=ctx.destination):boolean{
  const samples=ready.get(family(inst))?.filter(s=>s.start!==undefined&&s.end!==undefined);if(!samples?.length||!Number.isFinite(duration)||duration<=0)return false;
  const sample=samples.reduce((a,b)=>Math.abs(a.pitch-pitch)<=Math.abs(b.pitch-pitch)?a:b);
  if(Math.abs(sample.pitch-pitch)>3)return false;
@@ -53,7 +53,7 @@ export function playArcoSustain(ctx:AudioContext,inst:string,pitch:number,durati
  source.playbackRate.value=2**((pitch-sample.pitch)/12);
  gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(Math.max(0,velocity),start+Math.min(.015,duration*.1));
  gain.gain.linearRampToValueAtTime(Math.max(0,endVelocity),end-release);gain.gain.linearRampToValueAtTime(0,end);
- level.gain.value=10**(db/20);source.connect(gain);gain.connect(level);level.connect(ctx.destination);
+ level.gain.value=10**(db/20);source.connect(gain);gain.connect(level);level.connect(destination);
  const voice={inst,source,gain,level};voices.add(voice);
  source.onended=()=>{voices.delete(voice);source.disconnect();gain.disconnect();level.disconnect();};
  source.start(start);source.stop(end+.01);return true;
@@ -74,7 +74,7 @@ export function gestureAnchor(pitches:number[],duration:number,samples:{pitch:nu
   .sort((a,b)=>a.distance-b.distance||Math.abs(a.s.pitch-pitches[0])-Math.abs(b.s.pitch-pitches[0]));
  return ranked[0]?.i;
 }
-export function playSampleGesture(ctx:AudioContext,inst:string,event:ExpressiveEvent,time:number,db:number):boolean{
+export function playSampleGesture(ctx:AudioContext,inst:string,event:ExpressiveEvent,time:number,db:number,destination:AudioNode=ctx.destination):boolean{
  const duration=event.durationSeconds,samples=ready.get(family(inst));
  if(!samples?.length||!Number.isFinite(duration)||duration<=0)return false;
  const paths=event.gesture?[event.gesture.points,...(event.gesture.partner?[event.gesture.partner]:[])]:[[{at:0,pitch:event.pitch},{at:1,pitch:event.slideTo??event.pitch}]];
@@ -101,7 +101,7 @@ export function playSampleGesture(ctx:AudioContext,inst:string,event:ExpressiveE
    const period=1/hz,low=event.bowedTremolo ? .12 : .65;
    for(let t=start;t<end;t+=period){bow.gain.setValueAtTime(low,t);bow.gain.linearRampToValueAtTime(1,Math.min(end,t+period*.18));if(t+period*.65<end)bow.gain.linearRampToValueAtTime(.8,t+period*.65);}
   }else bow.gain.value=1;
-  level.gain.value=10**(db/20);source.connect(gain);gain.connect(bow);bow.connect(level);level.connect(ctx.destination);
+  level.gain.value=10**(db/20);source.connect(gain);gain.connect(bow);bow.connect(level);level.connect(destination);
   const voice={inst,source,gain,level};voices.add(voice);
   source.onended=()=>{voices.delete(voice);source.disconnect();gain.disconnect();bow.disconnect();level.disconnect();};
   source.start(start);source.stop(end+.01);

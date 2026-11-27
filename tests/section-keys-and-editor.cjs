@@ -90,6 +90,8 @@ test('duration editor has explicit Apply and saved duration feedback',()=>{
  assert.match(app,/v-model="writtenDurationDraft"/);
  assert.match(app,/@click="applyWrittenDurationDraft"/);
  assert.match(app,/Saved duration: <strong>\{\{selectedEvent\.duration\}\} beats/);
- assert.match(app,/width:\(Math.min\(n.start\+n.duration,/);
+ assert.match(app,/:style="gridNotePosition\(n\)"/);
+ const {noteGridSpan}=load('src/noteGridWindow.ts');
+ assert.equal(noteGridSpan({start:3,duration:2},0,8).width,'25%');
 });
 console.log(`${count} section key / chord / duration regression checks passed`);

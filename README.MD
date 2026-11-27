@@ -14,6 +14,8 @@ The score and note grid share a contextual editing toolbar, note and measure sel
 
 The shared domain implementation is in `src/musicalEdit.ts`, and the score surface is in `src/ScorePreview.vue`. The production build and full regression suite, including musical editing tests, pass locally and in CI. See the project board for verified desktop interactions and outstanding iPad, Apple Pencil and musical acceptance, and the project goals for the product direction. [Project board](PROJECT-BOARD.MD) · [Project goals](PROJECT-GOALS.MD)
 
+In Preview, both views show the proposed notes alongside markers for original and removed notes. Use **Audition** to hear the proposed part at the rehearsal speed, or enable **With accompaniment** to hear it with the other parts.
+
 
 ---
 

@@ -65,8 +65,15 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 
 - Staff entry uses the clef, key signature, local accidentals and octave directions from the same MusicXML the preview engraves. It reverses the project's global transposition and records explicit grand-staff placement. Blank staves and ledger lines use the same mapping.
 - Timing follows the renderer's staff-entry columns, including rests, chords and tuplets. Between columns, entry uses the selected grid subdivision. Pickup measures retain their offset in the song. Score notehead dragging uses the same geometry transaction as grid movement, including Preview, Cancel and Undo. Written note values remain available in the toolbar, with precise durations in the inspector.
-- Desktop headless Chrome exercised a real pointer click on an empty treble staff, pitch and onset dragging in Split, Cancel and chord insertion at the exact same engraved onset. Automated checks cover bass and treble clefs, local naturals, key changes, ledger lines, transposition, an octave bracket across a barline, explicit grand-staff placement in MusicXML and a portable project round trip. Physical touch and Apple Pencil cancellation, MuseScore appearance and musician acceptance remain open.
-- The production build and full local regression suite passed. Exact score entry with adaptive register or chord-tone substitutions and desktop pointer testing on both grand-staff staves remain open.
+- Desktop headless Chrome exercised real pointer clicks on empty treble and Piano bass staves, pitch and onset dragging in Split, Cancel and chord insertion at the exact same engraved onset. Automated checks cover local naturals, key changes, ledger lines, transposition, an octave bracket across a barline, explicit grand-staff placement in MusicXML and a portable project round trip. Physical touch and Apple Pencil cancellation, MuseScore appearance and musician acceptance remain open.
+- The production build, full local regression suite and hosted workflow passed. Exact entry with adaptive register or chord-tone substitutions remains open. [GitHub Actions at `bd5e6f7`](https://github.com/niwrA/tango-arranger/actions/runs/45970160281)
+
+#### TA-EDIT-PREVIEW implementation and desktop checks
+
+- Score and Grid share the same draft marks. Additions, changes, original positions and removals use distinct shapes and accessible labels. The current selection follows edited identities while draft marks and Tutor feedback retain separate states.
+- The two views share a musical viewport. Grid scrolling keeps its beat position when switching views and Score scrolling locates the first visible measure in the grid. The editing score renders consecutive empty measures individually. Each entry target keeps the geometry from the pass that drew it, including earlier measures in an incrementally rendered range.
+- Draft audition uses the arrangement event and instrument renderers at the current rehearsal speed. The accompaniment option uses the unchanged surrounding parts. Apply, Cancel and context changes invalidate queued events and stop the audition.
+- The local production build and full regression suite passed. Desktop headless Chrome verified draft persistence through view switches, Web Audio startup, both directions of viewport synchronization, the original/change/removal marks, and entry on the first Piano bass staff in a 16-measure range. Listening quality, device gestures and visual MuseScore acceptance are open.
 
 Existing backlog entries below remain valid where not superseded.
 
