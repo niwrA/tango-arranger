@@ -2074,7 +2074,7 @@ function applyCapturedRhythm(){
   if(protectedCount&&rhythmOverwrite.value&&!window.confirm(`Overwrite ${protectedCount} protected instrument-measures with the recorded rhythm?`))return;
   if(!window.confirm(`Apply the captured rhythm to ${rhythmTargets.value.length} instruments across ${bars.length} recorded measures? Existing notes in unprotected measures will be retimed.`))return;
   try{
-    let next=project.value,source=score.value,updated=0,skipped=0;
+    let next=project.value,source=sourceScore.value,updated=0,skipped=0;
     for(const b of bars){
       const result=applyRhythmPattern(next,source,{instruments:rhythmTargets.value,measures:[b],
         slots:captureBarRhythm(b),mode:rhythmMode.value,overwriteProtected:rhythmOverwrite.value});
@@ -2581,7 +2581,7 @@ function applyRhythmSelection(){
   if(rhythmOverwrite.value&&rhythmProtectedCount.value&&!window.confirm(`Overwrite ${rhythmProtectedCount.value} protected instrument-measures? Their manual note edits will be replaced.`))return;
   try{
     const slots=validateRhythmPattern(rhythmPattern.value,project.value.beats,rhythmGridStep);
-    const result=applyRhythmPattern(project.value,score.value,{instruments:targets,measures:rhythmMeasures.value,slots,mode:rhythmMode.value,overwriteProtected:rhythmOverwrite.value});
+    const result=applyRhythmPattern(project.value,sourceScore.value,{instruments:targets,measures:rhythmMeasures.value,slots,mode:rhythmMode.value,overwriteProtected:rhythmOverwrite.value});
     project.value=result.project;
     rhythmFeedback.value=`Applied edited rhythm (${slots.length} attacks) to ${result.updated} instrument-measures. Skipped ${result.skippedProtected} protected and ${result.skippedEmpty} silent instrument-measures.`;
     message.value=rhythmFeedback.value;
