@@ -59,7 +59,8 @@ async function run(){
   console.log('PASS autosave, restore, new-song and imported-song flows are wired');
   // Run the app startup function against the same fake IndexedDB as the store tests.
   const startup=app.slice(app.indexOf('async function initializeLocalLibrary()'),app.indexOf('// Keep topical menus'));
-  const compiledStartup=require('typescript').transpile(startup,{target:require('typescript').ScriptTarget.ES2022});
+  const restore=app.slice(app.indexOf('function clampActivityBar('),app.indexOf('function openDirectPracticePicker('));
+  const compiledStartup=require('typescript').transpile(startup+restore,{target:require('typescript').ScriptTarget.ES2022});
   const evaluateStartup=new Function('globals',`with(globals){${compiledStartup};return initializeLocalLibrary();}`);
   const ref=value=>({value});
   const globals={
@@ -67,12 +68,37 @@ async function run(){
     rememberOpenedSongId:lib.rememberOpenedSongId,localStorage,localSongId:ref(''),localSongs:ref([]),
     homeOpen:ref(true),libraryLoading:ref(true),libraryReady:ref(false),performanceMode:ref(false),
     saveStatus:ref(''),message:ref(''),selectedBar:ref(0),performanceBeat:ref(0),noteInst:ref(''),
-    selectProjectInEditor:p=>{globals.loaded=p;},projectInstruments:()=>[],
+    selectProjectInEditor:p=>{globals.loaded=p;globals.project.value=p;},projectInstruments:()=>[],
+    project:ref(null),workspaceTabs:['arrange','notes','about'],active:ref('arrange'),activeRoster:ref(['Violin I','Voice']),
+    overviewFocus:ref(0),noteLoopFrom:ref(1),noteLoopTo:ref(1),performanceView:ref('ensemble'),pickupBeats:ref(0),
+    activityContext:()=>globals.savedContext, savedContext:{arrange:{tab:'notes',bar:8,instrument:'Violin I',range:[2,9]}},
+    homePractise:inst=>{globals.resumedPractice=inst;},
   };
   await evaluateStartup(globals);
   assert.equal(globals.localSongId.value,second);
   assert.equal(globals.homeOpen.value,false);
   assert.equal(globals.loaded.bars[0].chord,'D,D,D,G');
+  assert.equal(globals.active.value,'notes');
+  assert.equal(globals.selectedBar.value,Math.min(8,globals.loaded.bars.length-1));
+  assert.equal(globals.noteInst.value,'Violin I');
+  assert.equal(globals.noteLoopTo.value,Math.min(9,globals.loaded.bars.length));
+  globals.savedContext.perform={view:'notes',bar:2};
+  localStorage.setItem('tango-last-activity','perform');
+  await evaluateStartup(globals);
+  assert.equal(globals.performanceMode.value,true);
+  assert.equal(globals.performanceView.value,'notes');
+  assert.equal(globals.performanceBeat.value,Math.min(2,globals.loaded.bars.length-1)*globals.loaded.beats);
+  globals.savedContext.practice={instrument:'Voice'};
+  localStorage.setItem('tango-last-activity','practice');
+  await evaluateStartup(globals);
+  assert.equal(globals.resumedPractice,'Voice');
+  globals.resumedPractice=undefined;
+  globals.savedContext.practice={instrument:'Missing part'};
+  await evaluateStartup(globals);
+  assert.equal(globals.resumedPractice,undefined);
+  assert.equal(globals.performanceMode.value,false);
+  assert.equal(globals.active.value,'notes');
+  localStorage.setItem('tango-last-activity','');
   await lib.deleteLocalSong(second);
   globals.localSongId.value='';
   globals.libraryLoading.value=true;
@@ -84,6 +110,13 @@ async function run(){
   assert.match(app,/else\{localSongId.value='';rememberOpenedSongId\(''\);showHome\(\);\}/);
   assert.match(app,/if\(localSongId.value\)void flushAutosave\(\)/);
   console.log('PASS startup restores saved songs, and empty Home has no implicit draft');
+  const css=fs.readFileSync(path.join(root,'src/style.css'),'utf8');
+  for(const [activity,label] of [['arrange','Continue'],['practice','Practise'],['perform','Perform']]){
+    assert.ok(app.includes(`@click="homeChooseSong(localSongId,'${activity}')">${label} · {{project.title.trim()||'Untitled tango'}}`));
+  }
+  assert.match(css,/\.home-workspace \.home-actions button\{[^}]*max-width:100%[^}]*white-space:normal[^}]*overflow-wrap:anywhere/);
+  assert.match(css,/\.home-song-row > div:first-child\{[^}]*max-width:100%[^}]*overflow-wrap:anywhere/);
+  console.log('PASS Home shortcuts name the current song and can wrap long titles');
   assert.match(app,/async function auditionPitch/);
   assert.match(app,/Tone=await startAudioFromGesture\(\)/);
   assert.match(app,/auditionEvent\(added\)/);
