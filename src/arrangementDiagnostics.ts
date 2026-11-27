@@ -1,4 +1,4 @@
-import {projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
+import {assessPianoPlayability,adaptTransposedScore,projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
 import {effectiveRole,phraseMeasureMap} from './phrasePlan';
 import {orchestraStyle,orchestraPulses,styleForMeasure,phraseStyleKey,styleStrength,isOrchestraStyle} from './orchestraStyle';
 
@@ -15,13 +15,16 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
   if(measure<from||measure>to||scope.instrument&&scope.instrument!==instrument)return;
   issues.push({id:[instrument,measure,category,noteIndex??'measure',message].join(':'),instrument,measure,category,severity,message,noteIndex,patch});
  };
+ const soundingScore=adaptTransposedScore(score,p);
  const byMeasure=new Map<string,{n:Note;i:number}[]>();
  for(const inst of roster){
   const notes=score[inst]??[];
+  if(instrumentFamily(inst)==='Piano')for(const issue of assessPianoPlayability(notes,p,inst,'human'))
+   add(inst,issue.measure,'playability','warning',issue.message+' · beat '+(Math.round((issue.beat+1)*100)/100));
   notes.forEach((n,i)=>{
    const bar=Math.floor((n.start+1e-7)/p.beats);if(!p.bars[bar])return;
    const key=inst+':'+bar,list=byMeasure.get(key)??[];list.push({n,i});byMeasure.set(key,list);
-   if(!instrumentPitchPlayable(inst,n.pitch+(p.transposeSemitones??0),p))add(inst,bar,'pitch','error','Pitch outside configured sounding instrument range',i);
+   if(!instrumentPitchPlayable(inst,soundingScore[inst]?.[i]?.pitch??n.pitch+(p.transposeSemitones??0),p))add(inst,bar,'pitch','error','Pitch outside configured sounding instrument range',i);
   });
  }
  for(let bar=from;bar<=to;bar++){
@@ -39,7 +42,9 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
     const chord=chordAt(measure.chord,p.beats,local);
     if(chord.trim()&&n.duration>=1.5&&(role==='chords'||role==='bass')&&!chordTones(chord).includes(((n.pitch%12)+12)%12))
      add(inst,bar,'harmony','suggestion','Sustained accompaniment note outside the current chord; review resolution',i);
-    if(entries.length>=4&&Math.abs(v-center)>=30&&!n.accent&&!n.subito&&!n.swellTo)
+    const previous=entries.filter(x=>x.n.start<n.start&&n.start-x.n.start<=1.5).sort((a,b)=>b.n.start-a.n.start)[0];
+    const following=entries.filter(x=>x.n.start>n.start&&x.n.start-n.start<=1.5).sort((a,b)=>a.n.start-b.n.start)[0];
+    if(entries.length>=4&&Math.abs(v-center)>=30&&previous&&following&&Math.abs((previous.n.velocity??80)-(following.n.velocity??80))<=15&&!n.accent&&!n.subito&&!n.swellTo&&!p.measureDynamics?.[inst+':'+bar])
      add(inst,bar,'dynamics','warning','Isolated velocity deviation from measure median',i,{velocity:clamp(center)});
     if(scope.includeStyle!==false&&strength>0&&p.beats===4&&isOrchestraStyle(styleId)&&styleId!=='traditional'&&(role==='chords'||role==='bass')&&!n.gesture&&!n.stringGlissando&&!n.pianoGlissando&&!n.bowedTremolo&&!n.swellTo&&!n.subito&&!p.articulation?.overrides?.[inst+':'+bar]&&!phrase?.parts[inst]?.articulation){
      const bass=role==='bass'||instrumentFamily(inst)==='Piano'&&n.pitch<(p.pianoSplitPitch??60);
@@ -54,7 +59,7 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
      }
     }
     const sounding=measureDynamicVelocity(p,inst,n.start,noteSoundingVelocity(n))*melodyDuckingFactor(p,inst,n.start);
-    proxy+=Math.pow(sounding/127,2)*Math.min(p.beats,Math.max(0,noteSoundingDuration(n)));
+    proxy+=Math.pow(sounding/127,2)*Math.min(p.beats,Math.max(0,(Number.isFinite(n.gate)&&n.gate!>0&&n.gate!<=1||n.gate===undefined?noteSoundingDuration(n):n.duration)));
    }
    energy.push({inst,role,value:proxy/p.beats});
    if(!['Piano','Bandoneon','Guitar'].includes(instrumentFamily(inst))){
