@@ -54,7 +54,10 @@ P0 is a validation gate; P1–P3 are the immediate feature roadmap in dependency
 - Automated editing tests cover the new scopes and skipped-measure reporting. The Chrome smoke check also verified switching between phrase and part scope.
 - Shared commands can select legacy unisons independently. Edited notes retain persistent IDs when moving, and splitting allocates a new ID for the added attack. Transactions expose the added, modified and deleted notes for future overlays. Score engraving still merges some unisons visually.
 - Shared edits now map adapted display notes back to their written notes and preview the derived score. The Merge inspector uses the same preview, commit and undo path as the toolbar. Tests cover independent unison selection, stable IDs, stale keys, cross-measure lyric merges, and preserving original pitches while editing an adapted view.
-- General tied-note group semantics and a full audit of existing inspector and drag paths remain open.
+- Grid movement and both resize handles stage the shared geometry command using the note's ID. Pointer cancellation, capture loss and Escape discard the draft. A successful release honours Preview and produces one undo entry on commit. Desktop Chrome exercised a real mouse drag and Cancel, and automated checks cover cross-measure movement, pointer cancellation and undo.
+- Shared commands preserve matching pitch, voice and staff ties when editing a pair together. They warn when a selected continuation becomes a separate attack and reject changes that would split a tie outside the selection. The Structure toolbar also offers Untie. Automated checks cover cross-bar ties, unisons in different voices, splits and explicit untie.
+- The drag and tie changes are in `b7ffab5`. The local build, full regression suite and Chrome drag smoke check passed at `7e9d061` after the subsequent audio merge. The [GitHub Actions workflow at that commit](https://github.com/niwrA/tango-arranger/actions/runs/45917304660) also passed.
+- The detailed inspector and keyboard paths still need a shared command audit. Physical touch, Apple Pencil and musician acceptance remain open.
 
 Existing backlog entries below remain valid where not superseded.
 

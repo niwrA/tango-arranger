@@ -232,6 +232,7 @@ dragEditor.moveNoteDrag(move);
 assert.equal(dragEditor.undoHistory.value.length,0);
 dragEditor.endNoteDrag({...move,type:'pointerup'});
 assert.equal(dragEditor.score.value['Violin I'].at(-1).start,4);
+assert.equal(dragEditor.selectedEvent.value.pitch,72);
 assert.equal(dragEditor.undoHistory.value.length,1);
 dragEditor.restoreHistory('undo');
 assert.deepEqual(dragEditor.score.value,fullScore);
