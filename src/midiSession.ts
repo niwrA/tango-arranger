@@ -47,11 +47,11 @@ export async function enableMidi(){
  catch(e){midiStatus.value='MIDI access failed: '+String(e);}
  finally{midiBusy.value=false;}
 }
-export function sendMidiNote(pitch:number,velocity:number,duration:number){
+export function sendMidiNote(pitch:number,velocity:number,duration:number,delay=0){
  const p=midiOutput.value;if(!p||p.state!=='connected')return false;
  const clamp=(n:number)=>Math.max(0,Math.min(127,Math.round(n)));
  const on=new Uint8Array([144,clamp(pitch),Math.max(1,clamp(velocity))]),off=new Uint8Array([128,clamp(pitch),0]);
- try{const now=performance.now();p.send(on,now);p.send(off,now+Math.max(25,duration*1000));midiSent.value+=2;log('OUT queued',p.name||p.id,on);log('OUT queued',p.name||p.id,off);return true;}
+ try{const now=performance.now()+Math.max(0,delay)*1000;p.send(on,now);p.send(off,now+Math.max(25,duration*1000));midiSent.value+=2;log('OUT queued',p.name||p.id,on);log('OUT queued',p.name||p.id,off);return true;}
  catch(e){midiStatus.value='MIDI send failed: '+String(e);return false;}
 }
 export function panicMidi(){
