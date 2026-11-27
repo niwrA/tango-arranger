@@ -1,14 +1,43 @@
 <script setup lang="ts">
-import {onMounted,onBeforeUnmount,ref,watch} from 'vue';
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay} from 'opensheetmusicdisplay';
 import {exportMusicXml} from './io';
-import type {Project,Score} from './music';
+import {partUsesGrandStaff,projectInstruments,type Instrument,type Project,type Score} from './music';
 
-const props=defineProps<{project:Project;score:Score;from:number;to:number}>();
+const props=defineProps<{project:Project;score:Score;from:number;to:number;selectedFrom:number;selectedTo:number;selectedParts:Instrument[]}>();
+const emit=defineEmits<{select:[instrument:Instrument,bar:number,extend:boolean]}>();
+const staffParts=computed(()=>projectInstruments(props.project).flatMap(inst=>partUsesGrandStaff(props.project,inst,props.score[inst]??[])?[inst,inst]:[inst]));
 const host=ref<HTMLElement|null>(null);
 const loading=ref(true),error=ref('');
 let renderer:OpenSheetMusicDisplay|undefined,observer:ResizeObserver|undefined;
 let timer:ReturnType<typeof setTimeout>|undefined,frame=0,revision=0,width=0,alive=true,loaded=false;
+function measureGroups(){
+ const result:{group:SVGGElement;instrument:Instrument;bar:number}[]=[];
+ const list=renderer?.GraphicSheet?.MeasureList??[];
+ for(let bar=Math.max(0,props.from-1);bar<Math.min(list.length,props.to);bar++){
+  const staves=list[bar]??[];
+  // Do not guess the instrument if the engraver has omitted a staff.
+  if(staves.length!==staffParts.value.length)continue;
+  staves.forEach((staff,index)=>{const group=staff?.getSVGGElement();const instrument=staffParts.value[index];if(group&&instrument&&host.value?.contains(group))result.push({group,instrument,bar});});
+ }
+ return result;
+}
+function paintSelection(){
+ host.value?.querySelectorAll('.arrangement-score-selection').forEach(node=>node.remove());
+ for(const {group,instrument,bar} of measureGroups()){
+  if(!props.selectedParts.includes(instrument)||bar+1<props.selectedFrom||bar+1>props.selectedTo)continue;
+  const box=group.getBBox();if(!box.width||!box.height)continue;
+  const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('class','arrangement-score-selection');rect.setAttribute('x',String(box.x-2));rect.setAttribute('y',String(box.y-4));rect.setAttribute('width',String(box.width+4));rect.setAttribute('height',String(box.height+8));rect.setAttribute('rx','3');rect.setAttribute('fill','#529fcb');rect.setAttribute('fill-opacity','.18');rect.setAttribute('pointer-events','none');
+  group.insertBefore(rect,group.firstChild);
+ }
+}
+function selectMeasure(event:MouseEvent){
+ const target=event.target;
+ const groups=measureGroups();
+ const found=groups.find(({group})=>target instanceof Node&&group.contains(target))??groups.find(({group})=>{const box=group.getBoundingClientRect();return event.clientX>=box.left&&event.clientX<=box.right&&event.clientY>=box.top&&event.clientY<=box.bottom;});
+ if(found)emit('select',found.instrument,found.bar,event.shiftKey);
+}
 function draw(){
  if(!renderer||!loaded||!host.value?.clientWidth)return;
  cancelAnimationFrame(frame);
@@ -20,7 +49,7 @@ function draw(){
   renderer.resetIncrementalRendering();
   const next=()=>{if(!alive||current!==revision||!renderer)return;try{
    const {done}=renderer.renderNext({measures:8});
-   if(!done)frame=requestAnimationFrame(next);else loading.value=false;
+   paintSelection();if(!done)frame=requestAnimationFrame(next);else loading.value=false;
   }catch(cause){error.value=String(cause);loading.value=false;}};
   next();
  }catch(cause){error.value=String(cause);loading.value=false;}
@@ -35,6 +64,7 @@ async function reload(){
 function schedule(){clearTimeout(timer);timer=setTimeout(()=>void reload(),180);}
 watch(()=>[props.project,props.score],schedule,{deep:true});
 watch(()=>[props.from,props.to],()=>{if(loaded){loading.value=true;draw();}});
+watch(()=>[props.selectedFrom,props.selectedTo,props.selectedParts],paintSelection,{deep:true,flush:'post'});
 onMounted(()=>{
  if(!host.value)return;
  renderer=new OpenSheetMusicDisplay(host.value,{autoResize:false,backend:'svg',drawingParameters:'compact',drawTitle:false,drawCredits:false,drawPartNames:true,drawMeasureNumbers:true,disableCursor:true,autoGenerateMultipleRestMeasuresFromRestMeasures:false});
@@ -47,7 +77,7 @@ onBeforeUnmount(()=>{alive=false;revision++;clearTimeout(timer);cancelAnimationF
  <section class="arrangement-score" aria-label="Full ensemble score">
   <small v-if="loading" role="status">Engraving ensemble score…</small>
   <p v-if="error" role="alert">Could not engrave ensemble score: {{error}}</p>
-  <div ref="host" class="arrangement-score-paper"></div>
+  <div ref="host" class="arrangement-score-paper" @click="selectMeasure"></div>
  </section>
 </template>
 <style scoped>
