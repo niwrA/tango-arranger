@@ -35,7 +35,7 @@ test('shift selection retains role controls instead of resetting to endpoint',()
  assert.match(match[0],/overviewEnd\.value=selection\.end/);
 });
 test('map highlights selected range and does not apply edits on selection',()=>{
- assert.match(app,/\'range-selected\':overviewInstrument===inst/);
+ assert.match(app,/\'range-selected\':arrangementParts\.includes\(inst\)/);
  assert.match(app,/class="map-range-summary" role="status"/);
  assert.match(css,/\.song-cell\.range-selected\{/);
  const handler=app.match(/function selectOverviewMapCell\([\s\S]*?\n}/)[0];
@@ -46,14 +46,15 @@ test('real map click handler updates editor From/To and preserves settings on Sh
  const js=ts.transpileModule(handlerSource,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
  const mapRangeAnchor={value:null},overviewStart={value:1},overviewEnd={value:1},overviewInstrument={value:'Piano'},overviewFocus={value:0},selectedBar={value:0},chosenSection={value:'A'},overviewNotice={value:''},overviewRole={value:'inherit'};
  const project={value:{bars:Array.from({length:20},(_,i)=>({section:i<10?'A':'B'}))}};
- const context={suppressMeasureSettingsClick:false,mapRangeAnchor,overviewStart,overviewEnd,overviewInstrument,overviewFocus,selectedBar,chosenSection,overviewNotice,overviewRole,project,selectMapMeasure:select,
+ let extra=['Piano'];
+ const context={suppressMeasureSettingsClick:false,clearExtraArrangementParts(extend){if(!extend)extra=[];},mapRangeAnchor,overviewStart,overviewEnd,overviewInstrument,overviewFocus,selectedBar,chosenSection,overviewNotice,overviewRole,project,selectMapMeasure:select,
    focusOverview(inst,i){overviewInstrument.value=inst;overviewFocus.value=i;selectedBar.value=i;chosenSection.value=project.value.bars[i].section;overviewRole.value='chords';}};
  const click=vm.runInNewContext(`${js};selectOverviewMapCell`,context);
  click('Violin II',4,{shiftKey:false});
- assert.equal(mapRangeAnchor.value,4);assert.equal(overviewStart.value,5);assert.equal(overviewEnd.value,5);assert.equal(overviewRole.value,'chords');
- overviewRole.value='melody';
+ assert.equal(extra.length,0);assert.equal(mapRangeAnchor.value,4);assert.equal(overviewStart.value,5);assert.equal(overviewEnd.value,5);assert.equal(overviewRole.value,'chords');
+ overviewRole.value='melody';extra=['Piano'];
  click('Violin II',11,{shiftKey:true});
- assert.equal(overviewStart.value,5);assert.equal(overviewEnd.value,12);assert.equal(overviewRole.value,'melody');assert.equal(chosenSection.value,'B');
+ assert.deepEqual(extra,['Piano']);assert.equal(overviewStart.value,5);assert.equal(overviewEnd.value,12);assert.equal(overviewRole.value,'melody');assert.equal(chosenSection.value,'B');
  click('Violin II',2,{shiftKey:true});
  assert.equal(overviewStart.value,3);assert.equal(overviewEnd.value,5);assert.equal(mapRangeAnchor.value,4);
 });
