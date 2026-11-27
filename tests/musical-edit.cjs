@@ -5,13 +5,14 @@ const {ref,shallowRef,computed,watch}=require('vue');
 const {DOMParser}=require('@xmldom/xmldom');
 const {createDomainLoader}=require('./load-domain.cjs');
 const load=createDomainLoader();
-const {blankProject,adaptTransposedScore}=load('src/music.ts');
+const {blankProject,adaptTransposedScore,chordAt,chordTones,keyPitchClasses}=load('src/music.ts');
 const {executeMusicalEdit,editPartNoteKeys,editNoteKey}=load('src/musicalEdit.ts');
 const {dragAbsoluteNoteLeftEdge,dragAbsoluteNotePosition}=load('src/noteEditing.ts');
 const {exportProjectZip,exportMusicXml,loadProject}=load('src/io.ts');
 const {readScoreEntryNotation,scoreEntryPitch,scoreEntryBeat,scoreEntryOctaveShift}=load('src/scoreEntry.ts');
 const {projectEditPreview}=load('src/editPreview.ts');
 const {draftAuditionEvents}=load('src/editAudition.ts');
+const {normalizeBrushStroke,brushPitchAt}=load('src/brushGesture.ts');
 const p=blankProject({sections:1,measuresPerSection:2,beats:4});
 p.bars.forEach(b=>b.chord='Dm');
 const score={'Violin I':[{pitch:69,start:0,duration:1},{pitch:72,start:4,duration:1}]};
@@ -215,6 +216,56 @@ const ensemble=draftAuditionEvents(auditionProject,auditionScore,'Violin I',0,0,
 assert.deepEqual(ensemble.events.map(({instrument})=>instrument),['Piano','Violin I']);
 assert.deepEqual(ensemble.events[1],solo.events[0]);
 
+const strokes=[{beat:3,pitch:77},{beat:0,pitch:62},{beat:1,pitch:64},{beat:1,pitch:67}];
+const stroke=normalizeBrushStroke(strokes,1,8);
+assert.deepEqual(stroke,{fromBeat:0,toBeat:4,points:[{beat:0,pitch:62},{beat:1,pitch:67},{beat:3,pitch:77}]});
+assert.equal(brushPitchAt(stroke.points,2,72),72);
+assert.equal(normalizeBrushStroke([{beat:8,pitch:60},{beat:1,pitch:NaN}],1,8),undefined);
+const brushProject=blankProject({sections:1,measuresPerSection:3,beats:4});
+brushProject.bars.forEach(bar=>bar.chord='Dm,G7');
+brushProject.sectionKeys.A='Dm';
+const pianoReference=[{pitch:65,start:5,duration:1,source:'imported'}];
+const brushContext={project:brushProject,score:{Piano:pianoReference,'Violin I':[]},instrument:'Violin I',
+ selection:{kind:'range',fromBeat:0,toBeat:4}};
+const brushEdit=(kind,ctx=brushContext,replace=false,range=stroke)=>executeMusicalEdit({...ctx,brush:{kind,stroke:range,rhythm:'marcato_four',referencePitch:65,replace}},'create','brush');
+const melodyBrush=brushEdit('melody');
+assert.deepEqual(melodyBrush.affectedMeasures,[0]);
+assert.ok(melodyBrush.changes.added.at(-1).pitch>melodyBrush.changes.added[0].pitch);
+assert.deepEqual(melodyBrush.score.Piano,pianoReference);
+assert.deepEqual(melodyBrush.project.measureRoles,brushProject.measureRoles);
+const arpBrush=brushEdit('arpeggio');
+assert.equal(arpBrush.changes.added.length,4);
+for(const note of arpBrush.changes.added)assert.ok(chordTones(chordAt(brushProject.bars[0].chord,4,note.start)).includes(note.pitch%12));
+const bassBrush=brushEdit('bass',{...brushContext,instrument:'Contrabass'});
+assert.ok(bassBrush.changes.added.every(note=>note.pitch<=55));
+const chordBrush=brushEdit('voicings',{...brushContext,instrument:'Piano'});
+assert.ok(chordBrush.changes.added.some((note,index,notes)=>notes[index+1]?.start===note.start));
+const repeatBrush=brushEdit('repetition');
+assert.equal(new Set(repeatBrush.changes.added.map(note=>note.pitch)).size,1);
+assert.ok(repeatBrush.changes.added.every(note=>note.rhythmSource?.preset==='marcato_four'));
+const resolution={pitch:76,start:4,duration:1};
+const approachContext={...brushContext,score:{'Violin I':[resolution]}};
+const chromaticBrush=brushEdit('chromatic',approachContext);
+assert.deepEqual(chromaticBrush.changes.added.map(note=>note.pitch),[72,73,74,75]);
+const diatonicBrush=brushEdit('diatonic',approachContext);
+assert.ok(diatonicBrush.changes.added.every(note=>keyPitchClasses('Dm').includes(note.pitch%12)&&note.pitch<76));
+const protectedNote={pitch:67,start:4,duration:1,source:'manual'};
+const generatedAttack={pitch:66,start:0,duration:1,source:'generated'};
+const originalBrushScore={Piano:pianoReference,'Violin I':[generatedAttack,protectedNote]};
+const extendedBrush={...brushContext,project:{...brushProject,protectedBars:{'Violin I:1':true},partEditions:fixture.partEditions},
+ score:originalBrushScore,selection:{kind:'range',fromBeat:0,toBeat:8}};
+const extendedStroke={...stroke,toBeat:8};
+const preservingBrush=brushEdit('melody',extendedBrush,false,extendedStroke);
+assert.equal(preservingBrush.changes.deleted.length,0);
+assert.ok(preservingBrush.changes.added.every(note=>note.start>=1&&note.start<4));
+assert.match(preservingBrush.warnings.join(' '),/occupied beats in measure 1/);
+assert.match(preservingBrush.warnings.join(' '),/protected material in measure 2/);
+const replacingBrush=brushEdit('melody',extendedBrush,true,extendedStroke);
+assert.deepEqual(replacingBrush.changes.deleted,[generatedAttack]);
+assert.deepEqual(replacingBrush.project.partEditions,fixture.partEditions);
+assert.deepEqual(replacingBrush.score['Violin I'].at(-1),protectedNote);
+assert.deepEqual(originalBrushScore['Violin I'],[generatedAttack,protectedNote]);
+
 // Run the actual App handlers with Vue reactivity and a minimal editor fixture.
 const app=fs.readFileSync('src/App.vue','utf8').replaceAll('\r\n','\n');
 function appSlice(from,to){
@@ -232,6 +283,7 @@ const harness=`
  const noteMeasure=computed(()=>score.value[noteInst.value].filter(n=>Math.floor(n.start/4)===selectedBar.value));
  const quickScope=ref('notes'), quickPreview=ref(true), quickRole=ref('inherit');
  const quickMode=ref('select'), quickNoteCategory=ref('pitch'), noteLength=ref('auto');
+ const quickBrushActive=ref(false);
  const selectedEvent=computed(()=>noteMeasure.value[noteSelected.value]);
  const quickSelection=computed(()=>({kind:'notes',keys:[quickNoteKey(selectedEvent.value)]}));
  const quickDraft=shallowRef(null);
@@ -248,7 +300,7 @@ const harness=`
  ${appSlice('const quickDisplayScore=', 'const quickRole=')}
  ${appSlice('const quickSourceKeys=', 'const quickSelection=')}
  ${appSlice('watch(project,()=>{quickDraft', 'const quickAuditionPlaying=')}
- ${appSlice('function commitQuickDraft(', 'function insertFromScore(')}
+ ${appSlice('function commitQuickDraft(', 'function proposeMusicalBrush(')}
  ${appSlice('function moveScoreNote(', 'function selectGridNote(')}
  ${appSlice('function selectGridNote(', 'function editScoreSelection(')}
  ${appSlice('function commitImmediateEdit(', 'function updatePianoExpression(')}

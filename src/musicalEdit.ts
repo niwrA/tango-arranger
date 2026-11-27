@@ -3,6 +3,7 @@ import {RHYTHM_PRESETS,rhythmSlots,retimeMeasure,type RhythmPreset} from './rhyt
 import {GESTURE_PRESETS,createTangoGesture,transposeTangoGesture,type GesturePreset} from './tangoGestures';
 import {createPhrasePlan,phraseAt} from './phrasePlan';
 import {clearRhythmSourceIfRetimed,nearestRhythmSlot,snapNoteToPreset} from './rhythmSnap';
+import {composeMusicalBrush,instrumentBrushes,type MusicalBrush} from './musicalBrush';
 export type EditCategory='pitch'|'duration'|'rhythm'|'expression'|'dynamics'|'articulation'|'finger'|'bow'|'position'|'timing'|'structure'|'role'|'create';
 export type EditAction={value:string;label:string;title:string};
 export type EditSelection=
@@ -14,7 +15,7 @@ export type EditSelection=
 export type NoteNotationEdit={staff?:1|2;octaveShift:number};
 export type NoteGeometryEdit={start:number;duration:number;pitchDelta:number;notation?:NoteNotationEdit};
 export type NoteEntryEdit={bar:number;beat:number;pitch:number;notation?:NoteNotationEdit;articulation?:Note['articulation'];rhythm?:{preset:RhythmPreset;originalBeat:number;accent:boolean}};
-export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:NoteEntryEdit;geometry?:NoteGeometryEdit;details?:{before:Note;after:Note};snapPreset?:RhythmPreset};
+export type MusicalEditContext={project:Project;score:Score;instrument:Instrument;selection:EditSelection;duration?:number;role?:Role;entry?:NoteEntryEdit;geometry?:NoteGeometryEdit;details?:{before:Note;after:Note};snapPreset?:RhythmPreset;brush?:MusicalBrush};
 export type MusicalEditChanges={added:Note[];modified:{before:Note;after:Note}[];deleted:Note[]};
 export type MusicalEditResult={project:Project;score:Score;keys:string[];count:number;description:string;affectedMeasures:number[];warnings:string[];changes:MusicalEditChanges};
 const onsetPitchKey=(n:Note)=>n.start+':'+n.pitch;
@@ -147,8 +148,9 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const inspector=category==='structure'&&value==='inspector';
  const clearMeasure=category==='structure'&&value==='clear-measure';
  const snap=category==='rhythm'&&value==='snap-onset';
- if(!geometry&&!inspector&&!clearMeasure&&!snap&&!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
- if(selection.kind==='range'&&(category==='role'||category==='rhythm'||category==='create'&&value!=='insert'))
+ const brush=category==='create'&&value==='brush';
+ if(!geometry&&!inspector&&!clearMeasure&&!snap&&!brush&&!musicalEditActions(category,inst).some(action=>action.value===value))throw Error('Unsupported edit for this instrument');
+ if(selection.kind==='range'&&(category==='role'||category==='rhythm'||category==='create'&&value!=='insert'&&!brush))
   throw Error('Choose whole measures for this edit');
  const barOf=(n:Note)=>Math.floor((n.start+1e-7)/beats);
  const {notes:chosen,measures}=resolveEditSelection(p,notes,selection);
@@ -170,7 +172,32 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
  const bound=(pitch:number)=>Math.max(range[0],Math.min(range[1],pitch));
  const nearest=(pitch:number,pcs:number[])=>Array.from({length:range[1]-range[0]+1},(_,i)=>i+range[0]).filter(n=>pcs.includes(n%12)).sort((a,b)=>Math.abs(a-pitch)-Math.abs(b-pitch)||a-b)[0]??pitch;
  const sorted=[...chosen].sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
- if(category==='create'&&value==='insert'){
+ if(brush){
+  const input=ctx.brush;
+  if(!input||selection.kind!=='range'||!instrumentBrushes(inst).some(item=>item.id===input.kind))throw Error('Choose a compatible brush and beat range');
+  if(!RHYTHM_PRESETS.some(preset=>preset.id===input.rhythm))throw Error('Choose a valid brush rhythm');
+  const {fromBeat,toBeat}=selection;
+  const stroke=input.stroke;
+  if(stroke.fromBeat!==fromBeat||stroke.toBeat!==toBeat||!Number.isInteger(input.referencePitch)||input.referencePitch<0||input.referencePitch>127||
+   stroke.points.some((point,index)=>!Number.isFinite(point.beat)||point.beat<fromBeat||point.beat>=toBeat||
+    (index>0&&stroke.points[index-1].beat>=point.beat)||!Number.isInteger(point.pitch)||point.pitch<0||point.pitch>127))throw Error('Invalid brush stroke');
+  const blocked=new Set(measures.filter(bar=>p.protectedBars?.[`${inst}:${bar}`]||notes.some(note=>barOf(note)===bar&&(note.source==='manual'||note.source==='imported'))));
+  const replaceable=new Set(input.replace?chosen.filter(note=>!blocked.has(barOf(note))&&note.start+note.duration<=toBeat+1e-7):[]);
+  const retained=notes.filter(note=>!replaceable.has(note));
+  const overlaps=new Set<number>();
+  const candidates=composeMusicalBrush(p,inst,notes,input,ctx.role).filter(note=>!blocked.has(barOf(note)));
+  result=candidates.filter(note=>{
+   if(retained.some(original=>original.start<note.start+note.duration-1e-7&&original.start+original.duration>note.start+1e-7)){
+    overlaps.add(barOf(note));return false;
+   }
+   return true;
+  });
+  for(const bar of blocked)warnings.push('Skipped protected material in measure '+(bar+1));
+  for(const bar of overlaps)warnings.push('Skipped occupied beats in measure '+(bar+1));
+  if(!result.length)throw Error(warnings.join('. ')||'The brush found no compatible attacks in this range');
+  bars.clear();for(const note of result)bars.add(barOf(note));
+  kept=notes.filter(note=>!replaceable.has(note)||!bars.has(barOf(note)));
+ }else if(category==='create'&&value==='insert'){
   if(!ctx.entry)throw Error('Choose a pitch and onset first');
   const {bar,beat,pitch,articulation,rhythm,notation}=ctx.entry;bars.clear();bars.add(bar);kept=[...notes];
   if(!Number.isInteger(bar)||!p.bars[bar]||!Number.isFinite(beat)||beat<0||beat>=beats||!Number.isInteger(pitch)||pitch!==bound(pitch))
@@ -349,6 +376,6 @@ export function executeMusicalEdit(ctx:MusicalEditContext,category:EditCategory,
   modified:[...transformed].map(([before,after])=>({before,after:storedResult(after)})),
   deleted:removed.filter(note=>!transformed.has(note))
  };
- const label=geometry?'Move or resize note':inspector?'Edit note':clearMeasure?'Clear measure':snap?'Snap onset to rhythm preset':category+' · '+value;
+ const label=geometry?'Move or resize note':inspector?'Edit note':clearMeasure?'Clear measure':snap?'Snap onset to rhythm preset':brush?'Brush '+ctx.brush!.kind:category+' · '+value;
  return {project:next,score:current,keys:result.map(editNoteKey),count:result.length,description:label+' · '+affectedMeasures.size+' measure(s)',affectedMeasures:[...affectedMeasures].sort((a,b)=>a-b),warnings,changes};
 }

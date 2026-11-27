@@ -4,6 +4,8 @@ import AppIcon from './AppIcon.vue';
 import {editCategories,musicalEditActions,executeMusicalEdit,editNoteKey,editPartNoteKeys,resolveEditSelection,type EditCategory,type MusicalEditContext,type MusicalEditResult,type EditSelection,type NoteEntryEdit,type NoteGeometryEdit,type NoteNotationEdit} from './musicalEdit';
 import {projectEditPreview,type PreviewOriginal} from './editPreview';
 import {draftAuditionEvents} from './editAudition';
+import {normalizeBrushStroke,type BrushPoint,type BrushStroke} from './brushGesture';
+import {instrumentBrushes,type BrushKind,type MusicalBrush} from './musicalBrush';
 import {fetchAppBuild,appUpdateUrl,cleanAppUpdateUrl} from './appUpdate';
 import InstrumentBadge from './InstrumentBadge.vue';
 import LeadMelodyGrid from './LeadMelodyGrid.vue';
@@ -3677,9 +3679,10 @@ function editorKeyAction(event:KeyboardEvent,editor:EditorKind){
   });
 }
 function handleNoteEditorKey(event:KeyboardEvent){
-  if(event.key==='Escape'&&(noteDrag||quickDraft.value)){
+  if(event.key==='Escape'&&(noteDrag||gridBrushPointer||quickDraft.value)){
     event.preventDefault();
     cancelNoteDrag();
+    cancelGridBrush();
     quickDraft.value=null;
     return;
   }
@@ -4766,7 +4769,7 @@ function changeNoteDuration(delta:number){
   updateSelectedNote('duration',String(next));
 }
 function noteCellClick(pitch:number,beat:number){
- if(quickDraft.value)return;
+ if(quickDraft.value||quickBrushActive.value)return;
   if(suppressNoteClick){suppressNoteClick=false;return;}
   if(quickMode.value==='create'){quickCreate(pitch,beat);return;}
   if(quickMode.value==='erase'){const n=noteMeasure.value[noteAt(pitch,beat)];if(n)quickErase(n);return;}
@@ -4971,6 +4974,9 @@ const multiNoteKeys=ref<string[]>([]);
 const quickNoteCategory=ref<EditCategory>('pitch');
 const quickScope=ref<'notes'|'measures'|'phrase'|'part'>('notes');
 const quickMode=ref<'select'|'create'|'erase'>('select');
+const quickBrush=ref<BrushKind|''>('');
+const quickBrushReplace=ref(false);
+const quickBrushOptions=computed(()=>instrumentBrushes(noteInst.value));
 const quickSplit=ref(false);
 watch(noteEditorTab,tab=>{if(tab!=='notes'&&tab!=='score')quickSplit.value=false;});
 const scoreWorkspaceViewport=computed(()=>noteWorkspaceViewport.value??{beat:selectedBar.value*project.value.beats,source:'navigation' as const});
@@ -4980,6 +4986,7 @@ watch(noteWorkspaceViewport,viewport=>{if(viewport?.source!=='grid')void nextTic
 const quickPreview=ref((()=>{try{return localStorage.getItem('tango-musical-edit-preview')!=='false';}catch{return true;}})());
 watch(quickPreview,v=>{try{localStorage.setItem('tango-musical-edit-preview',String(v));}catch{}});
 const quickDraft=shallowRef<{base:Project;result:MusicalEditResult;selectMovedNote?:boolean}|null>(null);
+const quickBrushActive=computed(()=>quickMode.value==='create'&&quickBrush.value!==''&&!quickDraft.value);
 const quickDisplayScore=computed(()=>{
  const result=quickDraft.value?.result;
  return result?adaptTransposedScore(result.score,result.project):score.value;
@@ -5056,7 +5063,7 @@ function toggleQuickNote(n:Note){
  const key=quickNoteKey(n);multiNoteKeys.value=multiNoteKeys.value.includes(key)?multiNoteKeys.value.filter(k=>k!==key):[...multiNoteKeys.value,key];
 }
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
-watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
+watch([noteInst,active],()=>{multiNoteMode.value=false;multiNoteKeys.value=[];quickDraft.value=null;quickScope.value='notes';quickMode.value='select';quickRole.value='inherit';quickBrush.value='';quickBrushReplace.value=false;if(!quickCategories.value.some(c=>c.id===quickNoteCategory.value))quickNoteCategory.value='pitch';});
 watch([noteLoopFrom,noteLoopTo],()=>{quickDraft.value=null;});
 watch(project,()=>{quickDraft.value=null;cancelNoteDrag();},{deep:true,flush:'sync'});
 watch([noteInst,active,noteEditorTab],cancelNoteDrag,{flush:'sync'});
@@ -5116,18 +5123,70 @@ function commitQuickDraft(){
  }else if(quickScope.value==='notes'){multiNoteMode.value=true;multiNoteKeys.value=draft.result.keys;}
  message.value=[draft.result.description,...draft.result.warnings].join('. ');
 }
-function applyQuickNote(value:string,entry?:NoteEntryEdit,override?:EditSelection,category=quickNoteCategory.value){
+function applyQuickNote(value:string,entry?:NoteEntryEdit,override?:EditSelection,category=quickNoteCategory.value,brush?:MusicalBrush){
  try{
   if(quickDraft.value)throw Error('Apply or cancel the current preview first');
   const base=project.value;
   const selection=override??quickSelection.value;
-  if(category==='create'&&value==='replace'&&!quickPreview.value&&!window.confirm('Replace the written notes in the selected measures?'))return;
-  const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined)},category,value);
+  if(category==='create'&&(value==='replace'||brush?.replace)&&!quickPreview.value&&!window.confirm('Replace editable notes in the selected range?'))return;
+  const result=executeMusicalEdit({project:base,score:sourceScore.value,instrument:noteInst.value,selection,role:quickRole.value==='inherit'?undefined:quickRole.value,duration:noteLength.value==='auto'?undefined:noteLength.value,entry:entry??(category==='create'&&value==='insert'?{bar:selectedBar.value,beat:quickBeat.value-1,pitch:quickPitch.value}:undefined),brush},category,value);
   quickDraft.value={base,result};
   if(!quickPreview.value)commitQuickDraft();
   return true;
  }catch(error){message.value='Musical edit rejected: '+String(error);return false;}
 }
+function proposeMusicalBrush(stroke:BrushStroke){
+ const kind=quickBrush.value;
+ if(!kind||!quickBrushActive.value)return;
+ const rhythm=noteRhythmPreset.value==='off'?'style':noteRhythmPreset.value;
+ const selection:EditSelection={kind:'range',fromBeat:stroke.fromBeat,toBeat:stroke.toBeat};
+ applyQuickNote('brush',undefined,selection,'create',{kind,stroke,rhythm,referencePitch:quickPitch.value,replace:quickBrushReplace.value});
+}
+function brushFromSurface(samples:readonly BrushPoint[]){
+ const first=focusVisibleMeasures.value[0]??0,last=focusVisibleMeasures.value.at(-1)??first;
+ const from=first*project.value.beats,to=(last+1)*project.value.beats;
+ const stroke=normalizeBrushStroke(samples.filter(point=>point.beat>=Math.max(from,pickupStartBeat.value)),noteStep.value,to);
+ if(stroke)proposeMusicalBrush(stroke);
+}
+function brushVisibleRange(){
+ const from=(noteLoopFrom.value-1)*project.value.beats;
+ proposeMusicalBrush({fromBeat:Math.max(from,pickupStartBeat.value),toBeat:noteLoopTo.value*project.value.beats,points:[]});
+}
+let gridBrushPointer:{id:number;points:Map<number,BrushPoint>}|undefined;
+function gridBrushPoint(event:PointerEvent):BrushPoint|undefined{
+ const lane=document.elementFromPoint(event.clientX,event.clientY)?.closest<HTMLElement>('.note-lane-grid');
+ if(!lane||!(event.currentTarget as HTMLElement).contains(lane))return;
+ const rect=lane.getBoundingClientRect();
+ if(rect.width<=0)return;
+ const exact=(event.clientX-rect.left)/rect.width*focusVisibleMeasures.value.length*project.value.beats;
+ const step=noteStep.value;
+ const relative=Math.max(0,Math.min(Math.ceil(focusVisibleMeasures.value.length*project.value.beats/step)-1,Math.floor(exact/step)))*step;
+ const beat=(focusVisibleMeasures.value[0]??0)*project.value.beats+relative;
+ return {beat,pitch:Number(lane.dataset.brushPitch)};
+}
+function beginGridBrush(event:PointerEvent){
+ if(!quickBrushActive.value||!event.isPrimary||event.button!==0)return;
+ const point=gridBrushPoint(event);
+ if(!point)return;
+ gridBrushPointer={id:event.pointerId,points:new Map([[point.beat,point]])};
+ (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+ event.preventDefault();
+}
+function moveGridBrush(event:PointerEvent){
+ const drag=gridBrushPointer;
+ if(drag?.id!==event.pointerId)return;
+ const point=gridBrushPoint(event);
+ if(point)drag.points.set(point.beat,point);
+}
+function endGridBrush(event:PointerEvent){
+ const drag=gridBrushPointer;
+ if(drag?.id!==event.pointerId)return;
+ moveGridBrush(event);
+ gridBrushPointer=undefined;
+ brushFromSurface([...drag.points.values()]);
+}
+function cancelGridBrush(){gridBrushPointer=undefined;}
+watch([noteEditorTab,noteInst,quickBrushActive],cancelGridBrush,{flush:'sync'});
 function insertFromScore(entry:NoteEntryEdit){
  if(quickDraft.value)return;
  activateGridMeasure(entry.bar);quickBeat.value=entry.beat+1;quickPitch.value=entry.pitch;
@@ -5172,6 +5231,7 @@ function moveScoreNote(note:Note,start:number,pitchDelta:number,notation?:NoteNo
 }
 function selectGridNote(note:Note){
  if(suppressNoteClick){suppressNoteClick=false;return;}
+ if(quickBrushActive.value)return;
  selectScoreNote(note);
 }
 function selectScoreNote(note:Note){
@@ -6915,6 +6975,14 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||(!quickSelectionCount&&!(quickNoteCategory==='create'&&action.value==='insert'))" @click="applyQuickNote(action.value)">{{action.label}}</button>
     <button v-if="quickMode==='erase'" type="button" class="secondary" :disabled="!quickSelectionCount||!!quickDraft" @click="applyQuickNote('delete',undefined,undefined,'structure')">Erase selection</button>
    </div>
+   <div v-if="quickMode==='create'" class="musical-edit-row">
+    <label>Brush <select v-model="quickBrush" aria-label="Musical brush" :disabled="!!quickDraft"><option value="">Single notes</option><option v-for="brush in quickBrushOptions" :key="brush.id" :value="brush.id">{{brush.label}}</option></select></label>
+    <template v-if="quickBrush">
+     <label><input v-model="quickBrushReplace" type="checkbox" :disabled="!!quickDraft"/> Replace editable notes</label>
+     <button type="button" class="secondary" :disabled="!!quickDraft" @click="brushVisibleRange">Brush visible range</button>
+     <small>Drag across the grid or score to draw a phrase.</small>
+    </template>
+   </div>
    <div v-if="quickDraft&&!draggingNote" class="musical-edit-row musical-preview-row" role="status">
     <strong>Preview · {{quickDraft.result.description}}</strong>
     <small v-if="quickPreviewMarks?.before.length||quickPreviewMarks?.after.size" class="musical-preview-legend">+ Added · ~ Changed · ◌ Original · × Removed</small>
@@ -6932,7 +7000,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <button id="note-tab-expression" type="button" role="tab" :aria-selected="noteEditorTab==='expression'" :tabindex="noteEditorTab==='expression'?0:-1" aria-controls="note-panel-expression" :class="{selected:noteEditorTab==='expression'}" @click="setNoteEditorTab('expression')">Dynamics</button>
   </div>
   <section id="note-panel-score" v-show="noteEditorTab==='score'||quickSplit" role="tabpanel" aria-labelledby="note-tab-score" tabindex="0">
-    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft||multiNoteMode||quickScope!=='notes'?Array.from(quickSelectedDisplayNotes):undefined" :entry-mode="quickMode==='create'&&!quickDraft" :entry-step="noteStep" :preview-marks="quickPreviewMarks" :workspace-viewport="scoreWorkspaceViewport" @viewport="beat=>setNoteWorkspaceViewport(beat,'score')" :move-mode="quickMode==='select'&&quickScope==='notes'&&!quickDraft&&!multiNoteMode&&!mergeAnchor" @insert-at="insertFromScore" @move-note="moveScoreNote" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
+    <ScorePreview v-if="noteEditorTab==='score'||quickSplit" :project="quickDraft?.result.project??project" :score="quickDisplayScore" :instrument="noteInst" :from-measure="noteLoopFrom" :to-measure="noteLoopTo" :selected-note="multiNoteMode||quickDraft||quickScope!=='notes'?undefined:selectedEvent" :selected-notes="quickDraft||multiNoteMode||quickScope!=='notes'?Array.from(quickSelectedDisplayNotes):undefined" :entry-mode="quickMode==='create'&&!quickDraft&&!quickBrushActive" :brush-mode="quickBrushActive" @brush="brushFromSurface" :entry-step="noteStep" :preview-marks="quickPreviewMarks" :workspace-viewport="scoreWorkspaceViewport" @viewport="beat=>setNoteWorkspaceViewport(beat,'score')" :move-mode="quickMode==='select'&&quickScope==='notes'&&!quickDraft&&!multiNoteMode&&!mergeAnchor" @insert-at="insertFromScore" @move-note="moveScoreNote" @select="selectScoreNote" @edit="editScoreSelection" @range="selectQuickRange" @edit-range="(first,last)=>editScoreRange(noteInst,first,last)" />
   </section>
   <section id="note-panel-capture" v-show="noteEditorTab==='capture'" role="tabpanel" aria-labelledby="note-tab-capture">
     <div class="editor live-capture" aria-label="Tap melody recording">
@@ -7310,7 +7378,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     <div :class="{'note-staff-grid':noteInst==='Piano'}">
     <div v-for="staff in noteStaffViews" :key="staff.id" class="note-staff-panel"><div v-if="noteInst==='Piano'" class="note-staff-heading"><strong>{{staff.label}}</strong><span>{{staff.clef}}</span></div>
 <div class="note-grid-scroll" @scroll.passive="handleNoteGridScroll" @pointermove="moveNoteDrag($event)" @pointerup="endNoteDrag($event)" @pointercancel="endNoteDrag($event)" @lostpointercapture="endNoteDrag($event)">
-  <div class="note-continuous-grid" :style="{minWidth:(NOTE_GRID_LABEL_PX+focusVisibleMeasures.length*noteBeats.length*NOTE_GRID_CELL_PX)+'px','--grid-steps':noteBeats.length*focusVisibleMeasures.length,'--visible-measures':focusVisibleMeasures.length,'--note-window-measures':noteGridMeasures.length,'--note-window-steps':noteBeats.length*noteGridMeasures.length}">
+  <div class="note-continuous-grid" :class="{'brush-active':quickBrushActive}" :style="{minWidth:(NOTE_GRID_LABEL_PX+focusVisibleMeasures.length*noteBeats.length*NOTE_GRID_CELL_PX)+'px','--grid-steps':noteBeats.length*focusVisibleMeasures.length,'--visible-measures':focusVisibleMeasures.length,'--note-window-measures':noteGridMeasures.length,'--note-window-steps':noteBeats.length*noteGridMeasures.length}" @pointerdown="beginGridBrush" @pointermove="moveGridBrush" @pointerup="endGridBrush" @pointercancel="cancelGridBrush" @lostpointercapture="cancelGridBrush">
     <div class="note-continuous-row note-continuous-measures">
       <div class="note-continuous-pitch-title">Pitch</div>
       <div class="note-continuous-measure-heads"><div class="note-grid-window note-grid-window-measures" :style="noteGridWindowStyle">
@@ -7327,7 +7395,7 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
     </div>
     <div v-for="pitch in staff.pitches" :key="pitch" class="note-continuous-row note-continuous-pitch-row">
       <button type="button" class="note-pitch-audition note-continuous-pitch-label" :title="'Hear '+displayPitch(pitch)" @click="auditionPitch(pitch)">{{displayPitch(pitch)}} ♪</button>
-      <div class="note-lane-grid"><div class="note-grid-window note-grid-window-cells" :style="noteGridWindowStyle">
+      <div class="note-lane-grid" :data-brush-pitch="pitch"><div class="note-grid-window note-grid-window-cells" :style="noteGridWindowStyle">
         <template v-for="barIndex in noteGridMeasures" :key="barIndex">
           <button v-for="beat in noteBeats" :key="barIndex+'-'+beat" type="button" :class="['note-grid-cell','note-tone-'+pitchClass(pitch,beat,barIndex),{'note-downbeat':beat===0,'note-loop-playhead':noteLoopPlaying&&noteLoopBeat===Math.floor(beat)&&noteLoopMeasure===barIndex,'note-rhythm-guide':isRhythmGuideBeat(beat)}]" :title="'Add '+displayPitch(pitch)+' in measure '+(barIndex+1)+', beat '+(beat+1)" @click="activateGridMeasure(barIndex);noteCellClick(pitch,beat)"></button>
         </template></div>
@@ -7564,6 +7632,8 @@ function addArrastre(){const inst:'Piano'='Piano';const b=selectedBar.value,offs
 .note-continuous-pitch-title,.note-continuous-pitch-label{position:sticky;left:0;z-index:3}
 .note-grid-scroll{overflow-anchor:none;touch-action:pan-x pan-y}
 .note-continuous-grid .note-bar,.note-continuous-grid .note-resize-handle{touch-action:none}
+.note-continuous-grid.brush-active .note-lane-grid{touch-action:none;cursor:crosshair}
+.note-continuous-grid.brush-active .note-lane-grid button{cursor:crosshair}
 .note-continuous-beats{min-height:45px}
 .note-continuous-pitch-title,.note-continuous-pitch-label{background:#253440!important;color:#e2c38d;border:0;border-right:1px solid #455361;border-bottom:1px solid #3b4a59;box-sizing:border-box;padding:5px 3px;text-align:center;white-space:nowrap;overflow:hidden}
 .note-continuous-pitch-title{font-size:11px;color:#d8e1e9;display:flex;align-items:center;justify-content:center}

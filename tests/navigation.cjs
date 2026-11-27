@@ -72,18 +72,22 @@ test('note-editor shortcuts respect boundaries, modifiers and text-entry focus',
     const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
     const exports={};vm.runInNewContext(compiled,{exports});return exports;
   })();
-  const handler=vm.runInNewContext(`${compiled};handleNoteEditorKey`,{
-    selectedBar,noteInst,project,noteDrag:null,quickDraft:{value:null},
+  const editor={
+    selectedBar,noteInst,project,noteDrag:null,gridBrushPointer:null,quickDraft:{value:null},
     editorKeyAction:(event,kind)=>resolveEditorShortcut(kind,event.key,{altKey:event.altKey,ctrlKey:event.ctrlKey,metaKey:event.metaKey,shiftKey:event.shiftKey,editable:!!event.target?.closest?.('input,textarea,select,[contenteditable]')}),
     pendingKeyChange:{value:null},newSongOpen:{value:false},noteDetailsPopup:{value:false},noteFocusMore:{value:false},noteFocusMode:{value:false},exitNoteFocusMode:()=>actions.push('exitFocus'),
-    returnToMap:()=>actions.push('map'),openNoteEditor:(inst,i)=>actions.push([inst,i])
-  });
+    returnToMap:()=>actions.push('map'),openNoteEditor:(inst,i)=>actions.push([inst,i]),
+    cancelNoteDrag:()=>{},cancelGridBrush:()=>{editor.gridBrushPointer=null;actions.push('cancelBrush');}
+  };
+  const handler=vm.runInNewContext(`${compiled};handleNoteEditorKey`,editor);
   const ev=(key,extra={})=>({key,altKey:false,ctrlKey:false,metaKey:false,shiftKey:false,defaultPrevented:false,target:{closest:()=>null},preventDefault(){this.prevented=true;},...extra});
   let e=ev('[');handler(e);assert.equal(e.prevented,true);assert.deepEqual(actions.pop(),['Violin II',2]);
   e=ev(']');handler(e);assert.deepEqual(actions.pop(),['Violin II',4]);
   selectedBar.value=4;e=ev(']');handler(e);assert.equal(e.prevented,undefined);assert.equal(actions.length,0);
   e=ev('[',{target:{closest:()=>({tagName:'INPUT'})}});handler(e);assert.equal(e.prevented,undefined);assert.equal(actions.length,0);
   e=ev('[',{ctrlKey:true});handler(e);assert.equal(e.prevented,undefined);assert.equal(actions.length,0);
+  editor.gridBrushPointer={id:1};e=ev('Escape');handler(e);
+  assert.equal(e.prevented,true);assert.equal(editor.gridBrushPointer,null);assert.deepEqual(actions.splice(0),['cancelBrush']);
   e=ev('Escape');handler(e);assert.equal(e.prevented,true);assert.equal(actions.pop(),'map');
 });
 test('section and key editing is separate from the orchestration map',()=>{

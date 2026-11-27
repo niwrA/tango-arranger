@@ -8,6 +8,7 @@ import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
 import {readScoreEntryNotation,scoreEntryBeat,scoreEntryPitch,scoreEntryOctaveShift,scoreStaffSteps,scoreXAtBeat,type EngravedBeat,type MeasureNotation} from './scoreEntry';
 import type {NoteEntryEdit,NoteNotationEdit} from './musicalEdit';
 import type {EditPreview} from './editPreview';
+import type {BrushPoint} from './brushGesture';
 
 const props=withDefaults(defineProps<{
   project:Project;
@@ -20,6 +21,7 @@ const props=withDefaults(defineProps<{
   entryMode?:boolean;
   entryStep?:number;
   moveMode?:boolean;
+  brushMode?:boolean;
   previewMarks?:EditPreview;
   workspaceViewport?:{beat:number;source:'grid'|'score'|'navigation'};
   completedNotes?:readonly Note[];
@@ -31,7 +33,7 @@ const props=withDefaults(defineProps<{
   followMeasure?:boolean;
   interactive?:boolean;
 }>(),{interactive:true});
-const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[entry:NoteEntryEdit];moveNote:[note:Note,start:number,pitchDelta:number,notation?:NoteNotationEdit];viewport:[beat:number]}>();
+const emit=defineEmits<{select:[note:Note];edit:[];range:[from:number,to:number];editRange:[from:number,to:number];insertAt:[entry:NoteEntryEdit];moveNote:[note:Note,start:number,pitchDelta:number,notation?:NoteNotationEdit];viewport:[beat:number];brush:[points:BrushPoint[]]}>();
 
 const host=ref<HTMLElement|null>(null);
 const scoreAppearanceKey='tango-score-appearance';
@@ -470,11 +472,25 @@ function insertAtScorePoint(event:MouseEvent){
  if(target)emit('insertAt',{bar:target.bar,beat:target.beat,pitch:target.pitch,notation:target.notation});
 }
 let movePointer:{id:number;note:Note;x:number;y:number;origin:NonNullable<ReturnType<typeof scorePoint>>;moved:boolean}|undefined;
+let brushPointer:{id:number;points:Map<number,BrushPoint>}|undefined;
 let suppressScoreClick=false;
+function scoreBrushPoint(event:PointerEvent):BrushPoint|undefined{
+ const point=scorePoint(event.clientX,event.clientY);
+ if(point)return {beat:point.bar*props.project.beats+point.beat,pitch:point.pitch};
+}
 function scorePointerDown(event:PointerEvent){
  if(rangeMode.value){rangeDown(event);return;}
  suppressScoreClick=false;
- if(!props.moveMode||!event.isPrimary||event.button!==0)return;
+ if(!event.isPrimary||event.button!==0)return;
+ if(props.brushMode){
+  const point=scoreBrushPoint(event);
+  if(!point)return;
+  brushPointer={id:event.pointerId,points:new Map([[point.beat,point]])};
+  host.value?.setPointerCapture(event.pointerId);
+  event.preventDefault();
+  return;
+ }
+ if(!props.moveMode)return;
  const head=eventHead(event),note=head&&notesByHead.get(head);
  if(!note)return;
  const origin=scorePoint(event.clientX,event.clientY);
@@ -482,6 +498,11 @@ function scorePointerDown(event:PointerEvent){
 }
 function scorePointerMove(event:PointerEvent){
  rangeMove(event);
+ if(brushPointer?.id===event.pointerId){
+  const point=scoreBrushPoint(event);
+  if(point)brushPointer.points.set(point.beat,point);
+  return;
+ }
  if(movePointer?.id!==event.pointerId||movePointer.moved)return;
  if(Math.hypot(event.clientX-movePointer.x,event.clientY-movePointer.y)<6)return;
  movePointer.moved=true;
@@ -489,6 +510,13 @@ function scorePointerMove(event:PointerEvent){
 }
 function scorePointerUp(event:PointerEvent){
  rangeUp(event);
+ if(brushPointer?.id===event.pointerId){
+  scorePointerMove(event);
+  const points=[...brushPointer.points.values()];
+  brushPointer=undefined;suppressScoreClick=true;
+  emit('brush',points);
+  return;
+ }
  const drag=movePointer;
  if(drag?.id!==event.pointerId)return;
  movePointer=undefined;
@@ -506,21 +534,24 @@ function scorePointerUp(event:PointerEvent){
  if(timeDelta||pitchDelta||staffChanged)emit('moveNote',drag.note,drag.note.start+timeDelta,pitchDelta,staffChanged||octaveChanged?destination.notation:undefined);
 }
 function cancelScorePointer(){
- if(movePointer?.moved)suppressScoreClick=true;
+ if(movePointer?.moved||brushPointer)suppressScoreClick=true;
  movePointer=undefined;
+ brushPointer=undefined;
  cancelRange();
 }
 watch(()=>props.moveMode,enabled=>{if(!enabled)cancelScorePointer();});
+watch(()=>props.brushMode,enabled=>{if(!enabled)cancelScorePointer();});
 function onScoreClick(event:MouseEvent){
  if(suppressScoreClick){suppressScoreClick=false;return;}
   if(rangeMode.value||rangeMoved||rangeHeld){rangeMoved=false;rangeHeld=false;return;}
+ if(props.brushMode)return;
   const head=eventHead(event);
   if(head){chooseHead(head);return;}
   if(props.entryMode)insertAtScorePoint(event);
 }
 
 function onScoreKey(event:KeyboardEvent){
- if(event.key==='Escape'&&movePointer){event.preventDefault();event.stopPropagation();cancelScorePointer();return;}
+ if(event.key==='Escape'&&(movePointer||brushPointer)){event.preventDefault();event.stopPropagation();cancelScorePointer();return;}
   const head=eventHead(event);
   if(!head)return;
   if(event.key==='Enter'||event.key===' '){event.preventDefault();chooseHead(head);return;}
@@ -672,7 +703,7 @@ onBeforeUnmount(()=>{
     <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><span class="score-range-status" role="status">Measures {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</span><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
-    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode,'score-move-mode':moveMode,'score-workspace-viewport':workspaceViewport}" :aria-busy="loading"
+    <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode,'score-move-mode':moveMode,'score-brush-mode':brushMode,'score-workspace-viewport':workspaceViewport}" :aria-busy="loading"
       :tabindex="followMeasure||workspaceViewport?0:undefined" :aria-label="followMeasure?'Scrollable exercise score':workspaceViewport?'Scrollable editing score':undefined" @scroll.passive="onWorkspaceScroll" @pointerdown="scorePointerDown" @pointermove="scorePointerMove" @pointerup="scorePointerUp" @pointercancel="cancelScorePointer" @lostpointercapture="cancelScorePointer" @click="onScoreClick" @keydown="onScoreKey" />
   </section>
 </template>
@@ -694,6 +725,7 @@ onBeforeUnmount(()=>{
 .score-preview-canvas :deep(.score-notehead),.score-preview-canvas :deep(.score-notehead [fill]){fill:#18222c}
 .score-preview-interactive :deep(.score-notehead){cursor:pointer}
 .score-move-mode :deep(.score-notehead){cursor:grab;touch-action:none}
+.score-brush-mode,.score-brush-mode :deep(.score-notehead){touch-action:none;cursor:crosshair}
 .score-preview-canvas :deep(.score-draft-marker){pointer-events:none;color:var(--score-ink,#18222c)}
 .score-preview-canvas :deep(.score-draft-marker ellipse){fill:none;stroke:currentColor;stroke-dasharray:2 2;stroke-width:1.5}
 .score-preview-canvas :deep(.score-draft-marker text){fill:currentColor;stroke:none;font:bold 12px sans-serif}

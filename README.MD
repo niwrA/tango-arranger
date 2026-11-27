@@ -16,6 +16,8 @@ The shared domain implementation is in `src/musicalEdit.ts`, and the score surfa
 
 In Preview, both views show the proposed notes alongside markers for original and removed notes. Use **Audition** to hear the proposed part at the rehearsal speed, or enable **With accompaniment** to hear it with the other parts.
 
+In Create mode, choose a **Brush**, then draw on the score or grid. **Brush visible range** applies the same brush without a gesture. The brush preserves occupied beats by default and offers **Replace editable notes** for changing generated phrases.
+
 
 ---
 
