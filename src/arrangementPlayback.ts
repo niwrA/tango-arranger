@@ -1,3 +1,7 @@
+import {physicalBandoneonLayoutForPart} from './bandoneon';
+import {customBandoneonLayoutForPart} from './bandoneonLayoutFormat';
+import {planSustainedBellows,type BellowsDirection,type BandoneonButton} from './bandoneonLayout';
+import type {Project,Instrument} from './music';
 import {noteSoundingDuration,stringGlissandoPlayback,type Note} from './music';
 /** Convert a selected song measure into a transport-relative playback window. */
 export type PlaybackOrigin='beginning'|'selected';
@@ -109,4 +113,24 @@ export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infi
   if(duration<=1e-7)return [];
   return [{...n,start:onset,duration,gate:Math.min(1,(Math.min(end,audibleEnd)-onset)/duration)}].filter(n=>n.gate>0);
  });
+}
+
+/** Only user-supplied physical layouts are authoritative until factory chart
+ * transcriptions are verified. Preserve normal playback on unknown layouts. */
+export function bandoneonPlaybackPlan(project:Project,inst:Instrument,notes:readonly Note[]){
+ const assignments=new Map<Note,{direction:BellowsDirection;button:BandoneonButton}>();
+ if(!inst.startsWith('Bandoneon')||!customBandoneonLayoutForPart(project,inst))return {assignments,decisions:[]};
+ const layout=physicalBandoneonLayoutForPart(project,inst);if(!layout)return {assignments,decisions:[]};
+ const shift=project.transposeSemitones??0;
+ const targets=notes.flatMap((n,i)=>{
+  const staff=n.staffOverride??n.xmlStaff,hand=staff===1?'right' as const:staff===2?'left' as const:undefined;
+  const start=n.start,end=start+noteSoundingDuration(n);
+  return [{id:String(i),pitch:n.pitch+shift,hand,start,end},...(n.gesture?.partner?.length?[{id:i+':partner',pitch:n.gesture.partner[0].pitch+shift,hand,start,end}]:[])];
+ });
+ const decisions=planSustainedBellows(layout,targets);
+ for(const d of decisions)if(d.direction)d.targetIds.forEach((id,i)=>{
+  if(id.includes(':'))return;
+  const n=notes[Number(id)];if(n&&!assignments.has(n))assignments.set(n,{direction:d.direction!,button:d.buttons[i]});
+ });
+ return {assignments,decisions};
 }

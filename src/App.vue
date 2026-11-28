@@ -91,7 +91,7 @@ import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} f
 import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
-import {arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin} from './arrangementPlayback';
+import {bandoneonPlaybackPlan,arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
@@ -4412,12 +4412,12 @@ function selectPizzicatoPlayer(inst:string,velocity:number){
  const variant=pizzicatoVariant(velocity,index);
  return (variant==='soft'?pizzicatoSoftPlayers.get(inst):variant==='alternate'?pizzicatoAlternates.get(inst):undefined)??pizzicatoPlayers.get(inst);
 }
-function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
+function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false,direction?:import('./bandoneonLayout').BellowsDirection){
  if(!focusInstrumentAudible(inst))return;
  const context=Tone.getContext().rawContext as AudioContext,options={gainDb:instrumentGainDb(inst),destination,held};
  if(isVoiceGuidePart(inst))return playVoiceGuide(context,inst,event,time,options);
  const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonProfileForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
- return playBandoneonNote(context,inst,event,time,{...options,hand});
+ return playBandoneonNote(context,inst,event,time,{...options,hand,direction});
 }
 function midiPianoAvailable(inst:string){
  return instrumentFamily(inst)==='Piano'&&midiOutputEnabled.value&&midiOutput.value?.state==='connected';
@@ -4440,7 +4440,7 @@ function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measur
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
 
  if(usesModeledAudio(inst)){
-  renderModeledPart(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
+  renderModeledPart(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output,false,event.bandoneonDirection);
   return;
  }
  const bar=Math.floor(n.start/(preview?.project??project.value).beats);
@@ -4522,7 +4522,9 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
         sendMidiPedal(soundingSeconds(project.value,span.start,span.end-span.start,rehearsalSpeed.value),midiTransportDelay(time));
       },beatOffsetTicks(span.start-transportStartBeat,transport.PPQ));
      }
-     for(const n of playbackNotesInRange(notes,window.startBeat,endBeat,project.value.transposeSemitones??0,nativePedal)){
+     const attacks=playbackNotesInRange(notes,window.startBeat,endBeat,project.value.transposeSemitones??0,nativePedal);
+     const bellows=bandoneonPlaybackPlan(project.value,inst,attacks);
+     for(const n of attacks){
       // Musical tick positions preserve event timing when rehearsal speed is
       // changed mid-performance (unlike precomputed absolute seconds).
       const seconds=arrangementEventTime(n.start,window);
@@ -4536,6 +4538,8 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
         const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
+        const assignment=bellows.assignments.get(n);
+        if(assignment){event.bandoneonDirection=assignment.direction;event.bandoneonStaff=assignment.button.hand==='right'?1:2;}
         renderArrangementNote(inst,n,event,defaultDuration,time,focusGain);
       },whenTicks);
     }}
@@ -4616,11 +4620,15 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
          sendMidiPedal((span.end-span.start)*60/effectivePlaybackBpm.value,midiTransportDelay(time));
        },beatOffsetTicks(span.start-startBeat,transport.PPQ));
       }
-      for(const n of playbackNotesInRange(notes,startBeat,endBeat,project.value.transposeSemitones??0,nativePedal)){
+      const attacks=playbackNotesInRange(notes,startBeat,endBeat,project.value.transposeSemitones??0,nativePedal);
+      const bellows=bandoneonPlaybackPlan(project.value,inst,attacks);
+      for(const n of attacks){
         if(n.start<startBeat-1e-7||n.start>=(to+1)*beats)continue;
         const cueBeat=n.start-startBeat;
         transport.schedule(t=>{
           const event=measureLoopEvents([n],Math.floor(n.start/beats),beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value,true)[0];
+          const assignment=bellows.assignments.get(n);
+          if(event&&assignment){event.bandoneonDirection=assignment.direction;event.bandoneonStaff=assignment.button.hand==='right'?1:2;}
           if(event)renderArrangementNote(inst,n,event,Math.max(.025,soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)),t);
         },beatOffsetTicks(cueBeat,transport.PPQ));
         count++;

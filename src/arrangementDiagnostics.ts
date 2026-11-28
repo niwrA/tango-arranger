@@ -1,3 +1,4 @@
+import {bandoneonPlaybackPlan,tiedPlaybackNotes} from './arrangementPlayback';
 import {bandoneonProfileForPart,isBandoneonPitchPlayable} from './bandoneon';
 import {choosePlayablePianoVoicing,bassTechniqueFor,partStaffForNote,writtenInstrumentPitchPlayable,writtenInstrumentRange,assessPianoPlayability,adaptTransposedScore,projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
 import {effectiveRole,phraseMeasureMap} from './phrasePlan';
@@ -30,6 +31,12 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
   if(instrumentFamily(inst)==='Bandoneon'){
    const model=bandoneonProfileForPart(p,inst),layout=model;
    const sounding=soundingScore[inst]??[];
+   const plan=bandoneonPlaybackPlan(p,inst,tiedPlaybackNotes(sounding));
+   const conflictMeasures=new Set<number>();
+   for(const frame of plan.decisions)if(frame.direction===null){
+    for(let bar=Math.floor((frame.start+1e-7)/p.beats);bar<=Math.floor((frame.end-1e-7)/p.beats);bar++)conflictMeasures.add(bar);
+   }
+   for(const bar of conflictMeasures)add(inst,bar,'playability','warning','Physical bandoneon: no uninterrupted common bellows direction and button assignment found');
    // Current layouts combine both bellows directions. Check explicit hand
    // availability only; do not claim a simultaneous direction/fingering solution.
    sounding.forEach((n,i)=>{

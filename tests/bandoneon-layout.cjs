@@ -46,3 +46,20 @@ assert.deepEqual(formats.snappedButtonPosition(synthetic.buttons,'a',1,0),{x:1,y
 assert.deepEqual(formats.snappedButtonPosition(synthetic.buttons,'a',120,-110),{x:100,y:-100});
 assert.equal(formats.snappedButtonPosition(synthetic.buttons,'a',NaN,0),undefined);
 console.log('PASS editor snapping, coordinate limits and occupied positions');
+
+const timed=(id,pitch,start,end,hand)=>({id,pitch,start,end,hand});
+const lookahead=b.planSustainedBellows(synthetic,[timed('hold',62,0,3),timed('later',61,1,2)]);
+assert.deepEqual(lookahead.map(d=>d.direction),['push','push','push']);
+assert.ok(lookahead.every(d=>d.buttons[0].id==='c'));
+const conflict=b.planSustainedBellows(synthetic,[timed('bass',40,0,3),timed('treble',61,1,2)]);
+assert.ok(conflict.every(d=>d.direction===null));
+const release=b.planSustainedBellows(synthetic,[timed('bass',40,0,1),timed('treble',61,1,2)]);
+assert.deepEqual(release.map(d=>d.direction),['pull','push']);
+assert.ok(b.planSustainedBellows(synthetic,[timed('a',62,0,2),timed('b',62,1,3)]).every(d=>d.direction===null));
+const playback=load('src/arrangementPlayback.ts');
+const notes=[{pitch:62,start:0,duration:3,gate:1},{pitch:61,start:1,duration:1,gate:1}];
+const plan=playback.bandoneonPlaybackPlan(restored,'Bandoneon I',notes);
+assert.equal(plan.assignments.get(notes[0]).direction,'push');
+assert.equal(plan.assignments.get(notes[1]).button.id,'b');
+assert.equal(playback.bandoneonPlaybackPlan({},'Bandoneon I',notes).assignments.size,0);
+console.log('PASS sustained bellows lookahead, held buttons, release boundaries and playback mapping');

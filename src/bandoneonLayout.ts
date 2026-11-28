@@ -64,3 +64,64 @@ export function planBellows(layout:PhysicalBandoneonLayout,frames:readonly Bello
   return {...frame,direction:null,buttons:[],reason:'No common direction with distinct available buttons'};
  });
 }
+
+export type TimedButtonTarget=ButtonTarget & {id:string;start:number;end:number};
+export type SustainedBellowsDecision=BellowsDecision & {targetIds:readonly string[]};
+/** A continuous sounding group must share one direction and retain each held
+ * button. Reversals are permitted only at boundaries with no continuing notes.
+ * Search both directions before choosing, so a later attack can constrain an
+ * earlier ambiguous attack. No finger reach or pressure claim is made. */
+export function planSustainedBellows(layout:PhysicalBandoneonLayout,targets:readonly TimedButtonTarget[],initial:BellowsDirection='pull'):SustainedBellowsDecision[]{
+ const epsilon=1e-7;
+ const sorted=targets.filter(t=>Number.isFinite(t.start)&&Number.isFinite(t.end)&&t.end>t.start+epsilon).sort((a,b)=>a.start-b.start||a.end-b.end);
+ const groups:TimedButtonTarget[][]=[];
+ let end=-Infinity;
+ for(const t of sorted){
+  if(t.start>=end-epsilon){groups.push([]);end=t.end;}
+  else end=Math.max(end,t.end);
+  groups[groups.length-1].push(t);
+ }
+ let direction=initial;
+ const result:SustainedBellowsDecision[]=[];
+ for(const group of groups){
+  const start=group[0].start,end=Math.max(...group.map(t=>t.end));
+  // All notes sharing a physical button must have disjoint sounding intervals.
+  // Bounded backtracking prevents pathological imported layouts blocking the UI.
+  function solve(dir:BellowsDirection):BandoneonButton[]|undefined{
+   const choices=group.map((t,i)=>({i,t,buttons:layout.buttons.filter(b=>b[dir]===t.pitch&&(!t.hand||b.hand===t.hand))}));
+   if(choices.some(c=>!c.buttons.length))return;
+   const assigned:BandoneonButton[]=[],busy=new Map<string,number>();
+   let attempts=0;
+   // Chronological search, with a direct iterative fast path for typical scores.
+   const cursor=Array(group.length).fill(0) as number[],previousEnd=Array(group.length).fill(-Infinity) as number[];
+   let i=0;
+   while(i>=0&&i<choices.length){
+    if(++attempts>200000)return;
+    const c=choices[i];let chosen:BandoneonButton|undefined;
+    while(cursor[i]<c.buttons.length){
+     const b=c.buttons[cursor[i]++];
+     if((busy.get(b.id)??-Infinity)<=c.t.start+epsilon){chosen=b;break;}
+    }
+    if(chosen){
+     previousEnd[i]=busy.get(chosen.id)??-Infinity;
+     busy.set(chosen.id,c.t.end);assigned[i]=chosen;i++;
+    }else{
+     cursor[i]=0;i--;
+     if(i>=0){busy.set(assigned[i].id,previousEnd[i]);}
+    }
+   }
+   return i===choices.length?assigned:undefined;
+  }
+  const other=direction==='pull'?'push':'pull';
+  let buttons=solve(direction);
+  if(!buttons){buttons=solve(other);if(buttons)direction=other;}
+  const edges=[...new Set(group.flatMap(t=>[t.start,t.end]))].sort((a,b)=>a-b);
+  for(let i=0;i<edges.length-1;i++){
+   const a=edges[i],b=edges[i+1];if(b-a<=epsilon)continue;
+   const indices=group.map((t,j)=>({t,j})).filter(({t})=>t.start<b-epsilon&&t.end>a+epsilon).map(({j})=>j);
+   if(!indices.length)continue;
+   result.push({start:a,end:b,direction:buttons?direction:null,buttons:buttons?indices.map(j=>buttons![j]):[],targetIds:indices.map(j=>group[j].id),...(!buttons?{reason:'No uninterrupted common direction and button assignment found'}:{})});
+  }
+ }
+ return result;
+}
