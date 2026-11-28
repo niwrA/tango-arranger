@@ -57,3 +57,13 @@ export function validateProjectBandoneonLayouts(project:CustomBandoneonContext):
   }
  }
 }
+
+/** Snap editor moves to a quarter-unit grid; imported coordinates remain unchanged. */
+export function snappedButtonPosition(buttons:readonly BandoneonButton[],id:string,x:number,y:number):{x:number;y:number}|undefined{
+ const button=buttons.find(b=>b.id===id);
+ if(!button||!Number.isFinite(x)||!Number.isFinite(y))return;
+ x=Math.max(-100,Math.min(100,Math.round(x*4)/4));
+ y=Math.max(-100,Math.min(100,Math.round(y*4)/4));
+ if(buttons.some(b=>b.id!==id&&b.hand===button.hand&&b.x===x&&b.y===y))return;
+ return {x,y};
+}

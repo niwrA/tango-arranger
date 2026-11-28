@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),cp=require('node:child_process');
 let ts;try{ts=require('typescript')}catch{ts=require(path.join(cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'typescript'));}
 const root=path.resolve(__dirname,'..');
+const domainLoad=require('./load-domain.cjs').createDomainLoader();
 class FakeZip{constructor(){this.files={};}file(name,contents){this.files[name]=contents;return this;}async generateAsync(){return {files:this.files};}}
 function load(name,imports={}){
  const source=fs.readFileSync(path.join(root,name),'utf8');
@@ -9,6 +10,7 @@ function load(name,imports={}){
  const env={console,Blob,URL,setTimeout,TextDecoder,TextEncoder};
  vm.runInNewContext('(function(require,module,exports){'+code+'\n})',env,{filename:name})((request)=>{
   if(imports[request])return imports[request];
+  if(request==='./bandoneonLayout'||request==='./bandoneonLayoutFormat')return domainLoad('src/'+request.slice(2)+'.ts');
   if(request==='jszip')return {default:FakeZip};
   if(request==='@tonejs/midi')return {Midi:class Midi{}};
   throw Error('Unknown dependency '+request);

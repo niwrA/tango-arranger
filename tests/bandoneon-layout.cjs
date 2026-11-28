@@ -39,3 +39,10 @@ assert.throws(()=>formats.validateProjectBandoneonLayouts({...restored,customBan
 assert.throws(()=>formats.validateProjectBandoneonLayouts({...restored,customBandoneonLayouts:[custom,custom]}),/Duplicate/);
 assert.throws(()=>formats.validateBandoneonLayout({...custom,buttons:[synthetic.buttons[0],synthetic.buttons[0]]}),/Duplicate/);
 console.log('PASS custom layout round trip, profile, hand resolution and validation');
+
+assert.deepEqual(formats.snappedButtonPosition(synthetic.buttons,'a',.37,-.13),{x:.25,y:-.25});
+assert.equal(formats.snappedButtonPosition(synthetic.buttons,'b',1.03,0),undefined,'same hand collision');
+assert.deepEqual(formats.snappedButtonPosition(synthetic.buttons,'a',1,0),{x:1,y:0},'other hand independent');
+assert.deepEqual(formats.snappedButtonPosition(synthetic.buttons,'a',120,-110),{x:100,y:-100});
+assert.equal(formats.snappedButtonPosition(synthetic.buttons,'a',NaN,0),undefined);
+console.log('PASS editor snapping, coordinate limits and occupied positions');
