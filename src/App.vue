@@ -68,6 +68,8 @@ import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as planne
 import {playExpressiveEvent,type ExpressiveEvent} from './expressiveAudio';
 import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain} from './bandoneonAudio';
 import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide,stopVoiceGuide,setVoiceGuideGain,type VoiceGuideHandle} from './voiceGuideAudio';
+import BandoneonLayoutEditor from './BandoneonLayoutEditor.vue';
+import {customBandoneonLayoutForPart,validateBandoneonLayout,type PortableBandoneonLayout} from './bandoneonLayoutFormat';
 import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
@@ -932,9 +934,39 @@ function bandoneonLayoutSummary(inst:Instrument){
  const outside=(score.value[inst]??[]).filter(n=>!instrumentPitchPlayable(inst,n.pitch+shift,p)).length;
  return `${midiName(low)}–${midiName(high)}${outside?' · '+outside+' existing '+(outside===1?'note':'notes')+' outside this layout':''}`;
 }
+const layoutEditorPart=ref<Instrument|null>(null);
+const layoutEditorInitial=ref<PortableBandoneonLayout|undefined>();
+function openLayoutEditor(inst:Instrument){
+ layoutEditorInitial.value=customBandoneonLayoutForPart(project.value,inst);
+ layoutEditorPart.value=inst;
+}
+function saveCustomLayout(layout:PortableBandoneonLayout){
+ const inst=layoutEditorPart.value;if(!inst)return;
+ try{
+  const valid=validateBandoneonLayout(layout);
+  const existing=project.value.customBandoneonLayouts??[];
+  if(existing.some(l=>l.id===valid.id)&&layoutEditorInitial.value?.id!==valid.id)throw Error('Layout ID already exists; choose a different ID');
+  stopPlayback();
+  project.value.customBandoneonLayouts=[...existing.filter(l=>l.id!==valid.id),valid];
+  project.value.customBandoneonParts={...project.value.customBandoneonParts,[inst]:valid.id};
+  layoutEditorPart.value=null;
+  message.value='Custom layout saved in this song. Existing notes have not been changed.';
+ }catch(e){message.value=String(e);}
+}
+function selectedBandoneonLayout(inst:Instrument){
+ const custom=customBandoneonLayoutForPart(project.value,inst);
+ return custom?'custom:'+custom.id:bandoneonModelForPart(project.value,inst);
+}
 function setBandoneonModel(inst:Instrument,event:Event){
  const value=(event.target as HTMLSelectElement).value as BandoneonModelId;
- if(!inst.startsWith('Bandoneon')||!BANDONEON_MODELS.some(model=>model.id===value))return;
+ if(!inst.startsWith('Bandoneon'))return;
+ if(value.startsWith('custom:')){
+  const id=value.slice(7);if(!project.value.customBandoneonLayouts?.some(l=>l.id===id))return;
+  stopPlayback();project.value.customBandoneonParts={...project.value.customBandoneonParts,[inst]:id};
+  message.value='Custom layout selected. Existing notes have not been changed.';return;
+ }
+ if(!BANDONEON_MODELS.some(model=>model.id===value))return;
+ stopPlayback();if(project.value.customBandoneonParts)delete project.value.customBandoneonParts[inst];
  project.value.bandoneonModels={...project.value.bandoneonModels,[inst]:value};
  message.value='Bandoneon layout updated. Existing notes have not been changed.';
 }
@@ -7400,7 +7432,8 @@ async function homePractise(inst:Instrument){
     <label>Project tuning · A4 (Hz)<input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.a4Hz??DEFAULT_A4_HZ" @change="setProjectA4Reference" aria-label="Project-wide A4 tuning reference in Hz"/></label>
     <span class="hint">All instruments inherit this reference (default 442 Hz), unless overridden below. Used by Learn pitch detection; it does not transpose notes or change exported notation.</span>
   </div>
-  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" class="bandoneon-model-select">Keyboard layout <select :value="bandoneonModelForPart(project,inst)" :aria-label="'Bandoneon keyboard layout for '+rosterDisplayName(inst)" @change="setBandoneonModel(inst,$event)"><option v-for="model in BANDONEON_MODELS" :key="model.id" :value="model.id">{{model.label}}</option></select><small>{{bandoneonLayoutSummary(inst)}}</small></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" class="bandoneon-model-select">Keyboard layout <select :value="selectedBandoneonLayout(inst)" :aria-label="'Bandoneon keyboard layout for '+rosterDisplayName(inst)" @change="setBandoneonModel(inst,$event)"><option v-for="model in BANDONEON_MODELS" :key="model.id" :value="model.id">{{model.label}}</option><option v-for="layout in project.customBandoneonLayouts??[]" :key="layout.id" :value="'custom:'+layout.id">{{layout.name}} (custom)</option></select><small>{{bandoneonLayoutSummary(inst)}}</small><button type="button" class="secondary" @click="openLayoutEditor(inst)">Create / edit layout</button></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+<BandoneonLayoutEditor v-if="layoutEditorPart" :key="layoutEditorPart" :layout="layoutEditorInitial" @save="saveCustomLayout" @cancel="layoutEditorPart=null"/>
   <div class="two"><label>Preset name<input v-model="rosterPresetName" placeholder="My tango orchestra"/></label><div class="align-bottom"><button type="button" @click="saveCurrentRoster">Save roster preset</button></div></div>
   <div class="two"><label>Saved rosters<select v-model="rosterPresetSelection"><option value="">Select a preset</option><option v-for="preset in rosterPresets" :key="preset.name" :value="preset.name">{{preset.name}}</option></select></label><div class="align-bottom"><button type="button" :disabled="!rosterPresetSelection" @click="loadSelectedRoster">Load</button><button type="button" class="secondary" :disabled="!rosterPresetSelection || ['Factory seven-part','Quartet','Sextet','Septet','Orquesta típica'].includes(rosterPresetSelection)" @click="deleteSelectedRoster">Delete</button></div></div>
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>

@@ -31,3 +31,29 @@ export function exportBandoneonLayout(layout:PortableBandoneonLayout){return JSO
 export function asPhysicalLayout(layout:PortableBandoneonLayout):PhysicalBandoneonLayout{return {model:layout.id,source:layout.source,buttons:layout.buttons};}
 export function layoutIsUnisonoric(layout:PortableBandoneonLayout){return layout.buttons.every(b=>b.pull===b.push);}
 export function layoutPitchSet(layout:PortableBandoneonLayout,hand?:'left'|'right'){return [...new Set(layout.buttons.filter(b=>!hand||b.hand===hand).flatMap(b=>[b.pull,b.push]))].sort((a,b)=>a-b);}
+
+/** Project-scoped definitions and selections; old projects may omit both. */
+export type CustomBandoneonContext={customBandoneonLayouts?:PortableBandoneonLayout[];customBandoneonParts?:Record<string,string>};
+export function customBandoneonLayoutForPart(project:CustomBandoneonContext|undefined,part:string){
+ const id=project?.customBandoneonParts?.[part];
+ return id===undefined?undefined:project?.customBandoneonLayouts?.find(l=>l.id===id);
+}
+export function validateProjectBandoneonLayouts(project:CustomBandoneonContext):void{
+ const layouts=project.customBandoneonLayouts;
+ if(layouts!==undefined){
+  if(!Array.isArray(layouts)||layouts.length>100)throw Error('Invalid project bandoneon layouts');
+  const ids=new Set<string>();
+  project.customBandoneonLayouts=layouts.map(value=>{
+   const layout=validateBandoneonLayout(value);
+   if(ids.has(layout.id))throw Error('Duplicate project layout ID: '+layout.id);
+   ids.add(layout.id);return layout;
+  });
+ }
+ const parts=project.customBandoneonParts;
+ if(parts!==undefined){
+  if(!record(parts))throw Error('Invalid custom bandoneon selections');
+  for(const [part,id] of Object.entries(parts)){
+   if(!/^Bandoneon( [IVX]+)?$/.test(part)||typeof id!=='string'||!project.customBandoneonLayouts?.some(l=>l.id===id))throw Error('Invalid custom bandoneon selection: '+part);
+  }
+ }
+}

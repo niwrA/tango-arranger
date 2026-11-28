@@ -1,3 +1,4 @@
+import {validateProjectBandoneonLayouts} from './bandoneonLayoutFormat';
 import JSZip from 'jszip';
 import {bandoneonModelForPart} from './bandoneon';
 import {parseMusicXmlDetailed} from './musicXmlImport';
@@ -852,6 +853,7 @@ export async function loadProject(file:File):Promise<Project>{
   }
   const p=JSON.parse(raw) as Project;
   if(p.version!==1||!Array.isArray(p.bars))throw Error('Unsupported project format');
+  validateProjectBandoneonLayouts(p);
   p.sectionKeys??=inferSectionKeys(p);
   return p;
 }
