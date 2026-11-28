@@ -1,11 +1,24 @@
 import {blankProject,parseChordSequence,sectionLetter,type Note,type Project} from './music';
-export type LeadImportSection={title:string;start:number;measures:number};
+export type LeadImportSection={title:string;singer?:string;start:number;measures:number};
 export type LeadImportBar={chord:string;lyrics:string;original:string};
-export type LeadImportLine={sourceLine:number;sectionIndex:number;start:number;measures:number;text:string;reason:string;estimated:boolean;joinedSourceLines:number[]};
+export type LeadImportLine={sourceLine:number;sectionIndex:number;start:number;measures:number;text:string;reason:string;estimated:boolean;fixedMeasures?:boolean;joinedSourceLines:number[]};
 export type LeadImportPreview={sections:LeadImportSection[];bars:LeadImportBar[];lines:LeadImportLine[];source:string;warnings:string[]};
 const chord=/^[A-G](?:#|b)?(?:(?:maj|min|dim|aug|sus|add|m|M|ø|°|alt|no)\d*|\d+)*(?:[#b]\d+)*(?:\/[A-G](?:#|b)?)?$/i;
 const pageMarker=/^(?:page|pagina|seite|página)\s*[:#.-]?\s*\d+\s*(?:(?:\/|of|van|de)\s*\d+)?$/i;
-const heading=/^\[(verse|chorus|bridge|intro|outro|pre-chorus|instrumental|solo|interlude|refrain|coda|ending|section)(?:[^\]]*)\]$/i;
+const heading=/^\[((?:verse|chorus|bridge|intro|outro|pre-chorus|instrumental|solo|interlude|refrain|coda|ending|section)\b[^\]]*)\](?:\s*\[[^\]]+\])*$/i;
+function repeatedChordRow(line:string):string[][]|null{
+ const suffix=line.match(/\s+(?:[x×]\s*(\d+)|(\d+)\s*[x×])$/i);
+ const text=(suffix?line.slice(0,suffix.index):line).trim();
+ const marked=text.match(/^\|:\s*(.*?)\s*:\|$/);
+ if(!suffix&&!marked)return null;
+ const body=marked?.[1]??text;
+ const tokens=(marked||body.includes('|')?body.split(/\|+/):body.split(/\s+/)).map(bar=>bar.trim()).filter(Boolean);
+ const bars=tokens.map(bar=>bar.split(/\s+/));
+ if(!bars.length||!bars.every(bar=>bar.every(isChord)))return null;
+ const count=suffix?Number(suffix[1]??suffix[2]):2;
+ if(!Number.isSafeInteger(count)||count<1||count*bars.length>512)throw Error('A chord repeat must fit inside 512 measures');
+ return Array.from({length:count},()=>bars).flat();
+}
 function isChord(t:string){return chord.test(t);}
 function chordRow(line:string):boolean{
  const parts=line.trim().split(/\s+/).filter(x=>x!=='|'&&x!=='||'&&x!=='|||');
@@ -17,7 +30,8 @@ function addChordMarkers(chords:string,lyrics:string):string{
  while((match=re.exec(chords))!==null)if(isChord(match[0]))found.push({at:match.index,chord:match[0]});
  let result=lyrics;
  for(const entry of found.reverse()){
-  const at=Math.min(result.length,entry.at);
+  // Clamp to the original row so trailing chords never land inside a tag.
+  const at=Math.min(lyrics.length,entry.at);
   result=result.slice(0,at)+'['+entry.chord+']'+result.slice(at);
  }
  return result;
@@ -29,7 +43,7 @@ function normalizeChordOnly(line:string):string{
 function lineChords(text:string):string[]{
  return (text.match(/\[[^\]]+\]/g)??[]).map(t=>t.slice(1,-1)).filter(isChord);
 }
-type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string;phraseEnd:boolean;events:number;joinedSourceLines:number[]};
+type Row={sourceLine:number;sectionIndex:number;normalized:string;lyrics:string;chords:string[];barHints:number;text:string;phraseEnd:boolean;events:number;repeatBars?:string[][];joinedSourceLines:number[]};
 /** Harmonic grouping is a proposal, not a transcription of chord timing.
  * A ii-V pair (roots a fourth apart) resolving by another fourth to I
  * commonly occupies one measure. Avoid merging a V-I cadence itself.
@@ -78,12 +92,12 @@ export function previewLeadSheetImport(
  if(defaultMeasuresPerLine!==0&&!valid(defaultMeasuresPerLine))throw Error('Measures per line must be between 1 and 32 or Automatic');
  if(sectionMeasuresPerLine.some(n=>n!==0&&!valid(n)))throw Error('Section measures per line must be between 1 and 32');
  if(Object.values(lineMeasures).some(n=>n!==0&&!valid(n)))throw Error('Line measures must be between 1 and 32');
- const inputs=input.replace(/\r\n?/g,'\n').split('\n');
+ const inputs=input.replace(/\r\n?/g,'\n').replace(/[\u00a0\u2007\u202f]/g,' ').split('\n');
  const warnings:string[]=[],rows:Row[]=[],sourceLines:string[]=[];
- const titles:string[]=[];
- let activeSection=0,nextTitle:string|null=null,removedPages=0,joinedWraps=0,joinedChordWraps=0;
+ const titles:string[]=[],singers:(string|undefined)[]=[];
+ let activeSection=0,nextTitle:string|null=null,nextSinger:string|undefined,removedPages=0,joinedWraps=0,joinedChordWraps=0;
  const phraseContinuation=/(?<![\p{L}\p{N}])(?:a|an|the|and|or|but|to|of|for|with|from|in|on|at|some|my|your|you|I|we|they|it|is|are|was|were|will|would|could|should|can|be|been|have|has|had|do|does|did|so|if|when|where|wherever|that|who|which|all|just|even|very|more|most|not)\s*$/iu;
- const addRow=(normalized:string,sourceLine:number)=>{
+ const addRow=(normalized:string,sourceLine:number,repeatBars?:string[][])=>{
   const chosen=lineChords(normalized);
   const bracketed=normalized.match(/\[[^\]]+\]/g)??[];
   if(chosen.length!==bracketed.length)warnings.push('Unrecognized bracket token at line '+(sourceLine+1));
@@ -91,40 +105,58 @@ export function previewLeadSheetImport(
   if(!rows.length||nextTitle!==null){
    if(rows.length&&rows[rows.length-1].sectionIndex===activeSection)activeSection++;
    titles[activeSection]=nextTitle??'Section '+sectionLetter(activeSection);
-   nextTitle=null;
+   singers[activeSection]=nextSinger;
+   nextTitle=null;nextSinger=undefined;
   }
   const pipes=normalized.match(/\|{1,3}/g)??[];
   const barHints=pipes.filter(p=>p.length>=2).length+
    (pipes.some(p=>p.length>=2)&&!/\|{2,3}\s*$/.test(normalized)?1:0);
   rows.push({sourceLine,sectionIndex:activeSection,normalized,lyrics,chords:chosen,
    barHints,phraseEnd:/\|\|\|\s*$/.test(normalized),
-   events:pipes.filter(p=>p==='|').length,text:normalized,joinedSourceLines:[]});
+   events:pipes.filter(p=>p==='|').length,repeatBars,text:normalized,joinedSourceLines:[]});
   sourceLines.push(normalized);
  };
  for(let i=0;i<inputs.length;i++){
   const raw=inputs[i].replace(/\t/g,'    '),trimmed=raw.trim();
   if(!trimmed){sourceLines.push('');continue;}
   if(pageMarker.test(trimmed)){removedPages++;continue;}
-  if(heading.test(trimmed)){nextTitle=trimmed.slice(1,-1);sourceLines.push(trimmed);continue;}
+  const sectionHeading=trimmed.match(heading);
+  if(sectionHeading){
+   const tags=[...trimmed.matchAll(/\[([^\]]+)\]/g)].map(tag=>tag[1].trim());
+   nextTitle=tags[0];nextSinger=tags.slice(1).filter(Boolean).join(' / ')||undefined;
+   // Use one bracketed heading so downstream lyric alignment does not
+   // mistake a singer name for an inline chord or a lyric token.
+   sourceLines.push('['+nextTitle+(nextSinger?' — '+nextSinger:'')+']');continue;
+  }
   if(/^\{(?:start_of_|end_of_|soc|eoc)/i.test(trimmed)){
    const h=trimmed.match(/^\{(?:start_of_)?(verse|chorus|bridge)(?::([^}]+))?\}/i);
-   if(h)nextTitle=h[2]?.trim()||h[1];
+   if(h){nextTitle=h[2]?.trim()||h[1];nextSinger=undefined;}
    sourceLines.push(h?'['+(nextTitle??'Section')+']':'');continue;
   }
   const sourceLine=i;
   let normalized=trimmed;
+  const repeat=repeatedChordRow(trimmed);
+  if(repeat){
+   addRow(repeat.map(group=>group.map(symbol=>'['+symbol+']').join(' ')+' ||').join(' '),sourceLine,repeat);
+   continue;
+  }
   // A chord row belongs to the following lyric row. Preserve horizontal
   // spacing while anchoring chords to their approximate lyric positions.
-  if(chordRow(trimmed)&&i+1<inputs.length&&inputs[i+1].trim()&&!pageMarker.test(inputs[i+1].trim())&&
-   !chordRow(inputs[i+1].trim())&&!heading.test(inputs[i+1].trim())){
-   normalized=addChordMarkers(raw,inputs[++i].trimEnd());
-  }else if(chordRow(trimmed))normalized=normalizeChordOnly(trimmed);
+  if(chordRow(trimmed)){
+   let next=i+1;
+   while(next<inputs.length&&pageMarker.test(inputs[next].trim()))next++;
+   const following=inputs[next]?.trim();
+   if(following&&!chordRow(following)&&!heading.test(following)&&!repeatedChordRow(following)){
+    normalized=addChordMarkers(raw,inputs[next].trimEnd());
+    removedPages+=next-i-1;i=next;
+   }else normalized=normalizeChordOnly(trimmed);
+  }
   // A wrapped lyric line is joined to the previous musical line when it
   // contains no new chords, headings, or explicit phrase boundary.
   const hasChord=lineChords(normalized).length>0;
   const previous=rows[rows.length-1];
   const canJoin=previous&&nextTitle===null&&previous.sectionIndex===activeSection&&
-    !previous.phraseEnd&&!/\|{2,3}\s*$/.test(previous.normalized);
+    !previous.repeatBars&&!previous.phraseEnd&&!/\|{2,3}\s*$/.test(previous.normalized);
   // Chord-bearing continuations can also be a website's visual wrap.
   // Only merge when the preceding lyric ends in an unfinished grammatical
   // connector, and never across blank lines, section headings or pipe hints.
@@ -158,12 +190,12 @@ export function previewLeadSheetImport(
  const bars:LeadImportBar[]=[],lines:LeadImportLine[]=[],sections:LeadImportSection[]=[];
  for(let i=0;i<rows.length;i++){
   const row=rows[i];
-  if(row.sectionIndex>=sections.length)sections.push({title:titles[row.sectionIndex],start:bars.length,measures:0});
+  if(row.sectionIndex>=sections.length)sections.push({title:titles[row.sectionIndex],...(singers[row.sectionIndex]?{singer:singers[row.sectionIndex]}:{}),start:bars.length,measures:0});
   const sectionLength=rows.filter(r=>r.sectionIndex===row.sectionIndex).length;
   const guess=estimate(row,sectionLength);
   const explicit=lineMeasures[row.sourceLine]||sectionMeasuresPerLine[row.sectionIndex]||defaultMeasuresPerLine;
-  const measures=explicit||guess.measures;
-  const reason=lineMeasures[row.sourceLine]?'Manual override for this line':
+  const measures=row.repeatBars?.length||explicit||guess.measures;
+  const reason=row.repeatBars?'Explicit chord repeat':lineMeasures[row.sourceLine]?'Manual override for this line':
     sectionMeasuresPerLine[row.sectionIndex]?'Section override':
     defaultMeasuresPerLine?'Default measures-per-line setting':guess.reason;
   if(bars.length+measures>512)throw Error('The song exceeds 512 measures');
@@ -171,14 +203,14 @@ export function previewLeadSheetImport(
   const chordsPerBar=Array.from({length:measures},()=>[] as string[]);
   // Keep a likely ii-V pair together instead of assigning every chord its
   // own measure. When manually expanded, spread groups without dropping notes.
-  const groups=(!explicit&&row.barHints===0)?harmonicGroups(row.chords):row.chords.map(chord=>[chord]);
+  const groups=row.repeatBars??((!explicit&&row.barHints===0)?harmonicGroups(row.chords):row.chords.map(chord=>[chord]));
   groups.forEach((group,k)=>{
    const bar=Math.min(measures-1,Math.floor(k*measures/groups.length));
    chordsPerBar[bar].push(...group);
   });
   for(let b=0;b<measures;b++)bars.push({chord:chordsPerBar[b].join(','),lyrics:b===0?row.lyrics:'',original:b===0?row.normalized:''});
   lines.push({sourceLine:row.sourceLine,sectionIndex:row.sectionIndex,start,measures,text:row.text,
-   reason,estimated:!explicit&&row.barHints===0,joinedSourceLines:row.joinedSourceLines});
+   reason,estimated:!explicit&&row.barHints===0,...(row.repeatBars?{fixedMeasures:true}:{}),joinedSourceLines:row.joinedSourceLines});
  }
  for(let i=0;i<sections.length;i++)sections[i].measures=(sections[i+1]?.start??bars.length)-sections[i].start;
  return {sections,bars,lines,source:sourceLines.join('\n'),warnings};
@@ -207,8 +239,14 @@ function vocalGuide(preview:LeadImportPreview,beats:number):Note[]{
   if(!words.length)continue;
   const total=line.measures*beats;
   const step=total/words.length;
+  // Keep even whole beats when they already fit; otherwise use the coarsest
+  // regular subdivision that can hold every word without sharing an onset.
+  // Floor into that grid so a word stays in its original measure.
+  const subdivisions=Number.isInteger(step)?1:[2,4,8,16].find(n=>total*n>=words.length);
+  const at=(index:number)=>subdivisions
+    ?Math.floor(index*total*subdivisions/words.length)/subdivisions:index*step;
   for(let i=0;i<words.length;i++){
-   const start=line.start*beats+i*step;
+   const start=line.start*beats+at(i);
    const bar=Math.min(preview.bars.length-1,Math.floor(start/beats));
    const changes=preview.bars[bar]?.chord.split(',').filter(Boolean)??[];
    const within=(start%beats)/beats;
@@ -220,7 +258,10 @@ function vocalGuide(preview:LeadImportPreview,beats:number):Note[]{
     .filter(pitch=>pitch>=60&&pitch<=81);
    const pitch=candidates.sort((a,b)=>Math.abs(a-previousPitch)-Math.abs(b-previousPitch)||a-b)[0]??67;
    previousPitch=pitch;
-   notes.push({pitch,start,duration:Math.min(step*0.9,beats-(start%beats)),velocity:76,
+   const duration=subdivisions?Math.min(at(i+1)-at(i),beats-(start%beats))
+     :Math.min(step,beats-(start%beats));
+   // A detached release is a playback property, not an engraved rest.
+   notes.push({pitch,start,duration,gate:Math.min(0.94,step*0.81/duration),velocity:76,
     lyric:words[i],syllabic:'single',source:'generated'});
   }
  }

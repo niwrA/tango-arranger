@@ -7,7 +7,7 @@ function load(file,imports={}){
  const code=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
  const mod={exports:{}};
  vm.runInNewContext('(function(require,module,exports){'+code+'\n})',{console,Blob,URL,setTimeout},{filename:file})(
-  name=>{if(imports[name])return imports[name];if(name==='./bandoneonLayout'||name==='./bandoneonLayoutFormat')return domainLoad('src/'+name.slice(2)+'.ts');if(name==='jszip')return {default:TestZip};if(name==='@tonejs/midi')return {Midi:class Midi{}};throw Error('Unexpected import '+name);},mod,mod.exports);
+  name=>{if(imports[name])return imports[name];if(name==='./bandoneonLayout'||name==='./bandoneonLayoutFormat'||name==='./arrangementPlayback')return domainLoad('src/'+name.slice(2)+'.ts');if(name==='jszip')return {default:TestZip};if(name==='@tonejs/midi')return {Midi:class Midi{}};throw Error('Unexpected import '+name);},mod,mod.exports);
  return mod.exports;
 }
 const gestures=load('src/tangoGestures.ts');

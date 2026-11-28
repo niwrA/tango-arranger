@@ -3,6 +3,7 @@ import {computed,ref,onBeforeUnmount} from 'vue';
 import {playBandoneonNote,type BandoneonVoice} from './bandoneonAudio';
 import {startAudioFromGesture} from './toneSession';
 import {PHYSICAL_LAYOUTS,type BandoneonButton} from './bandoneonLayout';
+import {BANDONEON_MODELS} from './bandoneon';
 import {validateBandoneonLayout,importBandoneonLayout,exportBandoneonLayout,layoutIsUnisonoric,snappedButtonPosition,type PortableBandoneonLayout} from './bandoneonLayoutFormat';
 const props=defineProps<{layout?:PortableBandoneonLayout;referenceHz?:number}>();
 const emit=defineEmits<{(event:'save',layout:PortableBandoneonLayout):void;(event:'cancel'):void}>();
@@ -62,9 +63,11 @@ function nudge(b:BandoneonButton,dx:number,dy:number){
 }
 
 function pitchName(p:number){return (['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'][p%12]??'?')+(Math.floor(p/12)-1);}
-function duplicate(model:string){
+function factoryName(model:string){return BANDONEON_MODELS.find(p=>p.id===model)?.label??model;}
+function duplicate(event:Event){
+ const select=event.target as HTMLSelectElement,model=select.value;select.value='';
  const layout=PHYSICAL_LAYOUTS.find(l=>l.model===model);if(!layout)return;
- draft.value={...fresh(),name:model+' (custom)',source:layout.source,buttons:layout.buttons.map(b=>({...b}))};selected.value='';error.value='';
+ draft.value={...fresh(),name:factoryName(model)+' copy',source:layout.source,buttons:layout.buttons.map(b=>({...b}))};selected.value='';error.value='';
 }
 function add(hand:BandoneonButton['hand']){
  const rows=draft.value.buttons.filter(b=>b.hand===hand);
@@ -93,7 +96,7 @@ function bounds(hand:BandoneonButton['hand']){
  <section class="bandoneon-layout-editor">
   <h3>Bandoneon layout editor</h3>
   <div class="layout-toolbar"><button type="button" class="secondary" @click="draft=fresh();selected='';error=''">New layout</button>
-   <label>Copy a preset<select value="" @change="duplicate(($event.target as HTMLSelectElement).value)"><option value="">Choose…</option><option v-for="l in PHYSICAL_LAYOUTS" :key="l.model" :value="l.model">{{l.model}} (provisional)</option></select></label>
+   <label>Copy a preset<select value="" @change="duplicate"><option value="">Choose…</option><option v-for="l in PHYSICAL_LAYOUTS" :key="l.model" :value="l.model">{{factoryName(l.model)}}{{l.verified?'':' (provisional)'}}</option></select></label>
    <label>Import JSON<input type="file" accept=".json,application/json" @change="readFile"/></label>
   </div>
   <div class="layout-fields">

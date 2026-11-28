@@ -36,7 +36,7 @@ export function importBandoneonLayout(json:string){if(json.length>256000)throw E
 export function exportBandoneonLayout(layout:PortableBandoneonLayout){return JSON.stringify(validateBandoneonLayout(layout),null,2);}
 export function asPhysicalLayout(layout:PortableBandoneonLayout):PhysicalBandoneonLayout{return {model:layout.id,source:layout.source,buttons:layout.buttons};}
 export function layoutIsUnisonoric(layout:PortableBandoneonLayout){return layout.buttons.every(b=>b.pull===b.push);}
-export function layoutPitchSet(layout:PortableBandoneonLayout,hand?:'left'|'right'){return [...new Set(layout.buttons.filter(b=>!hand||b.hand===hand).flatMap(b=>[b.pull,b.push]))].sort((a,b)=>a-b);}
+export function layoutPitchSet(layout:{buttons:readonly BandoneonButton[]},hand?:'left'|'right'){return [...new Set(layout.buttons.filter(b=>!hand||b.hand===hand).flatMap(b=>[b.pull,b.push]))].sort((a,b)=>a-b);}
 
 /** Project-scoped definitions and selections; old projects may omit both. */
 export type CustomBandoneonContext={customBandoneonLayouts?:PortableBandoneonLayout[];customBandoneonParts?:Record<string,string>};

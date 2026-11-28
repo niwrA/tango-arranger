@@ -262,6 +262,7 @@ const diagramDescription=computed(()=>{
    </div>
    <div v-else-if="family==='Bandoneon'&&props.physicalLayout&&!props.learn" class="physical-bandoneon" role="group" aria-label="Physical bandoneon keyboard">
      <strong class="physical-direction">{{props.layoutProvisional?'Provisional chart':props.bellowsFrame?.direction==='pull'?'← PULL · OPEN →':props.bellowsFrame?.direction==='push'?'→ PUSH · CLOSE ←':props.bellowsFrame?'No continuous assignment':'Bellows direction —'}}</strong>
+     <small v-if="props.bellowsFrame?.rearticulated?.length" class="physical-reattack">Reverse and reattack held notes</small>
      <div v-if="props.bellowsFrame" class="physical-capacity"><label>Estimated extension <meter min="0" max="1" :value="props.bellowsFrame.extensionStart"/></label><small v-if="props.bellowsFrame.capacityExceeded" role="status">Estimated travel limit exceeded</small></div>
      <div class="physical-hands">
       <section v-for="hand in physicalHands" :key="hand.hand">

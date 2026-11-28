@@ -30,6 +30,15 @@ test('compact mode category and action selectors do not execute on selection',()
  for(const marker of ['aria-label="Interaction mode"','aria-label="Action category"','aria-label="Musical action"','@click="applyQuickNote(compactQuickAction)"'])assert.ok(editor.includes(marker),marker);
  assert.match(css,/\.musical-compact-selectors\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
 });
+test('tablet action buttons use the compact controls and fall back if they cannot fit',()=>{
+ assert.match(editor,/ref="tabletActionSlot"/);
+ assert.match(editor,/v-show="!tabletInlineActions" ref="tabletActionSelect"/);
+ assert.match(editor,/:inert="!tabletInlineActions"/);
+ assert.match(vue,/buttons.offsetWidth<=slot.clientWidth/);
+ assert.match(vue,/new ResizeObserver\(updateTabletActionFit\)/);
+ assert.match(vue,/quickNoteCategory.value!=='create'/);
+ assert.match(css,/min-width:701px.*max-width:1180px/);
+});
 test('one working range is separate from the Notes or Measures editing target',()=>{
  assert.match(editor,/<MeasureRangeControl[^>]+@change="setNoteEditorMeasureRange"/);
  assert.doesNotMatch(editor,/note-working-presets/);
@@ -60,5 +69,19 @@ test('shared settings dialog precedes the Score and Edit panels and restores too
  const settings=editor.indexOf('id="note-settings-popup"');
  assert.ok(settings>=0&&settings<editor.indexOf('id="note-panel-score"'));
  assert.match(vue,/querySelector<HTMLElement>\('\.note-settings-icon'\)\?\.focus/);
+});
+test('regular and focused phone views share the compact controls',()=>{
+ assert.match(editor,/class="secondary note-map-control"[^>]*aria-label="Back to arrangement map"/);
+ assert.match(editor,/class="secondary note-focus-enter"[^>]*aria-label="Expand note editor to full screen"[^>]*><AppIcon name="maximize"/);
+ assert.match(css,/\.note-editor-section \.musical-compact-status>select\{width:104px/);
+ assert.match(css,/\.note-editor-section \.musical-compact-options>summary\{[^}]*min-height:44px/);
+ assert.match(vue,/\.note-unified-toolbar\{--note-control-height:44px;gap:4px/);
+});
+test('compact edition picker preserves the native choices and labels',()=>{
+ const picker=editor.slice(editor.indexOf('class="note-edition-picker"'),editor.indexOf('class="note-toolbar-transport"'));
+ assert.match(picker,/class="note-edition-summary" aria-hidden="true"/);
+ assert.match(picker,/v-if="noteFocusMode" class="note-edition-instrument"/);
+ assert.match(picker,/:aria-label="'Active difficulty for '\+rosterDisplayName\(noteInst\)"/);
+ assert.match(picker,/editionDescription\(noteInst,level\)/);
 });
 console.log(`${checks} focused editor checks passed`);

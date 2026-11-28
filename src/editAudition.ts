@@ -1,4 +1,4 @@
-import {playbackNotesInRange} from './arrangementPlayback';
+import {bandoneonPlaybackPlan,playbackNotesInRange} from './arrangementPlayback';
 import {measureLoopEvents,type MeasureLoopEvent} from './measureLoop';
 import {noteSoundingDuration,openingPickupBeats,projectInstruments,type Instrument,type Note,type Project,type Score} from './music';
 import {soundingSeconds} from './tempoExpressions';
@@ -20,11 +20,14 @@ export function draftAuditionEvents(project:Project,score:Score,instrument:Instr
  const instruments=accompaniment?projectInstruments(project):[instrument];
  const events:DraftAuditionEvent[]=[];
  for(const part of instruments){
-  for(const note of playbackNotesInRange(score[part]??[],from,to,transpose)){
+  const attacks=playbackNotesInRange(score[part]??[],from,to,transpose);
+  const plan=bandoneonPlaybackPlan(project,part,attacks);
+  for(const note of attacks){
    const bar=Math.floor((note.start+1e-7)/beats);
    const start=Math.max(from,bar*beats);
    const event=measureLoopEvents([note],bar,beats,bpm,transpose,project.expressionRanges??[],part,project,true)[0];
    if(!event)continue;
+   event.bellowsSegments=plan.segments.get(note);
    const onset=offsets[bar-firstMeasure]+soundingSeconds(project,start,Math.max(0,note.start-start),speed);
    const duration=soundingSeconds(project,note.start,Math.min(noteSoundingDuration(note),to-note.start),speed);
    if(duration>0)events.push({instrument:part,note,event,onset,duration});

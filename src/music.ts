@@ -66,7 +66,7 @@ export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 export type PianoGlissando={interval:number;keys:'white'|'black'|'chromatic';beats:number};
 export type StringGlissando={interval:number;beats:number};
 export type BowedTremolo={strokes:1|2|3;rateHz?:number;mode?:'measured'|'unmeasured'};
-export type Note = { bellowsDirection?:'pull'|'push'; bandoneonButtonId?:string; editId?:string; staffOverride?:1|2; xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; bowDirection?:'up'|'down'; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+export type Note = { bellowsDirection?:'pull'|'push'; bellowsPressure?:number; bellowsShake?:number; bandoneonButtonId?:string; editId?:string; staffOverride?:1|2; xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; bowDirection?:'up'|'down'; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
 /** Convert a linked glissando to a playback-only contour. */
 export function stringGlissandoPlayback(note:Note,from=note.start,to=Infinity):Note{
  const gliss=note.stringGlissando;
@@ -1356,7 +1356,8 @@ export function generate(p:Project):Score {
           // Vals: grounded bass on beat 1; light fifth/approach on beat 3.
           const first=harmony(0),last=harmony(2);
           put(closest(first[0],40,28,55),0,1,98,undefined,0.82);
-          put(closest(last[2]??last[0],42,28,55),2,0.85,68,undefined,0.58);
+          // Write the third beat as a quarter; release early only in playback.
+          put(closest(last[2]??last[0],42,28,55),2,1,68,undefined,0.493);
           continue;
         }
         if(styled&&inst.startsWith('Contrabass')){
@@ -1396,13 +1397,15 @@ export function generate(p:Project):Score {
           // Argentine vals: piano reinforces the contrabass with a decisive
           // independent left-hand root on beat 1; right-hand chord replies on
           // beats 2 and 3. Keep the bass in the F clef, not in chord voicings.
+          // All three attacks are written as quarters; the gates retain the
+          // detached playback releases without engraving tiny ties and rests.
           const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
           const bassRoot=harmony(0)[0];
-          put(pianoBassReinforcement(bassRoot,40,range[0],bassCeiling),0,0.95,114,undefined,0.74);
+          put(pianoBassReinforcement(bassRoot,40,range[0],bassCeiling),0,1,114,undefined,0.703);
           if(notes.length)notes[notes.length-1].accent=true;
           for(const beat of [1,2]){
             const pcs=harmony(beat);
-            putPianoChord(pcs,beat===1?65:68,beat,0.8,beat===1?65:62,0.55);
+            putPianoChord(pcs,beat===1?65:68,beat,1,beat===1?65:62,0.44);
           }
           continue;
         }

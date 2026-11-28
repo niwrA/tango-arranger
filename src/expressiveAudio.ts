@@ -1,7 +1,7 @@
 /** Native Web Audio: multi-point pitch trajectories, double sirenas and swells. */
 import type {Note} from './music';
 import type {TangoGesture,GesturePoint} from './tangoGestures';
-export type ExpressiveEvent={pitch:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number};
+export type ExpressiveEvent={pitch:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number;bellowsShake?:number;bellowsQuickRelease?:boolean};
 export function playExpressiveEvent(ctx:AudioContext,event:ExpressiveEvent,when:number,destination:AudioNode=ctx.destination):void {
  if(!Number.isFinite(event.durationSeconds)||event.durationSeconds<=0)return;
  const start=Math.max(ctx.currentTime+0.002,when),end=start+event.durationSeconds;

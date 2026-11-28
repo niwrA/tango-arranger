@@ -187,7 +187,11 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
        const text=technical.textContent??'';
        if(text==='tango-bellows:pull')note.bellowsDirection='pull';
        else if(text==='tango-bellows:push')note.bellowsDirection='push';
-       else if(text.startsWith('tango-button:')&&text.length>13&&text.length<=113)note.bandoneonButtonId=text.slice(13);
+       else if(text.startsWith('tango-bellows-pressure:')){
+        const pressure=Number(text.slice('tango-bellows-pressure:'.length));if(Number.isFinite(pressure)&&pressure>=.25&&pressure<=1.5)note.bellowsPressure=pressure;
+       }else if(text.startsWith('tango-bellows-shake:')){
+        const shake=Number(text.slice('tango-bellows-shake:'.length));if(Number.isFinite(shake)&&shake>=3&&shake<=12)note.bellowsShake=shake;
+       }else if(text.startsWith('tango-button:')&&text.length>13&&text.length<=113)note.bandoneonButtonId=text.slice(13);
       }
       if(isBowed){
        const finger=value(child,'fingering');

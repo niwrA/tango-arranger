@@ -1,3 +1,26 @@
+## [Feature] Bandoneon keyboards and bellows guidance (2026-11-28)
+
+- Learn and performance views can show physical button banks, highlight the assigned buttons, and show when to pull or push. Choose a factory keyboard or save a custom layout with the song in **Structure, Keys & Ensemble → Ensemble**.
+- Automatic Pull/Push and release-and-reattack cues appear on engraved scores. The **Bellows guide** toggle hides automatic cues in the preview without changing authored marks.
+- Note Editor gives each note optional pressure and shake controls. A planned reversal releases the reeds before reattacking with buttons that keep the same pitch. Arrangement Review flags unplayable combinations and estimated travel limits. Travel and reed response are modeled estimates, not physical calibration.
+
+## Repeats and singer credits in pasted lead sheets (2026-11-28)
+
+- A chord-only row such as Am F Dm G x3 creates twelve measures, with no Voice notes on that row. Barlines inside a repeat keep grouped chords together, and page markers do not interrupt a chord-over-lyric pair. Singer names after a section heading appear in the import review and are preserved in the lyric source as section credits. Chord symbols past the end of a short lyric line no longer get tangled together.
+
+## Readable provisional vocal guides (2026-11-28)
+
+- New songs made from pasted lyrics and chords use regular notes for the provisional Voice guide, keeping short releases in playback rather than writing tiny rests. Existing projects and recorded or imported melodies are unchanged.
+
+## Clearer Vals accompaniment notation (2026-11-28)
+
+- Generated 3/4 piano and contrabass accompaniment uses readable quarter notes for these beat-aligned attacks. Playback keeps the same short releases, without writing them as tiny notes, ties and rests.
+
+## More room for notes on phones (2026-11-28)
+
+- Regular and Focus views share icon buttons for navigation, Undo and Redo and put the smaller Notes/Measures picker next to Options. Focus combines the part name and edition in one picker. The edition list still shows saved and protected status.
+- Opening the Note Editor brings its tab fully into view on narrow screens.
+
 ## [Feature] Arrangement Review (2026-11-28)
 
 - Open **Song settings → Review arrangement** to check a whole arrangement, one instrument or the working range for range, playability, expression and balance issues. Listen to the original and proposed edits before applying only the fixes you select.
@@ -7,6 +30,8 @@
 ## Note Editor range controls (2026-11-28)
 
 - The narrow-layout range button no longer shows above the full-width controls on tablets. Removed the separate Range presets control; the section picker and start/end controls remain.
+- On tablet-sized layouts, choose Select, Create or Erase and an action category from compact menus. Actions appear as buttons on that same row when they fit; otherwise use the action menu.
+- Phone Focus view uses icon-only Exit Focus, Undo and Redo, and places the smaller Notes/Measures picker beside selection options.
 
 ## [Feature] Orchestra styles by song, section and phrase (2026-11-27)
 

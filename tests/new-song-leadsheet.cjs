@@ -23,6 +23,50 @@ check('chords above lyrics are converted into inline chord anchors',()=>{
  assert.ok(preview.bars[0].original.includes('Donde'));
  assert.equal(preview.bars[1].chord,'Em');
 });
+check('chord-only repeats are exact measures and singer tags are section credits',()=>{
+ const input='[Intro]\nAm F Dm G x3\n\n[Verse 1][Soprano Example]\n    Am\nSome words\nPage 1/6\n[Chorus]\n[F]A refrain';
+ const preview=previewLeadSheetImport(input,2,[4],{1:1});
+ assert.deepEqual(preview.bars.slice(0,12).map(b=>b.chord),Array.from({length:3},()=>['Am','F','Dm','G']).flat());
+ assert.ok(preview.bars.slice(0,12).every(b=>!b.lyrics));
+ assert.equal(preview.lines[0].fixedMeasures,true);
+ assert.deepEqual(preview.sections.map(s=>[s.title,s.singer,s.start]),[['Intro',undefined,0],['Verse 1','Soprano Example',12],['Chorus',undefined,14]]);
+ assert.match(preview.source,/\[Verse 1 — Soprano Example\]/);
+ assert.doesNotMatch(preview.source,/x3|Page 1/);
+ const song=projectFromLeadSheet(preview,'Repeated intro',3,124);
+ assert.ok(song.importedScore.Voice[0].start>=36);
+ assert.equal(song.leadLyrics['1'].source,preview.source);
+ const {parseLeadLyrics,readableLeadSheet}=load('src/leadLyrics.ts');
+ const plan=parseLeadLyrics(preview.source,3);
+ assert.ok(!plan.chords.some(c=>c.chord.includes('Soprano')));
+ assert.ok(!plan.notes.some(n=>n.text.includes('Soprano')));
+ assert.match(readableLeadSheet(preview.source),/Verse 1 — Soprano Example/);
+ for(const repeat of ['× 3','3x','X3']){
+  assert.equal(previewLeadSheetImport('[Intro]\nAm F Dm G '+repeat,0).bars.length,12);
+ }
+ assert.throws(()=>previewLeadSheetImport('[Intro]\nAm F Dm G x129',0),/512 measures/);
+});
+check('chord tags beyond the end of a short lyric preserve all trailing chords',()=>{
+ const p=previewLeadSheetImport('Am                             F     Dm   G\nA short lyric',0);
+ assert.deepEqual(p.bars.map(b=>b.chord),['Am','F','Dm','G']);
+ assert.ok(!p.warnings.length);
+ assert.equal(p.bars[0].lyrics,'A short lyric');
+ assert.match(p.source,/\[F\]\[Dm\]\[G\]$/);
+});
+check('barred repeats keep multiple chords in the same measure',()=>{
+ for(const src of ['|: Am F | Dm G :|','Am F | Dm G x2','|: Am F | Dm G :| ×2']){
+  const p=previewLeadSheetImport('[Intro]\n'+src,0);
+  assert.deepEqual(p.bars.map(x=>x.chord),['Am,F','Dm,G','Am,F','Dm,G']);
+  assert.ok(p.lines[0].fixedMeasures);
+  assert.deepEqual(previewLeadSheetImport('[Intro]\n|: Am F :|',0).bars.map(b=>b.chord),['Am,F','Am,F']);
+ }
+});
+check('page markers between chords and words do not split the sung line',()=>{
+ const p=previewLeadSheetImport('[Verse]\nAm\u00a0    F\nPage 2/6\nA short lyric',0);
+ assert.equal(p.lines.length,1);
+ assert.deepEqual(p.bars.map(x=>x.chord),['Am','F']);
+ assert.equal(p.bars[0].lyrics,'A short lyric');
+ assert.match(p.warnings.join(' '),/Removed 1 page marker/);
+});
 check('section boundary adjustments affect only section assignment, not song text',()=>{
  const preview=previewLeadSheetImport('[Verse]\n[D]one\n[A]two\n[Chorus]\n[G]three\n[C]four');
  const sections=arrangeImportedSections(preview,[0,1]);
@@ -190,6 +234,21 @@ check('vocal guide aligns syllables within measures and handles wrapped chord ro
  assert.ok(notes.every((n,i)=>i===0||n.start>notes[i-1].start));
  assert.ok(notes.every(n=>n.duration<=4-(n.start%4)+1e-7));
  assert.equal(notes.at(-1).lyric,'care');
+});
+check('provisional voice notation uses the musical grid and avoids micro-rests',()=>{
+ const preview=previewLeadSheetImport("[Verse]\n[Am]One two three four five\n[F]Each word has a clear place here",1);
+ const {exportMusicXml,validateMusicXmlDurations}=load('src/io.ts');
+ for(const beats of [2,3,4]){
+  const song=projectFromLeadSheet(preview,'Guide',beats,124);
+  const notes=song.importedScore.Voice;
+  assert.deepEqual(notes.map(n=>n.lyric),['One','two','three','four','five','Each','word','has','a','clear','place','here']);
+  assert.ok(notes.every(n=>n.start*4===Math.floor(n.start*4)&&n.duration*4===Math.floor(n.duration*4)));
+  assert.ok(notes.every((n,i)=>n.gate>0&&n.gate<1&&n.duration>0&&(i===0||notes[i-1].start+notes[i-1].duration<=n.start)));
+  const xml=exportMusicXml(song,{Voice:notes},{onlyInstrument:'Voice'});
+  assert.deepEqual(Array.from(validateMusicXmlDurations(xml,beats,1)),[]);
+  assert.doesNotMatch(xml,/<type>(?:32nd|64th|128th)<\/type>|<time-modification>/);
+  assert.equal((xml.match(/<lyric\b/g)??[]).length,notes.length);
+ }
 });
 check('printable leadsheet keeps adjacent chord symbols separated from lyrics',()=>{
  const {readableLeadSheet}=load('src/leadLyrics.ts');

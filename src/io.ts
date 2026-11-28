@@ -1,6 +1,7 @@
+import {bandoneonPlaybackPlan,bellowsGuideMarks,playbackNotesInRange,type BellowsGuideMark} from './arrangementPlayback';
 import {validateProjectBandoneonLayouts} from './bandoneonLayoutFormat';
 import JSZip from 'jszip';
-import {bandoneonProfileForPart} from './bandoneon';
+import {authoritativeBandoneonLayoutForPart,bandoneonProfileForPart} from './bandoneon';
 import {parseMusicXmlDetailed} from './musicXmlImport';
 import {tempoAutomationPoints,normalizedTempoExpressions} from './tempoExpressions';
 import {EDITION_LEVELS,assembleEditionScore,currentEditionLevel,getEditionInfo,snapshotActiveEditions,type EditionChoice} from './editions';
@@ -164,7 +165,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
       ?[original,{...n,noteheadColor,pitch:n.gesture.partner[0].pitch,bandoneonButtonId:undefined,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]
       :[original];
   });
-  const events=notationNotes.map(n=>({noteheadColor:n.noteheadColor,gesture:n.gesture,bowedTremolo:n.bowedTremolo,finger:n.finger,bowDirection:n.bowDirection,bellowsDirection:n.bellowsDirection,bandoneonButtonId:n.bandoneonButtonId,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,xmlTieContinuation:n.xmlTieContinuation,xmlVoice:n.xmlVoice,xmlStaff:n.xmlStaff,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
+  const events=notationNotes.map(n=>({noteheadColor:n.noteheadColor,gesture:n.gesture,bowedTremolo:n.bowedTremolo,finger:n.finger,bowDirection:n.bowDirection,bellowsDirection:n.bellowsDirection,bellowsPressure:n.bellowsPressure,bellowsShake:n.bellowsShake,bandoneonButtonId:n.bandoneonButtonId,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,xmlTieContinuation:n.xmlTieContinuation,xmlVoice:n.xmlVoice,xmlStaff:n.xmlStaff,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes
@@ -265,7 +266,7 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const glissXml=isAttack?glissMarks.filter(mark=>mark.note.pitch===pitch&&Math.abs(mark.note.start-(offset+begin/DIV))<1e-5&&notes.includes(mark.note)).map(mark=>`<glissando type="${mark.type}" number="${mark.number}" line-type="solid">${mark.type==='start'?'gliss.':''}</glissando>`).join(''):'';
         const tremoloXml=isAttack&&(latest.bowedTremolo||latest.gesture?.tremolo)?`<ornaments><tremolo type="single">${latest.bowedTremolo?.strokes??3}</tremolo></ornaments>`:'';
         const technicalMarks=isAttack?((latest.finger!==undefined?'<fingering>'+esc(latest.finger)+'</fingering>':'')+(latest.bowDirection==='up'?'<up-bow/>':latest.bowDirection==='down'?'<down-bow/>':'')):'';
-        const bellowsTechnical=isAttack?((latest.bellowsDirection?'<other-technical print-object="no">tango-bellows:'+latest.bellowsDirection+'</other-technical>':'')+(latest.bandoneonButtonId?'<other-technical print-object="no">tango-button:'+esc(latest.bandoneonButtonId)+'</other-technical>':'')):'';
+        const bellowsTechnical=isAttack?((latest.bellowsDirection?'<other-technical print-object="no">tango-bellows:'+latest.bellowsDirection+'</other-technical>':'')+(latest.bandoneonButtonId?'<other-technical print-object="no">tango-button:'+esc(latest.bandoneonButtonId)+'</other-technical>':'')+(Number.isFinite(latest.bellowsPressure)?'<other-technical print-object="no">tango-bellows-pressure:'+latest.bellowsPressure+'</other-technical>':'')+(Number.isFinite(latest.bellowsShake)?'<other-technical print-object="no">tango-bellows-shake:'+latest.bellowsShake+'</other-technical>':'')):'';
         const technicalXml=technicalMarks||bellowsTechnical?'<technical>'+technicalMarks+bellowsTechnical+'</technical>':'';
         const notations=(tieStop||tieStart||articulationMarks||fermataXml||glissXml||tremoloXml||technicalXml||(j===0&&tupletMarks))?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${fermataXml}${j===0?tupletMarks:''}${articulationMarks}${glissXml}${tremoloXml}${technicalXml}</notations>`:'';
         // A collapsed unison with the same onset can represent several source
@@ -296,6 +297,34 @@ function writeGrandStaffMeasure(p:Project,inst:Instrument,staves:[Note[],Note[]]
   const skip=pickup?p.beats-pickup:0;
   const glissMarks=pianoGlissMarks([...upper,...lower]);
   return writeVoice(upper,bar,p.beats,key,1,1,Boolean(hold),noteheadColors,skip,legato?.[0],techniques?.[0],0,glissMarks)+`<backup><duration>${(p.beats-skip)*DIV}</duration></backup>`+writeVoice(lower,bar,p.beats,key,2,2,false,noteheadColors,skip,legato?.[1],techniques?.[1],0,glissMarks);
+}
+// Use the same sounding score and common-direction planner as playback.
+// Square brackets distinguish advice from authored technical instructions.
+function automaticBellowsLabels(p:Project,inst:Instrument,notes:readonly Note[],pickupStart:number,firstVisibleMeasure?:number){
+ if(!inst.startsWith('Bandoneon')||!notes.length||!authoritativeBandoneonLayoutForPart(p,inst))return [];
+ const attacks=playbackNotesInRange(notes.filter(n=>n.start>=pickupStart-1e-7),pickupStart,Infinity,p.transposeSemitones??0);
+ const {decisions}=bandoneonPlaybackPlan(p,inst,attacks);
+ const marks:BellowsGuideMark[]=bellowsGuideMarks(decisions);
+ if(firstVisibleMeasure&&firstVisibleMeasure>1){
+  const first=(firstVisibleMeasure-1)*p.beats;
+  const audible=decisions.find(f=>f.end>first+1e-7);
+  if(audible?.direction){
+   const beat=Math.max(first,audible.start);
+   const preceding=marks.filter(m=>m.beat<=beat+1e-7).at(-1);
+   // A clipped score may start halfway through an established direction.
+   if(preceding?.direction===audible.direction&&preceding.beat<beat-1e-7)
+    marks.push({beat,direction:audible.direction,reversal:false});
+  }
+ }
+ const explicitTicks=new Map<number,Set<string>>();
+ for(const note of attacks){
+  if(!note.bellowsDirection)continue;
+  const tick=notationTick(note.start);
+  const directions=explicitTicks.get(tick)??new Set<string>();
+  directions.add(note.bellowsDirection);explicitTicks.set(tick,directions);
+ }
+ return marks.filter(m=>('rearticulated' in m&&m.rearticulated)||!explicitTicks.get(notationTick(m.beat))?.has(m.direction))
+  .map(m=>({beat:m.beat,label:'['+(m.direction==='pull'?'Pull':'Push')+('rearticulated' in m&&m.rearticulated?'; re-attack':'')+']'}));
 }
 /** Compressed MusicXML (MXL), not MuseScore's proprietary MSCZ format. */
 export async function exportCompressedMusicXml(p:Project,score:Score):Promise<Blob>{
@@ -346,6 +375,11 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
     return `<Part><Staff id="${staffId}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>${(family==='Piano'||(family==='Bandoneon'&&p.bandoneonGrandStaff?.[inst]))?`<Staff id="${staffId+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>`:''}<trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
   }).join('');
   const staffs=instruments.map((inst,index)=>{
+    const automaticByBar=new Map<number,{beat:number;label:string}[]>();
+    for(const mark of automaticBellowsLabels(p,inst,score[inst]??[],pickupStart)){
+     const beat=Math.round(mark.beat*8)/8,bar=Math.floor(beat/beats);
+     const marks=automaticByBar.get(bar)??[];marks.push({...mark,beat});automaticByBar.set(bar,marks);
+    }
     const allNotes=(scoreNotes[inst]??[]).flatMap(n=>n.gesture?.partner?
       [n,{...n,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]:[n])
       .filter(n=>Number.isFinite(n.start)&&n.start>=pickupStart-1e-7&&Number.isFinite(n.duration)&&n.duration>0)
@@ -462,7 +496,10 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
         return `<tick>${tick}</tick><StaffText><text>${esc(symbol)}</text></StaffText>`;
       }).join('');
       // Return to the measure start before writing the unchanged musical voices.
-      const chordPrefix=chordXml?`${chordXml}<tick>${scoreTick(begin)}</tick>`:'';
+      const bellowsXml=staffIndex===0?(automaticByBar.get(barIndex)??[]).map(({beat,label})=>
+       `<tick>${scoreTick(beat)}</tick><StaffText><text>${esc(label)}</text></StaffText>`).join(''):'';
+      const directionXml=chordXml+bellowsXml;
+      const chordPrefix=directionXml?`${directionXml}<tick>${scoreTick(begin)}</tick>`:'';
       const voices=lanes.slice(0,4).map((lane,laneIndex)=>{
         const active=lane.groups.filter(g=>g.start<end-1e-7&&g.start+g.duration>begin+1e-7);
         let cursor=0;
@@ -561,7 +598,7 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
   zip.file('score.mscx',mscx);
   return zip.generateAsync({type:'blob',mimeType:'application/vnd.musescore.mscz'});
 }
-export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice;previewNoteheadColors?:NoteheadColors;engravingPreview?:boolean}){
+export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:Instrument;editionLevels?:EditionChoice;previewNoteheadColors?:NoteheadColors;engravingPreview?:boolean;automaticBellows?:boolean;bellowsFirstVisibleMeasure?:number}){
   if(!Number.isInteger(p.beats)||p.beats<1||p.beats>12)throw Error('Unsupported meter');
   const transposed=transposeScore(score,p.transposeSemitones??0);
   const unfilteredTransposed=new Map(Object.entries(transposed));
@@ -673,16 +710,31 @@ export function exportMusicXml(p:Project,score:Score,options?:{onlyInstrument?:I
    }
    return marks.filter(m=>m.beat>=b*p.beats&&(m.beat<(b+1)*p.beats||b===p.bars.length-1&&m.beat===(b+1)*p.beats)).map(m=>`<direction placement="below"><direction-type><pedal type="${m.type}" line="yes" sign="yes"/></direction-type><offset>${Math.round((m.beat-b*p.beats-barShift(b))*DIV)}</offset><staff>2</staff></direction>`).join('');
   };
+  const automaticByMeasure=new Map<Instrument,Map<number,{offset:number;label:string}[]>>();
+  if(options?.automaticBellows!==false)for(const inst of instruments){
+   if(!inst.startsWith('Bandoneon'))continue;
+   const measures=new Map<number,{offset:number;label:string}[]>();
+   for(const mark of automaticBellowsLabels(p,inst,score[inst]??[],pickupStart,options?.bellowsFirstVisibleMeasure)){
+    const tick=notationTick(mark.beat),measure=Math.floor(tick/(p.beats*DIV));
+    const offset=tick-notationTick(measure*p.beats+barShift(measure));
+    const labels=measures.get(measure)??[];labels.push({offset,label:mark.label});measures.set(measure,labels);
+   }
+   automaticByMeasure.set(inst,measures);
+  }
   const bellowsDirections=(inst:Instrument,b:number)=>{
    if(!inst.startsWith('Bandoneon'))return '';
    const marks=new Map<number,Set<string>>();
+   const add=(offset:number,label:string)=>{
+    const set=marks.get(offset)??new Set<string>();set.add(label);marks.set(offset,set);
+   };
    for(const n of transposed[inst]??[]){
     if(n.start<b*p.beats||n.start>=(b+1)*p.beats||(!n.bellowsDirection&&!n.bandoneonButtonId))continue;
     const label=[n.bellowsDirection==='pull'?'Pull (open)':n.bellowsDirection==='push'?'Push (close)':'',n.bandoneonButtonId?'Button '+n.bandoneonButtonId:''].filter(Boolean).join(' · ');
-    const offset=Math.round((n.start-b*p.beats-barShift(b))*DIV);
-    const set=marks.get(offset)??new Set<string>();set.add(label);marks.set(offset,set);
+    add(Math.round((n.start-b*p.beats-barShift(b))*DIV),label);
    }
-   return [...marks].sort((a,b)=>a[0]-b[0]).map(([offset,labels])=>`<direction placement="above"><direction-type><words>${esc([...labels].join('; '))}</words></direction-type>${offset?`<offset>${offset}</offset>`:''}</direction>`).join('');
+   for(const {offset,label} of automaticByMeasure.get(inst)?.get(b)??[])add(offset,label);
+   return [...marks].sort((a,b)=>a[0]-b[0]).map(([offset,labels])=>
+    `<direction placement="above"><direction-type><words>${esc([...labels].join('; '))}</words></direction-type>${offset?`<offset>${offset}</offset>`:''}${grandStaves.has(inst)?'<staff>1</staff>':''}</direction>`).join('');
   };
   let sectionOrdinal=-1;
   const sectionMarks=p.bars.map((bar,b)=>{if(sectionStarts(b))sectionOrdinal++;return sectionOrdinal<0?'':sectionLetter(sectionOrdinal);});

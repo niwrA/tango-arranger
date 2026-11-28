@@ -9,7 +9,10 @@ import {assessTimedMidi,normalizeMidiTargets,recordMidiPracticeKey,type PlayedMi
 import {buildPracticePreview,loadPreviewBank,renderPracticePreview} from './practicePreviewAudio';
 import {stringPitchAtBeat,type Project} from './music';
 import {usesPizzicatoBank} from './pizzicatoSamples';
-import {bandoneonProfileForPart} from './bandoneon';
+import {bandoneonProfileForPart,physicalBandoneonLayoutForPart,authoritativeBandoneonLayoutForPart} from './bandoneon';
+import {bandoneonPlaybackPlan,playbackNotesInRange} from './arrangementPlayback';
+import {practiceBellowsButtons,practiceBellowsFrame} from './bandoneonPracticeGuide';
+import BandoneonPhysicalKeyboard from './BandoneonPhysicalKeyboard.vue';
 import {stopBandoneonVoices} from './bandoneonAudio';
 import {stopVoiceGuide,usesModeledAudio} from './voiceGuideAudio';
 import {instrumentFamily,partStaffForNote,noteSoundingDuration,type Instrument,type Note} from './music';
@@ -146,9 +149,11 @@ const intonationFeedback=computed(()=>{
  return 'In tune';
 });
 const done=computed(()=>targets.value.length>0&&cursor.value>=targets.value.length);
-const overlayScore=computed(()=>scoreEnabled.value&&diagramEnabled.value&&!disableOverlay.value);
+const physicalLayout=computed(()=>family.value==='Bandoneon'?physicalBandoneonLayoutForPart(props.project,props.instrument):undefined);
+const provisionalLayout=computed(()=>Boolean(physicalLayout.value&&!authoritativeBandoneonLayoutForPart(props.project,props.instrument)));
+const overlayScore=computed(()=>scoreEnabled.value&&diagramEnabled.value&&!disableOverlay.value&&!physicalLayout.value);
 const showScore=scoreEnabled;
-const combinedScore=computed(()=>scoreEnabled.value&&diagramEnabled.value&&disableOverlay.value);
+const combinedScore=computed(()=>scoreEnabled.value&&diagramEnabled.value&&!overlayScore.value);
 const showDiagram=diagramEnabled;
 const showGuide=computed(()=>guideEnabled.value||scoreEnabled.value);
 const completedTargets=ref(new Set<Note>());
@@ -185,6 +190,28 @@ const bandoneonHands=computed(()=>family.value==='Bandoneon'
  ?bandoneonPracticeHands(diagramNotes.value,props.instrument,props.staffSplit,props.concertTranspose,bandoneonProfileForPart(props.project,props.instrument)):undefined);
 const bandoneonTargetHand=computed<'right'|'left'|undefined>(()=>family.value==='Bandoneon'&&guideNote.value
  ?partStaffForNote(guideNote.value,props.instrument,props.staffSplit,0,bandoneonProfileForPart(props.project,props.instrument))===1?'right':'left':undefined);
+const bellowsPractice=computed(()=>{
+ if(!props.project||!physicalLayout.value||provisionalLayout.value||!showDiagram.value)return undefined;
+ const start=(from.value-1)*props.beatsPerMeasure,end=to.value*props.beatsPerMeasure;
+ const notes=playbackNotesInRange(props.notes,start,end,props.concertTranspose);
+ return {notes,plan:bandoneonPlaybackPlan({...props.project,bpm:props.bpm,transposeSemitones:props.concertTranspose},props.instrument,notes)};
+});
+const practiceBellowsBeat=computed(()=>{
+ const timed=demoBeat.value??takeBeat.value??midiTimedBeat.value;
+ if(timed!==null)return timed>=0?(from.value-1)*props.beatsPerMeasure+timed:null;
+ return demoPlaying.value||midiTimed.value?null:current.value?.start??null;
+});
+const activeBellowsFrame=computed(()=>practiceBellowsFrame(bellowsPractice.value?.plan.decisions??[],practiceBellowsBeat.value));
+const activeBellowsButtons=computed(()=>{
+ const n=guideNote.value,explicitStaff=n?.staffOverride??n?.xmlStaff;
+ const hand=props.grandStaff&&staff.value!=='all'?(staff.value==='upper'?'right':'left'):undefined;
+ const targetHand=explicitStaff===1?'right':explicitStaff===2?'left':undefined;
+ const setup=bellowsPractice.value;
+ const source=n&&setup?.notes.find(item=>item.pitch===n.pitch&&Math.abs(item.start-n.start)<1e-6&&
+  (item.staffOverride??item.xmlStaff)===explicitStaff&&item.xmlVoice===n.xmlVoice);
+ const id=source&&setup?.plan.assignments.get(source)?.button.id;
+ return practiceBellowsButtons(activeBellowsFrame.value,guideMidi.value,hand,targetHand,id??undefined);
+});
 const violinGuide=computed(()=>family.value==='Violin'&&guideMidi.value!==null?suggestViolinPosition(guideMidi.value,guideNote.value?.stringMidi):null);
 const practicePositionNotes=computed(()=>targets.value.map(n=>({pitch:targetPitch(n)+props.concertTranspose,start:n.start,duration:noteSoundingDuration(n),stringMidi:n.stringMidi,lockString:Boolean(n.stringGlissando||n.approachSlideFrom!==undefined||n.slideTo!==undefined)})));
 const practicePositions=computed(()=>family.value==='Violin'||family.value==='Contrabass'?planPracticePositions(family.value,practicePositionNotes.value):[]);
@@ -688,9 +715,9 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
     <label>Chord target<select v-model="chordTarget"><option value="highest">Highest note</option><option value="lowest">Lowest note</option></select></label>
     <label v-if="family==='Voice'" class="learn-check"><input v-model="voiceAnyOctave" type="checkbox" :disabled="takeBeat!==null"/> Allow any octave</label>
    </fieldset>
-   <fieldset class="learn-settings-group">
+   <fieldset v-if="!physicalLayout" class="learn-settings-group">
     <legend>Display</legend>
-    <label class="learn-check learn-setting-wide"><input v-model="disableOverlay" type="checkbox"/> Disable overlay · separate score and diagram</label>
+    <label v-if="!physicalLayout" class="learn-check learn-setting-wide"><input v-model="disableOverlay" type="checkbox"/> Disable overlay · separate score and diagram</label>
     <label v-if="overlayScore" class="learn-setting-wide"><span class="learn-setting-inline">Score opacity <strong>{{overlayPaper}}%</strong></span><input type="range" min="42" max="92" v-model.number="overlayPaper"/></label>
    </fieldset>
   </div>
@@ -800,10 +827,14 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
      <template v-else><strong>No practice targets</strong><span>Choose another range or staff in Settings.</span></template>
     </div>
    </div>
-   <div v-if="showDiagram" class="learn-diagram">
+   <div v-if="showDiagram" class="learn-diagram" :class="{'learn-physical-diagram':physicalLayout}">
+    <BandoneonPhysicalKeyboard v-if="physicalLayout" :layout="physicalLayout" :frame="activeBellowsFrame" :active="activeBellowsButtons.active" :focus="activeBellowsButtons.focus" :provisional="provisionalLayout"/>
+    <template v-else>
+    <small v-if="family==='Bandoneon'" class="learn-bellows-unavailable">No physical button layout available for this model.</small>
     <slot name="diagram" :target-pitch="diagramTarget" :current-beat="guideNote?Math.floor(guideNote.start%beatsPerMeasure)+1:1"
      :show-target-label="!showGuide" :feedback-progress="heldProgress" :feedback-state="intonationFeedback" :feedback-cents="cents" :measure-pitches="diagramPitches" :bass-guide="bassGuide" :violin-guide="violinGuide" :shift-duration="shiftDuration"
      :bandoneon-hands="bandoneonHands" :bandoneon-target-hand="bandoneonTargetHand"/>
+    </template>
    </div>
   </div>
   <button v-if="takeResult&&!feedbackOpen" type="button" class="secondary learn-feedback-reopen" @click="feedbackOpen=true">Show last recording</button>
@@ -1171,6 +1202,12 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
  .learn-tuner{grid-template-columns:minmax(0,1fr)}
  .learn-tuner-title,.learn-tuner-meter,.learn-tuner-ends{grid-column:1;grid-row:auto}
 }
+.learn-bellows-unavailable{align-self:center;font-size:11px;color:#c7dbe6}
+.learn-diagram:has(>.learn-bellows-unavailable){flex-direction:column}
+.learn-diagram.learn-physical-diagram{min-height:0;justify-content:center}
+@media(max-width:760px){
+ .learn-display-combined>.learn-diagram.learn-physical-diagram{padding:5px}
+}
 </style>
 
 <style scoped>
@@ -1227,6 +1264,12 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
  .learn-settings-group{padding:5px 6px 7px;gap:5px}
  .learn-settings-group>label select{font-size:14px;min-height:38px}
 }
+.learn-bellows-unavailable{align-self:center;font-size:11px;color:#c7dbe6}
+.learn-diagram:has(>.learn-bellows-unavailable){flex-direction:column}
+.learn-diagram.learn-physical-diagram{min-height:0;justify-content:center}
+@media(max-width:760px){
+ .learn-display-combined>.learn-diagram.learn-physical-diagram{padding:5px}
+}
 </style>
 
 <style scoped>
@@ -1259,6 +1302,12 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
 }
 :is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.performance-instrument-diagram.is-focus.is-learn .diagram-string-stop span),
 :is(.learn-display-overlay,.learn-display-combined)>.learn-diagram :deep(.diagram-open-label strong){font-size:clamp(12px,2.2dvh,22px)}
+.learn-bellows-unavailable{align-self:center;font-size:11px;color:#c7dbe6}
+.learn-diagram:has(>.learn-bellows-unavailable){flex-direction:column}
+.learn-diagram.learn-physical-diagram{min-height:0;justify-content:center}
+@media(max-width:760px){
+ .learn-display-combined>.learn-diagram.learn-physical-diagram{padding:5px}
+}
 </style>
 
 <style scoped>
@@ -1280,6 +1329,12 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
  .learn-tuner.is-live-practice .learn-bar-content>strong{font-size:25px}
  .learn-tuner.is-live-practice .learn-live-feedback .learn-bar-content>strong:not(.learn-pitch-comparison){font-size:18px}
 }
+.learn-bellows-unavailable{align-self:center;font-size:11px;color:#c7dbe6}
+.learn-diagram:has(>.learn-bellows-unavailable){flex-direction:column}
+.learn-diagram.learn-physical-diagram{min-height:0;justify-content:center}
+@media(max-width:760px){
+ .learn-display-combined>.learn-diagram.learn-physical-diagram{padding:5px}
+}
 </style>
 
 <style scoped>
@@ -1292,6 +1347,12 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
 @media(min-width:900px) and (orientation:landscape){
  .learn-display-combined{grid-template-rows:minmax(0,1fr)}
 }
+.learn-bellows-unavailable{align-self:center;font-size:11px;color:#c7dbe6}
+.learn-diagram:has(>.learn-bellows-unavailable){flex-direction:column}
+.learn-diagram.learn-physical-diagram{min-height:0;justify-content:center}
+@media(max-width:760px){
+ .learn-display-combined>.learn-diagram.learn-physical-diagram{padding:5px}
+}
 </style>
 
 <style scoped>
@@ -1301,5 +1362,11 @@ onBeforeUnmount(()=>{midiRequest++;cancelMidiTimed();unsubscribeMidi();clearTime
  .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay)>.learn-guide{grid-column:1;grid-row:1;min-height:0;overflow:hidden}
  .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay)>.learn-diagram{grid-column:1;grid-row:2;width:100%;align-self:end}
  .learn-display.learn-string-layout.learn-display-combined:not(.learn-display-overlay)>.learn-diagram :deep(.diagram-string-row){height:clamp(22px,3.8dvh,38px)}
+}
+.learn-bellows-unavailable{align-self:center;font-size:11px;color:#c7dbe6}
+.learn-diagram:has(>.learn-bellows-unavailable){flex-direction:column}
+.learn-diagram.learn-physical-diagram{min-height:0;justify-content:center}
+@media(max-width:760px){
+ .learn-display-combined>.learn-diagram.learn-physical-diagram{padding:5px}
 }
 </style>

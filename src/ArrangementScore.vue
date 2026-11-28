@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import {onMounted,onBeforeUnmount,ref,watch} from 'vue';
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay} from 'opensheetmusicdisplay';
+import {authoritativeBandoneonLayoutForPart} from './bandoneon';
 import {exportMusicXml} from './io';
 import {projectInstruments,type Instrument,type Project,type Score} from './music';
 
@@ -8,6 +9,8 @@ const props=defineProps<{project:Project;score:Score;from:number;to:number;selec
 const emit=defineEmits<{select:[instrument:Instrument,bar:number,extend:boolean]}>();
 const host=ref<HTMLElement|null>(null);
 const loading=ref(true),error=ref('');
+const bellowsGuide=ref(true);
+const canShowBellowsGuide=computed(()=>projectInstruments(props.project).some(inst=>!!authoritativeBandoneonLayoutForPart(props.project,inst)));
 let renderer:OpenSheetMusicDisplay|undefined,observer:ResizeObserver|undefined;
 let loadQueue=Promise.resolve();
 let timer:ReturnType<typeof setTimeout>|undefined,frame=0,revision=0,width=0,alive=true,loaded=false;
@@ -69,7 +72,7 @@ async function reload(current:number){
  try{
   renderer.EngravingRules.MinMeasureToDrawIndex=0;
   renderer.EngravingRules.MaxMeasureToDrawIndex=Number.MAX_VALUE;
-  await renderer.load(exportMusicXml(props.project,props.score,{engravingPreview:true}));
+  await renderer.load(exportMusicXml(props.project,props.score,{engravingPreview:true,automaticBellows:bellowsGuide.value,bellowsFirstVisibleMeasure:props.from}));
   if(!alive||current!==revision)return;loaded=true;draw();
  }catch(cause){if(alive&&current===revision){error.value=String(cause);loading.value=false;}}
 }
@@ -78,7 +81,11 @@ function schedule(delay=180){
  clearTimeout(timer);timer=setTimeout(()=>{loadQueue=loadQueue.then(()=>reload(current));},delay);
 }
 watch(()=>[props.project,props.score],()=>schedule(),{deep:true});
-watch(()=>[props.from,props.to],()=>{if(loaded){loading.value=true;draw();}});
+watch(()=>[props.from,props.to],([from],[oldFrom])=>{
+ if(canShowBellowsGuide.value&&bellowsGuide.value&&from!==oldFrom)schedule();
+ else if(loaded){loading.value=true;draw();}
+});
+watch(bellowsGuide,()=>schedule());
 watch(()=>[props.selectedFrom,props.selectedTo,props.selectedParts],paintSelection,{deep:true,flush:'post'});
 onMounted(()=>{
  if(!host.value)return;
@@ -90,6 +97,7 @@ onBeforeUnmount(()=>{alive=false;revision++;clearTimeout(timer);cancelAnimationF
 </script>
 <template>
  <section class="arrangement-score" aria-label="Full ensemble score">
+  <button v-if="canShowBellowsGuide" type="button" class="secondary bellows-score-toggle" :aria-pressed="bellowsGuide" title="Show suggested pull and push directions above the staff, in square brackets" @click="bellowsGuide=!bellowsGuide">Bellows guide</button>
   <small v-if="loading" role="status">Engraving ensemble score…</small>
   <p v-if="error" role="alert">Could not engrave ensemble score: {{error}}</p>
   <div ref="host" class="arrangement-score-paper" @click="selectMeasure"></div>
@@ -98,5 +106,6 @@ onBeforeUnmount(()=>{alive=false;revision++;clearTimeout(timer);cancelAnimationF
 <style scoped>
 .arrangement-score{min-width:0;overflow:auto;max-height:70dvh;border:1px solid #536a7d;border-radius:8px;background:#f5f4ef;color:#253746}
 .arrangement-score-paper{min-width:0;min-height:180px;padding:4px}
+.bellows-score-toggle{margin:6px 10px 0}
 .arrangement-score small,.arrangement-score p{display:block;margin:6px 10px}
 </style>

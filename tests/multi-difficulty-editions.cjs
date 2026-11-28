@@ -10,7 +10,7 @@ function load(name,imports={}){
  const env={console,Blob,URL,setTimeout,TextDecoder,TextEncoder};
  vm.runInNewContext('(function(require,module,exports){'+code+'\n})',env,{filename:name})((request)=>{
   if(imports[request])return imports[request];
-  if(request==='./bandoneonLayout'||request==='./bandoneonLayoutFormat')return domainLoad('src/'+request.slice(2)+'.ts');
+  if(request==='./bandoneonLayout'||request==='./bandoneonLayoutFormat'||request==='./arrangementPlayback')return domainLoad('src/'+request.slice(2)+'.ts');
   if(request==='jszip')return {default:FakeZip};
   if(request==='@tonejs/midi')return {Midi:class Midi{}};
   throw Error('Unknown dependency '+request);
