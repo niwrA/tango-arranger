@@ -5558,6 +5558,30 @@ function quickNoteSelected(n:Note){return quickSelectedDisplayNotes.value.has(n)
 function toggleQuickNote(n:Note){
  const key=quickNoteKey(n);multiNoteKeys.value=multiNoteKeys.value.includes(key)?multiNoteKeys.value.filter(k=>k!==key):[...multiNoteKeys.value,key];
 }
+// The compact dropdown is the fallback. Measure the rendered labels instead
+// of guessing how many actions will fit on a tablet or in split view.
+const tabletActionSlot=ref<HTMLElement>();
+const tabletActionButtons=ref<HTMLElement>();
+const tabletActionSelect=ref<HTMLSelectElement>();
+const tabletInlineActions=ref(false);
+function updateTabletActionFit(){
+ const slot=tabletActionSlot.value,buttons=tabletActionButtons.value;
+ const fits=quickNoteCategory.value!=='create'&&!!quickNoteActions.value.length&&!!slot&&!!buttons&&
+  buttons.offsetWidth>0&&buttons.offsetWidth<=slot.clientWidth;
+ const hadButtonFocus=tabletInlineActions.value&&!fits&&buttons?.contains(document.activeElement);
+ const hadSelectFocus=!tabletInlineActions.value&&fits&&document.activeElement===tabletActionSelect.value;
+ tabletInlineActions.value=fits;
+ if(hadButtonFocus)void nextTick(()=>tabletActionSelect.value?.focus());
+ if(hadSelectFocus)void nextTick(()=>(buttons?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+   ??tabletActionSlot.value?.parentElement?.querySelector<HTMLSelectElement>('[aria-label="Action category"]'))?.focus());
+}
+watch([tabletActionSlot,tabletActionButtons],([slot,buttons],_old,onCleanup)=>{
+ if(!slot||!buttons||typeof ResizeObserver==='undefined'){tabletInlineActions.value=false;return;}
+ const observer=new ResizeObserver(updateTabletActionFit);
+ observer.observe(slot);observer.observe(buttons);updateTabletActionFit();
+ onCleanup(()=>observer.disconnect());
+},{flush:'post'});
+watch([quickNoteActions,quickNoteCategory],()=>void nextTick(updateTabletActionFit));
 watch(quickNoteCategory,()=>{compactQuickAction.value='';quickParametersOpen.value=false;});
 watch(quickNoteActions,()=>{if(!quickNoteActions.value.some(a=>a.value===compactQuickAction.value))compactQuickAction.value='';});
 function setQuickMode(mode:'select'|'create'|'erase'){quickDraft.value=null;quickMode.value=mode;if(mode==='create')quickNoteCategory.value='create';}
@@ -7873,10 +7897,10 @@ async function homePractise(inst:Instrument){
       <button type="button" class="note-loop-toggle" :class="noteLoopPlaying?'play':'primary'" :aria-pressed="noteLoopPlaying" @click="toggleNoteLoop">{{noteLoopPlaying?'■ Stop':independentNoteLoop?'▶ Loop '+independentNoteLoopFrom+'–'+independentNoteLoopTo:'▶ Loop'}}</button>
     </div>
     <div class="note-toolbar-actions">
-      <button v-if="noteFocusMode" type="button" class="secondary note-focus-close" @click="exitNoteFocusMode" aria-label="Exit focused note editor">↙ Exit focus</button>
+      <button v-if="noteFocusMode" type="button" class="secondary note-focus-close note-history-control" @click="exitNoteFocusMode" aria-label="Exit focused note editor" title="Exit focused note editor"><AppIcon name="minimize" class="note-history-icon"/><span class="note-history-label">↙ Exit focus</span></button>
       <button v-else type="button" class="secondary" @click="returnToMap">← Map</button>
-      <button type="button" class="secondary" :disabled="!undoHistory.length" @click="restoreHistory('undo')" title="Undo last project edit">↶ Undo</button>
-      <button type="button" class="secondary" :disabled="!redoHistory.length" @click="restoreHistory('redo')" title="Redo last undone edit">↷ Redo</button>
+      <button type="button" class="secondary note-history-control" :disabled="!undoHistory.length" @click="restoreHistory('undo')" aria-label="Undo" title="Undo last project edit"><AppIcon name="undo" class="note-history-icon"/><span class="note-history-label">↶ Undo</span></button>
+      <button type="button" class="secondary note-history-control" :disabled="!redoHistory.length" @click="restoreHistory('redo')" aria-label="Redo" title="Redo last undone edit"><AppIcon name="redo" class="note-history-icon"/><span class="note-history-label">↷ Redo</span></button>
       <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
       <button v-if="!noteFocusMode" type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
       <button v-if="!noteFocusMode&&noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button>
@@ -7930,15 +7954,20 @@ async function homePractise(inst:Instrument){
     <div class="musical-compact-selectors">
      <select :value="quickMode" aria-label="Interaction mode" :disabled="!!quickDraft" @change="setQuickMode(($event.target as HTMLSelectElement).value as 'select'|'create'|'erase')"><option value="select">Select</option><option value="create">Create</option><option value="erase">Erase</option></select>
      <select v-model="quickNoteCategory" aria-label="Action category" :disabled="!!quickDraft"><option v-for="category in quickCategories" :key="category.id" :value="category.id">{{category.label}}</option></select>
-     <select v-model="compactQuickAction" aria-label="Musical action" :disabled="!!quickDraft" @change="quickParametersOpen=quickNoteCategory==='create'"><option value="" disabled>Action…</option><option v-for="action in quickNoteActions" :key="action.value" :value="action.value">{{action.label}}</option></select>
+     <div ref="tabletActionSlot" class="musical-tablet-action-slot">
+      <select v-show="!tabletInlineActions" ref="tabletActionSelect" v-model="compactQuickAction" aria-label="Musical action" :disabled="!!quickDraft" @change="quickParametersOpen=quickNoteCategory==='create'"><option value="" disabled>Action…</option><option v-for="action in quickNoteActions" :key="action.value" :value="action.value">{{action.label}}</option></select>
+      <div ref="tabletActionButtons" class="musical-inline-actions" :class="{'actions-fit':tabletInlineActions}" :inert="!tabletInlineActions" :aria-hidden="!tabletInlineActions" role="group" aria-label="Actions for category">
+       <button v-for="action in quickNoteActions" :key="action.value" type="button" class="secondary quick-note-action" :title="action.title" :aria-label="action.title" :disabled="!!quickDraft||!quickActionSelectionCount" @click="applyQuickNote(action.value)"><svg v-if="quickNoteCategory==='bow'&&['down','up','plan-down','plan-up'].includes(action.value)" class="bow-mark-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path v-if="action.value==='down'||action.value==='plan-down'" d="M5 5h14v4H5z M5 9h2v10H5z M17 9h2v10h-2z" fill="currentColor"/><path v-else d="M5 5l7 14 7-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="miter" stroke-linecap="square"/></svg><template v-else>{{action.label}}</template></button>
+      </div>
+     </div>
     </div>
     <div class="musical-compact-status">
      <select v-model="quickScope" aria-label="Editing target" :disabled="!!quickDraft"><option value="notes">Notes</option><option value="measures">Measures</option></select>
      <span role="status">{{quickSelectionCount}} selected</span>
      <button v-if="quickNoteCategory==='create'&&compactQuickAction" type="button" class="secondary" :aria-expanded="quickParametersOpen" @click="quickParametersOpen=!quickParametersOpen">Params</button>
-     <button type="button" class="primary" :disabled="!!quickDraft||!compactQuickAction||!quickNoteActions.some(a=>a.value===compactQuickAction)||(!quickActionSelectionCount&&!(quickNoteCategory==='create'&&compactQuickAction==='insert'))" @click="applyQuickNote(compactQuickAction)">{{quickPreview?'Preview':'Run'}}</button>
+     <button v-show="!tabletInlineActions" type="button" class="primary" :disabled="!!quickDraft||!compactQuickAction||!quickNoteActions.some(a=>a.value===compactQuickAction)||(!quickActionSelectionCount&&!(quickNoteCategory==='create'&&compactQuickAction==='insert'))" @click="applyQuickNote(compactQuickAction)">{{quickPreview?'Preview':'Run'}}</button>
     </div>
-    <details class="musical-compact-options"><summary>Selection options</summary><div class="musical-edit-row">
+    <details class="musical-compact-options"><summary aria-label="Selection options"><span class="selection-options-label">Selection options</span><span class="selection-options-short" aria-hidden="true">Options ▾</span></summary><div class="musical-edit-row">
      <button v-if="quickScope==='notes'" type="button" class="secondary" :aria-pressed="multiNoteMode" @click="multiNoteMode=!multiNoteMode;multiNoteKeys=selectedEvent?[quickNoteKey(selectedEvent)]:[]">{{multiNoteMode?'Done selecting':'Select notes'}}</button>
      <label><input type="checkbox" v-model="quickPreview"/> Preview</label>
      <button type="button" class="secondary" :aria-pressed="quickSplit" @click="quickSplit=!quickSplit">Split</button>

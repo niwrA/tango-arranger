@@ -1938,8 +1938,8 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
 
 /* Compact shared Score/Edit toolbar. Desktop keeps direct action buttons. */
 .musical-compact-controls{display:none}
-.note-working-presets{font-size:12px;min-width:0}
-.note-working-presets>summary{cursor:pointer;padding:7px;min-height:30px;box-sizing:border-box}
+.musical-tablet-action-slot{position:relative;min-width:0}
+.musical-inline-actions{display:none}
 @media(max-width:700px){
  .musical-edit-tools .musical-mode-row,.musical-edit-tools .musical-desktop-actions{display:none!important}
  .musical-compact-controls{display:grid;gap:5px;width:100%;min-width:0}
@@ -1951,7 +1951,49 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  .musical-compact-options>summary{cursor:pointer;font-size:12px;min-height:32px;display:flex;align-items:center}
  .note-unified-toolbar .note-toolbar-transport{display:flex;flex-wrap:wrap;align-items:center;gap:4px;width:100%;min-width:0}
  .note-unified-toolbar .note-toolbar-transport>.measure-range-control{flex:1 1 190px;min-width:0;width:auto}
- .note-unified-toolbar .note-toolbar-transport>.note-working-presets{order:3;flex:1 1 100%}
  .note-unified-toolbar .note-toolbar-part{min-width:0;gap:4px}
  .note-unified-toolbar .note-toolbar-actions{gap:4px}
+}
+
+/* The phone workflow also suits tablets. Reserve one cell for either the
+   action dropdown or a single strip of buttons, never both. */
+@media (min-width:701px) and (max-width:1180px), (min-width:1181px) and (max-width:1370px) and (any-pointer:coarse){
+ .musical-edit-tools .musical-mode-row,.musical-edit-tools .musical-desktop-actions{display:none!important}
+ .musical-compact-controls{display:grid;gap:5px;width:100%;min-width:0}
+ .musical-compact-selectors{display:grid;grid-template-columns:minmax(100px,140px) minmax(130px,170px) minmax(0,1fr);gap:6px;min-width:0}
+ .musical-compact-selectors select,.musical-compact-status select{width:100%;min-width:0;max-width:100%;min-height:44px;box-sizing:border-box;padding:5px 8px;font-size:13px;margin:0}
+ .musical-tablet-action-slot{overflow:clip;overflow-clip-margin:4px}
+ .musical-inline-actions{display:flex;position:absolute;inset-inline-start:0;top:0;gap:4px;width:max-content;visibility:hidden;pointer-events:none}
+ .musical-inline-actions.actions-fit{position:static;visibility:visible;pointer-events:auto}
+ .musical-inline-actions>button{flex:0 0 auto;min-height:44px;padding:5px 8px;white-space:nowrap}
+ .musical-compact-status{display:flex;gap:7px;align-items:center;min-width:0}
+ .musical-compact-status select{width:140px}
+ .musical-compact-status>span{font-size:12px;white-space:nowrap}
+ .musical-compact-status>button{min-height:44px}
+ .musical-compact-options>summary{cursor:pointer;font-size:12px;min-height:32px;display:flex;align-items:center}
+}
+
+/* Retain full labels outside phone Focus; keep touch targets at 44px. */
+.note-toolbar-actions .note-history-icon,.selection-options-short{display:none}
+@media(max-width:700px){
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-part{order:1;flex:1 1 110px;grid-template-columns:minmax(0,1fr);gap:2px}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions{order:2;flex:0 0 auto;align-self:center}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-transport{order:3;flex:1 0 100%}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions>.note-history-control,
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions>.note-settings-icon{
+  display:inline-grid;place-items:center;width:44px;min-width:44px;height:44px!important;min-height:44px!important;max-height:44px!important;padding:0
+ }
+ .note-focus-mode .note-toolbar-actions .note-history-label,.note-focus-mode .selection-options-label{display:none}
+ .note-focus-mode .note-toolbar-actions .note-history-icon,.note-focus-mode .selection-options-short{display:inline-block}
+ .note-focus-mode .note-toolbar-actions .note-history-icon{width:19px;height:19px}
+ .note-focus-mode .musical-compact-controls{grid-template-columns:minmax(0,1fr) auto;align-items:center}
+ .note-focus-mode .musical-compact-selectors,.note-focus-mode .musical-compact-controls>.musical-edit-row{grid-column:1/-1}
+ .note-focus-mode .musical-compact-status{display:flex;flex-wrap:wrap;gap:4px}
+ .note-focus-mode .musical-compact-status>select{width:104px;flex:0 0 104px;height:44px!important;min-height:44px!important}
+ .note-focus-mode .musical-compact-options{position:relative}
+ .note-focus-mode .musical-compact-options>summary{padding:0 5px;min-height:44px}
+ .note-focus-mode .musical-compact-options[open]>.musical-edit-row{
+  position:absolute;top:100%;inset-inline-end:0;z-index:21;width:max-content;max-width:min(300px,90vw);
+  padding:6px;background:#192c39;border:1px solid #405665;border-radius:7px
+ }
 }

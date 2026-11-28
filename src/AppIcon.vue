@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'|'staff'|'fingerboard'|'split-view'|'tuning-fork'|'home'}>();
+const props=defineProps<{name:'plus'|'save'|'upload'|'file-down'|'archive'|'settings'|'ellipsis'|'play'|'play-from-start'|'square'|'x'|'music'|'pencil'|'layers'|'list-check'|'refresh-cw'|'copy'|'trash'|'info'|'chevron-down'|'folder-open'|'volume-2'|'sliders-horizontal'|'circle-help'|'presentation'|'arrow-left'|'maximize'|'minimize'|'headphones'|'volume-x'|'metronome'|'count-in'|'repeat'|'record'|'file-plus-2'|'arrow-left-right'|'clipboard-copy'|'clipboard-paste'|'mouse-pointer-2'|'move'|'alert-circle'|'check-circle'|'check'|'graduation-cap'|'staff'|'fingerboard'|'split-view'|'tuning-fork'|'home'|'undo'|'redo'}>();
 const paths:Record<typeof props.name,string>={
   home:'M3 10 12 3l9 7v11h-6v-7H9v7H3z',
   'tuning-fork':'M12 3v9 M8 3v7a4 4 0 0 0 8 0V3 M12 14v7 M8 21h8',
@@ -33,6 +33,8 @@ const paths:Record<typeof props.name,string>={
   'presentation':'M3 3h18v14H3z M8 21l4-4 4 4 M12 17v4',
   'arrow-left':'M19 12H5 M12 19l-7-7 7-7',
   maximize:'M8 3H5a2 2 0 0 0-2 2v3 M16 3h3a2 2 0 0 1 2 2v3 M21 16v3a2 2 0 0 1-2 2h-3 M8 21H5a2 2 0 0 1-2-2v-3',
+  undo:'M3 11l5-5M3 11l5 5M3 11h11a5 5 0 0 1 0 10h-3',
+  redo:'M21 11l-5-5M21 11l-5 5M21 11H10a5 5 0 0 0 0 10h3',
   minimize:'M8 8H3 M8 8V3 M16 8h5 M16 8V3 M16 16h5 M16 16v5 M8 16H3 M8 16v5',
   headphones:'M3 14v-3a9 9 0 0 1 18 0v3 M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Z M21 14h-3a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-5Z',
   'volume-x':'M11 5 6 9H2v6h4l5 4V5Z M16 9l6 6 M22 9l-6 6',
