@@ -1,3 +1,13 @@
+## [Feature] Arrangement Review (2026-11-28)
+
+- Open **Song settings → Review arrangement** to check a whole arrangement, one instrument or the working range for range, playability, expression and balance issues. Listen to the original and proposed edits before applying only the fixes you select.
+- Pitch and onset changes are opt-in, and protected measures stay unchanged unless explicitly allowed. Dismiss findings you have considered; show and restore them later.
+- Balance findings estimate from the score. Audition meters report a sampled digital level, not listening-room loudness, and exclude external MIDI.
+
+## Note Editor range controls (2026-11-28)
+
+- The narrow-layout range button no longer shows above the full-width controls on tablets. Removed the separate Range presets control; the section picker and start/end controls remain.
+
 ## [Feature] Orchestra styles by song, section and phrase (2026-11-27)
 
 - In Song settings, choose a 4/4 profile inspired by D’Arienzo, Di Sarli, Troilo, Fresedo, Canaro or Pugliese. Profiles coordinate piano, bass and bandoneon accompaniment. They are arranging starting points, not historical transcriptions.

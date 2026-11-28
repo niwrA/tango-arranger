@@ -23,4 +23,13 @@ test('phrase overview scrolls horizontally',()=>assert.match(css,/\.note-focus-p
 test('loop keeps playing when selecting another measure of the same instrument',()=>assert.match(vue,/const keepFocusLoop=noteLoopPlaying\.value&&inst===noteInst\.value/));
 test('focus mode keeps note dragging in the continuous grid',()=>assert.match(note,/@pointerdown="startGridNoteDrag\(\$event,n\)"/));
 test('measure navigation keeps the previous range length where possible',()=>{assert.match(vue,/const previousLoopLength=Math.max\(1,noteLoopTo.value-noteLoopFrom.value\+1\)/);assert.match(vue,/Math.min\(previousLoopLength,project.value.bars.length\)/);assert.match(vue,/noteLoopFrom.value=first\+1;\s*noteLoopTo.value=first\+count/);});
+test('Note Editor uses one working-range picker and no separate presets',()=>{
+ const range=fs.readFileSync(path.join(root,'src/MeasureRangeControl.vue'),'utf8');
+ assert.match(note,/<MeasureRangeControl[^>]+compact collapsible/);
+ assert.doesNotMatch(note,/note-working-presets/);
+ assert.match(range,/>label:nth-of-type\(1\)\{grid-column:2/);
+ assert.match(range,/\.measure-range-control>\.range-summary\{display:none!important/);
+ assert.match(range,/@media\(max-width:700px\)\{[\s\S]*?>\.range-summary\{display:block!important/);
+ assert.match(range,/<SectionRangePicker/);
+});
 console.log(`${checks} focus range UI checks passed`);
