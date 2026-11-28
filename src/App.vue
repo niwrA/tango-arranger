@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import {diagnoseArrangement,refineArrangement,type Diagnostic} from "./arrangementDiagnostics";
 import {isOrchestraStyle,phraseStyleKey,styleStrength} from './orchestraStyle';
 import {enableMidi,midiSupported,midiInputId,midiStatus,subscribeMidi,midiOutput,midiOutputEnabled,sendMidiNote,sendMidiPedal,panicMidi} from "./midiSession";
 import MidiDiagnostics from './MidiDiagnostics.vue';
@@ -149,7 +148,6 @@ function stopPlayback(){
   if(typeof arrangementCountingIn!=='undefined')arrangementCountingIn.value=false;
   stopMicrophoneCapture();
   if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
-  if(typeof stopReviewMeter==='function')stopReviewMeter();
   const wasPlayingArrangement=playing.value;
   const wasPlayingQuickDraft=typeof quickAuditionPlaying!=='undefined'&&quickAuditionPlaying.value;
   if(typeof quickAuditionPlaying!=='undefined'){
@@ -4026,99 +4024,6 @@ function setSectionOrchestraStyle(section:string,value:string){
  else delete styles[section];
  project.value.sectionStyles=styles;
 }
-const reviewOpen=ref(false);
-const reviewAudioResults=ref<Record<string,{rms:number;peak:number;frames:number}>>({});
-let reviewMeterCleanup:(()=>void)|undefined;
-function stopReviewMeter(){reviewMeterCleanup?.();reviewMeterCleanup=undefined;}
-function startReviewMeter(context:AudioContext,parts:Instrument[],output:GainNode){
- stopReviewMeter();
- const rows=parts.filter(inst=>!midiPianoAvailable(inst)).map(inst=>{
-  const analyser=context.createAnalyser();analyser.fftSize=2048;
-  const bus=context.createGain();bus.connect(output);bus.connect(analyser);
-  const players=usesModeledAudio(inst)?[]:[instrumentSynth(inst),samplePlayers.get(inst),pizzicatoPlayers.get(inst),pizzicatoAlternates.get(inst),pizzicatoSoftPlayers.get(inst)].filter(v=>v!==undefined);
-  for(const player of players)player.connect(analyser);
-  return {inst,analyser,bus,players,buffer:new Float32Array(analyser.fftSize),sum:0,count:0,peak:0};
- });
- const tick=()=>{
-  const results:Record<string,{rms:number;peak:number;frames:number}>={};
-  for(const row of rows){
-   row.analyser.getFloatTimeDomainData(row.buffer);
-   for(const sample of row.buffer){row.sum+=sample*sample;row.peak=Math.max(row.peak,Math.abs(sample));row.count++;}
-   results[row.inst]={rms:20*Math.log10(Math.max(1e-8,Math.sqrt(row.sum/row.count))),peak:20*Math.log10(Math.max(1e-8,row.peak)),frames:row.count};
-  }
-  reviewAudioResults.value=results;
- };
- const timer=setInterval(tick,40);
- reviewMeterCleanup=()=>{clearInterval(timer);for(const row of rows){for(const player of row.players)player.disconnect(row.analyser);row.bus.disconnect();row.analyser.disconnect();}};
- return new Map(rows.map(row=>[row.inst,row.bus]));
-}
-const reviewScope=ref<'all'|'part'|'range'>('all');
-const reviewCategory=ref('all');
-const reviewStyle=ref(true);
-const reviewStructural=ref(false);
-const reviewShowDismissed=ref(false);
-const reviewProtected=ref(false);
-const reviewFindings=shallowRef<Diagnostic[]>([]);
-const reviewSelected=ref<string[]>([]);
-let reviewSnapshot='';
-function scanArrangementReview(){
- reviewSnapshot=JSON.stringify(project.value);
- reviewFindings.value=diagnoseArrangement(project.value,sourceScore.value,{includeStyle:reviewStyle.value,includeStructural:reviewStructural.value,showDismissed:reviewShowDismissed.value,...(reviewScope.value==='part'?{instrument:noteInst.value}:reviewScope.value==='range'?{from:noteLoopFrom.value-1,to:noteLoopTo.value-1}:{})});
- reviewSelected.value=[];
-}
-function openArrangementReview(){
- closeSongSettings();reviewOpen.value=true;scanArrangementReview();
-}
-function closeArrangementReview(){stopQuickAudition();stopReviewMeter();reviewOpen.value=false;reviewSelected.value=[];}
-const reviewVisible=computed(()=>reviewFindings.value.filter(issue=>reviewCategory.value==='all'||issue.category===reviewCategory.value));
-function reviewCanApply(issue:Diagnostic){return !!(issue.patch||issue.voicing)&&!project.value.dismissedArrangementFindings?.includes(issue.id)&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
-function dismissReviewIssue(issue:Diagnostic){
- project.value={...project.value,dismissedArrangementFindings:[...new Set([...(project.value.dismissedArrangementFindings??[]),issue.id])]};scanArrangementReview();
-}
-function restoreReviewIssue(issue:Diagnostic){
- project.value={...project.value,dismissedArrangementFindings:(project.value.dismissedArrangementFindings??[]).filter(id=>id!==issue.id)};scanArrangementReview();
-}
-function selectReviewSuggestions(){reviewSelected.value=reviewVisible.value.filter(reviewCanApply).map(issue=>issue.id);}
-async function auditionArrangementReview(after:boolean){
- if(quickAuditionPlaying.value){stopQuickAudition();return;}
- if(JSON.stringify(project.value)!==reviewSnapshot){scanArrangementReview();return;}
- const selected=reviewFindings.value.filter(issue=>reviewSelected.value.includes(issue.id)&&reviewCanApply(issue));
- if(!selected.length)return;
- stopPlayback();const session=++quickAuditionSession;
- try{
-  const p=after?refineArrangement(project.value,sourceScore.value,selected,reviewProtected.value):project.value;
-  const written=after?p.generatedScore??sourceScore.value:sourceScore.value;
-  const first=Math.min(...selected.map(i=>i.measure)),last=Math.min(p.bars.length-1,first+7,Math.max(...selected.map(i=>i.measure)));
-  const playback=draftAuditionEvents(p,adaptTransposedScore(written,p),selected[0].instrument,first,last,rehearsalSpeed.value,true);
-  Tone=await startAudioFromGesture();
-  if(session!==quickAuditionSession||!reviewOpen.value)return;
-  await prepareSamples([...new Set(playback.events.map(event=>event.instrument))]);
-  if(session!==quickAuditionSession||!reviewOpen.value)return;
-  const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=p.bpm;
-  const output=(Tone.getContext().rawContext as AudioContext).createGain();output.connect((Tone.getContext().rawContext as AudioContext).destination);
-  quickAuditionOutput=output;quickAuditionPlaying.value=true;
-  reviewAudioResults.value={};
-  const meters=startReviewMeter((Tone.getContext().rawContext as AudioContext),[...new Set(playback.events.map(event=>event.instrument))],output);
-  for(const {instrument,note,event,onset,duration} of playback.events)transport.scheduleOnce(time=>{
-   if(session===quickAuditionSession)renderArrangementNote(instrument,note,event,duration,time,1,{project:p,output:meters.get(instrument)??output});
-  },onset);
-  transport.start('+0.05');quickAuditionTimer=setTimeout(()=>{if(session===quickAuditionSession)stopQuickAudition();},playback.length*1000+150);
-  message.value=(after?'Proposed':'Original')+' arrangement · measures '+(first+1)+'–'+(last+1);
- }catch(error){stopQuickAudition();message.value='Review audition failed: '+String(error);}
-}
-function applyArrangementReview(){
- if(JSON.stringify(project.value)!==reviewSnapshot){message.value='Arrangement changed; scan again before applying.';scanArrangementReview();return;}
- const selected=reviewFindings.value.filter(issue=>reviewSelected.value.includes(issue.id)&&reviewCanApply(issue));
- if(!selected.length)return;
- try{
-  stopPlayback();
-  const next=refineArrangement(project.value,sourceScore.value,selected,reviewProtected.value);
-  project.value=next;
-  message.value=selected.some(issue=>issue.voicing||issue.patch?.pitch!==undefined||issue.patch?.start!==undefined)?'Applied selected structural and expression refinements.':'Applied selected expression refinements; pitches and written rhythm preserved.';
-  scanArrangementReview();
- }catch(error){message.value='Arrangement review: '+String(error);}
-}
-function visitReviewIssue(issue:Diagnostic){closeArrangementReview();openNoteEditor(issue.instrument,issue.measure);}
 function regenerate(){
  stopPlayback();
  project.value=regenerateActiveArrangement(project.value);
@@ -6873,38 +6778,11 @@ async function homePractise(inst:Instrument){
        </label>
       </details>
       <button type="button" class="secondary" @click="regenerate">Regenerate unprotected arrangement</button>
-      <button type="button" class="secondary" @click="openArrangementReview">Review arrangement / reapply style</button>
       <label>Overall difficulty<select v-model="project.difficulty"><option v-for="d in difficulties" :key="d" :value="d">{{d}}</option></select></label>
       <button type="button" class="secondary" @click="convertMeter" :disabled="project.beats!==2">Convert paired 2/4 measures to 4/4</button>
     </div>
     <div class="app-modal-actions"><span class="hint">Changes are autosaved to this song.</span><button type="button" class="primary" @click="closeSongSettings">Done</button></div>
   </section>
-</div>
-<div v-if="reviewOpen" class="app-modal-backdrop" @click.self="closeArrangementReview" @keydown.esc.stop.prevent="closeArrangementReview" @keydown.tab="trapModalTab">
- <section class="app-modal arrangement-review-modal" role="dialog" aria-modal="true" aria-labelledby="arrangement-review-title">
-  <div class="app-modal-heading"><div><h2 id="arrangement-review-title">Arrangement review</h2><small>Diagnostics and optional style refinement</small></div><button type="button" class="secondary" @click="closeArrangementReview">Close</button></div>
-  <div class="app-modal-content">
-   <label>Scope<select v-model="reviewScope" @change="scanArrangementReview"><option value="all">Entire arrangement</option><option value="part">Selected instrument</option><option value="range">Working range</option></select></label>
-   <label><input type="checkbox" v-model="reviewStyle" @change="scanArrangementReview"/> Include orchestra style</label>
-   <label><input type="checkbox" v-model="reviewStructural" @change="scanArrangementReview"/> Also propose pitch and onset changes</label>
-   <label><input type="checkbox" v-model="reviewShowDismissed" @change="scanArrangementReview"/> Show dismissed findings</label>
-   <label><input type="checkbox" v-model="reviewProtected" @change="reviewSelected=[]"/> Allow edits to protected measures</label>
-   <label>Category<select v-model="reviewCategory"><option value="all">All findings</option><option v-for="category in ['pitch','harmony','dynamics','balance','playability','style']" :key="category" :value="category">{{category}}</option></select></label>
-   <p>{{reviewVisible.length}} findings · {{reviewSelected.length}} selected. Balance is a score-based estimate, not measured audio loudness.</p>
-   <button type="button" class="secondary" @click="selectReviewSuggestions">Select visible proposed fixes</button>
-   <div class="two"><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(false)">Listen original</button><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(true)">Listen proposed</button></div><small>Audition covers up to eight measures from the first selected finding.</small><button v-if="quickAuditionPlaying" type="button" class="secondary" @click="stopQuickAudition">Stop audition</button>
-   <div v-if="Object.keys(reviewAudioResults).length" class="hint"><strong>Latest audition: measured digital signal</strong><p>Sampled RMS and sample peak in dBFS, not LUFS or room sound. External MIDI is excluded; native sustain fallback paths may be undercounted.</p><div v-for="(level,inst) in reviewAudioResults" :key="inst">{{inst}}: RMS {{level.rms.toFixed(1)}} dBFS · peak {{level.peak.toFixed(1)}} dBFS</div></div>
-   <div v-for="issue in reviewVisible" :key="issue.id" class="arrangement-review-issue">
-    <label><input type="checkbox" :value="issue.id" v-model="reviewSelected" :disabled="!reviewCanApply(issue)"/> {{issue.severity}} · {{issue.category}} · {{issue.instrument}} · M{{issue.measure+1}}</label>
-    <p>{{issue.message}}</p>
-    <small v-if="issue.voicing">Proposed chord pitches (MIDI): {{issue.voicing.pitches.join(", ")}}</small><small v-if="issue.patch">Proposed: {{Object.entries(issue.patch).map(([key,value])=>key+': '+(typeof value==='number'?Number(value.toFixed(2)):value)).join(' · ')}}</small>
-    <button type="button" class="secondary" @click="visitReviewIssue(issue)">Open measure</button>
-    <button v-if="project.dismissedArrangementFindings?.includes(issue.id)" type="button" class="secondary" @click="restoreReviewIssue(issue)">Restore finding</button><button v-else type="button" class="secondary" @click="dismissReviewIssue(issue)">Dismiss finding</button>
-   </div>
-   <p v-if="!reviewVisible.length">No findings in this scope.</p>
-  </div>
-  <div class="app-modal-actions"><button type="button" class="secondary" @click="scanArrangementReview">Rescan</button><button type="button" class="primary" :disabled="!reviewSelected.length" @click="applyArrangementReview">Apply selected fixes</button></div>
- </section>
 </div>
 <div v-if="importDialogOpen" class="app-modal-backdrop" @click.self="closeImportDialog" @keydown.esc.stop.prevent="closeImportDialog" @keydown.tab="trapModalTab">
   <section id="import-workflow-modal" class="app-modal" :class="{'musicxml-merge-modal':(importMode==='merge'&&pendingParsed)||pendingEnsemble.length}" role="dialog" aria-modal="true" aria-labelledby="import-workflow-title">
