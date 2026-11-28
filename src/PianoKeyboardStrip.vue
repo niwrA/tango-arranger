@@ -29,17 +29,17 @@ function marked(p:number){return {
  </div>
 </template>
 <style scoped>
-.piano-register-keyboard{position:relative;width:100%;height:auto;align-self:stretch;flex:1 1 auto;min-height:92px;background:#d5dee4;border-radius:10px;border:1px solid #718391;box-sizing:border-box;overflow:hidden}
+.piano-register-keyboard{position:relative;width:100%;height:clamp(92px,min(22dvh,32vw),240px);align-self:center;flex:0 0 auto;min-height:0;max-height:240px;background:#d5dee4;border-radius:10px;border:1px solid #718391;box-sizing:border-box;overflow:hidden}
 .piano-register-white{display:flex;position:absolute;inset:0}
 .piano-register-white-key{position:relative;flex:1 1 0;min-width:0;background:#f2f1ec;border-right:1px solid #8899a5;box-sizing:border-box}
 .piano-register-white-key:last-child{border-right:0}
 .piano-register-white-key small{position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#3c5261;font-size:clamp(9px,1.1vw,14px);font-weight:700}
 .piano-register-black{position:absolute;inset:0;pointer-events:none}
 .piano-register-black-key{position:absolute;top:0;transform:translateX(-50%);width:3.5%;height:58%;background:#1d2a35;border:1px solid #627685;border-radius:0 0 5px 5px;box-sizing:border-box}
-.piano-register-white-key.is-chord-tone{background:#ebdfba}
-.piano-register-black-key.is-chord-tone{background:#7d6f55}
-.piano-register-white-key.is-planned{background:#f0ba6a}
-.piano-register-black-key.is-planned{background:#c18b49}
+.piano-register-white-key.is-chord-tone{background:#f2f1ec;box-shadow:inset 0 -4px #d2a452}
+.piano-register-black-key.is-chord-tone{background:#1d2a35;box-shadow:inset 0 -4px #d2a452}
+.piano-register-white-key.is-planned{background:#f2f1ec;box-shadow:inset 0 0 0 2px #d2a452}
+.piano-register-black-key.is-planned{background:#1d2a35;box-shadow:inset 0 0 0 2px #d2a452}
 .piano-register-white-key.is-active{background:#74d8c6;box-shadow:inset 0 0 0 2px #2b8c80}
 .piano-register-black-key.is-active{background:#36b9ae;border-color:#1a706d;box-shadow:0 0 0 2px #96fff2}
 </style>

@@ -10,7 +10,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right';pianoDetected?:number|null;pianoMatch?:boolean;pianoFinger?:number|null;pianoHand?:'bass'|'upper'|null}>();
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -51,12 +51,15 @@ function midiLabel(midi:number){return noteName(midi%12)+(Math.floor(midi/12)-1)
 const pianoHands=computed(()=>{
  const split=props.splitPitch??60;
  const scored=props.measurePitches??[]; // Do not stretch an empty measure to the entire song's pitch span.
- const relevant=[...new Set([...scored,...props.activePitches])];
+ const relevant=[...new Set([...scored,...props.activePitches,...(props.targetPitch==null?[]:[props.targetPitch]),...(props.pianoDetected==null?[]:[props.pianoDetected])])];
  return [
   {id:'bass',label:'LH',view:pianoWindowCovering(relevant,'lower',split,12)},
   {id:'upper',label:'RH',view:pianoWindowCovering(relevant,'upper',split,12)}
  ] as const;
 });
+const showPianoFinger=ref(true);
+function pianoFeedback(midi:number){return {'is-piano-detected':props.learn&&props.pianoDetected===midi,'is-piano-correct':props.learn&&props.pianoDetected===midi&&props.pianoMatch,'is-piano-incorrect':props.learn&&props.pianoDetected===midi&&!props.pianoMatch};}
+function pianoFingerLabel(midi:number,hand:string){return showPianoFinger.value&&isTarget(midi)&&(!props.pianoHand||props.pianoHand===hand)?((props.pianoFinger!=null&&Number.isInteger(props.pianoFinger)&&props.pianoFinger>=1&&props.pianoFinger<=5)?String(props.pianoFinger):null):null;}
 const plannedPianoPitches=computed(()=>new Set(props.measurePitches??[]));
 function isPianoMeasurePitch(midi:number){return plannedPianoPitches.value.has(midi);}
 function isPianoBassMidi(midi:number){return midi<(props.splitPitch??60);}
@@ -175,6 +178,7 @@ const diagramDescription=computed(()=>{
       <strong>{{symbol}}</strong>
     </span>
    </div>
+   <div v-if="family==='Piano'&&props.learn" class="piano-practice-key"><span>• Chord · outline: target · ✓ / × heard</span><button type="button" :aria-pressed="showPianoFinger" @click.stop="showPianoFinger=!showPianoFinger">Finger hints {{showPianoFinger?'on':'off'}}</button></div>
    <div class="diagram-visual-stage" :class="{'diagram-target-visual':!isStringInstrument&&family!=='Piano'}">
    <div v-if="family==='Piano'" class="diagram-piano diagram-piano-split"
       :aria-label="'Two hand piano reference · left '+midiLabel(pianoHands[0].view.start)+' to '+midiLabel(pianoHands[0].view.end)+'; right '+midiLabel(pianoHands[1].view.start)+' to '+midiLabel(pianoHands[1].view.end)">
@@ -182,23 +186,25 @@ const diagramDescription=computed(()=>{
         :class="'diagram-piano-register-'+hand.id" :style="{'--piano-white-count':hand.view.whites.length}">
         <div class="diagram-white-keys">
           <div v-for="midi in hand.view.whites" :key="midi" class="diagram-white-key"
-            :class="{'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi),
+            :class="{...pianoFeedback(midi),'is-chord-tone':isTone(midi),'is-root':isRoot(midi),'is-sounding':isPlayingPitch(midi),'is-unplayed-chord-tone':shouldDimTone(midi),
               'is-learn-target':isTarget(midi),'is-piano-measure':isPianoMeasurePitch(midi),'is-piano-bass':hand.id==='bass'&&(isPianoMeasurePitch(midi)||isPlayingPitch(midi)),
               'is-piano-upper':hand.id==='upper'&&(isPianoMeasurePitch(midi)||isPlayingPitch(midi))}"
             :title="midiLabel(midi)+(isPianoMeasurePitch(midi)?' · '+hand.label:'')">
-            <span v-if="isPianoMeasurePitch(midi)||isPlayingPitch(midi)||isTarget(midi)">{{noteName(midi)}}</span>
+            <span v-if="isPianoMeasurePitch(midi)||isPlayingPitch(midi)||isTarget(midi)||props.pianoDetected===midi">{{noteName(midi)}}</span>
+            <b v-if="pianoFingerLabel(midi,hand.id)" class="piano-finger-hint">{{pianoFingerLabel(midi,hand.id)}}</b>
           </div>
         </div>
         <div class="diagram-black-keys" aria-hidden="true">
           <span v-for="key in hand.view.blacks" :key="key.pitch" class="diagram-black-key"
-            :class="{'is-chord-tone':isTone(key.pitch),'is-root':isRoot(key.pitch),'is-sounding':isPlayingPitch(key.pitch),'is-unplayed-chord-tone':shouldDimTone(key.pitch),
+            :class="{...pianoFeedback(key.pitch),'is-chord-tone':isTone(key.pitch),'is-root':isRoot(key.pitch),'is-sounding':isPlayingPitch(key.pitch),'is-unplayed-chord-tone':shouldDimTone(key.pitch),
               'is-learn-target':isTarget(key.pitch),'is-piano-measure':isPianoMeasurePitch(key.pitch),'is-piano-bass':hand.id==='bass'&&(isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch)),
               'is-piano-upper':hand.id==='upper'&&(isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch))}"
             :style="{left:key.left+'%'}" :title="midiLabel(key.pitch)">
-            <span v-if="isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch)||isTarget(key.pitch)">{{noteName(key.pitch)}}</span>
+            <span v-if="isPianoMeasurePitch(key.pitch)||isPlayingPitch(key.pitch)||isTarget(key.pitch)||props.pianoDetected===key.pitch">{{noteName(key.pitch)}}</span>
+            <b v-if="pianoFingerLabel(key.pitch,hand.id)" class="piano-finger-hint">{{pianoFingerLabel(key.pitch,hand.id)}}</b>
           </span>
         </div>
-        <span class="diagram-piano-register-badge" aria-hidden="true">{{hand.label}} {{hand.id==='bass'?pianoBassCaption:pianoUpperCaption}}</span>
+        <span class="diagram-piano-register-badge" :class="{'piano-hand-current':props.learn&&props.pianoHand===hand.id}" aria-hidden="true">{{hand.label}} {{hand.id==='bass'?pianoBassCaption:pianoUpperCaption}}</span>
       </div>
       <span class="diagram-piano-hand-legend" aria-hidden="true"><i class="diagram-piano-hand-bass"/> Bass <i class="diagram-piano-hand-upper"/> Upper
         <span v-if="pianoPitchesOutOfView"> · {{pianoPitchesOutOfView}} notes outside keyboard</span>
@@ -723,4 +729,27 @@ const diagramDescription=computed(()=>{
 /* Hand coverage is independent of chord and active-note colour. */
 .performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-hand-region:not(.is-sounding):not(.is-learn-target):not(.is-measure-note):not(.is-position-anchor){background-color:#83c6e733;box-shadow:inset 0 0 0 1px #83c6e74d;opacity:1;filter:none;transition:background-color 180ms ease,box-shadow 180ms ease,transform var(--board-shift-duration,0ms) cubic-bezier(.2,.7,.25,1)}
 @media(prefers-reduced-motion:reduce){.performance-instrument-diagram .diagram-fingerboard .diagram-string-stop.is-hand-region{transition:none!important}}
+</style>
+
+<style scoped>
+/* Piano practice: fixed responsive playing surface, independent of spare flex space. */
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-piano) .diagram-piano{
+ height:clamp(92px,min(22dvh,32vw),240px);min-height:0;max-height:240px;flex:none;width:100%;align-self:center;box-sizing:border-box;
+}
+.performance-instrument-diagram.is-focus.is-learn:has(.diagram-piano) .diagram-visual-stage{flex:0 0 auto!important;min-height:0;height:auto}
+.piano-practice-key{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px;font-size:11px;color:#b9cbd6}
+.piano-practice-key button{font:inherit;color:inherit;background:#253c4e;border:1px solid #657d8e;border-radius:5px;padding:3px 6px}
+.performance-instrument-diagram.is-learn .diagram-piano .diagram-white-key:not(.is-learn-target){background:#f2f1ec;color:#182c44;border-bottom:0;box-shadow:none;opacity:1;filter:none}
+.performance-instrument-diagram.is-learn .diagram-piano .diagram-black-key:not(.is-learn-target){background:#1d2a35;color:#fff;border-color:#536675;box-shadow:none;opacity:1;filter:none}
+.performance-instrument-diagram.is-learn .diagram-piano .is-piano-measure:not(.is-learn-target){box-shadow:inset 0 -3px #789ac9}
+.performance-instrument-diagram.is-learn .diagram-piano .is-piano-upper.is-piano-measure:not(.is-learn-target){box-shadow:inset 0 -3px #d2a452}
+.performance-instrument-diagram.is-learn .diagram-piano .is-chord-tone::before{content:'';position:absolute;bottom:22%;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:#c59b52}
+.performance-instrument-diagram.is-learn .diagram-piano .diagram-white-key.is-learn-target,
+.performance-instrument-diagram.is-learn .diagram-piano .diagram-black-key.is-learn-target{background:#fff0c1!important;background-image:none!important;box-shadow:inset 0 0 0 3px #b87918!important;border:1px solid #ffdf86!important}
+.performance-instrument-diagram.is-learn .diagram-piano .is-piano-correct{background:#69d5a1!important;color:#163528!important}
+.performance-instrument-diagram.is-learn .diagram-piano .is-piano-incorrect{background:#ef8181!important;color:#431b1b!important}
+.performance-instrument-diagram.is-learn .diagram-piano .is-piano-detected::after{content:'×';position:absolute;bottom:35%;left:0;right:0;text-align:center;font-size:clamp(10px,2vw,20px);font-weight:900;color:inherit}
+.performance-instrument-diagram.is-learn .diagram-piano .is-piano-correct::after{content:'✓'}
+.piano-finger-hint{position:absolute;bottom:50%;left:50%;transform:translateX(-50%);z-index:2;background:#ffd166;color:#30230b;border-radius:50%;min-width:12px;text-align:center;font-size:clamp(10px,1.4vw,16px);line-height:1.2}
+.diagram-piano-register-badge.piano-hand-current{outline:2px solid #83c6e7;outline-offset:-1px}
 </style>

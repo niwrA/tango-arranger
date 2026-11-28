@@ -65,16 +65,16 @@ function label(pitch:number){return ['C','C♯','D','D♯','E','F','F♯','G','G
 .piano-focus-options button.selected,.piano-focus-range-actions button.selected{background:#e5be84;color:#142532;font-weight:800}
 .piano-focus-options>span{margin-left:auto;color:#bdcbd7;font-size:12px}
 .piano-focus-registers{display:flex;flex-direction:column;gap:12px;flex:1 1 auto;min-height:0}
-.piano-focus-register{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-height:148px}
+.piano-focus-register{display:flex;flex-direction:column;gap:8px;flex:0 0 auto;min-height:0}
 .piano-focus-register-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;color:#ebf2f7}
 .piano-focus-register-bar>strong{font-size:clamp(14px,1.6vw,21px)}
 .piano-focus-register-bar>span{font-size:13px;color:#efca91;font-variant-numeric:tabular-nums}
 .piano-focus-range-actions{display:flex;gap:5px;margin-left:auto}
-.piano-focus-keyboard-button{display:flex;align-items:stretch;flex:1 1 0;padding:0;background:none;border:0;cursor:pointer;min-height:92px;width:100%}
+.piano-focus-keyboard-button{display:flex;align-items:center;flex:0 0 auto;padding:0;background:none;border:0;cursor:pointer;min-height:92px;width:100%}
 .piano-focus-keyboard-button:focus-visible,.piano-focus-options button:focus-visible,.piano-focus-range-actions button:focus-visible{outline:3px solid #f9d6a4;outline-offset:2px}
-.piano-focus-registers.is-single .piano-focus-keyboard-button{min-height:clamp(180px,28dvh,360px)}
+.piano-focus-registers.is-single .piano-focus-keyboard-button{min-height:0}
 .piano-focus-legend{font-size:12px;color:#b9cbd6;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0}
 .piano-focus-indicator{display:inline-block;height:10px;width:10px;border-radius:3px}
-.piano-focus-indicator.active{background:#74d8c6}.piano-focus-indicator.planned{background:#f0ba6a}.piano-focus-indicator.chord{background:#ebdfba}
+.piano-focus-indicator.active{background:#74d8c6}.piano-focus-indicator.planned{border:2px solid #d2a452;box-sizing:border-box}.piano-focus-indicator.chord{background:#d2a452;height:4px}
 @media(max-width:700px){.piano-focus-options>span{width:100%;margin-left:0}.piano-focus-register-bar{gap:5px 9px}.piano-focus-range-actions button{padding:4px 8px;min-height:35px}.piano-focus-view{gap:7px}.piano-focus-registers{gap:8px}}
 </style>
