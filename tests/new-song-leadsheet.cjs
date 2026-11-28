@@ -191,6 +191,21 @@ check('vocal guide aligns syllables within measures and handles wrapped chord ro
  assert.ok(notes.every(n=>n.duration<=4-(n.start%4)+1e-7));
  assert.equal(notes.at(-1).lyric,'care');
 });
+check('provisional voice notation uses the musical grid and avoids micro-rests',()=>{
+ const preview=previewLeadSheetImport("[Verse]\n[Am]One two three four five\n[F]Each word has a clear place here",1);
+ const {exportMusicXml,validateMusicXmlDurations}=load('src/io.ts');
+ for(const beats of [2,3,4]){
+  const song=projectFromLeadSheet(preview,'Guide',beats,124);
+  const notes=song.importedScore.Voice;
+  assert.deepEqual(notes.map(n=>n.lyric),['One','two','three','four','five','Each','word','has','a','clear','place','here']);
+  assert.ok(notes.every(n=>n.start*4===Math.floor(n.start*4)&&n.duration*4===Math.floor(n.duration*4)));
+  assert.ok(notes.every((n,i)=>n.gate>0&&n.gate<1&&n.duration>0&&(i===0||notes[i-1].start+notes[i-1].duration<=n.start)));
+  const xml=exportMusicXml(song,{Voice:notes},{onlyInstrument:'Voice'});
+  assert.deepEqual(Array.from(validateMusicXmlDurations(xml,beats,1)),[]);
+  assert.doesNotMatch(xml,/<type>(?:32nd|64th|128th)<\/type>|<time-modification>/);
+  assert.equal((xml.match(/<lyric\b/g)??[]).length,notes.length);
+ }
+});
 check('printable leadsheet keeps adjacent chord symbols separated from lyrics',()=>{
  const {readableLeadSheet}=load('src/leadLyrics.ts');
  const rendered=readableLeadSheet('[Verse]\n[Fm][C7]love and care[Fm]');
