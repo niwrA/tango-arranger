@@ -1,3 +1,7 @@
+## Clearer Vals accompaniment notation (2026-11-28)
+
+- Generated 3/4 piano and contrabass accompaniment uses readable quarter notes for these beat-aligned attacks. Playback keeps the same short releases, without writing them as tiny notes, ties and rests.
+
 ## More room for notes on phones (2026-11-28)
 
 - Regular and Focus views share icon buttons for navigation, Undo and Redo and put the smaller Notes/Measures picker next to Options. Focus combines the part name and edition in one picker. The edition list still shows saved and protected status.
