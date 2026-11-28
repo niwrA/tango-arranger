@@ -7,6 +7,8 @@
 ## Note Editor range controls (2026-11-28)
 
 - The narrow-layout range button no longer shows above the full-width controls on tablets. Removed the separate Range presets control; the section picker and start/end controls remain.
+- On tablet-sized layouts, choose Select, Create or Erase and an action category from compact menus. Actions appear as buttons on that same row when they fit; otherwise use the action menu.
+- Phone Focus view uses icon-only Exit Focus, Undo and Redo, and places the smaller Notes/Measures picker beside selection options.
 
 ## [Feature] Orchestra styles by song, section and phrase (2026-11-27)
 

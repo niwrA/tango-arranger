@@ -30,6 +30,15 @@ test('compact mode category and action selectors do not execute on selection',()
  for(const marker of ['aria-label="Interaction mode"','aria-label="Action category"','aria-label="Musical action"','@click="applyQuickNote(compactQuickAction)"'])assert.ok(editor.includes(marker),marker);
  assert.match(css,/\.musical-compact-selectors\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
 });
+test('tablet action buttons use the compact controls and fall back if they cannot fit',()=>{
+ assert.match(editor,/ref="tabletActionSlot"/);
+ assert.match(editor,/v-show="!tabletInlineActions" ref="tabletActionSelect"/);
+ assert.match(editor,/:inert="!tabletInlineActions"/);
+ assert.match(vue,/buttons.offsetWidth<=slot.clientWidth/);
+ assert.match(vue,/new ResizeObserver\(updateTabletActionFit\)/);
+ assert.match(vue,/quickNoteCategory.value!=='create'/);
+ assert.match(css,/min-width:701px.*max-width:1180px/);
+});
 test('one working range is separate from the Notes or Measures editing target',()=>{
  assert.match(editor,/<MeasureRangeControl[^>]+@change="setNoteEditorMeasureRange"/);
  assert.doesNotMatch(editor,/note-working-presets/);
