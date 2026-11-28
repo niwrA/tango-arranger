@@ -134,3 +134,14 @@ export function bandoneonPlaybackPlan(project:Project,inst:Instrument,notes:read
  });
  return {assignments,decisions};
 }
+
+export type BellowsGuideMark={beat:number;direction:BellowsDirection;reversal:boolean};
+export function bellowsGuideMarks(decisions:readonly import('./bandoneonLayout').SustainedBellowsDecision[]):BellowsGuideMark[]{
+ const result:BellowsGuideMark[]=[];
+ let last:BellowsDirection|undefined;
+ for(const frame of decisions){
+  if(!frame.direction){last=undefined;continue;}
+  if(frame.direction!==last){result.push({beat:frame.start,direction:frame.direction,reversal:last!==undefined});last=frame.direction;}
+ }
+ return result;
+}

@@ -69,3 +69,8 @@ assert.ok(b.planSustainedBellows(synthetic,[{...timed('hold',62,0,3),buttonId:'b
 const marked=[{pitch:62,start:0,duration:1,gate:1,bellowsDirection:'push',bandoneonButtonId:'c'}];
 assert.equal(playback.bandoneonPlaybackPlan(restored,'Bandoneon I',marked).assignments.get(marked[0]).direction,'push');
 console.log('PASS explicit bellows and button constraints');
+
+assert.deepEqual(playback.bellowsGuideMarks(release),[{beat:0,direction:'pull',reversal:false},{beat:1,direction:'push',reversal:true}]);
+assert.deepEqual(playback.bellowsGuideMarks(conflict),[]);
+assert.deepEqual(playback.bellowsGuideMarks(lookahead),[{beat:0,direction:'push',reversal:false}]);
+console.log('PASS derived direction and reversal guide marks');

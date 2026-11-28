@@ -183,6 +183,12 @@ export function parseMusicXmlDetailed(text:string):ParsedMusicXml{
        xmlStaff:numeric(child,'staff',1),
        xmlVoice:value(child,'voice')||'1'
       };
+      for(const technical of descendants(child,'other-technical')){
+       const text=technical.textContent??'';
+       if(text==='tango-bellows:pull')note.bellowsDirection='pull';
+       else if(text==='tango-bellows:push')note.bellowsDirection='push';
+       else if(text.startsWith('tango-button:')&&text.length>13&&text.length<=113)note.bandoneonButtonId=text.slice(13);
+      }
       if(isBowed){
        const finger=value(child,'fingering');
        if(['0','1','2','3','4','T'].includes(finger))note.finger=finger as Note['finger'];

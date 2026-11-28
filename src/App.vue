@@ -91,7 +91,7 @@ import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} f
 import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
-import {bandoneonPlaybackPlan,arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin} from './arrangementPlayback';
+import {bandoneonPlaybackPlan,bellowsGuideMarks,arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
@@ -6407,6 +6407,16 @@ function setSelectedBellows(field:'bellowsDirection'|'bandoneonButtonId',value:s
  }else if(value)next.bandoneonButtonId=value;else delete next.bandoneonButtonId;
  try{commitInspectedNote(old,next);}catch(e){message.value=String(e);}
 }
+const selectedBellowsSuggestion=computed(()=>{
+ const n=selectedEvent.value,inst=noteInst.value,p=project.value;
+ if(!n||!inst.startsWith('Bandoneon'))return undefined;
+ const notes=playbackNotesInRange(score.value[inst]??[],0,Infinity,p.transposeSemitones??0);
+ const plan=bandoneonPlaybackPlan(p,inst,notes);
+ const frame=plan.decisions.find(f=>f.start<=n.start+1e-7&&f.end>n.start+1e-7);
+ const note=notes.find(x=>Math.abs(x.start-n.start)<1e-7&&x.pitch===n.pitch&&(x.staffOverride??x.xmlStaff)===(n.staffOverride??n.xmlStaff));
+ const assignment=note?plan.assignments.get(note):undefined;
+ return frame?{direction:frame.direction,button:assignment?.button.id,reversal:bellowsGuideMarks(plan.decisions).some(m=>m.reversal&&Math.abs(m.beat-n.start)<1e-7)}:undefined;
+});
 const selectedBandoneonButtons=computed(()=>{
  const n=selectedEvent.value;if(!n||!noteInst.value.startsWith('Bandoneon'))return [];
  const layout=physicalBandoneonLayoutForPart(project.value,noteInst.value);
@@ -8471,7 +8481,7 @@ async function homePractise(inst:Instrument){
       <template v-if="noteInst.startsWith('Bandoneon')">
        <label>Bellows direction<select :value="selectedEvent.bellowsDirection??''" @change="setSelectedBellows('bellowsDirection',($event.target as HTMLSelectElement).value)"><option value="">Auto / unmarked</option><option value="pull">Pull · open</option><option value="push">Push · close</option></select></label>
        <label v-if="customBandoneonLayoutForPart(project,noteInst)">Physical button<select :value="selectedEvent.bandoneonButtonId??''" @change="setSelectedBellows('bandoneonButtonId',($event.target as HTMLSelectElement).value)"><option value="">Auto</option><option v-if="selectedEvent.bandoneonButtonId&&!selectedBandoneonButtons.some(b=>b.id===selectedEvent.bandoneonButtonId)" :value="selectedEvent.bandoneonButtonId">Unavailable: {{selectedEvent.bandoneonButtonId}}</option><option v-for="b in selectedBandoneonButtons" :key="b.id" :value="b.id">{{b.hand}} · {{b.id}}</option></select></label>
-       <small class="hint">Explicit markings constrain custom-layout planning; incompatible markings are reported in arrangement review.</small>
+       <small v-if="selectedBellowsSuggestion" class="hint">Suggested: {{selectedBellowsSuggestion.direction??'No continuous assignment'}}{{selectedBellowsSuggestion.button?' · button '+selectedBellowsSuggestion.button:''}}{{selectedBellowsSuggestion.reversal?' · reversal':''}}</small><small class="hint">Explicit markings constrain custom-layout planning; incompatible markings are reported in arrangement review.</small>
       </template>
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>
@@ -8543,7 +8553,7 @@ async function homePractise(inst:Instrument){
       <template v-if="noteInst.startsWith('Bandoneon')">
        <label>Bellows direction<select :value="selectedEvent.bellowsDirection??''" @change="setSelectedBellows('bellowsDirection',($event.target as HTMLSelectElement).value)"><option value="">Auto / unmarked</option><option value="pull">Pull · open</option><option value="push">Push · close</option></select></label>
        <label v-if="customBandoneonLayoutForPart(project,noteInst)">Physical button<select :value="selectedEvent.bandoneonButtonId??''" @change="setSelectedBellows('bandoneonButtonId',($event.target as HTMLSelectElement).value)"><option value="">Auto</option><option v-if="selectedEvent.bandoneonButtonId&&!selectedBandoneonButtons.some(b=>b.id===selectedEvent.bandoneonButtonId)" :value="selectedEvent.bandoneonButtonId">Unavailable: {{selectedEvent.bandoneonButtonId}}</option><option v-for="b in selectedBandoneonButtons" :key="b.id" :value="b.id">{{b.hand}} · {{b.id}}</option></select></label>
-       <small class="hint">Explicit markings constrain custom-layout planning; incompatible markings are reported in arrangement review.</small>
+       <small v-if="selectedBellowsSuggestion" class="hint">Suggested: {{selectedBellowsSuggestion.direction??'No continuous assignment'}}{{selectedBellowsSuggestion.button?' · button '+selectedBellowsSuggestion.button:''}}{{selectedBellowsSuggestion.reversal?' · reversal':''}}</small><small class="hint">Explicit markings constrain custom-layout planning; incompatible markings are reported in arrangement review.</small>
       </template>
       <label class="note-focus-articulation">Gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)"><option value="">None</option><option v-for="preset in GESTURE_PRESETS.filter(g=>noteInst.startsWith('Violin')||!g.value.startsWith('sirena'))" :key="preset.value" :value="preset.value">{{preset.label}}</option></select></label>
       <button type="button" class="secondary" @click="noteFocusMore=!noteFocusMore;noteDetailsPopup=false">{{noteFocusMore?'Close details':'All note properties'}}</button>

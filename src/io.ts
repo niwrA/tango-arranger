@@ -265,7 +265,8 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
         const glissXml=isAttack?glissMarks.filter(mark=>mark.note.pitch===pitch&&Math.abs(mark.note.start-(offset+begin/DIV))<1e-5&&notes.includes(mark.note)).map(mark=>`<glissando type="${mark.type}" number="${mark.number}" line-type="solid">${mark.type==='start'?'gliss.':''}</glissando>`).join(''):'';
         const tremoloXml=isAttack&&(latest.bowedTremolo||latest.gesture?.tremolo)?`<ornaments><tremolo type="single">${latest.bowedTremolo?.strokes??3}</tremolo></ornaments>`:'';
         const technicalMarks=isAttack?((latest.finger!==undefined?'<fingering>'+esc(latest.finger)+'</fingering>':'')+(latest.bowDirection==='up'?'<up-bow/>':latest.bowDirection==='down'?'<down-bow/>':'')):'';
-        const technicalXml=technicalMarks?'<technical>'+technicalMarks+'</technical>':'';
+        const bellowsTechnical=isAttack?((latest.bellowsDirection?'<other-technical print-object="no">tango-bellows:'+latest.bellowsDirection+'</other-technical>':'')+(latest.bandoneonButtonId?'<other-technical print-object="no">tango-button:'+esc(latest.bandoneonButtonId)+'</other-technical>':'')):'';
+        const technicalXml=technicalMarks||bellowsTechnical?'<technical>'+technicalMarks+bellowsTechnical+'</technical>':'';
         const notations=(tieStop||tieStart||articulationMarks||fermataXml||glissXml||tremoloXml||technicalXml||(j===0&&tupletMarks))?`<notations>${tieStop?'<tied type="stop"/>':''}${tieStart?'<tied type="start"/>':''}${fermataXml}${j===0?tupletMarks:''}${articulationMarks}${glissXml}${tremoloXml}${technicalXml}</notations>`:'';
         // A collapsed unison with the same onset can represent several source
         // events. Leave that head unmarked so the editor never guesses.
@@ -505,6 +506,10 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
             }).join('');
             if(pi===0&&!previous){
               for(const note of group.notes){
+               if(inst.startsWith('Bandoneon')&&(note.bellowsDirection||note.bandoneonButtonId)){
+                const label=[note.bellowsDirection==='pull'?'Pull (open)':note.bellowsDirection==='push'?'Push (close)':'',note.bandoneonButtonId?'Button '+note.bandoneonButtonId+' ('+midiName(note.pitch)+')':''].filter(Boolean).join(' · ');
+                events.push(`<StaffText><text>${esc(label)}</text></StaffText>`);
+               }
                if(note.stringGlissando)events.push(`<StaffText><text>${esc('gliss. to '+midiName(note.pitch+note.stringGlissando.interval))}</text></StaffText>`);
                 if(note.bowedTremolo)events.push('<StaffText><text>bow tremolo</text></StaffText>');
                 if(note.pianoGlissando)events.push(`<StaffText><text>${esc('gliss. to '+midiName(note.pitch+note.pianoGlissando.interval))}</text></StaffText>`);
