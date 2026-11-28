@@ -4045,7 +4045,7 @@ function openArrangementReview(){
 }
 function closeArrangementReview(){stopQuickAudition();reviewOpen.value=false;reviewSelected.value=[];}
 const reviewVisible=computed(()=>reviewFindings.value.filter(issue=>reviewCategory.value==='all'||issue.category===reviewCategory.value));
-function reviewCanApply(issue:Diagnostic){return !!issue.patch&&!project.value.dismissedArrangementFindings?.includes(issue.id)&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
+function reviewCanApply(issue:Diagnostic){return !!(issue.patch||issue.voicing)&&!project.value.dismissedArrangementFindings?.includes(issue.id)&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
 function dismissReviewIssue(issue:Diagnostic){
  project.value={...project.value,dismissedArrangementFindings:[...new Set([...(project.value.dismissedArrangementFindings??[]),issue.id])]};scanArrangementReview();
 }
@@ -4086,7 +4086,7 @@ function applyArrangementReview(){
   stopPlayback();
   const next=refineArrangement(project.value,sourceScore.value,selected,reviewProtected.value);
   project.value=next;
-  message.value=selected.some(issue=>issue.patch?.pitch!==undefined||issue.patch?.start!==undefined)?'Applied selected structural and expression refinements.':'Applied selected expression refinements; pitches and written rhythm preserved.';
+  message.value=selected.some(issue=>issue.voicing||issue.patch?.pitch!==undefined||issue.patch?.start!==undefined)?'Applied selected structural and expression refinements.':'Applied selected expression refinements; pitches and written rhythm preserved.';
   scanArrangementReview();
  }catch(error){message.value='Arrangement review: '+String(error);}
 }
@@ -6868,7 +6868,7 @@ async function homePractise(inst:Instrument){
    <div v-for="issue in reviewVisible" :key="issue.id" class="arrangement-review-issue">
     <label><input type="checkbox" :value="issue.id" v-model="reviewSelected" :disabled="!reviewCanApply(issue)"/> {{issue.severity}} · {{issue.category}} · {{issue.instrument}} · M{{issue.measure+1}}</label>
     <p>{{issue.message}}</p>
-    <small v-if="issue.patch">Proposed: {{Object.entries(issue.patch).map(([key,value])=>key+': '+(typeof value==='number'?Number(value.toFixed(2)):value)).join(' · ')}}</small>
+    <small v-if="issue.voicing">Proposed chord pitches (MIDI): {{issue.voicing.pitches.join(", ")}}</small><small v-if="issue.patch">Proposed: {{Object.entries(issue.patch).map(([key,value])=>key+': '+(typeof value==='number'?Number(value.toFixed(2)):value)).join(' · ')}}</small>
     <button type="button" class="secondary" @click="visitReviewIssue(issue)">Open measure</button>
     <button v-if="project.dismissedArrangementFindings?.includes(issue.id)" type="button" class="secondary" @click="restoreReviewIssue(issue)">Restore finding</button><button v-else type="button" class="secondary" @click="dismissReviewIssue(issue)">Dismiss finding</button>
    </div>
