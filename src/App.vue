@@ -149,6 +149,7 @@ function stopPlayback(){
   if(typeof arrangementCountingIn!=='undefined')arrangementCountingIn.value=false;
   stopMicrophoneCapture();
   if(performanceTicker){clearInterval(performanceTicker);performanceTicker=undefined;}
+  if(typeof stopReviewMeter==='function')stopReviewMeter();
   const wasPlayingArrangement=playing.value;
   const wasPlayingQuickDraft=typeof quickAuditionPlaying!=='undefined'&&quickAuditionPlaying.value;
   if(typeof quickAuditionPlaying!=='undefined'){
@@ -4026,6 +4027,31 @@ function setSectionOrchestraStyle(section:string,value:string){
  project.value.sectionStyles=styles;
 }
 const reviewOpen=ref(false);
+const reviewAudioResults=ref<Record<string,{rms:number;peak:number;frames:number}>>({});
+let reviewMeterCleanup:(()=>void)|undefined;
+function stopReviewMeter(){reviewMeterCleanup?.();reviewMeterCleanup=undefined;}
+function startReviewMeter(context:AudioContext,parts:Instrument[],output:GainNode){
+ stopReviewMeter();
+ const rows=parts.filter(inst=>!midiPianoAvailable(inst)).map(inst=>{
+  const analyser=context.createAnalyser();analyser.fftSize=2048;
+  const bus=context.createGain();bus.connect(output);bus.connect(analyser);
+  const players=usesModeledAudio(inst)?[]:[instrumentSynth(inst),samplePlayers.get(inst),pizzicatoPlayers.get(inst),pizzicatoAlternates.get(inst),pizzicatoSoftPlayers.get(inst)].filter(v=>v!==undefined);
+  for(const player of players)player.connect(analyser);
+  return {inst,analyser,bus,players,buffer:new Float32Array(analyser.fftSize),sum:0,count:0,peak:0};
+ });
+ const tick=()=>{
+  const results:Record<string,{rms:number;peak:number;frames:number}>={};
+  for(const row of rows){
+   row.analyser.getFloatTimeDomainData(row.buffer);
+   for(const sample of row.buffer){row.sum+=sample*sample;row.peak=Math.max(row.peak,Math.abs(sample));row.count++;}
+   results[row.inst]={rms:20*Math.log10(Math.max(1e-8,Math.sqrt(row.sum/row.count))),peak:20*Math.log10(Math.max(1e-8,row.peak)),frames:row.count};
+  }
+  reviewAudioResults.value=results;
+ };
+ const timer=setInterval(tick,40);
+ reviewMeterCleanup=()=>{clearInterval(timer);for(const row of rows){for(const player of row.players)player.disconnect(row.analyser);row.bus.disconnect();row.analyser.disconnect();}};
+ return new Map(rows.map(row=>[row.inst,row.bus]));
+}
 const reviewScope=ref<'all'|'part'|'range'>('all');
 const reviewCategory=ref('all');
 const reviewStyle=ref(true);
@@ -4043,7 +4069,7 @@ function scanArrangementReview(){
 function openArrangementReview(){
  closeSongSettings();reviewOpen.value=true;scanArrangementReview();
 }
-function closeArrangementReview(){stopQuickAudition();reviewOpen.value=false;reviewSelected.value=[];}
+function closeArrangementReview(){stopQuickAudition();stopReviewMeter();reviewOpen.value=false;reviewSelected.value=[];}
 const reviewVisible=computed(()=>reviewFindings.value.filter(issue=>reviewCategory.value==='all'||issue.category===reviewCategory.value));
 function reviewCanApply(issue:Diagnostic){return !!(issue.patch||issue.voicing)&&!project.value.dismissedArrangementFindings?.includes(issue.id)&&(reviewProtected.value||!project.value.protectedBars[issue.instrument+':'+issue.measure]);}
 function dismissReviewIssue(issue:Diagnostic){
@@ -4071,8 +4097,10 @@ async function auditionArrangementReview(after:boolean){
   const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;transport.bpm.value=p.bpm;
   const output=(Tone.getContext().rawContext as AudioContext).createGain();output.connect((Tone.getContext().rawContext as AudioContext).destination);
   quickAuditionOutput=output;quickAuditionPlaying.value=true;
+  reviewAudioResults.value={};
+  const meters=startReviewMeter((Tone.getContext().rawContext as AudioContext),[...new Set(playback.events.map(event=>event.instrument))],output);
   for(const {instrument,note,event,onset,duration} of playback.events)transport.scheduleOnce(time=>{
-   if(session===quickAuditionSession)renderArrangementNote(instrument,note,event,duration,time,1,{project:p,output});
+   if(session===quickAuditionSession)renderArrangementNote(instrument,note,event,duration,time,1,{project:p,output:meters.get(instrument)??output});
   },onset);
   transport.start('+0.05');quickAuditionTimer=setTimeout(()=>{if(session===quickAuditionSession)stopQuickAudition();},playback.length*1000+150);
   message.value=(after?'Proposed':'Original')+' arrangement · measures '+(first+1)+'–'+(last+1);
@@ -6865,6 +6893,7 @@ async function homePractise(inst:Instrument){
    <p>{{reviewVisible.length}} findings · {{reviewSelected.length}} selected. Balance is a score-based estimate, not measured audio loudness.</p>
    <button type="button" class="secondary" @click="selectReviewSuggestions">Select visible proposed fixes</button>
    <div class="two"><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(false)">Listen original</button><button type="button" class="secondary" :disabled="!reviewSelected.length" @click="auditionArrangementReview(true)">Listen proposed</button></div><small>Audition covers up to eight measures from the first selected finding.</small><button v-if="quickAuditionPlaying" type="button" class="secondary" @click="stopQuickAudition">Stop audition</button>
+   <div v-if="Object.keys(reviewAudioResults).length" class="hint"><strong>Latest audition: measured digital signal</strong><p>Sampled RMS and sample peak in dBFS, not LUFS or room sound. External MIDI is excluded; native sustain fallback paths may be undercounted.</p><div v-for="(level,inst) in reviewAudioResults" :key="inst">{{inst}}: RMS {{level.rms.toFixed(1)}} dBFS · peak {{level.peak.toFixed(1)}} dBFS</div></div>
    <div v-for="issue in reviewVisible" :key="issue.id" class="arrangement-review-issue">
     <label><input type="checkbox" :value="issue.id" v-model="reviewSelected" :disabled="!reviewCanApply(issue)"/> {{issue.severity}} · {{issue.category}} · {{issue.instrument}} · M{{issue.measure+1}}</label>
     <p>{{issue.message}}</p>
