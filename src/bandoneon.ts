@@ -1,3 +1,5 @@
+import {physicalBandoneonLayout} from './bandoneonLayout';
+import {asPhysicalLayout,customBandoneonLayoutForPart,layoutPitchSet,type CustomBandoneonContext} from './bandoneonLayoutFormat';
 // Concert-pitch MIDI keys available with either bellows direction on the
 // specific documented layouts below. This is not a fingering, chord-voicing
 // or simultaneous-bellows-direction validator. Individual instruments vary.
@@ -37,12 +39,27 @@ export function isBandoneonModelId(id:unknown):id is BandoneonModelId{
 export function bandoneonModelForPart(project:{bandoneonModels?:Record<string,BandoneonModelId>}|undefined,part:string):BandoneonModelId{
  return bandoneonProfile(project?.bandoneonModels?.[part]).id;
 }
-export function isBandoneonPitchPlayable(pitch:number,id?:BandoneonModelId,hand?:BandoneonHand):boolean{
- const model=bandoneonProfile(id);
+export function isBandoneonPitchPlayable(pitch:number,id?:BandoneonPitchSelection,hand?:BandoneonHand):boolean{
+ const model=typeof id==='object'?id:bandoneonProfile(id);
  return hand?model[hand].includes(pitch):model.left.includes(pitch)||model.right.includes(pitch);
 }
 /** An unambiguous hand only; overlapping notes retain the score's staff or its display split. */
-export function bandoneonHandForPitch(pitch:number,id?:BandoneonModelId):BandoneonHand|undefined{
- const model=bandoneonProfile(id),left=model.left.includes(pitch),right=model.right.includes(pitch);
+export function bandoneonHandForPitch(pitch:number,id?:BandoneonPitchSelection):BandoneonHand|undefined{
+ const model=typeof id==='object'?id:bandoneonProfile(id),left=model.left.includes(pitch),right=model.right.includes(pitch);
  return left===right?undefined:left?'left':'right';
+}
+
+export type BandoneonSelectionContext=CustomBandoneonContext & {bandoneonModels?:Record<string,BandoneonModelId>};
+export type BandoneonPitchProfile=Omit<BandoneonProfile,'id'> & {readonly id:string};
+export type BandoneonPitchSelection=BandoneonModelId|BandoneonPitchProfile;
+export function physicalBandoneonLayoutForPart(project:BandoneonSelectionContext|undefined,part:string){
+ const custom=customBandoneonLayoutForPart(project,part);
+ return custom?asPhysicalLayout(custom):physicalBandoneonLayout(bandoneonModelForPart(project,part));
+}
+/** Preserve documented factory pitch unions until physical charts are verified. */
+export function bandoneonProfileForPart(project:BandoneonSelectionContext|undefined,part:string):BandoneonPitchProfile{
+ const custom=customBandoneonLayoutForPart(project,part);
+ if(!custom)return bandoneonProfile(bandoneonModelForPart(project,part));
+ const pitches=layoutPitchSet(custom);
+ return {id:custom.id,label:custom.name,range:[pitches[0],pitches[pitches.length-1]],left:layoutPitchSet(custom,'left'),right:layoutPitchSet(custom,'right')};
 }

@@ -1,4 +1,4 @@
-import {bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable} from './bandoneon';
+import {bandoneonProfileForPart,isBandoneonPitchPlayable} from './bandoneon';
 import {choosePlayablePianoVoicing,bassTechniqueFor,partStaffForNote,writtenInstrumentPitchPlayable,writtenInstrumentRange,assessPianoPlayability,adaptTransposedScore,projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
 import {effectiveRole,phraseMeasureMap} from './phrasePlan';
 import {orchestraStyle,orchestraPulses,styleForMeasure,phraseStyleKey,styleStrength,isOrchestraStyle} from './orchestraStyle';
@@ -28,7 +28,7 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
   if(instrumentFamily(inst)==='Piano')for(const issue of assessPianoPlayability(notes,p,inst,'human'))
    add(inst,issue.measure,'playability','warning',issue.message+' · beat '+(Math.round((issue.beat+1)*100)/100));
   if(instrumentFamily(inst)==='Bandoneon'){
-   const model=bandoneonModelForPart(p,inst),layout=bandoneonProfile(model);
+   const model=bandoneonProfileForPart(p,inst),layout=model;
    const sounding=soundingScore[inst]??[];
    // Current layouts combine both bellows directions. Check explicit hand
    // availability only; do not claim a simultaneous direction/fingering solution.

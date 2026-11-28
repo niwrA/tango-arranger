@@ -1,6 +1,6 @@
-import {customBandoneonLayoutForPart,layoutPitchSet,type CustomBandoneonContext} from './bandoneonLayoutFormat';
+import {type CustomBandoneonContext} from './bandoneonLayoutFormat';
 import {isOrchestraStyle,orchestraStyle,orchestraPulses,phraseStyleKey,styleForMeasure,styleStrength,phraseStyleExpression,type OrchestraStyleId} from './orchestraStyle';
-import {bandoneonHandForPitch,bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId} from './bandoneon';
+import {bandoneonHandForPitch,bandoneonProfileForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId,type BandoneonPitchSelection} from './bandoneon';
 import type {TempoExpressions} from './tempoExpressions';
 import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
 import type {MergeBackup,MergePlan} from './musicXmlMerge';
@@ -824,7 +824,7 @@ export function partUsesGrandStaff(project:Project,inst:Instrument,notes:readonl
 }
 
 /** Staff placement is a practice aid. It does not prescribe physical fingering. */
-export function partStaffForNote(note:Note,inst:Instrument,splitPitch=60,transpose=0,bandoneonModel?:BandoneonModelId):1|2 {
+export function partStaffForNote(note:Note,inst:Instrument,splitPitch=60,transpose=0,bandoneonModel?:BandoneonPitchSelection):1|2 {
   if(note.staffOverride===1||note.staffOverride===2)return note.staffOverride;
   if(inst.startsWith('Bandoneon')){
     if(note.xmlStaff===1||note.xmlStaff===2)return note.xmlStaff;
@@ -966,16 +966,12 @@ export function assessPianoPlayability(notes:readonly Note[],p:Pick<Project,'bea
 type InstrumentRangeContext=Pick<Project,'bandoneonModels'|'transposeSemitones'|'customBandoneonLayouts'|'customBandoneonParts'>;
 export function instrumentRange(inst:Instrument,project?:InstrumentRangeContext):[number,number]{
  const family=instrumentFamily(inst);
- const custom=family==='Bandoneon'?customBandoneonLayoutForPart(project,inst):undefined;
- if(custom){const pitches=layoutPitchSet(custom);return [pitches[0],pitches[pitches.length-1]];}
- return family==='Bandoneon'?[...bandoneonProfile(bandoneonModelForPart(project,inst)).range]:INSTRUMENT_CAPABILITIES[family].range;
+ return family==='Bandoneon'?[...bandoneonProfileForPart(project,inst).range]:INSTRUMENT_CAPABILITIES[family].range;
 }
 export function instrumentPitchPlayable(inst:Instrument,pitch:number,project?:InstrumentRangeContext):boolean{
  if(!Number.isInteger(pitch))return false;
  const family=instrumentFamily(inst);
- const custom=family==='Bandoneon'?customBandoneonLayoutForPart(project,inst):undefined;
- if(custom)return custom.buttons.some(b=>b.pull===pitch||b.push===pitch);
- if(family==='Bandoneon')return isBandoneonPitchPlayable(pitch,bandoneonModelForPart(project,inst));
+ if(family==='Bandoneon')return isBandoneonPitchPlayable(pitch,bandoneonProfileForPart(project,inst));
  const [low,high]=INSTRUMENT_CAPABILITIES[family].range;
  return pitch>=low&&pitch<=high;
 }
@@ -1262,7 +1258,7 @@ export function generate(p:Project):Score {
           const beat=pulse.beat,pcs=harmony(beat);
           // Use compact chord tones available on one hand. Layout data lists each
           // hand's union of pitches, not shared bellows direction or fingering.
-          const shift=p.transposeSemitones??0,model=bandoneonProfile(bandoneonModelForPart(p,inst));
+          const shift=p.transposeSemitones??0,model=bandoneonProfileForPart(p,inst);
           let compact:{notes:number[];staff:1|2;cost:number}|undefined;
           if(useStyledChords)for(const staff of [1,2] as const){
             const keys=model[staff===1?'right':'left'].map(pitch=>pitch-shift).filter(pitch=>pitch>=range[0]&&pitch<=range[1]);

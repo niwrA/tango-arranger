@@ -70,7 +70,7 @@ import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain} from './bandoneo
 import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide,stopVoiceGuide,setVoiceGuideGain,type VoiceGuideHandle} from './voiceGuideAudio';
 import BandoneonLayoutEditor from './BandoneonLayoutEditor.vue';
 import {customBandoneonLayoutForPart,validateBandoneonLayout,type PortableBandoneonLayout} from './bandoneonLayoutFormat';
-import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
+import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonProfileForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
 import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
@@ -4416,7 +4416,7 @@ function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,sta
  if(!focusInstrumentAudible(inst))return;
  const context=Tone.getContext().rawContext as AudioContext,options={gainDb:instrumentGainDb(inst),destination,held};
  if(isVoiceGuidePart(inst))return playVoiceGuide(context,inst,event,time,options);
- const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonModelForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
+ const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonProfileForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
  return playBandoneonNote(context,inst,event,time,{...options,hand});
 }
 function midiPianoAvailable(inst:string){

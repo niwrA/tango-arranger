@@ -1,11 +1,11 @@
-import {type BandoneonModelId} from './bandoneon';
+import {type BandoneonPitchSelection} from './bandoneon';
 import {partStaffForNote,type Instrument,type Note} from './music';
 
 export type PracticeStaff='all'|'upper'|'lower';
 export type ChordTarget='highest'|'lowest';
 
 /** Keep whole attacks for display, but let the tuner assess one pitch per attack. */
-export function practiceTargets(notes:readonly Note[],instrument:Instrument,split:number,staff:PracticeStaff,chordTarget:ChordTarget,bandoneonModel?:BandoneonModelId){
+export function practiceTargets(notes:readonly Note[],instrument:Instrument,split:number,staff:PracticeStaff,chordTarget:ChordTarget,bandoneonModel?:BandoneonPitchSelection){
  const ordered=notes.filter(note=>!note.xmlTieContinuation&&Number.isInteger(note.pitch)&&note.pitch>=0&&note.pitch<=127)
   .sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
  const targets:Note[]=[];
@@ -29,7 +29,7 @@ export function practiceTargets(notes:readonly Note[],instrument:Instrument,spli
  return {targets,chords,pitches};
 }
 
-export function bandoneonPracticeHands(notes:readonly Note[],instrument:Instrument,split:number,transpose:number,bandoneonModel?:BandoneonModelId){
+export function bandoneonPracticeHands(notes:readonly Note[],instrument:Instrument,split:number,transpose:number,bandoneonModel?:BandoneonPitchSelection){
  const left=new Set<number>(),right=new Set<number>();
  let inferred=false;
  for(const note of notes){
