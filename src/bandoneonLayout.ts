@@ -1,7 +1,7 @@
 import type {BandoneonHand,BandoneonModelId} from './bandoneon';
 export type BellowsDirection='pull'|'push';
 export type BandoneonButton={id:string;hand:BandoneonHand;x:number;y:number;pull:number;push:number};
-export type PhysicalBandoneonLayout={model:BandoneonModelId;source:string;buttons:readonly BandoneonButton[]};
+export type PhysicalBandoneonLayout={model:BandoneonModelId|string;source:string;buttons:readonly BandoneonButton[]};
 type Row=readonly (readonly [string,string,string])[];
 // German Helmholtz notation: C=C2, c=C3, c1=C4, h=B natural.
 function midi(s:string):number{
@@ -30,7 +30,7 @@ const left=rows('left',[
  [['5/0','D','E'],['10','H','e'],['11','g1','fis1'],['12','a1','gis1'],['13','dis1','h1'],['14','fis','f'],['15','Dis','Cis'],['star','C','F']]
 ],[2, .5,1,.5,0]);
 export const PHYSICAL_LAYOUTS:readonly PhysicalBandoneonLayout[]=[{model:'rheinische-142',source:'https://bandonionfabrik.de/assets/grifftabellen-bc-142-rheinische-tonlage.pdf',buttons:[...left,...right]}];
-export function physicalBandoneonLayout(model:BandoneonModelId){return PHYSICAL_LAYOUTS.find(l=>l.model===model);}
+export function physicalBandoneonLayout(model:string){return PHYSICAL_LAYOUTS.find(l=>l.model===model);}
 export type ButtonTarget={pitch:number;hand?:BandoneonHand};
 export function assignBandoneonButtons(layout:PhysicalBandoneonLayout,targets:readonly ButtonTarget[],direction:BellowsDirection):BandoneonButton[]|undefined{
  const candidates=targets.map((target,index)=>({index,buttons:layout.buttons.filter(b=>b[direction]===target.pitch&&(!target.hand||b.hand===target.hand))})).sort((a,b)=>a.buttons.length-b.buttons.length);
