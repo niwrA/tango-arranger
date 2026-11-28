@@ -1,6 +1,6 @@
 import {physicalBandoneonLayoutForPart} from './bandoneon';
 import {customBandoneonLayoutForPart} from './bandoneonLayoutFormat';
-import {planSustainedBellows,simulateBellowsCapacity,type CapacityFrame,type BellowsDirection,type BandoneonButton} from './bandoneonLayout';
+import {planCapacityAwareBellows,type CapacityFrame,type BellowsDirection,type BandoneonButton} from './bandoneonLayout';
 import type {Project,Instrument} from './music';
 import {noteSoundingDuration,stringGlissandoPlayback,type Note} from './music';
 /** Convert a selected song measure into a transport-relative playback window. */
@@ -127,7 +127,7 @@ export function bandoneonPlaybackPlan(project:Project,inst:Instrument,notes:read
   const start=n.start,end=start+noteSoundingDuration(n);
   return [{id:String(i),pitch:n.pitch+shift,hand,start,end,direction:n.bellowsDirection,buttonId:n.bandoneonButtonId},...(n.gesture?.partner?.length?[{id:i+':partner',pitch:n.gesture.partner[0].pitch+shift,hand,start,end}]:[])];
  });
- const decisions=simulateBellowsCapacity(planSustainedBellows(layout,targets),60/(project.bpm||120),customBandoneonLayoutForPart(project,inst)?.bellowsCapacity,id=>{
+ const decisions=planCapacityAwareBellows(layout,targets,60/(project.bpm||120),customBandoneonLayoutForPart(project,inst)?.bellowsCapacity,id=>{
   const n=notes[Number(id.split(':')[0])];
   // Velocity is an expressive proxy, not a measured pressure.
   return Math.max(.25,Math.min(1.25,(n?.velocity??80)/80));

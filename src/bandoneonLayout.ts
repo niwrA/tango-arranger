@@ -142,3 +142,41 @@ export function simulateBellowsCapacity(frames:readonly SustainedBellowsDecision
   extension=result.extensionEnd;return result;
  });
 }
+
+// Bounded beam search over independently releasable sounding groups.
+// Keep the exact extension in each state; bin only for pruning equivalent paths.
+export function planCapacityAwareBellows(layout:PhysicalBandoneonLayout,targets:readonly TimedButtonTarget[],secondsPerBeat:number,settings:BellowsCapacitySettings=DEFAULT_BELLOWS_CAPACITY,pressureForTarget:(id:string)=>number=()=>1):CapacityFrame[]{
+ const sorted=targets.filter(t=>Number.isFinite(t.start)&&Number.isFinite(t.end)&&t.end>t.start+1e-7).sort((a,b)=>a.start-b.start||a.end-b.end);
+ const groups:TimedButtonTarget[][]=[];let end=-Infinity;
+ for(const t of sorted){
+  if(t.start>=end-1e-7){groups.push([]);end=t.end;}else end=Math.max(end,t.end);
+  groups[groups.length-1].push(t);
+ }
+ type State={extension:number;direction:BellowsDirection;overflow:number;reversals:number;previous?:State;frames:CapacityFrame[]};
+ let states:State[]=[{extension:settings.initialExtension,direction:'pull',overflow:0,reversals:0,frames:[]}];
+ const compare=(a:State,b:State)=>a.overflow-b.overflow||a.reversals-b.reversals||Math.abs(a.extension-.5)-Math.abs(b.extension-.5);
+ for(const group of groups){
+  const options=(['pull','push'] as const).map(dir=>planSustainedBellows(layout,group,dir));
+  const feasible=options.filter(frames=>frames.every(f=>f.direction!==null));
+  // An impossible group remains visible as a conflict; never fabricate a direction.
+  const choices=feasible.length?feasible.filter((frames,i,a)=>a.findIndex(x=>x[0]?.direction===frames[0]?.direction)===i):[options[0]];
+  const bins=new Map<string,State>();
+  for(const previous of states)for(const choice of choices){
+   const frames=simulateBellowsCapacity(choice,secondsPerBeat,{...settings,initialExtension:previous.extension},pressureForTarget);
+   const direction=frames[0]?.direction??previous.direction;
+   const overflow=frames.reduce((sum,f)=>{
+    if(!f.direction)return sum;
+    const travel=(f.end-f.start)*secondsPerBeat*f.targetIds.length*f.pressure/settings.capacitySeconds;
+    return sum+Math.max(0,travel-Math.abs(f.extensionEnd-f.extensionStart));
+   },0);
+   const next:State={extension:frames.at(-1)?.extensionEnd??previous.extension,direction,overflow:previous.overflow+overflow,reversals:previous.reversals+Number(direction!==previous.direction),previous,frames};
+   const key=direction+':'+Math.round(next.extension*100);
+   const existing=bins.get(key);if(!existing||compare(next,existing)<0)bins.set(key,next);
+  }
+  states=[...bins.values()].sort(compare).slice(0,128);
+ }
+ const chunks:CapacityFrame[][]=[];
+ let best:State|undefined=states.sort(compare)[0];
+ while(best){chunks.push(best.frames);best=best.previous;}
+ return chunks.reverse().flat();
+}

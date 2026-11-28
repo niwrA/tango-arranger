@@ -84,3 +84,13 @@ assert.equal(refill[0].extensionEnd,.75);
 assert.equal(refill[1].extensionEnd,.5);
 assert.throws(()=>formats.validateBandoneonLayout({...custom,bellowsCapacity:{capacitySeconds:0,initialExtension:.5}}),/capacity/);
 console.log('PASS estimated capacity, direction, polyphony and calibration validation');
+
+const capacityAware=b.planCapacityAwareBellows(synthetic,[timed('flexible',62,0,2),timed('forced',40,2,4)],1,{capacitySeconds:4,initialExtension:.5});
+assert.deepEqual(capacityAware.map(f=>f.direction),['push','pull']);
+assert.ok(capacityAware.every(f=>!f.capacityExceeded));
+const forcedCapacity=b.planCapacityAwareBellows(synthetic,[{...timed('flexible',62,0,2),direction:'pull'},timed('forced',40,2,4)],1,{capacitySeconds:4,initialExtension:.5});
+assert.deepEqual(forcedCapacity.map(f=>f.direction),['pull','pull']);
+assert.equal(forcedCapacity[1].capacityExceeded,true);
+const impossibleCapacity=b.planCapacityAwareBellows(synthetic,[timed('bass',40,0,3),timed('treble',61,1,2)],1);
+assert.ok(impossibleCapacity.every(f=>f.direction===null));
+console.log('PASS capacity lookahead preserves explicit markings and physical conflicts');
