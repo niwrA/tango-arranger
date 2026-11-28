@@ -80,4 +80,26 @@ test('manual imported note lengths remain unchanged',()=>{
  const updated=music.replaceInstrumentMeasure(p,score,'Piano',0,[manual]);
  assert.equal(updated.importedScore.Piano[0].duration,0.75);
 });
+test('Vals writes beat-aligned piano and contrabass quarters while preserving sounding releases',()=>{
+ const vals=music.blankProject({beats:3,sections:1,measuresPerSection:3});
+ vals.bars[1].chord='Am';vals.bars[2].chord='F';
+ vals.roles.A.Piano='chords';vals.roles.A.Contrabass='bass';
+ vals.instrumentSettings.Piano.activity=1;vals.instrumentSettings.Contrabass.activity=1;
+ const actual=music.generate(vals);
+ for(const [inst,expected] of [['Piano',[[0,.95*.74],[1,.8*.55],[2,.8*.55]]],['Contrabass',[[0,.82],[2,.85*.58]]]]){
+  assert.deepEqual([...new Set(actual[inst].map(n=>n.start))],expected.map(([beat])=>beat+3).concat(expected.map(([beat])=>beat+6)));
+  for(const n of actual[inst]){
+   assert.equal(n.source,'generated');
+   assert.equal(n.duration,1);
+   assert.ok(Math.abs(music.noteSoundingDuration(n)-expected.find(([beat])=>beat===n.start%3)[1])<1e-10);
+  }
+  const xml=io.exportMusicXml(vals,actual,{onlyInstrument:inst});
+  assert.match(xml,/<time><beats>3<\/beats><beat-type>4<\/beat-type><\/time>/);
+  assert.deepEqual(Array.from(io.validateMusicXmlDurations(xml,3,1)),[]);
+  assert.doesNotMatch(xml,/<type>(?:64th|32nd|16th)<\/type>|<tie\b/);
+  const attacks=[...xml.matchAll(/<note\b[^>]*>([\s\S]*?)<\/note>/g)].filter(([,block])=>block.includes('<pitch>'));
+  assert.equal(attacks.length,actual[inst].length);
+  assert.ok(attacks.every(([,block])=>block.includes('<type>quarter</type>')));
+ }
+});
 console.log(`${count} rhythm/piano checks passed`);
