@@ -52,6 +52,21 @@ check('chord tags beyond the end of a short lyric preserve all trailing chords',
  assert.equal(p.bars[0].lyrics,'A short lyric');
  assert.match(p.source,/\[F\]\[Dm\]\[G\]$/);
 });
+check('barred repeats keep multiple chords in the same measure',()=>{
+ for(const src of ['|: Am F | Dm G :|','Am F | Dm G x2','|: Am F | Dm G :| ×2']){
+  const p=previewLeadSheetImport('[Intro]\n'+src,0);
+  assert.deepEqual(p.bars.map(x=>x.chord),['Am,F','Dm,G','Am,F','Dm,G']);
+  assert.ok(p.lines[0].fixedMeasures);
+  assert.deepEqual(previewLeadSheetImport('[Intro]\n|: Am F :|',0).bars.map(b=>b.chord),['Am,F','Am,F']);
+ }
+});
+check('page markers between chords and words do not split the sung line',()=>{
+ const p=previewLeadSheetImport('[Verse]\nAm\u00a0    F\nPage 2/6\nA short lyric',0);
+ assert.equal(p.lines.length,1);
+ assert.deepEqual(p.bars.map(x=>x.chord),['Am','F']);
+ assert.equal(p.bars[0].lyrics,'A short lyric');
+ assert.match(p.warnings.join(' '),/Removed 1 page marker/);
+});
 check('section boundary adjustments affect only section assignment, not song text',()=>{
  const preview=previewLeadSheetImport('[Verse]\n[D]one\n[A]two\n[Chorus]\n[G]three\n[C]four');
  const sections=arrangeImportedSections(preview,[0,1]);

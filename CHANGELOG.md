@@ -1,6 +1,6 @@
 ## Repeats and singer credits in pasted lead sheets (2026-11-28)
 
-- A chord-only row such as Am F Dm G x3 creates twelve measures, with no Voice notes on that row. Singer names after a section heading appear in the import review and are preserved in the lyric source as section credits. Chord symbols past the end of a short lyric line no longer get tangled together.
+- A chord-only row such as Am F Dm G x3 creates twelve measures, with no Voice notes on that row. Barlines inside a repeat keep grouped chords together, and page markers do not interrupt a chord-over-lyric pair. Singer names after a section heading appear in the import review and are preserved in the lyric source as section credits. Chord symbols past the end of a short lyric line no longer get tangled together.
 
 ## Readable provisional vocal guides (2026-11-28)
 
