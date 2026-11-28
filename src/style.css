@@ -1973,27 +1973,23 @@ button:not(.song-cell):not(.note-grid-cell):not(.note-beat-swipe-header):not(.pe
  .musical-compact-options>summary{cursor:pointer;font-size:12px;min-height:32px;display:flex;align-items:center}
 }
 
-/* Retain full labels outside phone Focus; keep touch targets at 44px. */
+/* Shared phone Note Editor commands. Keep full labels at wider widths. */
 .note-toolbar-actions .note-history-icon,.selection-options-short{display:none}
 @media(max-width:700px){
- .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-part{order:1;flex:1 1 110px;grid-template-columns:minmax(0,1fr);gap:2px}
- .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions{order:2;flex:0 0 auto;align-self:center}
- .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-transport{order:3;flex:1 0 100%}
- .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions>.note-history-control,
- .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions>.note-settings-icon{
-  display:inline-grid;place-items:center;width:44px;min-width:44px;height:44px!important;min-height:44px!important;max-height:44px!important;padding:0
- }
- .note-focus-mode .note-toolbar-actions .note-history-label,.note-focus-mode .selection-options-label{display:none}
- .note-focus-mode .note-toolbar-actions .note-history-icon,.note-focus-mode .selection-options-short{display:inline-block}
- .note-focus-mode .note-toolbar-actions .note-history-icon{width:19px;height:19px}
- .note-focus-mode .musical-compact-controls{grid-template-columns:minmax(0,1fr) auto;align-items:center}
- .note-focus-mode .musical-compact-selectors,.note-focus-mode .musical-compact-controls>.musical-edit-row{grid-column:1/-1}
- .note-focus-mode .musical-compact-status{display:flex;flex-wrap:wrap;gap:4px}
- .note-focus-mode .musical-compact-status>select{width:104px;flex:0 0 104px;height:44px!important;min-height:44px!important}
- .note-focus-mode .musical-compact-options{position:relative}
- .note-focus-mode .musical-compact-options>summary{padding:0 5px;min-height:44px}
- .note-focus-mode .musical-compact-options[open]>.musical-edit-row{
+ .note-editor-section .note-toolbar-actions .note-history-label,.note-editor-section .selection-options-label{display:none}
+ .note-editor-section .note-toolbar-actions .note-history-icon,.note-editor-section .selection-options-short{display:inline-block}
+ .note-editor-section .musical-compact-controls{grid-template-columns:minmax(0,1fr) auto;align-items:center}
+ .note-editor-section .musical-compact-selectors,.note-editor-section .musical-compact-controls>.musical-edit-row{grid-column:1/-1}
+ .note-editor-section .musical-compact-status{display:flex;flex-wrap:wrap;gap:4px}
+ .note-editor-section .musical-compact-status>select{width:104px;flex:0 0 104px;height:44px!important;min-height:44px!important}
+ .note-editor-section .musical-compact-options{position:relative;align-self:start}
+ .note-editor-section .musical-compact-options>summary{padding:0 5px;min-height:44px}
+ .note-editor-section .musical-compact-options[open]>.musical-edit-row{
   position:absolute;top:100%;inset-inline-end:0;z-index:21;width:max-content;max-width:min(300px,90vw);
   padding:6px;background:#192c39;border:1px solid #405665;border-radius:7px
  }
+}
+@media(max-width:360px){
+ .note-editor-section .musical-compact-status>select{width:92px;flex-basis:92px}
+ .note-editor-section .musical-compact-options>summary{padding-inline:3px}
 }

@@ -530,7 +530,15 @@ const dailyReleases=(()=>{
  return [...groups].sort(([a],[b])=>a==='archive'?1:b==='archive'?-1:b.localeCompare(a)).map(([date,entries])=>({date,entries}));
 })();
 const active=ref<'structure'|'lead'|'arrange'|'rhythm'|'notes'|'performance'|'about'>(initialWorkspaceTab());
+const workspaceMenu=ref<HTMLElement|null>(null);
 watch(active,tab=>{if(tab!=='notes')noteSettingsOpen.value=false;});
+watch([active,workspaceMenu],([tab,menu])=>{
+ if(tab!=='notes'||!menu||menu.scrollWidth<=menu.clientWidth)return;
+ const current=menu.querySelector<HTMLButtonElement>('.active');
+ if(!current)return;
+ const bounds=menu.getBoundingClientRect(), item=current.getBoundingClientRect();
+ if(item.left<bounds.left||item.right>bounds.right)menu.scrollLeft+=item.left-bounds.left-(menu.clientWidth-item.width)/2;
+},{flush:'post'});
 const structureSubtab=ref<'form'|'keys'|'transpose'|'ensemble'>('form');
 const transposePreviewSemitones=ref(0);
 const transposeAdapt=ref(true);
@@ -7247,7 +7255,7 @@ async function homePractise(inst:Instrument){
   </div>
 </div>
 <template v-if="!homeOpen">
-<nav class="tabs workspace-menu" aria-label="Main work areas"><button :class="{active:active==='structure'}" @click="active='structure'">Song</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active==='rhythm'?returnArrangementRhythm():active='arrange'">Arrangement</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm designer</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
+<nav class="tabs workspace-menu" aria-label="Main work areas" ref="workspaceMenu"><button :class="{active:active==='structure'}" @click="active='structure'">Song</button><button :class="{active:active==='lead'}" @click="active='lead'">Lead sheet</button><button :class="{active:active==='arrange'}" @click="active==='rhythm'?returnArrangementRhythm():active='arrange'">Arrangement</button><button :class="{active:active==='notes'}" @click="active='notes'">Note editor</button><button :class="{active:active==='rhythm'}" @click="active='rhythm'">Rhythm designer</button><button :class="{active:active==='about'}" @click="active='about'">About &amp; releases</button></nav>
 <Teleport to="body">
   <div v-if="pendingKeyChange" class="key-change-backdrop" @click.self="cancelSectionKeyChange" @keydown.esc.prevent="cancelSectionKeyChange">
     <form class="editor key-change-dialog" role="dialog" aria-modal="true" aria-labelledby="key-change-title" aria-describedby="key-change-description" @submit.prevent="applySectionKeyChange">
@@ -7889,8 +7897,14 @@ async function homePractise(inst:Instrument){
   <div class="note-unified-toolbar" :class="noteFocusMode?'note-focus-toolbar':'compact-note-toolbar'" role="toolbar" :aria-label="noteFocusMode?'Focused note editor controls':'Note editing workspace'">
     <div class="note-toolbar-part">
       <strong v-if="noteFocusMode" class="note-focus-identity">{{rosterDisplayName(noteInst)}} · {{project.bars[selectedBar].section}} · {{instrumentSkillShort(noteInst)}}</strong>
-      <label v-else>Instrument<select v-model="noteInst" :disabled="captureRecording&&captureInputSource==='midi'" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
-      <label>Edition<select :disabled="captureRecording&&captureInputSource==='midi'" :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
+      <label v-else><span class="note-part-caption">Instrument</span><select v-model="noteInst" :disabled="captureRecording&&captureInputSource==='midi'" @change="openNoteEditor(noteInst,selectedBar)"><option v-for="inst in activeRoster" :key="inst" :value="inst">{{rosterDisplayName(inst)}}</option></select></label>
+      <label class="note-edition-picker"><span class="note-part-caption">Edition</span>
+        <span class="note-edition-summary" aria-hidden="true">
+          <span v-if="noteFocusMode" class="note-edition-instrument">{{rosterDisplayName(noteInst)}}</span>
+          <span class="note-edition-level">{{instrumentDifficulty(noteInst)}}</span>
+          <AppIcon name="chevron-down"/>
+        </span>
+        <select :disabled="captureRecording&&captureInputSource==='midi'" :value="instrumentDifficulty(noteInst)" :aria-label="'Active difficulty for '+rosterDisplayName(noteInst)" @change="switchDifficultyEdition(noteInst,($event.target as HTMLSelectElement).value as Difficulty)"><option v-for="level in EDITION_LEVELS" :key="level" :value="level">{{editionDescription(noteInst,level)}}</option></select></label>
     </div>
     <div class="note-toolbar-transport" role="group" aria-label="Measure selection and loop">
       <MeasureRangeControl :measures="project.bars" :from="noteLoopFrom" :to="noteLoopTo" :disabled="noteLoopPlaying||capturePlaying||!!quickDraft" compact collapsible @change="setNoteEditorMeasureRange"/>
@@ -7898,11 +7912,11 @@ async function homePractise(inst:Instrument){
     </div>
     <div class="note-toolbar-actions">
       <button v-if="noteFocusMode" type="button" class="secondary note-focus-close note-history-control" @click="exitNoteFocusMode" aria-label="Exit focused note editor" title="Exit focused note editor"><AppIcon name="minimize" class="note-history-icon"/><span class="note-history-label">↙ Exit focus</span></button>
-      <button v-else type="button" class="secondary" @click="returnToMap">← Map</button>
+      <button v-else type="button" class="secondary note-map-control" @click="returnToMap" aria-label="Back to arrangement map" title="Back to arrangement map"><AppIcon name="arrow-left" class="note-history-icon"/><span class="note-history-label">← Map</span></button>
       <button type="button" class="secondary note-history-control" :disabled="!undoHistory.length" @click="restoreHistory('undo')" aria-label="Undo" title="Undo last project edit"><AppIcon name="undo" class="note-history-icon"/><span class="note-history-label">↶ Undo</span></button>
       <button type="button" class="secondary note-history-control" :disabled="!redoHistory.length" @click="restoreHistory('redo')" aria-label="Redo" title="Redo last undone edit"><AppIcon name="redo" class="note-history-icon"/><span class="note-history-label">↷ Redo</span></button>
-      <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings">⚙</button>
-      <button v-if="!noteFocusMode" type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen">⛶ Focus</button>
+      <button type="button" class="secondary note-settings-icon" @click="noteSettingsOpen=!noteSettingsOpen" :aria-expanded="noteSettingsOpen" aria-controls="note-settings-popup" aria-label="Note editor settings" title="Note editor settings"><AppIcon name="settings"/></button>
+      <button v-if="!noteFocusMode" type="button" class="secondary note-focus-enter" @click="enterNoteFocusMode" aria-label="Expand note editor to full screen" title="Expand note editor to full screen"><AppIcon name="maximize" class="note-history-icon"/><span class="note-history-label">⛶ Focus</span></button>
       <button v-if="!noteFocusMode&&noteInst.startsWith('Voice')" type="button" class="secondary" @click="shiftVoicePhraseFromLead(selectedBar,true)">Shift notes + lyrics…</button>
     </div>
     <span v-if="noteFocusMode&&noteLoopPlaying" class="note-focus-playing" role="status">Playing measure {{noteLoopMeasure>=0?noteLoopMeasure+1:'…'}} · beat {{noteLoopBeat>=0?noteLoopBeat+1:'…'}}</span>
@@ -10206,8 +10220,35 @@ async function homePractise(inst:Instrument){
 .note-editor-section .note-unified-toolbar .note-toolbar-part>label{grid-template-rows:14px var(--note-control-height);gap:3px;line-height:14px;padding:0;margin:0}
 .note-editor-section .note-unified-toolbar .note-toolbar-actions{align-self:flex-end;align-items:flex-end}
 .note-editor-section .note-unified-toolbar .note-toolbar-part .note-focus-identity{align-self:end;min-height:var(--note-control-height);display:flex;align-items:center}
+/* Mobile uses the same controls in and out of Focus. The native edition
+   picker still presents full saved/protected details when opened. */
+.note-edition-summary{display:none}
 @media(max-width:700px){
- .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible{grid-template-columns:44px minmax(0,1fr) 44px;flex:1 1 190px;width:auto}
+ .note-editor-section .note-unified-toolbar{--note-control-height:44px;gap:4px}
+ .note-editor-section .note-unified-toolbar .note-toolbar-part>label{grid-template-rows:var(--note-control-height);gap:0}
+ .note-toolbar-part .note-part-caption{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-part{order:1;flex:1 1 100px;grid-template-columns:minmax(0,1fr)}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-actions{order:2;flex:0 0 auto}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-toolbar-transport{order:3;flex:1 0 100%}
+ .note-editor-section.note-focus-mode .note-unified-toolbar .note-focus-identity{display:none}
+ .note-edition-picker{position:relative}
+ .note-edition-picker>select{position:absolute;inset:0;opacity:0;z-index:1;font-size:16px!important}
+ .note-edition-picker:focus-within>.note-edition-summary{outline:2px solid #f3d4a1;outline-offset:-2px}
+ .note-edition-picker:has(>select:disabled)>.note-edition-summary{opacity:.55}
+ .note-edition-summary{
+  grid-row:1;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 16px;align-content:center;align-items:center;
+  column-gap:3px;padding:3px 6px;background:#10171e;color:#f2f4f6;border:1px solid #3a4754;border-radius:7px
+ }
+ .note-edition-summary>.app-icon{grid-column:2;grid-row:1/-1;width:16px;height:16px;align-self:center}
+ .note-focus-mode .note-edition-summary>.app-icon{grid-row:1/3}
+ .note-edition-summary>span{grid-column:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:16px}
+ .note-edition-level{font-size:13px;text-transform:capitalize}
+ .note-edition-instrument{font-size:12px;color:#e7c38e}
+ .note-focus-mode .note-edition-level{font-size:11px}
+ .note-editor-section .note-unified-toolbar .note-toolbar-actions>:is(.note-history-control,.note-map-control,.note-settings-icon,.note-focus-enter){
+  display:inline-grid;place-items:center;width:44px;min-width:44px;padding:0
+ }
+ .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible{grid-template-columns:44px minmax(0,1fr) 44px;flex:1 1 154px;width:auto}
  .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible :deep(.range-arrow){min-width:44px;max-width:44px;width:44px;height:44px;min-height:44px;max-height:44px}
  .note-editor-section .note-unified-toolbar .note-toolbar-transport>.measure-range-control.range-collapsible:not(.range-expanded) :deep(label){display:none}
 }
