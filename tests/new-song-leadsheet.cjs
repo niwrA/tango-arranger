@@ -23,6 +23,35 @@ check('chords above lyrics are converted into inline chord anchors',()=>{
  assert.ok(preview.bars[0].original.includes('Donde'));
  assert.equal(preview.bars[1].chord,'Em');
 });
+check('chord-only repeats are exact measures and singer tags are section credits',()=>{
+ const input='[Intro]\nAm F Dm G x3\n\n[Verse 1][Soprano Example]\n    Am\nSome words\nPage 1/6\n[Chorus]\n[F]A refrain';
+ const preview=previewLeadSheetImport(input,2,[4],{1:1});
+ assert.deepEqual(preview.bars.slice(0,12).map(b=>b.chord),Array.from({length:3},()=>['Am','F','Dm','G']).flat());
+ assert.ok(preview.bars.slice(0,12).every(b=>!b.lyrics));
+ assert.equal(preview.lines[0].fixedMeasures,true);
+ assert.deepEqual(preview.sections.map(s=>[s.title,s.singer,s.start]),[['Intro',undefined,0],['Verse 1','Soprano Example',12],['Chorus',undefined,14]]);
+ assert.match(preview.source,/\[Verse 1 — Soprano Example\]/);
+ assert.doesNotMatch(preview.source,/x3|Page 1/);
+ const song=projectFromLeadSheet(preview,'Repeated intro',3,124);
+ assert.ok(song.importedScore.Voice[0].start>=36);
+ assert.equal(song.leadLyrics['1'].source,preview.source);
+ const {parseLeadLyrics,readableLeadSheet}=load('src/leadLyrics.ts');
+ const plan=parseLeadLyrics(preview.source,3);
+ assert.ok(!plan.chords.some(c=>c.chord.includes('Soprano')));
+ assert.ok(!plan.notes.some(n=>n.text.includes('Soprano')));
+ assert.match(readableLeadSheet(preview.source),/Verse 1 — Soprano Example/);
+ for(const repeat of ['× 3','3x','X3']){
+  assert.equal(previewLeadSheetImport('[Intro]\nAm F Dm G '+repeat,0).bars.length,12);
+ }
+ assert.throws(()=>previewLeadSheetImport('[Intro]\nAm F Dm G x129',0),/512 measures/);
+});
+check('chord tags beyond the end of a short lyric preserve all trailing chords',()=>{
+ const p=previewLeadSheetImport('Am                             F     Dm   G\nA short lyric',0);
+ assert.deepEqual(p.bars.map(b=>b.chord),['Am','F','Dm','G']);
+ assert.ok(!p.warnings.length);
+ assert.equal(p.bars[0].lyrics,'A short lyric');
+ assert.match(p.source,/\[F\]\[Dm\]\[G\]$/);
+});
 check('section boundary adjustments affect only section assignment, not song text',()=>{
  const preview=previewLeadSheetImport('[Verse]\n[D]one\n[A]two\n[Chorus]\n[G]three\n[C]four');
  const sections=arrangeImportedSections(preview,[0,1]);

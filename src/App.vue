@@ -7207,12 +7207,12 @@ async function homePractise(inst:Instrument){
       </select>
     </label>
     <label>Paste your lyrics and chord sheet<textarea v-model="newLeadSheetText" rows="12" spellcheck="false" placeholder="[Verse 1]&#10;D            A7&#10;Donde el río se queda&#10;[Chorus]&#10;[Em]Y la luna se va"></textarea></label>
-    <p class="hint">Wrapped chord-and-lyric rows are grouped into phrases when their text clearly continues; use the phrase boundary controls to split them. Pipes are optional hints: | suggests a note/event split, || suggests a measure boundary, and ||| suggests a musical phrase ending. Ordinary line breaks may be formatting. Page 1/5-style markers are removed; wrapped lyric text is joined when identifiable. Estimates remain editable for the song, each section and each lyric line.</p>
+    <p class="hint">Wrapped chord-and-lyric rows are grouped into phrases when their text clearly continues; use the phrase boundary controls to split them. A chord-only row ending in x3 repeats the chords three times, one measure per chord. Add a singer after a heading as [Verse 1][Name]. Pipes are optional hints: | suggests a note/event split, || suggests a measure boundary, and ||| suggests a musical phrase ending. Ordinary line breaks may be formatting. Page 1/5-style markers are removed; wrapped lyric text is joined when identifiable. Estimates remain editable for the song, each section and each lyric line.</p>
     <p v-if="newLeadSheetPreviewError" role="alert">{{newLeadSheetPreviewError}}</p>
     <div v-if="newLeadSheetPreview" class="new-lead-section-review">
       <strong>{{newLeadSheetPreview.bars.length}} detected measures · {{newLeadSheetPreview.sections.length}} sections</strong>
       <div v-for="(section,i) in newLeadSheetPreview.sections" :key="i" class="new-lead-section-fields">
-        <strong>{{section.title}}</strong>
+        <strong>{{section.title}}<template v-if="section.singer"> · {{section.singer}}</template></strong>
         <label>Measures per line
           <select :value="newLeadSectionMeasuresPerLine[i]??0" @change="newLeadSectionMeasuresPerLine[i]=Number(($event.target as HTMLSelectElement).value)">
             <option :value="0">Inherit ({{newLeadMeasuresPerLine===0?'automatic':newLeadMeasuresPerLine}})</option>
@@ -7235,7 +7235,7 @@ async function homePractise(inst:Instrument){
             </select>
           </label>
           <label>Measures
-            <select :value="newLeadLineMeasures[line.sourceLine]??0" @change="newLeadLineMeasures[line.sourceLine]=Number(($event.target as HTMLSelectElement).value)">
+            <select :disabled="line.fixedMeasures" :value="newLeadLineMeasures[line.sourceLine]??0" @change="newLeadLineMeasures[line.sourceLine]=Number(($event.target as HTMLSelectElement).value)">
               <option :value="0">Inherit / estimate ({{line.measures}})</option>
               <option v-for="n in 32" :key="n" :value="n">{{n}}</option>
             </select>
