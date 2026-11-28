@@ -260,8 +260,52 @@ export function simulateBellowsCapacity(frames:readonly SustainedBellowsDecision
  });
 }
 
-// Bounded beam search over independently releasable sounding groups.
-// Keep the exact extension in each state; bin only for pruning equivalent paths.
+type CapacityReversalSite={beat:number;before:number;after:number;reattacks:string[];outward:number;returning:number};
+
+/** One optional reversal in a group that already has uninterrupted physical
+ * assignments in both directions. Bounded candidates on score boundaries or
+ * whole beats; never start a new pitch trajectory or ignore authored pins. */
+function capacityReversalSites(frames:readonly SustainedBellowsDecision[],group:readonly TimedButtonTarget[],secondsPerBeat:number,capacitySeconds:number,pressureForTarget:(id:string)=>number){
+ const epsilon=1e-7, gap=.025/secondsPerBeat, minVoice=.04/secondsPerBeat;
+ const fixed=new Set(group.filter(t=>t.noReattack).map(t=>t.id));
+ const demand=frames.map(f=>f.targetIds.reduce((sum,id)=>sum+Math.max(.05,Math.min(1.5,pressureForTarget(id))),0)*secondsPerBeat/capacitySeconds);
+ const prefix=[0];
+ for(const [i,f] of frames.entries())prefix.push(prefix[i]+(f.end-f.start)*demand[i]);
+ const total=prefix.at(-1)!;
+ const sites:CapacityReversalSite[]=[];
+ function add(beat:number,before:number,after:number,reattacks:string[]){
+  if(!reattacks.length||frames[before].targetIds.some(id=>fixed.has(id))||beat-frames[before].start<gap+minVoice-epsilon||frames[after].end-beat<minVoice-epsilon)return;
+  const outward=prefix[before]+(beat-frames[before].start-gap)*demand[before];
+  const returning=total-(prefix[after]+(beat-frames[after].start)*demand[after]);
+  sites.push({beat,before,after,reattacks,outward,returning});
+ }
+ for(const [i,f] of frames.entries()){
+  if(i>0){
+   const prior=new Set(frames[i-1].targetIds);
+   add(f.start,i-1,i,f.targetIds.filter(id=>prior.has(id)));
+  }
+  // Bound even an extremely long tied/imported note. In normal passages the
+  // existing frame boundaries and all interior whole beats are considered.
+  const first=Math.ceil(f.start+gap+minVoice-epsilon),last=Math.floor(f.end-minVoice+epsilon);
+  const steps=Math.min(16,last-first);
+  for(let k=0;k<=steps;k++){
+   const beat=k===0?first:first+Math.floor((last-first)*(k/steps));
+   if(Number.isFinite(beat))add(beat,i,i,[...f.targetIds]);
+  }
+ }
+ const cap=48;
+ if(sites.length<=cap)return sites;
+ return Array.from({length:cap},(_,i)=>sites[Math.round(i*(sites.length-1)/(cap-1))]);
+}
+
+function capacityReversalFrames<T extends SustainedBellowsDecision>(outward:readonly T[],returning:readonly T[],site:CapacityReversalSite,gap:number):SustainedBellowsDecision[]{
+ return [...outward.slice(0,site.before),{...outward[site.before],end:site.beat,reversalGap:gap},
+  {...returning[site.after],start:site.beat,rearticulated:site.reattacks},...returning.slice(site.after+1)];
+}
+
+// Bounded beam search. Keep exact extension; bin only to prune equivalent
+// paths. Try existing assignments first, and add capacity reversals only if
+// no baseline path fits the modeled travel limits.
 export function planCapacityAwareBellows(layout:PhysicalBandoneonLayout,targets:readonly TimedButtonTarget[],secondsPerBeat:number,settings:BellowsCapacitySettings=DEFAULT_BELLOWS_CAPACITY,pressureForTarget:(id:string)=>number=()=>1):CapacityFrame[]{
  const sorted=targets.filter(t=>Number.isFinite(t.start)&&Number.isFinite(t.end)&&t.end>t.start+1e-7).sort((a,b)=>a.start-b.start||a.end-b.end);
  const groups:TimedButtonTarget[][]=[];let end=-Infinity;
@@ -269,35 +313,65 @@ export function planCapacityAwareBellows(layout:PhysicalBandoneonLayout,targets:
   if(t.start>=end-1e-7){groups.push([]);end=t.end;}else end=Math.max(end,t.end);
   groups[groups.length-1].push(t);
  }
- type State={extension:number;direction:BellowsDirection;overflow:number;reversals:number;previous?:State;frames:CapacityFrame[]};
- let states:State[]=[{extension:settings.initialExtension,direction:'pull',overflow:0,reversals:0,frames:[]}];
- const compare=(a:State,b:State)=>a.overflow-b.overflow||a.reversals-b.reversals||Math.abs(a.extension-.5)-Math.abs(b.extension-.5);
- for(const group of groups){
+ const epsilon=1e-7;
+ const plans=groups.map(group=>{
   const options=(['pull','push'] as const).map(dir=>planSustainedBellows(layout,group,dir));
   const feasible=options.filter(frames=>frames.every(f=>f.direction!==null));
   // An impossible group remains visible as a conflict; never fabricate a direction.
   const rescued=feasible.length?[]:(['pull','push'] as const).map(dir=>planBellowsReattacks(layout,group,dir,secondsPerBeat)).filter(frames=>frames.length);
   const candidates=feasible.length?feasible:rescued;
   const choices=candidates.length?candidates.filter((frames,i,a)=>a.findIndex(x=>x[0]?.direction===frames[0]?.direction)===i):[options[0]];
-  const bins=new Map<string,State>();
-  for(const previous of states)for(const choice of choices){
-   const frames=simulateBellowsCapacity(choice,secondsPerBeat,{...settings,initialExtension:previous.extension},pressureForTarget);
-   const direction=frames.at(-1)?.direction??previous.direction;
-   const reversals=frames.reduce((count,f,i)=>count+Number(!!f.direction&&f.direction!==(i?frames[i-1].direction:previous.direction)),0);
-   const overflow=frames.reduce((sum,f)=>{
-    if(!f.direction)return sum;
-    const travel=(f.end-f.start-(f.reversalGap??0))*secondsPerBeat*f.targetIds.length*f.pressure/settings.capacitySeconds;
-    return sum+Math.max(0,travel-Math.abs(f.extensionEnd-f.extensionStart));
-   },0);
-   const next:State={extension:frames.at(-1)?.extensionEnd??previous.extension,direction,overflow:previous.overflow+overflow,reversals:previous.reversals+reversals,previous,frames};
-   const key=direction+':'+Math.round(next.extension*100);
-   const existing=bins.get(key);if(!existing||compare(next,existing)<0)bins.set(key,next);
+  return {group,choices,canSplit:feasible.length===2&&feasible[0][0]?.direction!==feasible[1][0]?.direction};
+ });
+ type State={extension:number;direction:BellowsDirection;overflow:number;reversals:number;capacityReversals:number;capacityReattacks:number;betweenBoundaries:number;previous?:State;frames:()=>CapacityFrame[]};
+ const compare=(a:State,b:State)=>(Math.abs(a.overflow-b.overflow)>epsilon?a.overflow-b.overflow:0)||
+  a.capacityReversals-b.capacityReversals||a.capacityReattacks-b.capacityReattacks||a.betweenBoundaries-b.betweenBoundaries||a.reversals-b.reversals||Math.abs(a.extension-.5)-Math.abs(b.extension-.5);
+ function search(allowSplit:boolean){
+  let states:State[]=[{extension:settings.initialExtension,direction:'pull',overflow:0,reversals:0,capacityReversals:0,capacityReattacks:0,betweenBoundaries:0,frames:()=>[]}];
+  for(const {group,choices,canSplit} of plans){
+   const sites=allowSplit&&canSplit?capacityReversalSites(choices[0],group,secondsPerBeat,settings.capacitySeconds,pressureForTarget):[];
+   const bins=new Map<string,State>();
+   function add(next:State){
+    const key=next.direction+':'+Math.round(next.extension*100);
+    const existing=bins.get(key);
+    if(!existing||compare(next,existing)<0)bins.set(key,next);
+   }
+   for(const previous of states){
+    const local={...settings,initialExtension:previous.extension};
+    for(const choice of choices){
+     const frames=simulateBellowsCapacity(choice,secondsPerBeat,local,pressureForTarget);
+     const direction=frames.at(-1)?.direction??previous.direction;
+     const reversals=frames.reduce((count,f,i)=>count+Number(!!f.direction&&f.direction!==(i?frames[i-1].direction:previous.direction)),0);
+     const overflow=frames.reduce((sum,f)=>{
+      if(!f.direction)return sum;
+      const travel=(f.end-f.start-(f.reversalGap??0))*secondsPerBeat*f.targetIds.length*f.pressure/settings.capacitySeconds;
+      return sum+Math.max(0,travel-Math.abs(f.extensionEnd-f.extensionStart));
+     },0);
+     add({extension:frames.at(-1)?.extensionEnd??previous.extension,direction,overflow:previous.overflow+overflow,reversals:previous.reversals+reversals,capacityReversals:previous.capacityReversals,capacityReattacks:previous.capacityReattacks,betweenBoundaries:previous.betweenBoundaries,previous,frames:()=>frames});
+    }
+    if(!sites.length)continue;
+    for(const [i,outward] of choices.entries()){
+     const direction=outward[0].direction!,returning=choices[1-i],finish=returning[0].direction!;
+     const sign=direction==='pull'?1:-1;
+     for(const site of sites){
+      const turnaround=previous.extension+sign*site.outward;
+      const extension=turnaround-sign*site.returning;
+      // A split must make this entire group fit; do not add a futile reattack.
+      if(turnaround>1+epsilon||turnaround< -epsilon||extension>1+epsilon||extension< -epsilon)continue;
+      add({extension:Math.max(0,Math.min(1,extension)),direction:finish,overflow:previous.overflow,reversals:previous.reversals+1+Number(direction!==previous.direction),capacityReversals:previous.capacityReversals+1,capacityReattacks:previous.capacityReattacks+site.reattacks.length,betweenBoundaries:previous.betweenBoundaries+Number(site.before===site.after),previous,
+       frames:()=>simulateBellowsCapacity(capacityReversalFrames(outward,returning,site,.025/secondsPerBeat),secondsPerBeat,local,pressureForTarget)});
+     }
+    }
+   }
+   states=[...bins.values()].sort(compare).slice(0,128);
   }
-  states=[...bins.values()].sort(compare).slice(0,128);
+  return states.sort(compare)[0];
  }
+ const baseline=search(false);
+ const alternative=baseline.overflow>epsilon?search(true):undefined;
+ let best:State|undefined=alternative&&alternative.overflow<baseline.overflow-epsilon?alternative:baseline;
  const chunks:CapacityFrame[][]=[];
- let best:State|undefined=states.sort(compare)[0];
- while(best){chunks.push(best.frames);best=best.previous;}
+ while(best){chunks.push(best.frames());best=best.previous;}
  return chunks.reverse().flat();
 }
 

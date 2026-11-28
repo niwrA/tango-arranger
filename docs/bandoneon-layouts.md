@@ -18,3 +18,10 @@ These are specific layouts, not exhaustive definitions of every model sold with 
 Selecting a different model does not rewrite imported notes, protected measures, or saved copies. Changing the model affects newly generated material and the playable-note checks. Saved scores can still show existing out-of-model notes so they can be reviewed deliberately.
 
 The bundled *Hasta Siempre Amor* removed the unplayable held D1 in the opening of each bandoneon part (measure 2). The valid D2s in both parts at measure 74 and the opening piano bass were retained. All example arrangements are checked by `node tests/bandoneon-range.cjs`.
+
+
+## Bellows capacity and rearticulation
+
+The estimated air budget uses polyphony, pressure and nominal tempo, not recorded airflow. The planner first tries to find a route without inserting capacity-driven reattacks. If that overflows, it can try one additional reversal in a continuous group that is playable in both directions. It considers nearby note boundaries or whole beats, leaves a short shared release before changing direction, and reattacks sustained pitches with a valid assignment. It only uses these changes if the estimated overflow improves; authored direction and button choices, continuous pitch gestures, and the written score are preserved.
+
+This is a bounded search, not a guarantee of playability. It does not search multiple capacity-driven cuts within one continuous group, model the air valve or follow expressive tempo changes in the capacity estimate. When a group still exceeds the estimate, Arrangement Review retains the capacity warning. The performance scheduler itself places reattacks on the expressive score clock.

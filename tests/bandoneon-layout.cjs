@@ -196,3 +196,50 @@ assert.equal(fermataRelease.end,pullAudition.event.bellowsSegments[0].end);
 const unmarkedTempo=tempoAutomationPoints({...fermataProject,tempoExpressions:undefined});
 assert.equal(scoreClockSeconds(unmarkedTempo,120,fermataRelease.start,reattacked.start),.5);
 console.log('PASS fermata and straight-time reattacks follow the same beat clock as new push notes');
+
+// A capacity-only conflict is physically playable either way in isolation,
+// but with no release neither direction can last through both held reeds.
+const capacityLayout={model:'capacity-fixture',source:'synthetic unisonoric',buttons:[
+ {id:'u1',hand:'left',x:0,y:0,pull:57,push:57},{id:'u2',hand:'right',x:0,y:0,pull:72,push:72}
+]};
+const capacityFixture={...custom,id:'capacity-fixture',buttons:capacityLayout.buttons,bellowsCapacity:{capacitySeconds:4,initialExtension:.5}};
+const capacityProject={...project,bpm:60,customBandoneonLayouts:[capacityFixture],customBandoneonParts:{'Bandoneon I':capacityFixture.id}};
+const capacityNotes=[{pitch:57,start:0,duration:2.5,gate:1,staffOverride:2},{pitch:72,start:0,duration:2.5,gate:1,staffOverride:1}];
+const capacityTargets=capacityNotes.map((n,i)=>timed(String(i),n.pitch,n.start,n.start+n.duration));
+for(const d of ['pull','push']){
+ const uninterrupted=b.planSustainedBellows(capacityLayout,capacityTargets,d);
+ assert.equal(uninterrupted[0].direction,d);
+ assert.ok(b.simulateBellowsCapacity(uninterrupted,1,capacityFixture.bellowsCapacity).some(f=>f.capacityExceeded),'capacity is the only conflict');
+}
+const capacityNoteSnapshot=JSON.stringify(capacityNotes);
+const capacityRepair=playback.bandoneonPlaybackPlan(capacityProject,'Bandoneon I',capacityNotes);
+assert.ok(capacityRepair.decisions.every(f=>!f.capacityExceeded));
+assert.deepEqual(capacityRepair.decisions.map(f=>[f.start,f.end,f.direction]),[[0,1,'pull'],[1,2.5,'push']]);
+assert.deepEqual(capacityRepair.decisions[1].rearticulated,['0','1']);
+assert.deepEqual(playback.bellowsGuideMarks(capacityRepair.decisions).at(-1),{beat:1,direction:'push',reversal:true,rearticulated:true});
+for(const [i,n] of capacityNotes.entries()){
+ const [oldReed,newReed]=capacityRepair.segments.get(n);
+ assert.equal(oldReed.button.id,capacityLayout.buttons[i].id);
+ assert.equal(newReed.button.id,oldReed.button.id);
+ assert.equal(newReed.button[newReed.direction],n.pitch);
+ assert.ok(oldReed.quickRelease&&oldReed.end<newReed.start,'both reeds close before reversing');
+}
+assert.equal(JSON.stringify(capacityNotes),capacityNoteSnapshot,'an inferred guide never edits the written score');
+const enoughAir=b.planCapacityAwareBellows(capacityLayout,capacityTargets,1,{capacitySeconds:12,initialExtension:.5});
+assert.equal(enoughAir.length,1);
+assert.ok(!enoughAir[0].capacityExceeded&&enoughAir[0].rearticulated===undefined,'no gratuitous reversal');
+for(const constraint of [{noReattack:true},{direction:'pull'}]){
+ const blocked=b.planCapacityAwareBellows(capacityLayout,[{...capacityTargets[0],...constraint},capacityTargets[1]],1,capacityFixture.bellowsCapacity);
+ assert.ok(blocked.some(f=>f.capacityExceeded),'warnings survive authored constraints or uninterruptible gestures');
+ assert.ok(blocked.every(f=>!f.rearticulated));
+}
+const tooLong=b.planCapacityAwareBellows(capacityLayout,capacityTargets.map(n=>({...n,end:5})),1,capacityFixture.bellowsCapacity);
+assert.ok(tooLong.some(f=>f.capacityExceeded),'one reversal cannot solve all sustained spans');
+assert.ok(tooLong.every(f=>!f.rearticulated),'no futile restart on a group this search cannot rescue');
+// A bisonoric button pin cannot be bypassed even to clear a travel warning.
+const bisonoricCapacity={model:'bisonoric-fixture',source:'synthetic',buttons:reversalButtons};
+const heldBisonoric=timed('held',38,0,5,'left');
+const bisonoric=b.planCapacityAwareBellows(bisonoricCapacity,[heldBisonoric],1,capacityFixture.bellowsCapacity);
+assert.deepEqual(bisonoric.map(f=>[f.direction,f.buttons[0].id]),[['pull','a'],['push','b']]);
+assert.ok(b.planCapacityAwareBellows(bisonoricCapacity,[{...heldBisonoric,buttonId:'a'}],1,capacityFixture.bellowsCapacity).some(f=>f.capacityExceeded));
+console.log('PASS capacity-only reversal with shared pitch and release gap; avoids spare, unplayable and futile reattacks');

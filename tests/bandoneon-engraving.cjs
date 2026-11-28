@@ -60,6 +60,8 @@ console.log('PASS bellows guidance on concert pitches, shared staves, beat offse
  assert.match(mscx,/<tick>0<\/tick><StaffText><text>\[Pull\]<\/text><\/StaffText>/);
  assert.match(mscx,/<tick>720<\/tick><StaffText><text>\[Push\]<\/text><\/StaffText>/);
  assert.equal((mscx.match(/\[(?:Push|Pull)\]/g)||[]).length,2);
+ const headers=[...mscx.matchAll(/<Clef><concertClefType>([FG])<\/concertClefType><transposingClefType>([FG])<\/transposingClefType><isHeader>1<\/isHeader><\/Clef><KeySig>/g)];
+ assert.deepEqual(headers.map(m=>[m[1],m[2]]),[['G','G'],['F','F']],'MuseScore should give each staff a single clef before its signatures');
  console.log('PASS compressed MusicXML and native MSCZ include bracketed bellows advice');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 if(process.env.BELLOWS_BROWSER_FIXTURE){

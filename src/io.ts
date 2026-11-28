@@ -369,7 +369,6 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
   const partXml=instruments.map((inst,index)=>{
     const family=instrumentFamily(inst);
     const program=INSTRUMENT_CAPABILITIES[family].program;
-    const clef=INSTRUMENT_CAPABILITIES[family].clef;
     const staffId=staffIds[index];
     const name=esc(p.instrumentNames?.[inst]||inst);
     return `<Part><Staff id="${staffId}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>${(family==='Piano'||(family==='Bandoneon'&&p.bandoneonGrandStaff?.[inst]))?`<Staff id="${staffId+1}"><StaffType group="pitched"><name>stdNormal</name></StaffType></Staff>`:''}<trackName>${name}</trackName><Instrument><longName>${name}</longName><shortName>${name}</shortName><trackName>${name}</trackName><minPitchP>0</minPitchP><maxPitchP>127</maxPitchP><minPitchA>0</minPitchA><maxPitchA>127</maxPitchA><Channel><program value="${program}"/></Channel></Instrument></Part>`;
@@ -434,7 +433,11 @@ export async function exportMuseScoreMscz(p:Project,score:Score,onlyInstrument?:
       const fifths=parseKeySignature(key).fifths;
       const previousKey=barIndex?transposeKeySignature(sectionKey(p,p.bars[barIndex-1].section),p.transposeSemitones??0):null;
       const keySignature=barIndex===0||key!==previousKey?`<KeySig><accidental>${fifths}</accidental></KeySig>`:'';
-      const signature=keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig><Clef><concertClefType>${(staffIndex===1&&(inst.startsWith('Piano')||inst.startsWith('Bandoneon')))?'F':INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].clef}</concertClefType><transposingClefType>${inst.startsWith('Contrabass')?'F':'G'}</transposingClefType></Clef>`:'');
+      const clef=staffIndex===1?'F':INSTRUMENT_CAPABILITIES[instrumentFamily(inst)].clef;
+      // MuseScore creates its own leading clef unless the tick-zero clef is
+      // a header, before the signatures. Lower staves use F in both views.
+      const header=barIndex===0?`<Clef><concertClefType>${clef}</concertClefType><transposingClefType>${clef}</transposingClefType><isHeader>1</isHeader></Clef>`:'';
+      const signature=header+keySignature+(barIndex===0?`<TimeSig><sigN>${beats}</sigN><sigD>4</sigD></TimeSig>`:'');
       // Native MuseScore tempo values are quarter notes per second, not BPM.
       // One system-level Tempo element controls both visible text and playback.
       const initialTempo=barIndex===0&&index===0&&staffIndex===0
