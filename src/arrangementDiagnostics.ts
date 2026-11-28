@@ -1,10 +1,10 @@
 import {bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable} from './bandoneon';
-import {assessPianoPlayability,adaptTransposedScore,projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
+import {choosePlayablePianoVoicing,writtenInstrumentRange,assessPianoPlayability,adaptTransposedScore,projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
 import {effectiveRole,phraseMeasureMap} from './phrasePlan';
 import {orchestraStyle,orchestraPulses,styleForMeasure,phraseStyleKey,styleStrength,isOrchestraStyle} from './orchestraStyle';
 
 export type DiagnosticCategory='pitch'|'harmony'|'dynamics'|'balance'|'playability'|'style';
-export type Diagnostic={id:string;category:DiagnosticCategory;severity:'error'|'warning'|'suggestion';instrument:Instrument;measure:number;message:string;noteIndex?:number;patch?:Partial<Pick<Note,'velocity'|'gate'|'accent'|'articulation'|'pitch'|'start'>>};
+export type Diagnostic={id:string;category:DiagnosticCategory;severity:'error'|'warning'|'suggestion';instrument:Instrument;measure:number;message:string;noteIndex?:number;voicing?:{indices:number[];pitches:number[]};patch?:Partial<Pick<Note,'velocity'|'gate'|'accent'|'articulation'|'pitch'|'start'>>};
 export type ReviewScope={from?:number;to?:number;instrument?:Instrument;includeStyle?:boolean;includeStructural?:boolean;showDismissed?:boolean};
 const clamp=(n:number)=>Math.max(1,Math.min(127,Math.round(n)));
 const median=(values:number[])=>{const sorted=[...values].sort((a,b)=>a-b);return sorted.length?sorted[Math.floor(sorted.length/2)]:80;};
@@ -85,6 +85,25 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
     const sounding=measureDynamicVelocity(p,inst,n.start,noteSoundingVelocity(n))*melodyDuckingFactor(p,inst,n.start);
     proxy+=Math.pow(sounding/127,2)*Math.min(p.beats,Math.max(0,(Number.isFinite(n.gate)&&n.gate!>0&&n.gate!<=1||n.gate===undefined?noteSoundingDuration(n):n.duration)));
    }
+   if(scope.includeStructural&&instrumentFamily(inst)==='Piano'&&role==='chords'){
+    const split=p.pianoSplitPitch??60,[lo,hi]=writtenInstrumentRange(inst,p),groups=new Map<number,typeof entries>();
+    for(const entry of entries)if(entry.n.pitch>=split&&(entry.n.staffOverride??entry.n.xmlStaff)!==2){
+     const key=entry.n.start;groups.set(key,[...(groups.get(key)??[]),entry]);
+    }
+    for(const [onset,group] of groups){
+     if(group.length<2||group.length>3||group.some(({n})=>n.gesture||n.pianoGlissando||n.slideTo!==undefined||n.approachSlideFrom!==undefined||n.xmlTieContinuation||n.pianoPedalBeats))continue;
+     const ordered=[...group].sort((a,b)=>a.n.pitch-b.n.pitch),original=ordered.map(x=>x.n.pitch);
+     if(new Set(original.map(n=>n%12)).size!==original.length||original.at(-1)!-original[0]<=14)continue;
+     const target=original.reduce((a,b)=>a+b,0)/original.length;
+     const pitches=choosePlayablePianoVoicing(original,target,p.instrumentSettings?.[inst]?.difficulty??p.difficulty??'advanced',Math.max(split,lo),hi,undefined,onset,p.bpm);
+     if(pitches.length!==original.length||pitches.some(pitch=>!original.some(n=>n%12===pitch%12))||pitches.some(pitch=>!instrumentPitchPlayable(inst,pitch+(p.transposeSemitones??0),p)))continue;
+     const candidate=(score[inst]??[]).map((n,i)=>{const index=ordered.findIndex(x=>x.i===i);return index<0?n:{...n,pitch:pitches[index]};});
+     if(assessPianoPlayability(candidate,p,inst,'human').some(issue=>issue.measure===bar&&Math.abs(issue.beat-(onset-bar*p.beats))<1e-6))continue;
+     const count=issues.length;
+     add(inst,bar,'playability','suggestion','Compact piano chord voicing retaining all pitch classes',ordered[0].i);
+     if(issues.length>count)issues[issues.length-1].voicing={indices:ordered.map(x=>x.i),pitches};
+    }
+   }
    energy.push({inst,role,value:proxy/p.beats});
    if(!['Piano','Bandoneon','Guitar'].includes(instrumentFamily(inst))){
     const sorted=[...entries].sort((a,b)=>a.n.start-b.n.start);
@@ -104,7 +123,7 @@ export function refineArrangement(p:Project,score:Score,findings:readonly Diagno
  let next=p,current=score;
  const groups=new Map<string,Diagnostic[]>();
  for(const issue of findings){
-  if(!issue.patch||issue.noteIndex===undefined)continue;
+  if((!issue.patch&&!issue.voicing)||issue.noteIndex===undefined)continue;
   const key=issue.instrument+':'+issue.measure;
   if(p.protectedBars[key]&&!allowProtected)continue;
   const list=groups.get(key)??[];list.push(issue);groups.set(key,list);
@@ -112,7 +131,7 @@ export function refineArrangement(p:Project,score:Score,findings:readonly Diagno
  for(const list of groups.values()){
   const {instrument,measure}=list[0],source=score[instrument]??[];
   const patches=new Map<number,Diagnostic['patch']>();
-  for(const issue of list)patches.set(issue.noteIndex!,{...patches.get(issue.noteIndex!),...issue.patch});
+  for(const issue of list){if(issue.patch)patches.set(issue.noteIndex!,{...patches.get(issue.noteIndex!),...issue.patch});if(issue.voicing)issue.voicing.indices.forEach((index,j)=>patches.set(index,{...patches.get(index),pitch:issue.voicing!.pitches[j]}));}
   const unchanged=new Set<Note>();
   const notes=source.flatMap((n,i)=>{
    if(Math.floor((n.start+1e-7)/p.beats)!==measure)return [];
