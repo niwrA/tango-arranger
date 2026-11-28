@@ -1,5 +1,6 @@
+import {type CustomBandoneonContext} from './bandoneonLayoutFormat';
 import {isOrchestraStyle,orchestraStyle,orchestraPulses,phraseStyleKey,styleForMeasure,styleStrength,phraseStyleExpression,type OrchestraStyleId} from './orchestraStyle';
-import {bandoneonHandForPitch,bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId} from './bandoneon';
+import {bandoneonHandForPitch,bandoneonProfileForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId,type BandoneonPitchSelection} from './bandoneon';
 import type {TempoExpressions} from './tempoExpressions';
 import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
 import type {MergeBackup,MergePlan} from './musicXmlMerge';
@@ -65,7 +66,7 @@ export type Articulation = 'auto'|'marcato_staccato'|'staccato'|'legato';
 export type PianoGlissando={interval:number;keys:'white'|'black'|'chromatic';beats:number};
 export type StringGlissando={interval:number;beats:number};
 export type BowedTremolo={strokes:1|2|3;rateHz?:number;mode?:'measured'|'unmeasured'};
-export type Note = { editId?:string; staffOverride?:1|2; xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; bowDirection?:'up'|'down'; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
+export type Note = { bellowsDirection?:'pull'|'push'; bellowsPressure?:number; bellowsShake?:number; bandoneonButtonId?:string; editId?:string; staffOverride?:1|2; xmlOctaveShift?:number; pianoPedalOffset?:number; stringGlissando?:StringGlissando; bowedTremolo?:BowedTremolo; pianoGlissando?:PianoGlissando; pianoPedalBeats?:number; leadToken?:string; lyric?:string; lyric2?:string; syllabic2?:'single'|'begin'|'middle'|'end'; melisma?:boolean; melisma2?:boolean; syllabic?:'single'|'begin'|'middle'|'end'; articulation?:Exclude<Articulation,'auto'>; pitch:number; start:number; duration:number; gate?:number; velocity?:number; accent?:boolean; technique?:'pizzicato'|'arco'; source?:'generated'|'imported'|'manual'; slideTo?:number; approachSlideFrom?:number; vibrato?:boolean; swellTo?:number; subito?:DynamicMark; gesture?:TangoGesture; rhythmSource?:RhythmAttachment; xmlStaff?:number; xmlVoice?:string; xmlTieContinuation?:boolean; stringMidi?:number; handPosition?:string; bowDirection?:'up'|'down'; finger?:'0'|'1'|'2'|'3'|'4'|'T' };
 /** Convert a linked glissando to a playback-only contour. */
 export function stringGlissandoPlayback(note:Note,from=note.start,to=Infinity):Note{
  const gliss=note.stringGlissando;
@@ -302,7 +303,7 @@ export type Bar = { chord:string; melody:Note[]; section:string; pickupBeats?:nu
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
-export type Project = { version:1; dismissedArrangementFindings?:string[]; nextMusicalEditId?:number; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; bandoneonModels?:Record<string,BandoneonModelId>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; sectionStyles?:Record<string,OrchestraStyleId>; styleStrength?:number; phraseStyles?:Record<string,OrchestraStyleId>; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = CustomBandoneonContext & { version:1; dismissedArrangementFindings?:string[]; nextMusicalEditId?:number; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; bandoneonModels?:Record<string,BandoneonModelId>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; sectionStyles?:Record<string,OrchestraStyleId>; styleStrength?:number; phraseStyles?:Record<string,OrchestraStyleId>; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export type RegisterStrategy='auto'|'individual'|'whole'|'phrase'|'exact';
 export type RegisterPartSetting={strategy:RegisterStrategy;octaves?:-24|-12|0|12|24};
 export type AdaptiveTranspose={enabled:boolean;chordToneRhythm:boolean;semitones:number;parts?:Record<string,RegisterPartSetting>};
@@ -823,7 +824,7 @@ export function partUsesGrandStaff(project:Project,inst:Instrument,notes:readonl
 }
 
 /** Staff placement is a practice aid. It does not prescribe physical fingering. */
-export function partStaffForNote(note:Note,inst:Instrument,splitPitch=60,transpose=0,bandoneonModel?:BandoneonModelId):1|2 {
+export function partStaffForNote(note:Note,inst:Instrument,splitPitch=60,transpose=0,bandoneonModel?:BandoneonPitchSelection):1|2 {
   if(note.staffOverride===1||note.staffOverride===2)return note.staffOverride;
   if(inst.startsWith('Bandoneon')){
     if(note.xmlStaff===1||note.xmlStaff===2)return note.xmlStaff;
@@ -962,15 +963,15 @@ export function assessPianoPlayability(notes:readonly Note[],p:Pick<Project,'bea
  return issues;
 }
 
-type InstrumentRangeContext=Pick<Project,'bandoneonModels'|'transposeSemitones'>;
+type InstrumentRangeContext=Pick<Project,'bandoneonModels'|'transposeSemitones'|'customBandoneonLayouts'|'customBandoneonParts'>;
 export function instrumentRange(inst:Instrument,project?:InstrumentRangeContext):[number,number]{
  const family=instrumentFamily(inst);
- return family==='Bandoneon'?[...bandoneonProfile(bandoneonModelForPart(project,inst)).range]:INSTRUMENT_CAPABILITIES[family].range;
+ return family==='Bandoneon'?[...bandoneonProfileForPart(project,inst).range]:INSTRUMENT_CAPABILITIES[family].range;
 }
 export function instrumentPitchPlayable(inst:Instrument,pitch:number,project?:InstrumentRangeContext):boolean{
  if(!Number.isInteger(pitch))return false;
  const family=instrumentFamily(inst);
- if(family==='Bandoneon')return isBandoneonPitchPlayable(pitch,bandoneonModelForPart(project,inst));
+ if(family==='Bandoneon')return isBandoneonPitchPlayable(pitch,bandoneonProfileForPart(project,inst));
  const [low,high]=INSTRUMENT_CAPABILITIES[family].range;
  return pitch>=low&&pitch<=high;
 }
@@ -1257,7 +1258,7 @@ export function generate(p:Project):Score {
           const beat=pulse.beat,pcs=harmony(beat);
           // Use compact chord tones available on one hand. Layout data lists each
           // hand's union of pitches, not shared bellows direction or fingering.
-          const shift=p.transposeSemitones??0,model=bandoneonProfile(bandoneonModelForPart(p,inst));
+          const shift=p.transposeSemitones??0,model=bandoneonProfileForPart(p,inst);
           let compact:{notes:number[];staff:1|2;cost:number}|undefined;
           if(useStyledChords)for(const staff of [1,2] as const){
             const keys=model[staff===1?'right':'left'].map(pitch=>pitch-shift).filter(pitch=>pitch>=range[0]&&pitch<=range[1]);

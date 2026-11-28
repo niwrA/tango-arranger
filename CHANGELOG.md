@@ -1,3 +1,9 @@
+## [Feature] Bandoneon keyboards and bellows guidance (2026-11-28)
+
+- Learn and performance views can show physical button banks, highlight the assigned buttons, and show when to pull or push. Choose a factory keyboard or save a custom layout with the song in **Structure, Keys & Ensemble → Ensemble**.
+- Automatic Pull/Push and release-and-reattack cues appear on engraved scores. The **Bellows guide** toggle hides automatic cues in the preview without changing authored marks.
+- Note Editor gives each note optional pressure and shake controls. A planned reversal releases the reeds before reattacking with buttons that keep the same pitch. Arrangement Review flags unplayable combinations and estimated travel limits. Travel and reed response are modeled estimates, not physical calibration.
+
 ## Repeats and singer credits in pasted lead sheets (2026-11-28)
 
 - A chord-only row such as Am F Dm G x3 creates twelve measures, with no Voice notes on that row. Barlines inside a repeat keep grouped chords together, and page markers do not interrupt a chord-over-lyric pair. Singer names after a section heading appear in the import review and are preserved in the lyric source as section credits. Chord symbols past the end of a short lyric line no longer get tangled together.

@@ -1,3 +1,4 @@
+import {validateProjectBandoneonLayouts} from './bandoneonLayoutFormat';
 import type {Project} from './music';
 import {snapshotActiveEditions} from './editions';
 
@@ -60,7 +61,10 @@ export async function listLocalSongs():Promise<LocalSongSummary[]>{
 export async function readLocalSong(id:string):Promise<Project|undefined>{
   const db=await database();
   const record=await requestResult(db.transaction(STORE,'readonly').objectStore(STORE).get(id) as IDBRequest<LocalSongRecord|undefined>);
-  return record?cloneProject(record.project):undefined;
+  if(!record)return undefined;
+  const project=cloneProject(record.project);
+  validateProjectBandoneonLayouts(project);
+  return project;
 }
 export async function deleteLocalSong(id:string):Promise<void>{
   const db=await database();

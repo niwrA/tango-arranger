@@ -20,7 +20,7 @@ import LeadMelodyGrid from './LeadMelodyGrid.vue';
 const ScorePreview=defineAsyncComponent(()=>import('./ScorePreview.vue'));
 const ArrangementScore=defineAsyncComponent(()=>import('./ArrangementScore.vue'));
 import {duplicateProjectSection} from './sectionDuplication';
-import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,soundingSeconds,type TempoExpressions} from './tempoExpressions';
+import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,scoreClockSeconds,soundingSeconds,type TempoExpressions} from './tempoExpressions';
 import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,previewMeasureMove,moveMeasureRange,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
@@ -68,7 +68,10 @@ import {effectiveRole as plannedEffectiveRole,effectiveViolinTechnique as planne
 import {playExpressiveEvent,type ExpressiveEvent} from './expressiveAudio';
 import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain} from './bandoneonAudio';
 import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide,stopVoiceGuide,setVoiceGuideGain,type VoiceGuideHandle} from './voiceGuideAudio';
-import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
+import BandoneonLayoutEditor from './BandoneonLayoutEditor.vue';
+import BandoneonExpression from './BandoneonExpression.vue';
+import {customBandoneonLayoutForPart,validateBandoneonLayout,type PortableBandoneonLayout} from './bandoneonLayoutFormat';
+import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonProfileForPart,physicalBandoneonLayoutForPart,authoritativeBandoneonLayoutForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
 import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
@@ -89,7 +92,7 @@ import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} f
 import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
-import {arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin} from './arrangementPlayback';
+import {bandoneonPlaybackPlan,bellowsGuideMarks,arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin,type BellowsPlaybackSegment} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
@@ -771,6 +774,16 @@ const roleCueHarmony=computed(()=>{
  const sameBar=harmony.nextChordMeasure===bar+1;
  return {sameBar,chord:sameBar?harmony.nextChord:performanceChordBeats.value.next.find(symbol=>symbol!=='–')??'—',beat:sameBar?harmony.nextChordBeat:null};
 });
+const performanceBellowsPlans=shallowRef(new Map<Instrument,ReturnType<typeof bandoneonPlaybackPlan>>());
+function performanceBellowsFrame(inst:Instrument){
+ if(!playing.value||arrangementCountingIn.value)return undefined;
+ const frames=performanceBellowsPlans.value.get(inst)?.decisions;
+ if(!frames)return undefined;
+ let lo=0,hi=frames.length;
+ while(lo<hi){const mid=(lo+hi)>>>1;if(frames[mid].start<=performanceBeat.value+1e-7)lo=mid+1;else hi=mid;}
+ const frame=frames[lo-1];
+ return frame&&frame.end-(frame.reversalGap??0)>performanceBeat.value+1e-7?frame:undefined;
+}
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
  const notes=score.value[part.inst]??[];
@@ -940,9 +953,39 @@ function bandoneonLayoutSummary(inst:Instrument){
  const outside=(score.value[inst]??[]).filter(n=>!instrumentPitchPlayable(inst,n.pitch+shift,p)).length;
  return `${midiName(low)}–${midiName(high)}${outside?' · '+outside+' existing '+(outside===1?'note':'notes')+' outside this layout':''}`;
 }
+const layoutEditorPart=ref<Instrument|null>(null);
+const layoutEditorInitial=ref<PortableBandoneonLayout|undefined>();
+function openLayoutEditor(inst:Instrument){
+ layoutEditorInitial.value=customBandoneonLayoutForPart(project.value,inst);
+ layoutEditorPart.value=inst;
+}
+function saveCustomLayout(layout:PortableBandoneonLayout){
+ const inst=layoutEditorPart.value;if(!inst)return;
+ try{
+  const valid=validateBandoneonLayout(layout);
+  const existing=project.value.customBandoneonLayouts??[];
+  if(existing.some(l=>l.id===valid.id)&&layoutEditorInitial.value?.id!==valid.id)throw Error('Layout ID already exists; choose a different ID');
+  stopPlayback();
+  project.value.customBandoneonLayouts=[...existing.filter(l=>l.id!==valid.id),valid];
+  project.value.customBandoneonParts={...project.value.customBandoneonParts,[inst]:valid.id};
+  layoutEditorPart.value=null;
+  message.value='Custom layout saved in this song. Existing notes have not been changed.';
+ }catch(e){message.value=String(e);}
+}
+function selectedBandoneonLayout(inst:Instrument){
+ const custom=customBandoneonLayoutForPart(project.value,inst);
+ return custom?'custom:'+custom.id:bandoneonModelForPart(project.value,inst);
+}
 function setBandoneonModel(inst:Instrument,event:Event){
  const value=(event.target as HTMLSelectElement).value as BandoneonModelId;
- if(!inst.startsWith('Bandoneon')||!BANDONEON_MODELS.some(model=>model.id===value))return;
+ if(!inst.startsWith('Bandoneon'))return;
+ if(value.startsWith('custom:')){
+  const id=value.slice(7);if(!project.value.customBandoneonLayouts?.some(l=>l.id===id))return;
+  stopPlayback();project.value.customBandoneonParts={...project.value.customBandoneonParts,[inst]:id};
+  message.value='Custom layout selected. Existing notes have not been changed.';return;
+ }
+ if(!BANDONEON_MODELS.some(model=>model.id===value))return;
+ stopPlayback();if(project.value.customBandoneonParts)delete project.value.customBandoneonParts[inst];
  project.value.bandoneonModels={...project.value.bandoneonModels,[inst]:value};
  message.value='Bandoneon layout updated. Existing notes have not been changed.';
 }
@@ -4388,12 +4431,12 @@ function selectPizzicatoPlayer(inst:string,velocity:number){
  const variant=pizzicatoVariant(velocity,index);
  return (variant==='soft'?pizzicatoSoftPlayers.get(inst):variant==='alternate'?pizzicatoAlternates.get(inst):undefined)??pizzicatoPlayers.get(inst);
 }
-function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false){
+function renderModeledPart(inst:Instrument,event:ExpressiveEvent,time:number,staff?:number,destination?:AudioNode,held=false,direction?:import('./bandoneonLayout').BellowsDirection,pressure?:number){
  if(!focusInstrumentAudible(inst))return;
  const context=Tone.getContext().rawContext as AudioContext,options={gainDb:instrumentGainDb(inst),destination,held};
  if(isVoiceGuidePart(inst))return playVoiceGuide(context,inst,event,time,options);
- const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonModelForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
- return playBandoneonNote(context,inst,event,time,{...options,hand});
+ const hand=staff===1?'right':staff===2?'left':bandoneonHandForPitch(event.pitch,bandoneonProfileForPart(project.value,inst))??(event.pitch<(project.value.pianoSplitPitch??60)?'left':'right');
+ return playBandoneonNote(context,inst,event,time,{...options,hand,direction,pressure});
 }
 function midiPianoAvailable(inst:string){
  return instrumentFamily(inst)==='Piano'&&midiOutputEnabled.value&&midiOutput.value?.state==='connected';
@@ -4410,13 +4453,27 @@ function triggerInstrument(inst:string,pitch:number,duration:number,time:number,
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }
 type DraftInstrumentPreview={project:Project;output:AudioNode;review?:boolean};
+function renderBellowsSegment(inst:Instrument,event:ReturnType<typeof measureLoopEvents>[number],segment:BellowsPlaybackSegment,duration:number,time:number,focusGain:number,destination?:AudioNode){
+ const scale=(v:number)=>Math.max(1,Math.min(127,Math.round(v*focusGain)));
+ renderModeledPart(inst,{...event,durationSeconds:duration,velocity:scale(event.velocity),endVelocity:event.endVelocity===undefined?undefined:scale(event.endVelocity),bellowsQuickRelease:segment.quickRelease},time,segment.button.hand==='right'?1:2,destination,false,segment.direction,event.bandoneonPressure??segment.pressure);
+}
 // Both orchestra and isolated preview use the same instrument renderer.
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1,preview?:DraftInstrumentPreview){
  if(!focusInstrumentAudible(inst))return;
  const velocity=Math.max(1,Math.min(127,Math.round(event.velocity*focusGain)));
 
  if(usesModeledAudio(inst)){
-  renderModeledPart(inst,{...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))},time,event.bandoneonStaff,preview?.output);
+  const expression={...event,durationSeconds:duration,velocity,endVelocity:event.endVelocity===undefined?undefined:Math.max(1,Math.min(127,Math.round(event.endVelocity*focusGain)))};
+  const segments=event.bellowsSegments;
+  if(segments?.length){
+   const secondsPerBeat=duration/Math.max(.0001,noteSoundingDuration(n));
+   const clock=event.bellowsSecondsAtBeat??(beat=>beat*secondsPerBeat),origin=clock(n.start);
+   for(const segment of segments){
+    const start=Math.max(0,clock(segment.start)-origin),length=Math.min(duration-start,clock(segment.end)-clock(segment.start));
+    if(length<=0)continue;
+    renderBellowsSegment(inst as Instrument,event,segment,length,time+start,focusGain,preview?.output);
+   }
+  }else renderModeledPart(inst,expression,time,event.bandoneonStaff,preview?.output,false,event.bandoneonDirection,event.bandoneonPressure);
   return;
  }
  const bar=Math.floor(n.start/(preview?.project??project.value).beats);
@@ -4452,6 +4509,7 @@ function continueAfterSingerCue(){
 async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
   // Both play buttons always start a fresh pass. Stop is a separate control.
   stopPlayback();
+  performanceBellowsPlans.value=new Map();
   audioStatus.value='Starting playback…';
   const session=noteLoopSession;
   const startMeasure=origin==='selected'?selectedBar.value:0;
@@ -4472,12 +4530,13 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
     }
     if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;
-    transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
+    const startBpm=performanceTempoAtBeat(project.value,window.startBeat);
+    transport.bpm.value=startBpm*rehearsalSpeed.value;
     if(countInBeats)transport.bpm.value=effectivePlaybackBpm.value;
     const tempoMarks=tempoAutomationPoints(project.value).filter(point=>point.beat>window.startBeat&&point.beat<project.value.bars.length*project.value.beats);
-    for(const point of tempoMarks)transport.schedule(()=>{
+    for(const point of tempoMarks)transport.schedule(time=>{
       if(session!==noteLoopSession)return;
-      transport.bpm.value=point.bpm*rehearsalSpeed.value;
+      transport.bpm.setValueAtTime(point.bpm*rehearsalSpeed.value,time);
     },beatOffsetTicks(point.beat-transportStartBeat,transport.PPQ));
     for(const cue of normalizedTempoExpressions(project.value).fermatas.filter(f=>f.waitForCue&&(f.measure+1)*project.value.beats>window.startBeat)){
       const pauseBeat=(cue.measure+1)*project.value.beats-transportStartBeat;
@@ -4498,7 +4557,10 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
         sendMidiPedal(soundingSeconds(project.value,span.start,span.end-span.start,rehearsalSpeed.value),midiTransportDelay(time));
       },beatOffsetTicks(span.start-transportStartBeat,transport.PPQ));
      }
-     for(const n of playbackNotesInRange(notes,window.startBeat,endBeat,project.value.transposeSemitones??0,nativePedal)){
+     const attacks=playbackNotesInRange(notes,window.startBeat,endBeat,project.value.transposeSemitones??0,nativePedal);
+     const bellows=bandoneonPlaybackPlan(project.value,inst,attacks);
+     if(bellows.decisions.length)performanceBellowsPlans.value.set(inst,bellows);
+     for(const n of attacks){
       // Musical tick positions preserve event timing when rehearsal speed is
       // changed mid-performance (unlike precomputed absolute seconds).
       const seconds=arrangementEventTime(n.start,window);
@@ -4506,6 +4568,20 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       const whenTicks=beatOffsetTicks(n.start-transportStartBeat,transport.PPQ);
       noteCount++;
       firstAttack=Math.min(firstAttack,n.start);
+      const segments=bellows.segments.get(n);
+      if(segments?.length){
+       // Reattacks go through the transport at the same tick as any fresh
+       // notes; no second onset is extrapolated from a held note's duration.
+       for(const segment of segments)transport.schedule(time=>{
+        if(session!==noteLoopSession)return;
+        const p=project.value,bar=Math.floor(n.start/p.beats);
+        const event=measureLoopEvents([n],bar,p.beats,p.bpm,p.transposeSemitones??0,p.expressionRanges??[],inst,p,true)[0];
+        if(!event)return;
+        const duration=scoreClockSeconds(tempoMarks,startBpm,segment.start,segment.end,rehearsalSpeed.value);
+        renderBellowsSegment(inst,event,segment,duration,time,performanceFocus.value&&performanceFocus.value!==inst?0.3:1);
+       },beatOffsetTicks(segment.start-transportStartBeat,transport.PPQ));
+       continue;
+      }
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
@@ -4528,9 +4604,9 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       for(let beat=0;beat*transport.PPQ<countInEndTick;beat++){
         transport.scheduleOnce(time=>captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time),beatOffsetTicks(beat,transport.PPQ));
       }
-      transport.scheduleOnce(()=>{
+      transport.scheduleOnce(time=>{
         if(session!==noteLoopSession)return;
-        transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
+        transport.bpm.setValueAtTime(startBpm*rehearsalSpeed.value,time);
       },beatOffsetTicks(countInBeats,transport.PPQ));
       transport.scheduleOnce(time=>Tone.getDraw().schedule(()=>{
         if(session!==noteLoopSession)return;
@@ -4550,6 +4626,7 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
 // Lead-sheet preview plays piano chord voicings; map preview isolates one instrument.
 async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure:number,instrument?:string){
   stopPlayback();
+  performanceBellowsPlans.value=new Map();
   const session=noteLoopSession;
   const beats=project.value.beats;
   const from=Math.max(0,Math.min(project.value.bars.length-1,Math.floor(fromMeasure)));
@@ -4592,12 +4669,20 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
          sendMidiPedal((span.end-span.start)*60/effectivePlaybackBpm.value,midiTransportDelay(time));
        },beatOffsetTicks(span.start-startBeat,transport.PPQ));
       }
-      for(const n of playbackNotesInRange(notes,startBeat,endBeat,project.value.transposeSemitones??0,nativePedal)){
+      const attacks=playbackNotesInRange(notes,startBeat,endBeat,project.value.transposeSemitones??0,nativePedal);
+      const bellows=bandoneonPlaybackPlan(project.value,inst,attacks);
+      if(bellows.decisions.length)performanceBellowsPlans.value.set(inst,bellows);
+      for(const n of attacks){
         if(n.start<startBeat-1e-7||n.start>=(to+1)*beats)continue;
         const cueBeat=n.start-startBeat;
         transport.schedule(t=>{
           const event=measureLoopEvents([n],Math.floor(n.start/beats),beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value,true)[0];
-          if(event)renderArrangementNote(inst,n,event,Math.max(.025,soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)),t);
+          const secondsPerBeat=60/effectivePlaybackBpm.value;
+          if(event){
+           event.bellowsSegments=bellows.segments.get(n);
+           if(event.bellowsSegments?.length)event.bellowsSecondsAtBeat=beat=>beat*secondsPerBeat;
+          }
+          if(event)renderArrangementNote(inst,n,event,Math.max(.025,noteSoundingDuration(n)*secondsPerBeat),t);
         },beatOffsetTicks(cueBeat,transport.PPQ));
         count++;
       }
@@ -4646,8 +4731,12 @@ async function toggleNoteLoop(){
         if(span.start>=bar*beats&&span.start<(bar+1)*beats&&focusInstrumentAudible(inst))
           sendMidiPedal(playbackDuration((span.end-span.start)*60/p.bpm,rehearsalSpeed.value),midiTransportDelay(time+playbackDuration((span.start-bar*beats)*60/p.bpm,rehearsalSpeed.value)));
       }
-      for(const note of playbackNotesInRange(notes,range.from*beats,(range.to+1)*beats,transpose,nativePedal)){
+      const attacks=playbackNotesInRange(notes,range.from*beats,(range.to+1)*beats,transpose,nativePedal);
+      const bellows=bandoneonPlaybackPlan(p,inst,attacks);
+      for(const note of attacks){
         for(const event of measureLoopEvents([note],bar,beats,p.bpm,transpose,p.expressionRanges??[],inst,p,true)){
+          event.bellowsSegments=bellows.segments.get(note);
+          if(event.bellowsSegments?.length){const secondsPerBeat=60/effectivePlaybackBpm.value;event.bellowsSecondsAtBeat=beat=>beat*secondsPerBeat;}
           renderArrangementNote(inst,note,event,playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
         }
       }
@@ -5085,7 +5174,7 @@ function setDuckingEnabled(e:Event){project.value.melodyDucking??={enabled:true,
 function setDuckingReduction(e:Event){project.value.melodyDucking??={enabled:true,reduction:22};project.value.melodyDucking.reduction=Math.max(0,Math.min(75,Number((e.target as HTMLInputElement).value)));}
 const currentExpressionRanges=computed(()=>project.value.expressionRanges?.map((r,index)=>({...r,index})).filter(r=>r.instrument===noteInst.value)??[]);
 const slideSupported=computed(()=>noteInst.value!=='Piano'&&selectedEvent.value?.technique!=='pizzicato');
-const noteInst=ref<Instrument>('Violin I');
+const noteInst=ref<Instrument>(activeRoster.value.includes('Violin I')?'Violin I':activeRoster.value[0]);
 watch([homeOpen,performanceMode,active,noteEditorTab,noteInst,localSongId,captureFirst,captureLast],()=>{
  if(midiCaptureStarting.value){cancelPendingMidiCapture();captureFeedback.value='MIDI recording start cancelled.';}
  cancelMidiStep();
@@ -6386,6 +6475,38 @@ function updateSelectedFingering(field:'stringMidi'|'handPosition'|'finger',raw:
  catch(error){message.value='Fingering edit rejected: '+String(error);}
 }
 
+function setSelectedBellows(field:'bellowsDirection'|'bandoneonButtonId'|'bellowsPressure'|'bellowsShake',value:string){
+ const old=selectedEvent.value;if(!old||!noteInst.value.startsWith('Bandoneon'))return;
+ const next:Note={...old};
+ if(field==='bellowsDirection'){
+  if(value==='pull'||value==='push')next.bellowsDirection=value;else delete next.bellowsDirection;
+ }else if(field==='bandoneonButtonId'){
+  if(value)next.bandoneonButtonId=value;else delete next.bandoneonButtonId;
+ }else if(value==='')delete next[field];
+ else{
+  const n=Number(value),min=field==='bellowsPressure'?.25:3,max=field==='bellowsPressure'?1.5:12;
+  if(!Number.isFinite(n)||n<min||n>max){message.value='Enter a bellows value from '+min+' to '+max+', or clear for Auto.';return;}
+  next[field]=n;
+ }
+ try{commitInspectedNote(old,next);}catch(e){message.value=String(e);}
+}
+const selectedBellowsSuggestion=computed(()=>{
+ const n=selectedEvent.value,inst=noteInst.value,p=project.value;
+ if(!n||!inst.startsWith('Bandoneon'))return undefined;
+ const notes=playbackNotesInRange(score.value[inst]??[],0,Infinity,p.transposeSemitones??0);
+ const plan=bandoneonPlaybackPlan(p,inst,notes);
+ const frame=plan.decisions.find(f=>f.start<=n.start+1e-7&&f.end>n.start+1e-7);
+ const note=notes.find(x=>Math.abs(x.start-n.start)<1e-7&&x.pitch===n.pitch&&(x.staffOverride??x.xmlStaff)===(n.staffOverride??n.xmlStaff));
+ const assignment=note?plan.assignments.get(note):undefined;
+ return frame?{direction:frame.direction,button:assignment?.button.id,reversal:bellowsGuideMarks(plan.decisions).some(m=>m.reversal&&Math.abs(m.beat-n.start)<1e-7)}:undefined;
+});
+const selectedPhysicalLayout=computed(()=>authoritativeBandoneonLayoutForPart(project.value,noteInst.value));
+const selectedBandoneonButtons=computed(()=>{
+ const n=selectedEvent.value;if(!n||!noteInst.value.startsWith('Bandoneon'))return [];
+ const layout=selectedPhysicalLayout.value;
+ const pitch=n.pitch+(project.value.transposeSemitones??0),staff=n.staffOverride??n.xmlStaff;
+ return (layout?.buttons??[]).filter(b=>(staff!==1&&staff!==2||b.hand===(staff===1?'right':'left'))&&(n.bellowsDirection?b[n.bellowsDirection]===pitch:b.pull===pitch||b.push===pitch));
+});
 function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'approachSlideFrom'|'vibrato'|'swellTo'|'subito',raw:string){
   const old=selectedEvent.value;
   if(!old)return;
@@ -6608,6 +6729,7 @@ const arrangementOperation=ref<'select'|'role'|'dynamics'|'rhythm'|'articulation
 const arrangementExtraParts=ref<Instrument[]>([]);
 function clearExtraArrangementParts(extend:boolean){if(!extend)arrangementExtraParts.value=[];}
 watch(activeRoster,roster=>{
+ if(!roster.includes(noteInst.value))noteInst.value=roster[0];
  if(!roster.includes(overviewInstrument.value))overviewInstrument.value=roster[0];
  if(!roster.includes(rhythmPreviewInstrument.value))rhythmPreviewInstrument.value=roster[0];
  rhythmTargets.value=rhythmTargets.value.filter(inst=>roster.includes(inst));
@@ -7038,7 +7160,7 @@ async function homePractise(inst:Instrument){
         <span class="performance-card-dynamic-next" :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}">Next <strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
       </span>
       <span v-if="part.vocalRest" class="stage-vocal-rest"><strong>{{part.vocalEntranceMeasure===null?'Finished':part.vocalEntranceMeasure-(performanceBar+1)}}</strong><span>{{part.vocalEntranceMeasure===null?'No further entrance':'Measures until entrance · M'+part.vocalEntranceMeasure}}</span></span>
-      <PerformanceChordDiagram v-else-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
+      <PerformanceChordDiagram v-else-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!physicalBandoneonLayoutForPart(project,part.inst)?.verified&&!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
       <PerformanceRoleCues v-else :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="roleCueHarmony.chord" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
         :articulation="part.articulation" :next-articulation="part.nextArticulation"
         :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
@@ -7132,18 +7254,18 @@ async function homePractise(inst:Instrument){
            :from-measure="focusScoreRange?.[0]??performanceScoreFrom" :to-measure="focusScoreRange?.[1]??performanceScoreTo"
            :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" expanded follow-measure :interactive="false" @range="selectFocusScoreRange" @edit-range="(first,last)=>editScoreRange(part.inst,first,last)" />
          <PianoFocusView v-if="!part.vocalRest && performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
-           :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
+           :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!physicalBandoneonLayoutForPart(project,part.inst)?.verified&&!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="performanceScoreView==='both'?performanceScoreView='score':flipPerformanceCard(part.inst)"/>
          <button v-else-if="!part.vocalRest&&performanceScoreView==='off'&&cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show role and dynamics for '+part.display" title="Tap to show role and dynamics">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
-             :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
+             :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!physicalBandoneonLayoutForPart(project,part.inst)?.verified&&!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </button>
          <div v-else-if="!part.vocalRest&&performanceScoreView==='both'" class="instrument-focus-score-diagram">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
-             :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
+             :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!physicalBandoneonLayoutForPart(project,part.inst)?.verified&&!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </div>
          <button v-else-if="!part.vocalRest&&!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
@@ -7432,7 +7554,8 @@ async function homePractise(inst:Instrument){
     <label>Project tuning · A4 (Hz)<input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.a4Hz??DEFAULT_A4_HZ" @change="setProjectA4Reference" aria-label="Project-wide A4 tuning reference in Hz"/></label>
     <span class="hint">All instruments inherit this reference (default 442 Hz), unless overridden below. Used by Learn pitch detection; it does not transpose notes or change exported notation.</span>
   </div>
-  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" class="bandoneon-model-select">Keyboard layout <select :value="bandoneonModelForPart(project,inst)" :aria-label="'Bandoneon keyboard layout for '+rosterDisplayName(inst)" @change="setBandoneonModel(inst,$event)"><option v-for="model in BANDONEON_MODELS" :key="model.id" :value="model.id">{{model.label}}</option></select><small>{{bandoneonLayoutSummary(inst)}}</small></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+  <div class="role-list roster-parts"><div v-for="(inst,index) in activeRoster" :key="inst" class="role-row"><input type="text" :value="rosterDisplayName(inst)" :aria-label="`Name for ${inst}`" maxlength="80" @change="renameRosterPart(inst,$event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" /><label class="roster-tuning-override" title="Leave blank to inherit the project-wide A4 reference">A4 Hz <input type="number" :min="MIN_A4_HZ" :max="MAX_A4_HZ" step="1" :value="project.tuning?.overrides?.[inst]??''" :placeholder="'All: '+(project.tuning?.a4Hz??DEFAULT_A4_HZ)" :aria-label="'A4 tuning override for '+rosterDisplayName(inst)+'; blank inherits project tuning'" @change="setInstrumentA4Reference(inst,$event)"/><small>{{tuningReferenceFor(project,inst)}} Hz</small></label><label v-if="inst.startsWith('Bandoneon')" class="bandoneon-model-select">Keyboard layout <select :value="selectedBandoneonLayout(inst)" :aria-label="'Bandoneon keyboard layout for '+rosterDisplayName(inst)" @change="setBandoneonModel(inst,$event)"><option v-for="model in BANDONEON_MODELS" :key="model.id" :value="model.id">{{model.label}}</option><option v-for="layout in project.customBandoneonLayouts??[]" :key="layout.id" :value="'custom:'+layout.id">{{layout.name}} (custom)</option></select><small>{{bandoneonLayoutSummary(inst)}}</small><button type="button" class="secondary" @click="openLayoutEditor(inst)">Create / edit layout</button></label><label v-if="inst.startsWith('Bandoneon')" title="Use treble and bass staves in MuseScore exports"><input type="checkbox" :checked="!!project.bandoneonGrandStaff?.[inst]" @change="project.bandoneonGrandStaff={...project.bandoneonGrandStaff,[inst]:($event.target as HTMLInputElement).checked}"/> Two staves</label><button type="button" class="secondary" :disabled="index===0" @click="moveRosterPart(inst,-1)">↑</button><button type="button" class="secondary" :disabled="index===activeRoster.length-1" @click="moveRosterPart(inst,1)">↓</button><button type="button" class="secondary" :disabled="activeRoster.length===1" @click="removeRosterPart(inst)">Remove</button></div></div>
+<BandoneonLayoutEditor v-if="layoutEditorPart" :key="layoutEditorPart" :layout="layoutEditorInitial" @save="saveCustomLayout" @cancel="layoutEditorPart=null"/>
   <div class="two"><label>Preset name<input v-model="rosterPresetName" placeholder="My tango orchestra"/></label><div class="align-bottom"><button type="button" @click="saveCurrentRoster">Save roster preset</button></div></div>
   <div class="two"><label>Saved rosters<select v-model="rosterPresetSelection"><option value="">Select a preset</option><option v-for="preset in rosterPresets" :key="preset.name" :value="preset.name">{{preset.name}}</option></select></label><div class="align-bottom"><button type="button" :disabled="!rosterPresetSelection" @click="loadSelectedRoster">Load</button><button type="button" class="secondary" :disabled="!rosterPresetSelection || ['Factory seven-part','Quartet','Sextet','Septet','Orquesta típica'].includes(rosterPresetSelection)" @click="deleteSelectedRoster">Delete</button></div></div>
   <button type="button" class="secondary" @click="makeRosterDefault">Set current roster as default</button> <button type="button" class="secondary" @click="applyRoster([...FACTORY_INSTRUMENTS])">Restore factory roster</button>
@@ -8451,6 +8574,12 @@ async function homePractise(inst:Instrument){
         </select></label>
         <small class="hint">Auto suggestions use the surrounding measure; explicit selections are retained. Check double stops, chords and shifts manually.</small>
       </div>
+      <template v-if="noteInst.startsWith('Bandoneon')">
+       <label>Bellows direction<select :value="selectedEvent.bellowsDirection??''" @change="setSelectedBellows('bellowsDirection',($event.target as HTMLSelectElement).value)"><option value="">Auto / unmarked</option><option value="pull">Pull · open</option><option value="push">Push · close</option></select></label>
+       <label v-if="selectedPhysicalLayout">Physical button<select :value="selectedEvent.bandoneonButtonId??''" @change="setSelectedBellows('bandoneonButtonId',($event.target as HTMLSelectElement).value)"><option value="">Auto</option><option v-if="selectedEvent.bandoneonButtonId&&!selectedBandoneonButtons.some(b=>b.id===selectedEvent.bandoneonButtonId)" :value="selectedEvent.bandoneonButtonId">Unavailable: {{selectedEvent.bandoneonButtonId}}</option><option v-for="b in selectedBandoneonButtons" :key="b.id" :value="b.id">{{b.hand}} · {{b.id}}</option></select></label>
+       <small v-if="selectedBellowsSuggestion" class="hint">Suggested: {{selectedBellowsSuggestion.direction??'No continuous assignment'}}{{selectedBellowsSuggestion.button?' · button '+selectedBellowsSuggestion.button:''}}{{selectedBellowsSuggestion.reversal?' · reversal':''}}</small><small class="hint">Explicit direction and button choices constrain physical planning. Check conflicts in Arrangement Review.</small>
+       <BandoneonExpression :pressure="selectedEvent.bellowsPressure" :shake="selectedEvent.bellowsShake" @pressure="setSelectedBellows('bellowsPressure',$event)" @shake="setSelectedBellows('bellowsShake',$event)"/>
+      </template>
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>
       <label>Sounding length (%) · {{Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)}}%<input type="range" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @input="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @change="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/></label>
@@ -8518,6 +8647,11 @@ async function homePractise(inst:Instrument){
       <button type="button" class="secondary" aria-label="Shorten note by quarter beat" @click="changeNoteDuration(-0.25)">Shorter −</button>
       <button type="button" class="secondary" aria-label="Lengthen note by quarter beat" @click="changeNoteDuration(0.25)">Longer +</button>
       <label class="note-focus-articulation">Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato ·</option><option value="marcato_staccato">Marcato &gt;</option><option value="legato">Legato</option></select></label>
+      <template v-if="noteInst.startsWith('Bandoneon')">
+       <label>Bellows direction<select :value="selectedEvent.bellowsDirection??''" @change="setSelectedBellows('bellowsDirection',($event.target as HTMLSelectElement).value)"><option value="">Auto / unmarked</option><option value="pull">Pull · open</option><option value="push">Push · close</option></select></label>
+       <label v-if="selectedPhysicalLayout">Physical button<select :value="selectedEvent.bandoneonButtonId??''" @change="setSelectedBellows('bandoneonButtonId',($event.target as HTMLSelectElement).value)"><option value="">Auto</option><option v-if="selectedEvent.bandoneonButtonId&&!selectedBandoneonButtons.some(b=>b.id===selectedEvent.bandoneonButtonId)" :value="selectedEvent.bandoneonButtonId">Unavailable: {{selectedEvent.bandoneonButtonId}}</option><option v-for="b in selectedBandoneonButtons" :key="b.id" :value="b.id">{{b.hand}} · {{b.id}}</option></select></label>
+       <small v-if="selectedBellowsSuggestion" class="hint">Suggested: {{selectedBellowsSuggestion.direction??'No continuous assignment'}}{{selectedBellowsSuggestion.button?' · button '+selectedBellowsSuggestion.button:''}}{{selectedBellowsSuggestion.reversal?' · reversal':''}}</small><small class="hint">Explicit direction and button choices constrain physical planning. Check conflicts in Arrangement Review.</small>
+      </template>
       <label class="note-focus-articulation">Gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)"><option value="">None</option><option v-for="preset in GESTURE_PRESETS.filter(g=>noteInst.startsWith('Violin')||!g.value.startsWith('sirena'))" :key="preset.value" :value="preset.value">{{preset.label}}</option></select></label>
       <button type="button" class="secondary" @click="noteFocusMore=!noteFocusMore;noteDetailsPopup=false">{{noteFocusMore?'Close details':'All note properties'}}</button>
       <button type="button" class="secondary" @click="deleteSelectedNote">Delete</button>

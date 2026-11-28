@@ -1,4 +1,5 @@
-import {bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable} from './bandoneon';
+import {bandoneonPlaybackPlan,tiedPlaybackNotes} from './arrangementPlayback';
+import {bandoneonProfileForPart,isBandoneonPitchPlayable} from './bandoneon';
 import {choosePlayablePianoVoicing,bassTechniqueFor,partStaffForNote,writtenInstrumentPitchPlayable,writtenInstrumentRange,assessPianoPlayability,adaptTransposedScore,projectInstruments,instrumentPitchPlayable,instrumentFamily,chordAt,chordTones,noteSoundingVelocity,noteSoundingDuration,measureDynamicVelocity,melodyDuckingFactor,replaceInstrumentMeasure,type Project,type Score,type Instrument,type Note} from './music';
 import {effectiveRole,phraseMeasureMap} from './phrasePlan';
 import {orchestraStyle,orchestraPulses,styleForMeasure,phraseStyleKey,styleStrength,isOrchestraStyle} from './orchestraStyle';
@@ -28,8 +29,18 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
   if(instrumentFamily(inst)==='Piano')for(const issue of assessPianoPlayability(notes,p,inst,'human'))
    add(inst,issue.measure,'playability','warning',issue.message+' · beat '+(Math.round((issue.beat+1)*100)/100));
   if(instrumentFamily(inst)==='Bandoneon'){
-   const model=bandoneonModelForPart(p,inst),layout=bandoneonProfile(model);
+   const model=bandoneonProfileForPart(p,inst),layout=model;
    const sounding=soundingScore[inst]??[];
+   const plan=bandoneonPlaybackPlan(p,inst,tiedPlaybackNotes(sounding));
+   const conflictMeasures=new Set<number>();
+   for(const frame of plan.decisions)if(frame.direction===null){
+    for(let bar=Math.floor((frame.start+1e-7)/p.beats);bar<=Math.floor((frame.end-1e-7)/p.beats);bar++)conflictMeasures.add(bar);
+   }
+   const capacityMeasures=new Set<number>();
+   for(const frame of plan.decisions)if(frame.capacityExceeded)capacityMeasures.add(Math.floor(frame.start/p.beats));
+   for(const bar of capacityMeasures)add(inst,bar,'playability','warning','Estimated bellows capacity exceeded; consider reversal or air recovery (heuristic)');
+   for(const bar of new Set(plan.decisions.filter(f=>f.rearticulated?.length).map(f=>Math.floor(f.start/p.beats))))add(inst,bar,'playability','suggestion','Bellows reversal needs a brief release and reattack of continuing notes');
+   for(const bar of conflictMeasures)add(inst,bar,'playability','warning','Physical bandoneon: no playable common direction and button assignment found');
    // Current layouts combine both bellows directions. Check explicit hand
    // availability only; do not claim a simultaneous direction/fingering solution.
    sounding.forEach((n,i)=>{

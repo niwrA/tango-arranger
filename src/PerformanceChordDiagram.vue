@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed,ref,watch,nextTick,onBeforeUnmount} from 'vue';
+import type {PhysicalBandoneonLayout,CapacityFrame} from './bandoneonLayout';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
 import {fingerAtPosition} from './stringPositionGuide';
@@ -10,7 +11,14 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right'}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right';physicalLayout?:PhysicalBandoneonLayout;bellowsFrame?:CapacityFrame;layoutProvisional?:boolean}>();
+const physicalHands=computed(()=>(['left','right'] as const).map(hand=>{
+ const buttons=props.physicalLayout?.buttons.filter(b=>b.hand===hand)??[];
+ const xs=buttons.map(b=>b.x),ys=buttons.map(b=>b.y);
+ const x=Math.min(0,...xs)-.6,y=Math.min(0,...ys)-.6;
+ return {hand,buttons,viewBox:[x,y,Math.max(1,...xs)-x+.6,Math.max(1,...ys)-y+.6].join(' ')};
+}));
+const physicalActiveIds=computed(()=>new Set(props.bellowsFrame?.buttons.map(b=>b.id)??[]));
 const family=computed(()=>instrumentFamily(props.instrument));
 const sharpNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const flatNames=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
@@ -156,7 +164,7 @@ const livePitchesLabel=computed(()=>unmappedSoundingPitches.value.map(midiLabel)
 const diagramDescription=computed(()=>{
  if(family.value==='Piano')return 'Measure-following piano · bass notes blue, upper notes amber, sounding notes highlighted';
  if(isStringInstrument.value)return 'Open strings + chromatic positions · schematic; amber filled notes are planned for this measure, outlined notes are chord references, turquoise notes are sounding';
- if(family.value==='Bandoneon')return 'Chord tones · no button fingering inferred';
+ if(family.value==='Bandoneon')return props.physicalLayout?'Physical keyboard · planned button assignments':'Chord tones · no button fingering inferred';
  if(family.value==='Trumpet'||family.value==='Clarinet')return 'Concert pitches · transpose for written part';
  return 'Concert-pitch targets · not fingerings';
 });
@@ -252,6 +260,23 @@ const diagramDescription=computed(()=>{
        </span>
      </div>
    </div>
+   <div v-else-if="family==='Bandoneon'&&props.physicalLayout&&!props.learn" class="physical-bandoneon" role="group" aria-label="Physical bandoneon keyboard">
+     <strong class="physical-direction">{{props.layoutProvisional?'Provisional chart':props.bellowsFrame?.direction==='pull'?'← PULL · OPEN →':props.bellowsFrame?.direction==='push'?'→ PUSH · CLOSE ←':props.bellowsFrame?'No continuous assignment':'Bellows direction —'}}</strong>
+     <small v-if="props.bellowsFrame?.rearticulated?.length" class="physical-reattack">Reverse and reattack held notes</small>
+     <div v-if="props.bellowsFrame" class="physical-capacity"><label>Estimated extension <meter min="0" max="1" :value="props.bellowsFrame.extensionStart"/></label><small v-if="props.bellowsFrame.capacityExceeded" role="status">Estimated travel limit exceeded</small></div>
+     <div class="physical-hands">
+      <section v-for="hand in physicalHands" :key="hand.hand">
+       <small>{{hand.hand==='left'?'Left hand':'Right hand'}}</small>
+       <svg :viewBox="hand.viewBox" role="img" :aria-label="hand.hand+' keyboard'">
+        <g v-for="b in hand.buttons" :key="b.id">
+         <title>{{b.id}} · pull {{midiLabel(b.pull)}} / push {{midiLabel(b.push)}}</title>
+         <circle :cx="b.x" :cy="b.y" r=".43" :class="{'physical-active':physicalActiveIds.has(b.id)}"/>
+         <text :x="b.x" :y="b.y+.07" text-anchor="middle">{{props.bellowsFrame?.direction?midiLabel(b[props.bellowsFrame.direction]):b.pull===b.push?midiLabel(b.pull):midiLabel(b.pull)+'/'+midiLabel(b.push)}}</text>
+        </g>
+       </svg>
+      </section>
+     </div>
+   </div>
    <div v-else-if="props.learn&&family==='Bandoneon'" class="diagram-bandoneon-practice" role="group" aria-label="Bandoneon notes in the current measure">
      <div v-for="hand in (['left','right'] as const)" :key="hand" class="diagram-bandoneon-hand">
       <strong>{{hand==='left'?'Left hand':'Right hand'}}</strong>
@@ -284,6 +309,7 @@ const diagramDescription=computed(()=>{
 </template>
 
 <style scoped>
+.physical-bandoneon{display:grid;gap:4px;width:100%;min-width:0}.physical-direction{text-align:center;font-size:.85em}.physical-hands{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;text-align:center}.physical-hands svg{width:100%;height:clamp(85px,15vw,180px)}.is-focus .physical-hands svg{height:clamp(150px,30vw,340px)}.physical-hands circle{fill:#626a76;stroke:#9aa3ae;stroke-width:.025}.physical-hands circle.physical-active{fill:#178f83;stroke:#ffe0ae;stroke-width:.075}.physical-hands text{fill:white;font-size:.16px;pointer-events:none}
 .performance-instrument-diagram{width:100%;min-width:0;display:flex;flex-direction:column;gap:8px;flex:1}
 .diagram-harmony-pair{display:grid;grid-template-columns:1fr 1fr;gap:9px;min-width:0;align-items:start}
 .diagram-harmony-pair>div{min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left}

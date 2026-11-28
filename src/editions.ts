@@ -1,3 +1,4 @@
+import {customBandoneonLayoutForPart} from './bandoneonLayoutFormat';
 /** Independent difficulty editions for musicians sharing the same song.
  * The legacy generatedScore/importedScore/protectedBars fields remain the
  * authoritative *active* workspace; other variants are durable snapshots.
@@ -38,6 +39,7 @@ export function scoreSourceSignature(p:Project,inst:Instrument):string{
   measureBassTechniques:p.measureBassTechniques,
   instrument:inst,
   bandoneonModel:p.bandoneonModels?.[inst],
+  customBandoneonLayout:inst.startsWith('Bandoneon')?customBandoneonLayoutForPart(p,inst):undefined,
   bandoneonTranspose:inst.startsWith('Bandoneon')?p.transposeSemitones||undefined:undefined,
   activity:p.instrumentSettings?.[inst]?.activity,
   dynamicsOffset:p.instrumentSettings?.[inst]?.dynamicsOffset

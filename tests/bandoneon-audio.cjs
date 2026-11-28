@@ -117,3 +117,16 @@ const normal=(options={})=>({pitch:69,velocity:80,durationSeconds:.5,...options}
  assert.equal(playBandoneonNote(ctx,'Bandoneon I',normal({durationSeconds:-1}),3),undefined);
  console.log('PASS bellows shake changes pressure instead of reed tuning and stop respects audio contexts');
 }
+
+{
+ const soft=mockAudio(),hard=mockAudio();
+ playBandoneonNote(soft,'Bandoneon I',normal(),2,{pressure:.5});
+ playBandoneonNote(hard,'Bandoneon I',normal({bellowsShake:10,bellowsQuickRelease:true}),2,{pressure:1.25});
+ const attack=ctx=>ctx.gains[3].gain.calls[1][1];
+ assert.ok(attack(hard)>attack(soft)*2);
+ assert.ok(hard.filters[0].frequency.calls[0][1]>soft.filters[0].frequency.calls[0][1]);
+ assert.deepEqual(hard.oscs[0].frequency.calls,soft.oscs[0].frequency.calls,'shake does not wobble pitch');
+ assert.ok(hard.oscs[0].stops[0]<2.52,'old reeds end before the planned reattack');
+ close(hard.gains.at(-1).gain.calls[1][2],2.05);
+ console.log('PASS explicit pressure, shake rate and rapid reversal release');
+}

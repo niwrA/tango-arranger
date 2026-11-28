@@ -94,6 +94,17 @@ export function tempoAutomationPoints(p:TimingProject,forNotation=false):TempoPo
  }
  return points;
 }
+/** Elapsed seconds on the same stepped tempo map used by the transport.
+ * Segment and fresh-note attacks share a tick, even across a fermata or rit. */
+export function scoreClockSeconds(points:readonly TempoPoint[],initialBpm:number,start:number,end:number,speed=1):number{
+ let seconds=0,cursor=start,bpm=initialBpm;
+ for(const point of points){
+  if(point.beat>=end)break;
+  if(point.beat>cursor){seconds+=(point.beat-cursor)*60/(bpm*speed);cursor=point.beat;}
+  bpm=point.bpm;
+ }
+ return seconds+Math.max(0,end-cursor)*60/(bpm*speed);
+}
 /** Approximate the changing beat duration by integrating 1/4-beat slices, including fermata stretch. */
 export function soundingSeconds(p:TimingProject,startBeat:number,durationBeats:number,speed=1):number{
  if(!Number.isFinite(durationBeats)||durationBeats<0||!Number.isFinite(speed)||speed<=0)throw Error('Invalid playback duration');

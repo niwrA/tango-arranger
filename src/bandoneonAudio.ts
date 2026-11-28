@@ -1,4 +1,5 @@
 import type {ExpressiveEvent} from './expressiveAudio';
+import type {BellowsDirection} from './bandoneonLayout';
 import type {GesturePoint} from './tangoGestures';
 
 export type BandoneonHand='left'|'right';
@@ -13,6 +14,8 @@ type BandoneonOptions={
  referenceHz?:number;
  destination?:AudioNode;
  held?:boolean;
+ direction?:BellowsDirection;
+ pressure?:number;
 };
 
 // Two free reeds an octave apart, not two wet-detuned accordion voices.
@@ -78,6 +81,8 @@ export function playBandoneonNote(ctx:BaseAudioContext,instrument:string,event:E
   :[[{at:0,pitch:event.pitch},{at:1,pitch:event.slideTo??event.pitch}]];
  if(paths.some(points=>points.length<2||points.some((p,i)=>!validPoint(p)||(i>0&&p.at<=points[i-1].at))))return;
  const held=options.held===true;
+ const push=options.direction==='push';
+ const pressureScale=clamp(Number.isFinite(options.pressure)?options.pressure!:1,.05,1.5);
  const [lowWave,highWave]=reedWaves(ctx);
  const trackedVoices=activeVoices.get(ctx)??new Set<TrackedVoice>();
  activeVoices.set(ctx,trackedVoices);
@@ -89,7 +94,8 @@ export function playBandoneonNote(ctx:BaseAudioContext,instrument:string,event:E
  const cleanupNodes:AudioNode[]=[output];
  const bellows: {param:AudioParam;stages:Stage[]}[]=[];
  let outputLevels:Stage[]=[{time:ctx.currentTime,level:adjustment(options.gainDb??0)}];
- let stopAt=held?Infinity:end+.095;
+ const quick=event.bellowsQuickRelease===true;
+ let stopAt=held?Infinity:end+(quick?.013:.095);
  let tracked:TrackedVoice;
  let ended=0,disposed=false;
  const dispose=()=>{
@@ -144,9 +150,9 @@ export function playBandoneonNote(ctx:BaseAudioContext,instrument:string,event:E
   const left=options.hand?options.hand==='left':root<60;
   const register=clamp((root-36)/55,0,1);
   const initial=dynamics(event.velocity),final=dynamics(event.endVelocity??event.velocity);
-  const attack=Math.min(duration*.24,(left ? .024 : .017)-.006*initial);
+  const attack=Math.min(duration*.24,((left ? .024 : .017)-.006*initial)*(push?.84:1));
   const settle=Math.min(duration*.19,.055);
-  const level=.135*(1-.20*register)/paths.length;
+  const level=.135*(1-.20*register)*pressureScale*(push?.96:1)/paths.length;
   // Envelope tracks bellows pressure without killing the held tone.
   const stages:Stage[]=[
    {time:start,level:0},
@@ -156,19 +162,19 @@ export function playBandoneonNote(ctx:BaseAudioContext,instrument:string,event:E
   const swellTime=Math.max(start+attack+settle,end-Math.min(.04,duration*.14));
   if(event.endVelocity!==undefined)stages.push({time:swellTime,level:level*final});
   if(!held){
-   stages.push({time:end,level:level*final},{time:end+.086,level:0});
+   stages.push({time:end,level:level*final},{time:end+(quick?.008:.086),level:0});
   }
 
   const fundamental=ctx.createOscillator(),octave=ctx.createOscillator();
   const low=ctx.createGain(),high=ctx.createGain(),filter=ctx.createBiquadFilter(),pressure=ctx.createGain();
   fundamental.setPeriodicWave(lowWave);octave.setPeriodicWave(highWave);
   low.gain.value=left ? .90 : .82;
-  high.gain.value=(left ? .34 : .48)*(.95-.14*register);
+  high.gain.value=(left ? .34 : .48)*(.95-.14*register)*(push?1.12:1);
   filter.type='lowpass';filter.Q.value=left ? .30 : .48;
   const cutoff=(left?1750:2650)+(left?1500:1950)*register;
-  const filterAt=(pressure:number)=>Math.min(ctx.sampleRate*.45,cutoff*(.78+.46*pressure));
-  filter.frequency.setValueAtTime(filterAt(initial),start);
-  if(event.endVelocity!==undefined)filter.frequency.linearRampToValueAtTime(filterAt(final),swellTime);
+  const filterAt=(pressure:number)=>Math.min(ctx.sampleRate*.45,cutoff*(.78+.46*pressure)*(push?1.08:1));
+  filter.frequency.setValueAtTime(filterAt(initial*pressureScale),start);
+  if(event.endVelocity!==undefined)filter.frequency.linearRampToValueAtTime(filterAt(final*pressureScale),swellTime);
   for(const [oscillator,ratio] of [[fundamental,1],[octave,2]] as const){
    const hz=(p:number)=>Math.min(ctx.sampleRate*.225,pitchHz(p,referenceHz))*ratio;
    oscillator.frequency.setValueAtTime(hz(root),start);
@@ -187,15 +193,16 @@ export function playBandoneonNote(ctx:BaseAudioContext,instrument:string,event:E
 
   fundamental.connect(low);octave.connect(high);low.connect(filter);high.connect(filter);
   filter.connect(pressure);
-  if(event.gesture?.tremolo){
+  const shakeRate=Number.isFinite(event.bellowsShake)&&event.bellowsShake!>0?clamp(event.bellowsShake!,3,12):event.gesture?.tremolo?7:0;
+  if(shakeRate){
    // Modulate shared bellows pressure; do not convert tremolo into pitch wobble.
    const shake=ctx.createGain();
    pressure.connect(shake);shake.connect(output);
    shake.gain.setValueAtTime(1,start);
-   const period=1/7,turns=Math.min(60,Math.floor(duration/period));
+   const period=1/shakeRate,turns=Math.min(240,Math.ceil(duration/period));
    for(let i=0;i<turns;i++){
-    shake.gain.linearRampToValueAtTime(.67,start+(i+.5)*period);
-    shake.gain.linearRampToValueAtTime(1,start+(i+1)*period);
+    if((i+.5)*period<duration)shake.gain.linearRampToValueAtTime(event.bellowsShake?.55:.67,start+(i+.5)*period);
+    if((i+1)*period<duration)shake.gain.linearRampToValueAtTime(1,start+(i+1)*period);
    }
    cleanupNodes.push(shake);
   }else pressure.connect(output);

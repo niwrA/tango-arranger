@@ -1,3 +1,7 @@
+import {authoritativeBandoneonLayoutForPart} from './bandoneon';
+import {customBandoneonLayoutForPart} from './bandoneonLayoutFormat';
+import {planCapacityAwareBellows,bellowsNotePressure,type CapacityFrame,type BellowsDirection,type BandoneonButton} from './bandoneonLayout';
+import type {Project,Instrument} from './music';
 import {noteSoundingDuration,stringGlissandoPlayback,type Note} from './music';
 /** Convert a selected song measure into a transport-relative playback window. */
 export type PlaybackOrigin='beginning'|'selected';
@@ -109,4 +113,58 @@ export function playbackNotesInRange(notes:readonly Note[],start:number,end=Infi
   if(duration<=1e-7)return [];
   return [{...n,start:onset,duration,gate:Math.min(1,(Math.min(end,audibleEnd)-onset)/duration)}].filter(n=>n.gate>0);
  });
+}
+
+export type BellowsPlaybackSegment={start:number;end:number;direction:BellowsDirection;button:BandoneonButton;pressure:number;quickRelease?:boolean};
+export function bandoneonPlaybackPlan(project:Project,inst:Instrument,notes:readonly Note[]){
+ const assignments=new Map<Note,BellowsPlaybackSegment>();
+ const segments=new Map<Note,BellowsPlaybackSegment[]>();
+ const custom=customBandoneonLayoutForPart(project,inst);
+ const layout=authoritativeBandoneonLayoutForPart(project,inst);
+ if(!layout)return {assignments,segments,decisions:[] as CapacityFrame[]};
+ const shift=project.transposeSemitones??0;
+ const targets=notes.flatMap((n,i)=>{
+  const staff=n.staffOverride??n.xmlStaff,hand=staff===1?'right' as const:staff===2?'left' as const:undefined;
+  const start=n.start,end=start+noteSoundingDuration(n);
+  return [{id:String(i),pitch:n.pitch+shift,hand,start,end,direction:n.bellowsDirection,buttonId:n.bandoneonButtonId,noReattack:!!n.gesture||n.slideTo!==undefined},...(n.gesture?.partner?.length?[{id:i+':partner',pitch:n.gesture.partner[0].pitch+shift,hand,start,end,noReattack:true}]:[])];
+ });
+ const secondsPerBeat=60/(project.bpm||120);
+ const decisions=planCapacityAwareBellows(layout,targets,secondsPerBeat,custom?.bellowsCapacity,id=>{
+  const n=notes[Number(id.split(':')[0])];
+  return bellowsNotePressure(n);
+ });
+ for(let i=0;i+1<decisions.length;i++){
+  const d=decisions[i],next=decisions[i+1];
+  if(!d.direction||!next.direction||d.direction===next.direction||d.reversalGap)continue;
+  const rest=(next.start-d.end)*secondsPerBeat;
+  if(rest<.085){
+   // Estimate extension before this brief release conservatively. The audio
+   // envelope has a separate short tail on every nearby reversal.
+   d.reversalGap=Math.max(0,Math.min((.025-rest)/secondsPerBeat,(d.end-d.start)*.3));
+   d.reversalRelease=true;
+  }
+ }
+ for(const d of decisions)if(d.direction)d.targetIds.forEach((id,i)=>{
+  if(id.includes(':'))return;
+  const n=notes[Number(id)];if(!n)return;
+  const list=segments.get(n)??[];
+  const prev=list.at(-1), end=d.end-(d.reversalGap??0), button=d.buttons[i];
+  if(prev&&prev.direction===d.direction&&prev.button.id===button.id&&Math.abs(prev.end-d.start)<1e-7){
+   prev.end=end;prev.quickRelease=Boolean(d.reversalGap||d.reversalRelease);
+  }else list.push({start:d.start,end,direction:d.direction!,button,pressure:d.pressure,...(d.reversalGap||d.reversalRelease?{quickRelease:true}:{})});
+  if(!assignments.has(n))assignments.set(n,list[0]);
+  segments.set(n,list);
+ });
+ return {assignments,segments,decisions};
+}
+
+export type BellowsGuideMark={beat:number;direction:BellowsDirection;reversal:boolean;rearticulated?:boolean};
+export function bellowsGuideMarks(decisions:readonly import('./bandoneonLayout').SustainedBellowsDecision[]):BellowsGuideMark[]{
+ const result:BellowsGuideMark[]=[];
+ let last:BellowsDirection|undefined;
+ for(const frame of decisions){
+  if(!frame.direction){last=undefined;continue;}
+  if(frame.direction!==last){result.push({beat:frame.start,direction:frame.direction,reversal:last!==undefined,...(frame.rearticulated?.length?{rearticulated:true}:{})});last=frame.direction;}
+ }
+ return result;
 }

@@ -3,6 +3,7 @@ import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {OpenSheetMusicDisplay,type GraphicalMeasure,type MusicSystem} from 'opensheetmusicdisplay';
 import {exportMusicXml,spellMusicXmlPitch} from './io';
 import {midiName,openingPickupBeats,partStaffForNote,sectionKey,transposeKeySignature,type Instrument,type Note,type Project,type Score} from './music';
+import {authoritativeBandoneonLayoutForPart} from './bandoneon';
 import {effectiveViolinTechnique} from './phrasePlan';
 import {findScoreNoteheads,scoreNoteheadColors} from './scoreNoteheads';
 import {readScoreEntryNotation,scoreEntryBeat,scoreEntryPitch,scoreEntryOctaveShift,scoreStaffSteps,scoreXAtBeat,type EngravedBeat,type MeasureNotation} from './scoreEntry';
@@ -39,6 +40,8 @@ const host=ref<HTMLElement|null>(null);
 const scoreAppearanceKey='tango-score-appearance';
 function readScoreAppearance(){try{return localStorage.getItem(scoreAppearanceKey)==='theme';}catch{return false;}}
 const themedScore=ref(readScoreAppearance());
+const bellowsGuide=ref(true);
+const canShowBellowsGuide=computed(()=>props.instrument.startsWith('Bandoneon')&&!!authoritativeBandoneonLayoutForPart(props.project,props.instrument));
 function setScoreAppearance(value:boolean){
  themedScore.value=value;
  try{localStorage.setItem(scoreAppearanceKey,value?'theme':'paper');}catch{/* Preference remains available for this session. */}
@@ -77,7 +80,7 @@ let followedGroup:SVGGElement|undefined;
 function noteLabel(note:Note){
   const measure=Math.floor((note.start+1e-7)/props.project.beats);
   const beat=Number((note.start-measure*props.project.beats+1).toFixed(2));
-  return `${midiName(note.pitch+(props.project.transposeSemitones??0))}, measure ${measure+1}, beat ${beat}`;
+  return `${midiName(note.pitch+(props.project.transposeSemitones??0))}, measure ${measure+1}, beat ${beat}${note.bellowsDirection?' · '+note.bellowsDirection:''}${note.bandoneonButtonId?' · button '+note.bandoneonButtonId:''}`;
 }
 
 function setTabStop(head:SVGElement){
@@ -620,7 +623,7 @@ async function reloadScore(){
       const color=colors.byNote.get(note);
       if(color)displayColors.set(displayNotes[index],color);
     });
-    const xml=exportMusicXml(props.project,displayScore,{onlyInstrument:props.instrument,previewNoteheadColors:displayColors,engravingPreview:true});
+    const xml=exportMusicXml(props.project,displayScore,{onlyInstrument:props.instrument,previewNoteheadColors:displayColors,engravingPreview:true,automaticBellows:bellowsGuide.value,bellowsFirstVisibleMeasure:displayedRange.value.first});
     await renderer.load(xml);
     if(current!==generation)return;
     notesByColor=colors.byColor;
@@ -646,7 +649,11 @@ function scheduleLayout(){
 }
 
 watch(()=>[props.project,props.score,props.instrument],scheduleContentRender,{deep:true});
-watch(displayedRange,scheduleLayout);
+watch(displayedRange,(next,previous)=>{
+ if(canShowBellowsGuide.value&&bellowsGuide.value&&next.first!==previous.first)scheduleContentRender();
+ else scheduleLayout();
+});
+watch(bellowsGuide,scheduleContentRender);
 watch(()=>props.expanded,scheduleLayout);
 watch(()=>props.selectedNote,()=>{highlightSelection();highlightActiveMeasure();followExpectedNote();});
 watch(()=>props.selectedNotes,highlightSelection);
@@ -700,7 +707,7 @@ onBeforeUnmount(()=>{
       <span role="status">{{selectedNote?noteLabel(selectedNote):'Select a notehead to hear it.'}}</span>
       <button v-if="selectedNote" type="button" class="secondary" @click="emit('edit')">Edit selected note</button>
     </div>
-    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><span class="score-range-status" role="status">Measures {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</span><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button></div>
+    <div class="score-appearance-control"><button type="button" class="secondary" :aria-pressed="rangeMode" @click="rangeMode=!rangeMode" title="Select measures by dragging">{{rangeMode?'Cancel range':'Select range'}}</button><template v-if="rangeMode&&selectedMeasures"><span class="score-range-status" role="status">Measures {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</span><button type="button" class="secondary" @click="applyRange()">Use {{selectedMeasures[0]}}–{{selectedMeasures[1]}}</button><button type="button" class="secondary" @click="applyRange(true)">Edit range</button></template><button type="button" class="secondary" :aria-pressed="themedScore" @click="setScoreAppearance(!themedScore)" title="Remember score appearance on this device">{{themedScore?'Score: theme':'Score: paper'}}</button><button v-if="canShowBellowsGuide" type="button" class="secondary" :aria-pressed="bellowsGuide" title="Show suggested pull and push directions above the staff, in square brackets" @click="bellowsGuide=!bellowsGuide">Bellows guide</button></div>
     <p v-if="loading&&!followMeasure" class="score-preview-status" role="status">Engraving score…</p>
     <p v-if="error" class="score-preview-error" role="alert">{{error}}</p>
     <div ref="host" class="score-preview-canvas" :class="{'score-preview-interactive':interactive,'score-preview-follow':followMeasure,'score-range-mode':rangeMode,'score-move-mode':moveMode,'score-brush-mode':brushMode,'score-workspace-viewport':workspaceViewport}" :aria-busy="loading"
