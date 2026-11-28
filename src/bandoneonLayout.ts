@@ -50,3 +50,17 @@ export function assignBandoneonButtons(layout:PhysicalBandoneonLayout,targets:re
 export function feasibleBellowsDirections(layout:PhysicalBandoneonLayout,targets:readonly ButtonTarget[]):BellowsDirection[]{
  return (['pull','push'] as const).filter(direction=>assignBandoneonButtons(layout,targets,direction)!==undefined);
 }
+
+export type BellowsFrame={start:number;end:number;targets:readonly ButtonTarget[]};
+export type BellowsDecision={start:number;end:number;direction:BellowsDirection|null;buttons:readonly BandoneonButton[];reason?:string};
+/** Global direction is shared by both hands. Prefer continuity; never disguise impossible chords. */
+export function planBellows(layout:PhysicalBandoneonLayout,frames:readonly BellowsFrame[],initial:BellowsDirection='pull'):BellowsDecision[]{
+ let direction=initial;
+ return frames.map(frame=>{
+  const same=assignBandoneonButtons(layout,frame.targets,direction);
+  if(same)return {...frame,direction,buttons:same};
+  const other=direction==='pull'?'push':'pull',alternative=assignBandoneonButtons(layout,frame.targets,other);
+  if(alternative){direction=other;return {...frame,direction,buttons:alternative};}
+  return {...frame,direction:null,buttons:[],reason:'No common direction with distinct available buttons'};
+ });
+}
