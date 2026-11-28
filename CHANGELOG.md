@@ -1,3 +1,7 @@
+## Readable provisional vocal guides (2026-11-28)
+
+- New songs made from pasted lyrics and chords use regular notes for the provisional Voice guide, keeping short releases in playback rather than writing tiny rests. Existing projects and recorded or imported melodies are unchanged.
+
 ## Clearer Vals accompaniment notation (2026-11-28)
 
 - Generated 3/4 piano and contrabass accompaniment uses readable quarter notes for these beat-aligned attacks. Playback keeps the same short releases, without writing them as tiny notes, ties and rests.

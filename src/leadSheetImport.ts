@@ -207,8 +207,14 @@ function vocalGuide(preview:LeadImportPreview,beats:number):Note[]{
   if(!words.length)continue;
   const total=line.measures*beats;
   const step=total/words.length;
+  // Keep even whole beats when they already fit; otherwise use the coarsest
+  // regular subdivision that can hold every word without sharing an onset.
+  // Floor into that grid so a word stays in its original measure.
+  const subdivisions=Number.isInteger(step)?1:[2,4,8,16].find(n=>total*n>=words.length);
+  const at=(index:number)=>subdivisions
+    ?Math.floor(index*total*subdivisions/words.length)/subdivisions:index*step;
   for(let i=0;i<words.length;i++){
-   const start=line.start*beats+i*step;
+   const start=line.start*beats+at(i);
    const bar=Math.min(preview.bars.length-1,Math.floor(start/beats));
    const changes=preview.bars[bar]?.chord.split(',').filter(Boolean)??[];
    const within=(start%beats)/beats;
@@ -220,7 +226,10 @@ function vocalGuide(preview:LeadImportPreview,beats:number):Note[]{
     .filter(pitch=>pitch>=60&&pitch<=81);
    const pitch=candidates.sort((a,b)=>Math.abs(a-previousPitch)-Math.abs(b-previousPitch)||a-b)[0]??67;
    previousPitch=pitch;
-   notes.push({pitch,start,duration:Math.min(step*0.9,beats-(start%beats)),velocity:76,
+   const duration=subdivisions?Math.min(at(i+1)-at(i),beats-(start%beats))
+     :Math.min(step,beats-(start%beats));
+   // A detached release is a playback property, not an engraved rest.
+   notes.push({pitch,start,duration,gate:Math.min(0.94,step*0.81/duration),velocity:76,
     lyric:words[i],syllabic:'single',source:'generated'});
   }
  }
