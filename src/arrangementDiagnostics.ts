@@ -36,6 +36,9 @@ export function diagnoseArrangement(p:Project,score:Score,scope:ReviewScope={}):
    for(const frame of plan.decisions)if(frame.direction===null){
     for(let bar=Math.floor((frame.start+1e-7)/p.beats);bar<=Math.floor((frame.end-1e-7)/p.beats);bar++)conflictMeasures.add(bar);
    }
+   const capacityMeasures=new Set<number>();
+   for(const frame of plan.decisions)if(frame.capacityExceeded)capacityMeasures.add(Math.floor(frame.start/p.beats));
+   for(const bar of capacityMeasures)add(inst,bar,'playability','warning','Estimated bellows capacity exceeded; consider reversal or air recovery (heuristic)');
    for(const bar of conflictMeasures)add(inst,bar,'playability','warning','Physical bandoneon: no uninterrupted common bellows direction and button assignment found');
    // Current layouts combine both bellows directions. Check explicit hand
    // availability only; do not claim a simultaneous direction/fingering solution.

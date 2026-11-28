@@ -1,5 +1,5 @@
-import type {BandoneonButton,PhysicalBandoneonLayout} from './bandoneonLayout';
-export type PortableBandoneonLayout={schemaVersion:1;id:string;name:string;manufacturer?:string;source:string;attribution?:string;buttons:BandoneonButton[]};
+import type {BandoneonButton,PhysicalBandoneonLayout,BellowsCapacitySettings} from './bandoneonLayout';
+export type PortableBandoneonLayout={schemaVersion:1;id:string;name:string;manufacturer?:string;source:string;attribution?:string;bellowsCapacity?:BellowsCapacitySettings;buttons:BandoneonButton[]};
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const str=(v:unknown,max:number,required=false):string=>{
  if(typeof v!=='string'||v.length>max||(required&&!v.trim()))throw Error('Invalid text field');
@@ -24,7 +24,13 @@ export function validateBandoneonLayout(value:unknown):PortableBandoneonLayout{
   ids.add(id);positions.add(position);
   return {id,hand,x,y,pull,push};
  });
- return {schemaVersion:1,id,name,source:str(value.source??'',2000),manufacturer:value.manufacturer===undefined?undefined:str(value.manufacturer,160),attribution:value.attribution===undefined?undefined:str(value.attribution,500),buttons};
+ let bellowsCapacity:BellowsCapacitySettings|undefined;
+ if(value.bellowsCapacity!==undefined){
+  const c=value.bellowsCapacity;
+  if(!record(c)||typeof c.capacitySeconds!=='number'||!Number.isFinite(c.capacitySeconds)||c.capacitySeconds<1||c.capacitySeconds>300||typeof c.initialExtension!=='number'||!Number.isFinite(c.initialExtension)||c.initialExtension<0||c.initialExtension>1)throw Error('Invalid bellows capacity settings');
+  bellowsCapacity={capacitySeconds:c.capacitySeconds,initialExtension:c.initialExtension};
+ }
+ return {schemaVersion:1,id,name,bellowsCapacity,source:str(value.source??'',2000),manufacturer:value.manufacturer===undefined?undefined:str(value.manufacturer,160),attribution:value.attribution===undefined?undefined:str(value.attribution,500),buttons};
 }
 export function importBandoneonLayout(json:string){if(json.length>256000)throw Error('Layout file too large');return validateBandoneonLayout(JSON.parse(json));}
 export function exportBandoneonLayout(layout:PortableBandoneonLayout){return JSON.stringify(validateBandoneonLayout(layout),null,2);}

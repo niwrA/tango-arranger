@@ -74,3 +74,13 @@ assert.deepEqual(playback.bellowsGuideMarks(release),[{beat:0,direction:'pull',r
 assert.deepEqual(playback.bellowsGuideMarks(conflict),[]);
 assert.deepEqual(playback.bellowsGuideMarks(lookahead),[{beat:0,direction:'push',reversal:false}]);
 console.log('PASS derived direction and reversal guide marks');
+
+const capacity=b.simulateBellowsCapacity(lookahead,1,{capacitySeconds:4,initialExtension:.5});
+assert.equal(capacity[0].extensionEnd,.25);
+assert.equal(capacity[1].extensionEnd,0);
+assert.equal(capacity[1].capacityExceeded,true);
+const refill=b.simulateBellowsCapacity(release,1,{capacitySeconds:4,initialExtension:.5});
+assert.equal(refill[0].extensionEnd,.75);
+assert.equal(refill[1].extensionEnd,.5);
+assert.throws(()=>formats.validateBandoneonLayout({...custom,bellowsCapacity:{capacitySeconds:0,initialExtension:.5}}),/capacity/);
+console.log('PASS estimated capacity, direction, polyphony and calibration validation');

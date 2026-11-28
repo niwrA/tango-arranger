@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,ref,watch,nextTick,onBeforeUnmount} from 'vue';
-import type {PhysicalBandoneonLayout,SustainedBellowsDecision} from './bandoneonLayout';
+import type {PhysicalBandoneonLayout,CapacityFrame} from './bandoneonLayout';
 import {chordTones,instrumentFamily,parsePitch,type Instrument} from './music';
 import {suggestViolinPosition,violinStopOffsets,type ViolinPosition} from './violinPositions';
 import {fingerAtPosition} from './stringPositionGuide';
@@ -11,7 +11,7 @@ import {pianoWindowCovering} from './pianoRegisters';
 /** All highlighted notes are concert-pitch chord tones, not a generated fingering or the
  * exact notes currently being played by this part until live note highlighting is enabled. Physical stopped-note locations are
  * schematic; bandoneon systems and wind fingerings need an instrument-specific chart. */
-const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right';physicalLayout?:PhysicalBandoneonLayout;bellowsFrame?:SustainedBellowsDecision;layoutProvisional?:boolean}>();
+const props=defineProps<{instrument:Instrument;chord:string;nextChord:string;currentBeats:string[];upcomingBeats:string[];activeBeat:number;activePitches:number[];activeStringNotes?:{pitch:number;stringMidi?:number}[];dimUnplayedChordTones:boolean;violinPosition?:ViolinPosition|null;positionGuide?:StringPositionGuide|null;shiftDuration?:number;measurePitches?:number[];registerPitches?:number[];splitPitch?:number;focus?:boolean;learn?:boolean;showTargetLabel?:boolean;targetPitch?:number|null;feedbackProgress?:number;feedbackState?:string;feedbackCents?:number|null;bandoneonHands?:{left:number[];right:number[];inferred:boolean};bandoneonTargetHand?:'left'|'right';physicalLayout?:PhysicalBandoneonLayout;bellowsFrame?:CapacityFrame;layoutProvisional?:boolean}>();
 const physicalHands=computed(()=>(['left','right'] as const).map(hand=>{
  const buttons=props.physicalLayout?.buttons.filter(b=>b.hand===hand)??[];
  const xs=buttons.map(b=>b.x),ys=buttons.map(b=>b.y);
@@ -262,6 +262,7 @@ const diagramDescription=computed(()=>{
    </div>
    <div v-else-if="family==='Bandoneon'&&props.physicalLayout&&!props.learn" class="physical-bandoneon" role="group" aria-label="Physical bandoneon keyboard">
      <strong class="physical-direction">{{props.layoutProvisional?'Provisional chart':props.bellowsFrame?.direction==='pull'?'← PULL · OPEN →':props.bellowsFrame?.direction==='push'?'→ PUSH · CLOSE ←':props.bellowsFrame?'No continuous assignment':'Bellows direction —'}}</strong>
+     <div v-if="props.bellowsFrame" class="physical-capacity"><label>Estimated extension <meter min="0" max="1" :value="props.bellowsFrame.extensionStart"/></label><small v-if="props.bellowsFrame.capacityExceeded" role="status">Estimated travel limit exceeded</small></div>
      <div class="physical-hands">
       <section v-for="hand in physicalHands" :key="hand.hand">
        <small>{{hand.hand==='left'?'Left hand':'Right hand'}}</small>

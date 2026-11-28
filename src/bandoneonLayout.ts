@@ -125,3 +125,20 @@ export function planSustainedBellows(layout:PhysicalBandoneonLayout,targets:read
  }
  return result;
 }
+
+/** Heuristic units: seconds of one sounding button at reference pressure
+ * from fully closed to fully open. Not a calibrated air-volume measurement. */
+export type BellowsCapacitySettings={capacitySeconds:number;initialExtension:number};
+export const DEFAULT_BELLOWS_CAPACITY:BellowsCapacitySettings={capacitySeconds:20,initialExtension:.5};
+export type CapacityFrame=SustainedBellowsDecision & {extensionStart:number;extensionEnd:number;pressure:number;capacityExceeded:boolean};
+export function simulateBellowsCapacity(frames:readonly SustainedBellowsDecision[],secondsPerBeat:number,settings:BellowsCapacitySettings=DEFAULT_BELLOWS_CAPACITY,pressureForTarget:(id:string)=>number=()=>1):CapacityFrame[]{
+ let extension=settings.initialExtension;
+ return frames.map(frame=>{
+  const demands=frame.targetIds.map(id=>Math.max(.05,Math.min(1.5,pressureForTarget(id))));
+  const pressure=demands.length?demands.reduce((a,b)=>a+b,0)/demands.length:1;
+  const travel=frame.direction?(frame.end-frame.start)*secondsPerBeat*demands.length*pressure/settings.capacitySeconds:0;
+  const raw=extension+(frame.direction==='pull'?travel:frame.direction==='push'?-travel:0);
+  const result={...frame,extensionStart:extension,extensionEnd:Math.max(0,Math.min(1,raw)),pressure,capacityExceeded:raw>1+1e-7||raw< -1e-7};
+  extension=result.extensionEnd;return result;
+ });
+}

@@ -161,10 +161,10 @@ function writeVoice(notes:Note[],bar:number,beats:number,key='C',voice?:number,s
     const noteheadColor=noteheadColors?.get(n);
     const original=noteheadColor?{...n,noteheadColor}:n;
     return n.gesture?.partner
-      ?[original,{...n,noteheadColor,pitch:n.gesture.partner[0].pitch,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]
+      ?[original,{...n,noteheadColor,pitch:n.gesture.partner[0].pitch,bandoneonButtonId:undefined,gesture:undefined,slideTo:undefined,lyric:undefined,lyric2:undefined,melisma:undefined,melisma2:undefined}]
       :[original];
   });
-  const events=notationNotes.map(n=>({noteheadColor:n.noteheadColor,gesture:n.gesture,bowedTremolo:n.bowedTremolo,finger:n.finger,bowDirection:n.bowDirection,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,xmlTieContinuation:n.xmlTieContinuation,xmlVoice:n.xmlVoice,xmlStaff:n.xmlStaff,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
+  const events=notationNotes.map(n=>({noteheadColor:n.noteheadColor,gesture:n.gesture,bowedTremolo:n.bowedTremolo,finger:n.finger,bowDirection:n.bowDirection,bellowsDirection:n.bellowsDirection,bandoneonButtonId:n.bandoneonButtonId,pitch:n.pitch,accent:n.accent,start:Math.round((n.start-offset)*DIV),end:Math.round((n.start-offset+n.duration)*DIV),originStart:Math.round((n.start-offset)*DIV),originEnd:Math.round((n.start-offset+n.duration)*DIV),technique:n.technique,articulation:n.articulation,xmlTieContinuation:n.xmlTieContinuation,xmlVoice:n.xmlVoice,xmlStaff:n.xmlStaff,slideTo:n.slideTo,approachSlideFrom:n.approachSlideFrom,vibrato:n.vibrato,swellTo:n.swellTo,subito:n.subito,velocity:n.velocity,lyric:n.lyric,syllabic:n.syllabic,lyric2:n.lyric2,syllabic2:n.syllabic2,melisma:n.melisma,melisma2:n.melisma2}))
     .filter(n=>n.end>0&&n.start<barTicks).map(n=>({...n,start:Math.max(0,n.start),end:Math.min(barTicks,n.end)}))
     .filter(n=>n.end>n.start);
   // A fixed 1/16-beat grid avoids unsupported note lengths and makes

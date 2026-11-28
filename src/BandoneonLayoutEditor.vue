@@ -100,6 +100,11 @@ function bounds(hand:BandoneonButton['hand']){
    <label>Name<input v-model="draft.name"/></label><label>Layout ID<input v-model="draft.id"/></label>
    <label>Manufacturer<input v-model="draft.manufacturer"/></label><label>Source<input v-model="draft.source"/></label><label>Attribution<input v-model="draft.attribution"/></label>
   </div>
+  <details><summary>Estimated bellows capacity</summary>
+   <label><input type="checkbox" :checked="!!draft.bellowsCapacity" @change="draft.bellowsCapacity=($event.target as HTMLInputElement).checked?{capacitySeconds:20,initialExtension:.5}:undefined"/> Configure capacity</label>
+   <div v-if="draft.bellowsCapacity" class="layout-fields"><label>Single-button capacity (seconds)<input type="number" min="1" max="300" step="1" v-model.number="draft.bellowsCapacity.capacitySeconds"/></label><label>Initial extension (0–1)<input type="number" min="0" max="1" step=".05" v-model.number="draft.bellowsCapacity.initialExtension"/></label></div>
+   <small>Heuristic estimate, not measured airflow. Unconfigured layouts use the experimental default.</small>
+  </details>
   <p>{{draft.buttons.length}} buttons · {{draft.buttons.length&&layoutIsUnisonoric(draft)?'Unisonoric':'Direction-dependent or empty'}}</p>
   <label>Displayed pitch<select v-model="direction"><option value="pull">Opening / pull</option><option value="push">Closing / push</option></select></label>
   <p class="hint">Drag buttons or use arrow keys to move them in quarter-unit steps. Select a button to audition either bellows direction.</p>
