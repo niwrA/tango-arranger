@@ -125,7 +125,7 @@ export function bandoneonPlaybackPlan(project:Project,inst:Instrument,notes:read
  const targets=notes.flatMap((n,i)=>{
   const staff=n.staffOverride??n.xmlStaff,hand=staff===1?'right' as const:staff===2?'left' as const:undefined;
   const start=n.start,end=start+noteSoundingDuration(n);
-  return [{id:String(i),pitch:n.pitch+shift,hand,start,end},...(n.gesture?.partner?.length?[{id:i+':partner',pitch:n.gesture.partner[0].pitch+shift,hand,start,end}]:[])];
+  return [{id:String(i),pitch:n.pitch+shift,hand,start,end,direction:n.bellowsDirection,buttonId:n.bandoneonButtonId},...(n.gesture?.partner?.length?[{id:i+':partner',pitch:n.gesture.partner[0].pitch+shift,hand,start,end}]:[])];
  });
  const decisions=planSustainedBellows(layout,targets);
  for(const d of decisions)if(d.direction)d.targetIds.forEach((id,i)=>{

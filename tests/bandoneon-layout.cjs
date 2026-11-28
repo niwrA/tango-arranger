@@ -63,3 +63,9 @@ assert.equal(plan.assignments.get(notes[0]).direction,'push');
 assert.equal(plan.assignments.get(notes[1]).button.id,'b');
 assert.equal(playback.bandoneonPlaybackPlan({},'Bandoneon I',notes).assignments.size,0);
 console.log('PASS sustained bellows lookahead, held buttons, release boundaries and playback mapping');
+
+assert.ok(b.planSustainedBellows(synthetic,[{...timed('hold',62,0,3),direction:'pull'},timed('later',61,1,2)]).every(d=>d.direction===null));
+assert.ok(b.planSustainedBellows(synthetic,[{...timed('hold',62,0,3),buttonId:'b'}]).every(d=>d.direction===null));
+const marked=[{pitch:62,start:0,duration:1,gate:1,bellowsDirection:'push',bandoneonButtonId:'c'}];
+assert.equal(playback.bandoneonPlaybackPlan(restored,'Bandoneon I',marked).assignments.get(marked[0]).direction,'push');
+console.log('PASS explicit bellows and button constraints');

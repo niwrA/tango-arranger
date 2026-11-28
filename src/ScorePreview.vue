@@ -77,7 +77,7 @@ let followedGroup:SVGGElement|undefined;
 function noteLabel(note:Note){
   const measure=Math.floor((note.start+1e-7)/props.project.beats);
   const beat=Number((note.start-measure*props.project.beats+1).toFixed(2));
-  return `${midiName(note.pitch+(props.project.transposeSemitones??0))}, measure ${measure+1}, beat ${beat}`;
+  return `${midiName(note.pitch+(props.project.transposeSemitones??0))}, measure ${measure+1}, beat ${beat}${note.bellowsDirection?' · '+note.bellowsDirection:''}${note.bandoneonButtonId?' · button '+note.bandoneonButtonId:''}`;
 }
 
 function setTabStop(head:SVGElement){

@@ -70,7 +70,7 @@ import {playBandoneonNote,stopBandoneonVoices,setBandoneonGain} from './bandoneo
 import {isVoiceGuidePart,usesModeledAudio,playVoiceGuide,stopVoiceGuide,setVoiceGuideGain,type VoiceGuideHandle} from './voiceGuideAudio';
 import BandoneonLayoutEditor from './BandoneonLayoutEditor.vue';
 import {customBandoneonLayoutForPart,validateBandoneonLayout,type PortableBandoneonLayout} from './bandoneonLayoutFormat';
-import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonProfileForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
+import {BANDONEON_MODELS,bandoneonModelForPart,bandoneonProfileForPart,physicalBandoneonLayoutForPart,bandoneonHandForPitch,type BandoneonModelId} from './bandoneon';
 import {pizzicatoBank,usesPizzicatoBank,resolveStringTechnique,pizzicatoVariantBank,pizzicatoVariant} from './pizzicatoSamples';
 import {needsSustainingSynth} from './sampleSustain';
 import {arcoBank,canUseArcoSample,openPianoBank} from './openSampleBanks';
@@ -765,6 +765,11 @@ const roleCueHarmony=computed(()=>{
  const sameBar=harmony.nextChordMeasure===bar+1;
  return {sameBar,chord:sameBar?harmony.nextChord:performanceChordBeats.value.next.find(symbol=>symbol!=='–')??'—',beat:sameBar?harmony.nextChordBeat:null};
 });
+const performanceBellowsPlans=computed(()=>new Map(projectInstruments(project.value).filter(inst=>inst.startsWith('Bandoneon')).map(inst=>[inst,bandoneonPlaybackPlan(project.value,inst,playbackNotesInRange(score.value[inst]??[],0,Infinity,project.value.transposeSemitones??0))])));
+function performanceBellowsFrame(inst:Instrument){
+ if(!playing.value||arrangementCountingIn.value)return undefined;
+ return performanceBellowsPlans.value.get(inst)?.decisions.find(frame=>frame.start<=performanceBeat.value+1e-7&&frame.end>performanceBeat.value+1e-7);
+}
 const performanceCueParts=computed(()=>performanceParts.value.map(part=>{
  const bar=performanceBar.value,p=project.value,nextBar=Math.min(bar+1,p.bars.length-1);
  const notes=score.value[part.inst]??[];
@@ -6394,6 +6399,20 @@ function updateSelectedFingering(field:'stringMidi'|'handPosition'|'finger',raw:
  catch(error){message.value='Fingering edit rejected: '+String(error);}
 }
 
+function setSelectedBellows(field:'bellowsDirection'|'bandoneonButtonId',value:string){
+ const old=selectedEvent.value;if(!old||!noteInst.value.startsWith('Bandoneon'))return;
+ const next:Note={...old};
+ if(field==='bellowsDirection'){
+  if(value==='pull'||value==='push')next.bellowsDirection=value;else delete next.bellowsDirection;
+ }else if(value)next.bandoneonButtonId=value;else delete next.bandoneonButtonId;
+ try{commitInspectedNote(old,next);}catch(e){message.value=String(e);}
+}
+const selectedBandoneonButtons=computed(()=>{
+ const n=selectedEvent.value;if(!n||!noteInst.value.startsWith('Bandoneon'))return [];
+ const layout=physicalBandoneonLayoutForPart(project.value,noteInst.value);
+ const pitch=n.pitch+(project.value.transposeSemitones??0),staff=n.staffOverride??n.xmlStaff;
+ return (layout?.buttons??[]).filter(b=>(staff!==1&&staff!==2||b.hand===(staff===1?'right':'left'))&&(n.bellowsDirection?b[n.bellowsDirection]===pitch:b.pull===pitch||b.push===pitch));
+});
 function updateSelectedNote(field:'lyric'|'lyric2'|'syllabic'|'syllabic2'|'melisma'|'melisma2'|'pitch'|'start'|'duration'|'velocity'|'articulation'|'technique'|'gate'|'slideTo'|'approachSlideFrom'|'vibrato'|'swellTo'|'subito',raw:string){
   const old=selectedEvent.value;
   if(!old)return;
@@ -7046,7 +7065,7 @@ async function homePractise(inst:Instrument){
         <span class="performance-card-dynamic-next" :style="{'--dyn-alpha':stageDynamicAlpha(part.hasNextMeasure?part.nextDynamics:'—')}">Next <strong>{{part.hasNextMeasure?part.nextDynamics:'—'}}</strong></span>
       </span>
       <span v-if="part.vocalRest" class="stage-vocal-rest"><strong>{{part.vocalEntranceMeasure===null?'Finished':part.vocalEntranceMeasure-(performanceBar+1)}}</strong><span>{{part.vocalEntranceMeasure===null?'No further entrance':'Measures until entrance · M'+part.vocalEntranceMeasure}}</span></span>
-      <PerformanceChordDiagram v-else-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
+      <PerformanceChordDiagram v-else-if="cardShowsDiagram(part.inst)" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord" :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)" :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide" :measure-pitches="part.measurePitches" :register-pitches="part.registerPitches" :split-pitch="pianoSplit"/>
       <PerformanceRoleCues v-else :beat-glow="performanceBeatGlow" :role="part.role" :next-role="part.nextRole" :chord="performanceHarmony.chord" :next-chord="roleCueHarmony.chord" :next-chord-beat="roleCueHarmony.beat" :same-measure-chord="roleCueHarmony.sameBar"
         :articulation="part.articulation" :next-articulation="part.nextArticulation"
         :dynamics="part.dynamics" :next-dynamics="part.nextDynamics" :cue-status="part.cueStatus"
@@ -7140,18 +7159,18 @@ async function homePractise(inst:Instrument){
            :from-measure="focusScoreRange?.[0]??performanceScoreFrom" :to-measure="focusScoreRange?.[1]??performanceScoreTo"
            :active-measure="performanceBar+1" :playing-notes="performanceScorePlayingNotes" expanded follow-measure :interactive="false" @range="selectFocusScoreRange" @edit-range="(first,last)=>editScoreRange(part.inst,first,last)" />
          <PianoFocusView v-if="!part.vocalRest && performanceScoreView!=='score' && part.inst==='Piano' && (focusShowsScore||cardShowsDiagram(part.inst))"
-           :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
+           :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :measure-pitches="part.measurePitches" :range-pitches="part.registerPitches"
            :chord="performanceHarmony.chord" :split-pitch="pianoSplit" @switch-mode="performanceScoreView==='both'?performanceScoreView='score':flipPerformanceCard(part.inst)"/>
          <button v-else-if="!part.vocalRest&&performanceScoreView==='off'&&cardShowsDiagram(part.inst)" type="button" class="instrument-focus-switch-area" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show role and dynamics for '+part.display" title="Tap to show role and dynamics">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
-             :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
+             :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </button>
          <div v-else-if="!part.vocalRest&&performanceScoreView==='both'" class="instrument-focus-score-diagram">
            <PerformanceChordDiagram :focus="true" :instrument="part.inst" :chord="performanceHarmony.chord" :next-chord="performanceHarmony.nextChord"
              :current-beats="performanceChordBeats.current" :upcoming-beats="performanceChordBeats.next" :active-beat="Math.floor(performanceMeasureBeat)"
-             :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
+             :physical-layout="physicalBandoneonLayoutForPart(project,part.inst)" :bellows-frame="performanceBellowsFrame(part.inst)" :layout-provisional="!customBandoneonLayoutForPart(project,part.inst)" :active-pitches="part.activePitches" :active-string-notes="part.activeStringNotes" :dim-unplayed-chord-tones="part.dimUnplayedChordTones" :violin-position="part.violinPosition" :position-guide="part.positionGuide"/>
          </div>
          <button v-else-if="!part.vocalRest&&!focusShowsScore" type="button" class="instrument-focus-switch-area instrument-focus-role-switch" @click="flipPerformanceCard(part.inst)"
            :aria-label="'Show diagram for '+part.display" title="Tap to show diagram">
@@ -8449,6 +8468,11 @@ async function homePractise(inst:Instrument){
         </select></label>
         <small class="hint">Auto suggestions use the surrounding measure; explicit selections are retained. Check double stops, chords and shifts manually.</small>
       </div>
+      <template v-if="noteInst.startsWith('Bandoneon')">
+       <label>Bellows direction<select :value="selectedEvent.bellowsDirection??''" @change="setSelectedBellows('bellowsDirection',($event.target as HTMLSelectElement).value)"><option value="">Auto / unmarked</option><option value="pull">Pull · open</option><option value="push">Push · close</option></select></label>
+       <label v-if="customBandoneonLayoutForPart(project,noteInst)">Physical button<select :value="selectedEvent.bandoneonButtonId??''" @change="setSelectedBellows('bandoneonButtonId',($event.target as HTMLSelectElement).value)"><option value="">Auto</option><option v-if="selectedEvent.bandoneonButtonId&&!selectedBandoneonButtons.some(b=>b.id===selectedEvent.bandoneonButtonId)" :value="selectedEvent.bandoneonButtonId">Unavailable: {{selectedEvent.bandoneonButtonId}}</option><option v-for="b in selectedBandoneonButtons" :key="b.id" :value="b.id">{{b.hand}} · {{b.id}}</option></select></label>
+       <small class="hint">Explicit markings constrain custom-layout planning; incompatible markings are reported in arrangement review.</small>
+      </template>
       <label>Base velocity · {{selectedEvent.velocity??80}} / 127<input type="range" min="1" max="127" :value="selectedEvent.velocity??80" @input="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="127" :value="selectedEvent.velocity??80" @change="updateSelectedNote('velocity',($event.target as HTMLInputElement).value)"/></label>
       <label>Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato · (short playback)</option><option value="marcato_staccato">Marcato &gt; (accented)</option><option value="legato">Legato</option></select></label>
       <label>Sounding length (%) · {{Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)}}%<input type="range" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @input="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/><input type="number" min="1" max="100" step="1" :value="Math.round((selectedEvent.gate??(selectedEvent.articulation?ARTICULATION_GATES[selectedEvent.articulation]:0.90))*100)" @change="updateSelectedNote('gate',($event.target as HTMLInputElement).value)"/></label>
@@ -8516,6 +8540,11 @@ async function homePractise(inst:Instrument){
       <button type="button" class="secondary" aria-label="Shorten note by quarter beat" @click="changeNoteDuration(-0.25)">Shorter −</button>
       <button type="button" class="secondary" aria-label="Lengthen note by quarter beat" @click="changeNoteDuration(0.25)">Longer +</button>
       <label class="note-focus-articulation">Articulation<select :value="selectedEvent.articulation??'inherit'" @change="updateSelectedNote('articulation',($event.target as HTMLSelectElement).value)"><option value="inherit">Unmarked</option><option value="staccato">Staccato ·</option><option value="marcato_staccato">Marcato &gt;</option><option value="legato">Legato</option></select></label>
+      <template v-if="noteInst.startsWith('Bandoneon')">
+       <label>Bellows direction<select :value="selectedEvent.bellowsDirection??''" @change="setSelectedBellows('bellowsDirection',($event.target as HTMLSelectElement).value)"><option value="">Auto / unmarked</option><option value="pull">Pull · open</option><option value="push">Push · close</option></select></label>
+       <label v-if="customBandoneonLayoutForPart(project,noteInst)">Physical button<select :value="selectedEvent.bandoneonButtonId??''" @change="setSelectedBellows('bandoneonButtonId',($event.target as HTMLSelectElement).value)"><option value="">Auto</option><option v-if="selectedEvent.bandoneonButtonId&&!selectedBandoneonButtons.some(b=>b.id===selectedEvent.bandoneonButtonId)" :value="selectedEvent.bandoneonButtonId">Unavailable: {{selectedEvent.bandoneonButtonId}}</option><option v-for="b in selectedBandoneonButtons" :key="b.id" :value="b.id">{{b.hand}} · {{b.id}}</option></select></label>
+       <small class="hint">Explicit markings constrain custom-layout planning; incompatible markings are reported in arrangement review.</small>
+      </template>
       <label class="note-focus-articulation">Gesture<select :value="gesturePresetForNote(selectedEvent)" @change="setSelectedGesturePreset(($event.target as HTMLSelectElement).value)"><option value="">None</option><option v-for="preset in GESTURE_PRESETS.filter(g=>noteInst.startsWith('Violin')||!g.value.startsWith('sirena'))" :key="preset.value" :value="preset.value">{{preset.label}}</option></select></label>
       <button type="button" class="secondary" @click="noteFocusMore=!noteFocusMore;noteDetailsPopup=false">{{noteFocusMore?'Close details':'All note properties'}}</button>
       <button type="button" class="secondary" @click="deleteSelectedNote">Delete</button>

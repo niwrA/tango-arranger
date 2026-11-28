@@ -65,7 +65,7 @@ export function planBellows(layout:PhysicalBandoneonLayout,frames:readonly Bello
  });
 }
 
-export type TimedButtonTarget=ButtonTarget & {id:string;start:number;end:number};
+export type TimedButtonTarget=ButtonTarget & {id:string;start:number;end:number;direction?:BellowsDirection;buttonId?:string};
 export type SustainedBellowsDecision=BellowsDecision & {targetIds:readonly string[]};
 /** A continuous sounding group must share one direction and retain each held
  * button. Reversals are permitted only at boundaries with no continuing notes.
@@ -88,7 +88,7 @@ export function planSustainedBellows(layout:PhysicalBandoneonLayout,targets:read
   // All notes sharing a physical button must have disjoint sounding intervals.
   // Bounded backtracking prevents pathological imported layouts blocking the UI.
   function solve(dir:BellowsDirection):BandoneonButton[]|undefined{
-   const choices=group.map((t,i)=>({i,t,buttons:layout.buttons.filter(b=>b[dir]===t.pitch&&(!t.hand||b.hand===t.hand))}));
+   const choices=group.map((t,i)=>({i,t,buttons:layout.buttons.filter(b=>(!t.direction||t.direction===dir)&&(!t.buttonId||t.buttonId===b.id)&&b[dir]===t.pitch&&(!t.hand||b.hand===t.hand))}));
    if(choices.some(c=>!c.buttons.length))return;
    const assigned:BandoneonButton[]=[],busy=new Map<string,number>();
    let attempts=0;
