@@ -1,3 +1,8 @@
+## More room for notes on phones (2026-11-28)
+
+- Regular and Focus views share icon buttons for navigation, Undo and Redo and put the smaller Notes/Measures picker next to Options. Focus combines the part name and edition in one picker. The edition list still shows saved and protected status.
+- Opening the Note Editor brings its tab fully into view on narrow screens.
+
 ## [Feature] Arrangement Review (2026-11-28)
 
 - Open **Song settings → Review arrangement** to check a whole arrangement, one instrument or the working range for range, playability, expression and balance issues. Listen to the original and proposed edits before applying only the fixes you select.

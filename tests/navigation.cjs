@@ -108,7 +108,7 @@ test('section and key editing is separate from the orchestration map',()=>{
 test('Structure opens by default, saved tabs restore, and tabs have descriptive labels',()=>{
   assert.match(src,/function initialWorkspaceTab\(\):WorkspaceTab\{[\s\S]*?workspaceTabs.includes\(saved as WorkspaceTab\)[\s\S]*?return 'structure'/);
   assert.match(src,/const active=ref<[^>]+>\(initialWorkspaceTab\(\)\)/);
-  const nav=src.match(/<nav class="tabs workspace-menu" aria-label="Main work areas">[\s\S]*?<\/nav>/)?.[0];
+  const nav=src.match(/<nav class="tabs workspace-menu" aria-label="Main work areas"[^>]*>[\s\S]*?<\/nav>/)?.[0];
   assert.ok(nav);
   assert.deepEqual([...nav.matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map(m=>m[1]),
     ['Song','Lead sheet','Arrangement','Note editor','Rhythm designer','About &amp; releases']);
