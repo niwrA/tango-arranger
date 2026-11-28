@@ -20,7 +20,7 @@ import LeadMelodyGrid from './LeadMelodyGrid.vue';
 const ScorePreview=defineAsyncComponent(()=>import('./ScorePreview.vue'));
 const ArrangementScore=defineAsyncComponent(()=>import('./ArrangementScore.vue'));
 import {duplicateProjectSection} from './sectionDuplication';
-import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,soundingSeconds,type TempoExpressions} from './tempoExpressions';
+import {normalizedTempoExpressions,validateTempoExpressions,tempoAutomationPoints,performanceTempoAtBeat,scoreClockSeconds,soundingSeconds,type TempoExpressions} from './tempoExpressions';
 import {copyMeasureRange,pasteMeasureRange,clearMeasureRange,insertBlankMeasures,deleteMeasureRange,previewMeasurePaste,previewMeasureMove,moveMeasureRange,ALL_MEASURE_FIELDS,type MeasureRange,type MeasureFields,type MeasureClipboard,type PasteMode} from './measureClipboard';
 import {deleteProjectSection} from './sectionDeletion';
 import LiveCaptureTransport from './LiveCaptureTransport.vue';
@@ -92,7 +92,7 @@ import {classifyViolinCapture,type ViolinCaptureSample,type ViolinCaptureMode} f
 import type {TangoGesture} from './tangoGestures';
 import {fingerboardStrings,visibleFingerboardFrets,fingerboardMidi,MAX_VISUAL_FRET} from './stringFingerboard';
 import {resolveEditorShortcut,type EditorKind} from './editorShortcuts';
-import {bandoneonPlaybackPlan,bellowsGuideMarks,arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin} from './arrangementPlayback';
+import {bandoneonPlaybackPlan,bellowsGuideMarks,arrangementPlaybackWindow,arrangementCountInEnd,arrangementEventTime,playbackNotesInRange,pianoPedalWindows,type PlaybackOrigin,type BellowsPlaybackSegment} from './arrangementPlayback';
 import {splitAtMeasureBoundaries,soundingNotesAtBeat,soundingPitchesAtBeat} from './performanceCues';
 import {REHEARSAL_SPEEDS,normalizeRehearsalSpeed,effectiveTempo,beatOffsetTicks,playbackDuration,type RehearsalSpeed} from './playbackSpeed';
 import {suggestViolinPosition} from './violinPositions';
@@ -4453,6 +4453,10 @@ function triggerInstrument(inst:string,pitch:number,duration:number,time:number,
  else instrumentSynth(inst).triggerAttackRelease(Tone.Frequency(pitch,'midi').toFrequency(),duration,time,velocity);
 }
 type DraftInstrumentPreview={project:Project;output:AudioNode;review?:boolean};
+function renderBellowsSegment(inst:Instrument,event:ReturnType<typeof measureLoopEvents>[number],segment:BellowsPlaybackSegment,duration:number,time:number,focusGain:number,destination?:AudioNode){
+ const scale=(v:number)=>Math.max(1,Math.min(127,Math.round(v*focusGain)));
+ renderModeledPart(inst,{...event,durationSeconds:duration,velocity:scale(event.velocity),endVelocity:event.endVelocity===undefined?undefined:scale(event.endVelocity),bellowsQuickRelease:segment.quickRelease},time,segment.button.hand==='right'?1:2,destination,false,segment.direction,event.bandoneonPressure??segment.pressure);
+}
 // Both orchestra and isolated preview use the same instrument renderer.
 function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measureLoopEvents>[number],duration:number,time:number,focusGain=1,preview?:DraftInstrumentPreview){
  if(!focusInstrumentAudible(inst))return;
@@ -4463,10 +4467,11 @@ function renderArrangementNote(inst:string,n:Note,event:ReturnType<typeof measur
   const segments=event.bellowsSegments;
   if(segments?.length){
    const secondsPerBeat=duration/Math.max(.0001,noteSoundingDuration(n));
+   const clock=event.bellowsSecondsAtBeat??(beat=>beat*secondsPerBeat),origin=clock(n.start);
    for(const segment of segments){
-    const start=Math.max(0,(segment.start-n.start)*secondsPerBeat),length=Math.min(duration-start,(segment.end-segment.start)*secondsPerBeat);
+    const start=Math.max(0,clock(segment.start)-origin),length=Math.min(duration-start,clock(segment.end)-clock(segment.start));
     if(length<=0)continue;
-    renderModeledPart(inst,{...expression,durationSeconds:length,bellowsQuickRelease:segment.quickRelease},time+start,segment.button.hand==='right'?1:2,preview?.output,false,segment.direction,event.bandoneonPressure??segment.pressure);
+    renderBellowsSegment(inst as Instrument,event,segment,length,time+start,focusGain,preview?.output);
    }
   }else renderModeledPart(inst,expression,time,event.bandoneonStaff,preview?.output,false,event.bandoneonDirection,event.bandoneonPressure);
   return;
@@ -4525,12 +4530,13 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
     }
     if(session!==noteLoopSession)return;
     const transport=Tone.getTransport();transport.stop();transport.cancel();transport.position=0;
-    transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
+    const startBpm=performanceTempoAtBeat(project.value,window.startBeat);
+    transport.bpm.value=startBpm*rehearsalSpeed.value;
     if(countInBeats)transport.bpm.value=effectivePlaybackBpm.value;
     const tempoMarks=tempoAutomationPoints(project.value).filter(point=>point.beat>window.startBeat&&point.beat<project.value.bars.length*project.value.beats);
-    for(const point of tempoMarks)transport.schedule(()=>{
+    for(const point of tempoMarks)transport.schedule(time=>{
       if(session!==noteLoopSession)return;
-      transport.bpm.value=point.bpm*rehearsalSpeed.value;
+      transport.bpm.setValueAtTime(point.bpm*rehearsalSpeed.value,time);
     },beatOffsetTicks(point.beat-transportStartBeat,transport.PPQ));
     for(const cue of normalizedTempoExpressions(project.value).fermatas.filter(f=>f.waitForCue&&(f.measure+1)*project.value.beats>window.startBeat)){
       const pauseBeat=(cue.measure+1)*project.value.beats-transportStartBeat;
@@ -4562,13 +4568,26 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       const whenTicks=beatOffsetTicks(n.start-transportStartBeat,transport.PPQ);
       noteCount++;
       firstAttack=Math.min(firstAttack,n.start);
+      const segments=bellows.segments.get(n);
+      if(segments?.length){
+       // Reattacks go through the transport at the same tick as any fresh
+       // notes; no second onset is extrapolated from a held note's duration.
+       for(const segment of segments)transport.schedule(time=>{
+        if(session!==noteLoopSession)return;
+        const p=project.value,bar=Math.floor(n.start/p.beats);
+        const event=measureLoopEvents([n],bar,p.beats,p.bpm,p.transposeSemitones??0,p.expressionRanges??[],inst,p,true)[0];
+        if(!event)return;
+        const duration=scoreClockSeconds(tempoMarks,startBpm,segment.start,segment.end,rehearsalSpeed.value);
+        renderBellowsSegment(inst,event,segment,duration,time,performanceFocus.value&&performanceFocus.value!==inst?0.3:1);
+       },beatOffsetTicks(segment.start-transportStartBeat,transport.PPQ));
+       continue;
+      }
       transport.schedule(time=>{
         const barIndex=Math.floor(n.start/project.value.beats);
         const event=measureLoopEvents([n],barIndex,project.value.beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value)[0];
         const defaultDuration=soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value);
         const focusGain=performanceFocus.value&&performanceFocus.value!==inst?0.3:1;
         if(!event)return;
-        event.bellowsSegments=bellows.segments.get(n);
         renderArrangementNote(inst,n,event,defaultDuration,time,focusGain);
       },whenTicks);
     }}
@@ -4585,9 +4604,9 @@ async function play(origin:PlaybackOrigin,withCountIn=arrangementCountIn.value){
       for(let beat=0;beat*transport.PPQ<countInEndTick;beat++){
         transport.scheduleOnce(time=>captureClickSynth?.triggerAttackRelease(beat===0?'C6':'G5','32n',time),beatOffsetTicks(beat,transport.PPQ));
       }
-      transport.scheduleOnce(()=>{
+      transport.scheduleOnce(time=>{
         if(session!==noteLoopSession)return;
-        transport.bpm.value=performanceTempoAtBeat(project.value,window.startBeat)*rehearsalSpeed.value;
+        transport.bpm.setValueAtTime(startBpm*rehearsalSpeed.value,time);
       },beatOffsetTicks(countInBeats,transport.PPQ));
       transport.scheduleOnce(time=>Tone.getDraw().schedule(()=>{
         if(session!==noteLoopSession)return;
@@ -4658,8 +4677,12 @@ async function previewPart(kind:'lead'|'instrument',fromMeasure:number,toMeasure
         const cueBeat=n.start-startBeat;
         transport.schedule(t=>{
           const event=measureLoopEvents([n],Math.floor(n.start/beats),beats,project.value.bpm,project.value.transposeSemitones??0,project.value.expressionRanges??[],inst,project.value,true)[0];
-          if(event)event.bellowsSegments=bellows.segments.get(n);
-          if(event)renderArrangementNote(inst,n,event,Math.max(.025,soundingSeconds(project.value,n.start,noteSoundingDuration(n),rehearsalSpeed.value)),t);
+          const secondsPerBeat=60/effectivePlaybackBpm.value;
+          if(event){
+           event.bellowsSegments=bellows.segments.get(n);
+           if(event.bellowsSegments?.length)event.bellowsSecondsAtBeat=beat=>beat*secondsPerBeat;
+          }
+          if(event)renderArrangementNote(inst,n,event,Math.max(.025,noteSoundingDuration(n)*secondsPerBeat),t);
         },beatOffsetTicks(cueBeat,transport.PPQ));
         count++;
       }
@@ -4713,6 +4736,7 @@ async function toggleNoteLoop(){
       for(const note of attacks){
         for(const event of measureLoopEvents([note],bar,beats,p.bpm,transpose,p.expressionRanges??[],inst,p,true)){
           event.bellowsSegments=bellows.segments.get(note);
+          if(event.bellowsSegments?.length){const secondsPerBeat=60/effectivePlaybackBpm.value;event.bellowsSecondsAtBeat=beat=>beat*secondsPerBeat;}
           renderArrangementNote(inst,note,event,playbackDuration(event.durationSeconds,rehearsalSpeed.value),time+playbackDuration(event.onsetSeconds,rehearsalSpeed.value));
         }
       }

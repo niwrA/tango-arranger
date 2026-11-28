@@ -3,7 +3,7 @@ import {bandoneonProfileForPart} from './bandoneon';
 import {transposeTangoGesture,type TangoGesture} from './tangoGestures';
 import {partStaffForNote,noteSoundingDuration,stringGlissandoPlayback,noteSoundingVelocity,type Note,type ExpressionRange,type Instrument,type Project,measureDynamicVelocity,melodyDuckingFactor,DYNAMIC_VELOCITIES} from './music';
 
-export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number;bandoneonStaff?:1|2;bellowsShake?:number;bellowsSegments?:readonly BellowsPlaybackSegment[];bandoneonPressure?:number;bandoneonDirection?:import('./bandoneonLayout').BellowsDirection};
+export type MeasureLoopEvent={pitch:number;onsetSeconds:number;durationSeconds:number;velocity:number;slideTo?:number;endVelocity?:number;gesture?:TangoGesture;bowedTremolo?:Note['bowedTremolo'];bowedStrokeCount?:number;bandoneonStaff?:1|2;bellowsShake?:number;bellowsSegments?:readonly BellowsPlaybackSegment[];bellowsSecondsAtBeat?:(beat:number)=>number;bandoneonPressure?:number;bandoneonDirection?:import('./bandoneonLayout').BellowsDirection};
 /** Build one instrument-measure's loop events, preserving absolute-score note positions.
  * Times are relative to the selected measure. The sounding gate, not the written
  * note duration, controls audio. Long tails are clipped at the loop boundary. */

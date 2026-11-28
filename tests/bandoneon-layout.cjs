@@ -177,3 +177,22 @@ const factoryReversal=playback.bandoneonPlaybackPlan({bpm:120},'Bandoneon I',[fa
 assert.deepEqual(factoryReversal.segments.get(factoryHold).map(segment=>[segment.direction,segment.button.id]),[['pull','left:5/0'],['push','left:1/1']]);
 assert.deepEqual(factoryReversal.decisions[1].rearticulated,['0'],'do not claim the pull button can be held on a 142 when it would sound E2');
 console.log('PASS real Rheinische 142 bass reversal preserves D2 by moving to the other button');
+
+const fermataNotes=reattackNotes.map(n=>({...n,start:n.start+3}));
+const fermataProject={...reversalProject,beats:4,bars:[{section:'A'},{section:'A'}],instruments:['Bandoneon I'],roles:{A:{}},
+ tempoExpressions:{ritardandos:[],aTempoMeasures:[],fermatas:[{measure:0,instrument:'Bandoneon I',stretch:2,waitForCue:false}]}};
+const {tempoAutomationPoints,scoreClockSeconds}=load('src/tempoExpressions.ts');
+const tempoPoints=tempoAutomationPoints(fermataProject);
+const {draftAuditionEvents}=load('src/editAudition.ts');
+const audition=draftAuditionEvents(fermataProject,{'Bandoneon I':fermataNotes},'Bandoneon I',0,1,1);
+const heldAudition=audition.events.find(e=>e.note.pitch===38),pushAudition=audition.events.find(e=>e.note.pitch===37),pullAudition=audition.events.find(e=>e.note.pitch===39);
+const [fermataRelease,reattacked]=heldAudition.event.bellowsSegments;
+assert.equal(reattacked.start,pushAudition.note.start);
+assert.equal(heldAudition.event.bellowsSecondsAtBeat(reattacked.start),pushAudition.onset);
+assert.equal(pushAudition.onset-heldAudition.onset,1);
+assert.equal(scoreClockSeconds(tempoPoints,120,reattacked.start,reattacked.end),.5);
+assert.ok(Math.abs(scoreClockSeconds(tempoPoints,120,fermataRelease.start,fermataRelease.end)-.95)<1e-7);
+assert.equal(fermataRelease.end,pullAudition.event.bellowsSegments[0].end);
+const unmarkedTempo=tempoAutomationPoints({...fermataProject,tempoExpressions:undefined});
+assert.equal(scoreClockSeconds(unmarkedTempo,120,fermataRelease.start,reattacked.start),.5);
+console.log('PASS fermata and straight-time reattacks follow the same beat clock as new push notes');
