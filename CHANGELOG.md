@@ -1,3 +1,14 @@
+## [Feature] Orchestra styles by song, section and phrase (2026-11-27)
+
+- In Song settings, choose a 4/4 profile inspired by D’Arienzo, Di Sarli, Troilo, Fresedo, Canaro or Pugliese. Profiles coordinate piano, bass and bandoneon accompaniment. They are arranging starting points, not historical transcriptions.
+- Set a section override or, with a current phrase plan, a phrase override. Adjust style intensity and choose **Regenerate unprotected arrangement**. Explicit piano figures and bass techniques retain priority, and protected notes are left alone.
+- Choose **Current orchestra style** in the Rhythm editor to follow each selected measure’s profile. Edits to the loaded grid instead apply as a fixed pattern.
+
+## [Feature] MIDI keyboard input and playback (2026-11-27)
+
+- Connect a supported MIDI keyboard via **Home → MIDI diagnostics → Enable MIDI**. Use it for chord practice, timed feedback, note entry or recording, or route arrangement piano playback to a selected MIDI output.
+- Closing the diagnostics panel stops the message log without disconnecting the keyboard.
+
 ## Note Editor, MIDI and Home (2026-11-27)
 
 - Use compact Note Editor commands on phones, with separate Notes and Measures targets. Expand the working range to choose a section, the current phrase or the entire part. Playback can loop a separate range.
@@ -15,7 +26,7 @@
 - Voice parts use a sample-free, vowel-shaped rehearsal tone in both audio modes. Short and sustained notes share the same timbre, with gentle breath, pressure swells and restrained delayed vibrato.
 - Arrangement, note-loop, staged audition and Learn playback use the new guide. Learn honors the tuning reference and keeps an unmarked target straight. Lyrics remain display text.
 
-## Bandoneon layouts and reed synthesis (2026-11-27)
+## [Feature] Bandoneon layouts and reed synthesis (2026-11-27)
 
 - Choose a documented bandoneon keyboard layout per part in **Structure, Keys & Ensemble → Ensemble**. Existing projects default to 142 Rheinische. The layout describes the pitches available on each hand across both bellows directions, not whether a whole chord fits one direction or hand position.
 - Remove the two unplayable D1 pedals from the bundled *Hasta Siempre Amor* example, preserving playable low D2 notes and existing saved copies.

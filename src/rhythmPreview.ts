@@ -1,4 +1,5 @@
-import {retimeMeasure,validateRhythmPattern,type RhythmSlot,type RhythmMode} from './rhythmEditor';
+import {orchestraStyleRhythmForMeasure,presetMeasureSlots,retimeMeasure,validateRhythmPattern,type RhythmSlot,type RhythmMode} from './rhythmEditor';
+import {phraseMeasureMap} from './phrasePlan';
 import type {Project,Score,Instrument,Note} from './music';
 
 /** Read-only score comparison. The same retimeMeasure algorithm is used by Apply. */
@@ -7,12 +8,12 @@ export type RhythmPreviewRow={
 };
 export function rhythmPreviewForSelection(
  project:Project,score:Score,instrument:Instrument,measures:readonly number[],
- slots:RhythmSlot[],mode:RhythmMode,overwriteProtected=false
+ slots:RhythmSlot[],mode:RhythmMode,overwriteProtected=false,followStyle=false
 ):RhythmPreviewRow[]{
  const valid=validateRhythmPattern(slots,project.beats);
  if(!valid.length)throw Error('Add at least one attack to preview this rhythm.');
  if(!['rhythm','accents'].includes(mode))throw Error('Unknown rhythm mode.');
- const split=project.pianoSplitPitch??60;
+ const split=project.pianoSplitPitch??60,phrases=followStyle?phraseMeasureMap(project):[];
  return measures.map(bar=>{
   if(!Number.isInteger(bar)||bar<0||bar>=project.bars.length)throw Error('Invalid preview measure.');
   const start=bar*project.beats,end=start+project.beats;
@@ -20,7 +21,9 @@ export function rhythmPreviewForSelection(
   if(!before.length)return {bar,before:[],after:[],status:'silent' as const};
   if(project.protectedBars[instrument+':'+bar]&&!overwriteProtected)
    return {bar,before,after:before,status:'protected' as const};
-  const after=retimeMeasure(before,instrument,bar,project.beats,valid,mode,split);
+  const preset=followStyle?orchestraStyleRhythmForMeasure(project,bar,phrases):undefined;
+  const pattern=preset?presetMeasureSlots(project,preset,instrument):{slots:valid,upper:undefined};
+  const after=retimeMeasure(before,instrument,bar,project.beats,pattern.slots,mode,split,pattern.upper,preset);
   const signature=(notes:Note[])=>JSON.stringify(notes.map(n=>[n.pitch,n.start,n.duration,n.accent??false,n.articulation??'']));
   return {bar,before,after,status:signature(before)===signature(after)?'unchanged' as const:'changed' as const};
  });

@@ -330,8 +330,9 @@ export function previewMerge(original:Project,parsed:ParsedMusicXml,plan:MergePl
   ...(plan.mode==='lead'?{
     sectionKeys:musical.keys,
     roles:Object.fromEntries(Object.entries(musical.sourceSections).map(([section,from])=>[section,clone(copy.roles[from]??{})])),
-    phrasePlan:undefined,measureRoles:{},measureViolinTechniques:{},measureBassTechniques:{},
-    pianoFigures:Object.fromEntries(Object.entries(musical.sourceSections).map(([section,from])=>[section,copy.pianoFigures?.[from]??'chords_up'])),
+    phrasePlan:undefined,phraseStyles:undefined,measureRoles:{},measureViolinTechniques:{},measureBassTechniques:{},
+    pianoFigures:Object.fromEntries(Object.entries(musical.sourceSections).flatMap(([section,from])=>{const figure=copy.pianoFigures?.[from];return figure?[[section,figure]]:[];})),
+    sectionStyles:Object.fromEntries(Object.entries(musical.sourceSections).flatMap(([section,from])=>{const style=copy.sectionStyles?.[from];return style?[[section,style]]:[];})),
     pianoFigureVariation:Object.fromEntries(Object.entries(musical.sourceSections).map(([section,from])=>[section,copy.pianoFigureVariation?.[from]??0])),
     violinMarcatoBeats:{},violinArpeggioDirections:{}
   }:{}),

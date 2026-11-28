@@ -1,3 +1,4 @@
+import {isOrchestraStyle,orchestraStyle,orchestraPulses,phraseStyleKey,styleForMeasure,styleStrength,phraseStyleExpression,type OrchestraStyleId} from './orchestraStyle';
 import {bandoneonHandForPitch,bandoneonModelForPart,bandoneonProfile,isBandoneonPitchPlayable,type BandoneonModelId} from './bandoneon';
 import type {TempoExpressions} from './tempoExpressions';
 import {validateGesture,transposeTangoGesture,type TangoGesture} from './tangoGestures';
@@ -288,19 +289,20 @@ export function resizeSections(p:Project,lengths:number[]):Project {
   };
   return {...p,bars,sectionKeys,roles,tempoExpressions:remapTempoExpressions(),
     orchestration:{contrabass,violin,bandoneon},violinMarcatoBeats,violinArpeggioDirections,expression:{...(p.expression??defaultExpression()),sections:dynamics},
-    pianoFigures:Object.fromEntries(lengths.map((_,i)=>[sectionLetter(i),p.pianoFigures?.[old[i]?.label]??'chords_up'])),
+    pianoFigures:Object.fromEntries(lengths.flatMap((_,i)=>{const figure=p.pianoFigures?.[old[i]?.label];return figure?[[sectionLetter(i),figure]]:[];})),
+    sectionStyles:Object.fromEntries(lengths.flatMap((_,i)=>{const style=p.sectionStyles?.[old[i]?.label];return isOrchestraStyle(style)?[[sectionLetter(i),style]]:[];})),
     pianoFigureVariation:Object.fromEntries(lengths.map((_,i)=>[sectionLetter(i),p.pianoFigureVariation?.[old[i]?.label]??0])),
     expressionRanges:[],measureDynamics:{}, // old absolute measure positions are invalid after restructuring
 
     measureRoles:remap(p.measureRoles),measureViolinTechniques:remap(p.measureViolinTechniques),measureBassTechniques:remap(p.measureBassTechniques),
     articulation:{...(p.articulation??defaultArticulation()),overrides:remap(p.articulation?.overrides)},
-    generatedScore:undefined,importedScore:undefined,baseScore:undefined,protectedBars:{},partEditions:undefined,phrasePlan:undefined};
+    generatedScore:undefined,importedScore:undefined,baseScore:undefined,protectedBars:{},partEditions:undefined,phrasePlan:undefined,phraseStyles:undefined};
 }
 export type Bar = { chord:string; melody:Note[]; section:string; pickupBeats?:number };
 export type Score = Record<Instrument,Note[]>;
 export type PartEdition={notes:Note[]; importedNotes?:Note[]; protectedMeasures:number[]; sourceSignature:string; generatedAt?:string};
 export type PartEditions=Partial<Record<Instrument,Partial<Record<Difficulty,PartEdition>>>>;
-export type Project = { version:1; nextMusicalEditId?:number; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; bandoneonModels?:Record<string,BandoneonModelId>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
+export type Project = { version:1; nextMusicalEditId?:number; tempoExpressions?:TempoExpressions; leadLyrics?:Record<string,{source:string;useExistingMelody:boolean}>; importMergeBackup?:MergeBackup; importReference?:{sourceName:string;sourceXml:string;plan:MergePlan;savedAt:string}; phrasePlan?:PhrasePlan; partEditions?:PartEditions; bandoneonGrandStaff?:Record<string,boolean>; bandoneonModels?:Record<string,BandoneonModelId>; instrumentNames?:Record<string,string>; lyricOverflow?:Record<string,[unknown,unknown,unknown][]>; lyricSequences?:Record<string,{text:string;syllabic?:string;melisma?:boolean}[]>; instruments?:Instrument[]; orchestralGroups?:Partial<Record<InstrumentGroup,Instrument[]>>; sectionKeys?:Record<string,KeySignature>; pianoSplitPitch?:number; pianoFigures?:Record<string,FigureKind>; pianoFigureVariation?:Record<string,number>; expressionRanges?:ExpressionRange[]; measureDynamics?:Record<string,MeasureDynamics>; melodyDucking?:MelodyDucking; transposeSemitones?:number; adaptiveTranspose?:AdaptiveTranspose; tuning?:{a4Hz:number;overrides?:Record<string,number>}; articulation?:{phraseBars:number; enabled:boolean; overrides:Record<string,Exclude<Articulation,'auto'>>}; title:string; bpm:number; beats:number; profile:string; sectionStyles?:Record<string,OrchestraStyleId>; styleStrength?:number; phraseStyles?:Record<string,OrchestraStyleId>; bars:Bar[]; roles:Record<string,Partial<Record<Instrument,Role>>>; protectedBars:Record<string,boolean>; measureRoles?:Record<string,Role>; measureViolinTechniques?:Record<string,ViolinTechnique>; measureBassTechniques?:Record<string,BassTechnique>; violinMarcatoBeats?:Record<string,Partial<Record<ViolinPart,number[]>>>; violinArpeggioDirections?:Record<string,Partial<Record<ViolinPart,ArpeggioDirection>>>; orchestration?:OrchestrationSettings; difficulty?:Difficulty; instrumentSettings?:Partial<Record<Instrument,InstrumentSettings>>; expression?:ExpressionSettings; importedScore?:Score; generatedScore?:Score; baseScore?:Score };
 export type RegisterStrategy='auto'|'individual'|'whole'|'phrase'|'exact';
 export type RegisterPartSetting={strategy:RegisterStrategy;octaves?:-24|-12|0|12|24};
 export type AdaptiveTranspose={enabled:boolean;chordToneRhythm:boolean;semitones:number;parts?:Record<string,RegisterPartSetting>};
@@ -739,16 +741,16 @@ export const VIOLIN_PROFILE_MARCATO:Readonly<Record<string,readonly number[]>>={
   traditional:[0,2],darienzo:[0,2],disarli:[0],troilo:[1,3],
   fresedo:[0],canaro:[0,2],pugliese:[0,3]
 };
-export function violinMarcatoBeatsFor(p:Project,section:string,inst:ViolinPart):number[]{
+export function violinMarcatoBeatsFor(p:Project,section:string,inst:ViolinPart,styleId=styleForMeasure(p,section)):number[]{
   const chosen=p.violinMarcatoBeats?.[section]?.[inst];
-  const defaults=VIOLIN_PROFILE_MARCATO[p.profile]??VIOLIN_PROFILE_MARCATO.traditional;
+  const defaults=VIOLIN_PROFILE_MARCATO[styleId]??VIOLIN_PROFILE_MARCATO.traditional;
   return [...new Set((chosen??defaults).filter(n=>Number.isInteger(n)&&n>=0&&n<p.beats))].sort((a,b)=>a-b);
 }
 /** Tango chord violin: one note on each beat, with an exceptionally short
  * sounding gate on unaccented beats; a longer/louder marcato on chosen beats.
  * Written rhythm stays at a quarter note for proper notation. */
-export function violinChordNoteStyle(p:Project,section:string,inst:ViolinPart,beat:number,technique:ViolinTechnique):Pick<Note,'articulation'|'gate'|'accent'|'technique'>{
-  const marcato=violinMarcatoBeatsFor(p,section,inst).includes(Math.floor(beat));
+export function violinChordNoteStyle(p:Project,section:string,inst:ViolinPart,beat:number,technique:ViolinTechnique,styleId=styleForMeasure(p,section)):Pick<Note,'articulation'|'gate'|'accent'|'technique'>{
+  const marcato=violinMarcatoBeatsFor(p,section,inst,styleId).includes(Math.floor(beat));
   return {articulation:marcato?'marcato_staccato':'staccato',
     gate:marcato?0.58:technique==='pizzicato'?0.22:0.16,
     accent:marcato,technique:technique==='pizzicato'?'pizzicato':'arco'};
@@ -1003,7 +1005,7 @@ export function convertTwoFourToFour(p:Project):Project {
     const mergedChord=chordSequenceFromBeats(mergedChanges,4);
     bars.push({chord:mergedChord,section:first.section,melody:[...first.melody.map(n=>({...n})),...second.melody.map(n=>({...n,start:n.start+2}))]});
   }
-  return {...p,beats:4,bars,protectedBars:{},partEditions:undefined,phrasePlan:undefined};
+  return {...p,beats:4,bars,protectedBars:{},partEditions:undefined,phrasePlan:undefined,phraseStyles:undefined};
 }
 const dynVelocity=DYNAMIC_VELOCITIES;
 export function instrumentActivity(score:Score,inst:Instrument,barCount:number,beats:number):number {
@@ -1138,14 +1140,27 @@ export function generate(p:Project):Score {
   const roster=projectInstruments(p);
   const phrases=phraseMeasureMap(p);
   const score=Object.fromEntries(roster.map(i=>[i,[]])) as unknown as Score;
-  const profile=patterns[p.profile]??patterns.traditional;
-  const milonga=p.profile==='milonga'&&p.beats===2;
+
   const settings=p.orchestration??defaultOrchestration();
   const expression=p.expression??defaultExpression();
   for(let b=0;b<p.bars.length;b++){
     const bar=p.bars[b],offset=b*p.beats,phrase=phrases[b];
+    const strength=styleStrength(p),styleId=styleForMeasure(p,bar.section,phrase?phraseStyleKey(phrase):undefined);
+    const profile=Object.prototype.hasOwnProperty.call(patterns,styleId)?patterns[styleId]:patterns.traditional;
+    const style=orchestraStyle(styleId),styled=strength>0&&isOrchestraStyle(styleId)&&styleId!=='traditional'&&p.beats===4;
+    const shape=phraseStyleExpression(styleId,phrase?(b-phrase.startMeasure)/Math.max(1,phrase.endMeasure-phrase.startMeasure):(b%4)/3,strength);
+    const milonga=p.profile==='milonga'&&p.beats===2;
     if(!bar.chord.trim()&&!bar.melody.length)continue; // A blank measure is genuinely silent.
     const harmony=(beat:number)=>chordTones(chordAt(bar.chord,p.beats,beat));
+    const changes=styled?parseChordSequence(bar.chord,p.beats):[];
+    const stylePulses=(voice:'bass'|'chords')=>orchestraPulses(styleId,p.beats,voice).map(pulse=>{
+      const chord=harmony(pulse.beat).join(',');
+      const next=changes.find(change=>change.beat>pulse.beat+1e-8&&chordTones(change.chord).join(',')!==chord);
+      return {...pulse,duration:Math.min(pulse.duration,(next?.beat??p.beats)-pulse.beat)};
+    });
+    const styleGate=.74+(style.gate-.74)*strength;
+    const styleVelocity=(accent:boolean)=>{const neutral=accent?90:74;return neutral+((accent?style.accentVelocity:style.plainVelocity)-neutral)*strength+shape.velocity;};
+    const styleArticulation=(accent:boolean)=>accent?'marcato_staccato' as const:styleGate>=.78?'legato' as const:'staccato' as const;
     const tones=harmony(0),root=tones[0];
     // Generate primary lines first so followers can copy the actual generated notes.
     const leadPriority=(inst:Instrument)=>effectiveRole(p,inst,b,phrase)==='melody'?
@@ -1172,6 +1187,7 @@ export function generate(p:Project):Score {
       const dynamicScale=expression.enabled?(dynVelocity[sectionDyn]/88):1;
       const difficultyBoost=difficulty==='advanced'?1:difficulty==='intermediate'?0.84:0.65;
       const put=(pitch:number,start:number,duration:number,velocity=80,technique?:Note['technique'],gate?:number)=>{
+
         if(inst.startsWith('Bandoneon')&&!writtenInstrumentPitchPlayable(inst,pitch,p)){
           pitch=nearestPlayablePitch(pitch,range[0],range[1],undefined,n=>writtenInstrumentPitchPlayable(inst,n,p)).pitch;
           if(!writtenInstrumentPitchPlayable(inst,pitch,p))return;
@@ -1233,15 +1249,33 @@ export function generate(p:Project):Score {
         }
       }
       if(inst.startsWith('Bandoneon')&&(role==='chords'||configuredRole==='fill')){
+        const useStyledChords=styled&&role==='chords';
         const chordBeats=p.beats===3?[1,2]:milonga?[0.5,1.5]:[0,2].filter(beat=>beat<p.beats);
+        const pulses=useStyledChords?stylePulses('chords'):chordBeats.map(beat=>({beat,duration:.75,accent:false}));
         const maxNotes=difficulty==='easy'?2:3;
-        for(const beat of chordBeats){
-          const pcs=harmony(beat);
-          const voicing=[...new Set(pcs.slice(0,maxNotes).map((pc,j)=>closest(pc,58+j*5,range[0],Math.min(range[1],79))))];
-          const duration=Math.min(0.75,p.beats-beat);
-          // Keep the compact attack while engraving it on the written beat grid.
-          const gate=Math.min(0.7,p.beats-beat)*0.72/duration;
-          for(const pitch of voicing)put(pitch,beat,duration,68,undefined,gate);
+        for(const pulse of pulses){
+          const beat=pulse.beat,pcs=harmony(beat);
+          // Use compact chord tones available on one hand. Layout data lists each
+          // hand's union of pitches, not shared bellows direction or fingering.
+          const shift=p.transposeSemitones??0,model=bandoneonProfile(bandoneonModelForPart(p,inst));
+          let compact:{notes:number[];staff:1|2;cost:number}|undefined;
+          if(useStyledChords)for(const staff of [1,2] as const){
+            const keys=model[staff===1?'right':'left'].map(pitch=>pitch-shift).filter(pitch=>pitch>=range[0]&&pitch<=range[1]);
+            for(const low of keys){
+              const notes=pcs.slice(0,maxNotes).flatMap(pc=>{
+                const pitch=keys.find(k=>k>=low&&k<=low+12&&k%12===pc);
+                return pitch===undefined?[]:[pitch];
+              }).sort((a,b)=>a-b);
+              if(!notes.length)continue;
+              const cost=Math.abs(notes.reduce((sum,n)=>sum+n,0)/notes.length-64);
+              if(!compact||notes.length>compact.notes.length||notes.length===compact.notes.length&&cost<compact.cost)compact={notes,staff,cost};
+            }
+          }
+          const voicing=compact?.notes??[...new Set(pcs.slice(0,maxNotes).map((pc,j)=>closest(pc,58+j*5,range[0],Math.min(range[1],79))))];
+          const duration=Math.min(useStyledChords?pulse.duration:.75,p.beats-beat);
+          // Keep written rhythm distinct from sounding length.
+          const gate=useStyledChords?styleGate:Math.min(0.7,p.beats-beat)*0.72/duration;
+          for(const pitch of voicing){const before=notes.length;put(pitch,beat,duration,useStyledChords?styleVelocity(pulse.accent):68,undefined,gate);if(useStyledChords&&notes.length>before)Object.assign(notes[notes.length-1],{accent:pulse.accent,articulation:styleArticulation(pulse.accent),...(compact?{staffOverride:compact.staff}:{})});}
         }
         if(role==='chords')continue;
         // In fill mode, continue generating the melody line on top of these chord events.
@@ -1288,7 +1322,11 @@ export function generate(p:Project):Score {
           }
           const inWrittenRange=(midi:number)=>inst.startsWith('Bandoneon')?midi:Math.max(range[0],Math.min(range[1],midi));
           pitch=inWrittenRange(pitch);
-          if(role==='variation'&&n.duration>=1){put(pitch,n.start,n.duration/2,90);put(inWrittenRange(pitch+(b%2?2:-2)),n.start+n.duration/2,n.duration/2,75);}
+          if(role==='variation'&&n.duration>=1){
+            const ornament=styled&&!inst.startsWith('Voice')&&strength>=.5&&shape.ornament==='chord'?closest(harmony(n.start+n.duration/2)[1]??harmony(n.start)[0],pitch+(b%2?3:-3),range[0],range[1]):pitch+(b%2?2:-2);
+            const first=styled&&!inst.startsWith('Voice')&&strength>=.5&&shape.ornament==='neighbor'?n.duration*.75:n.duration/2;
+            put(pitch,n.start,first,90);put(inWrittenRange(ornament),n.start+first,n.duration-first,75);
+          }
           else put(pitch,n.start,n.duration,inst.startsWith('Violin')&&profile.strings?91:85,inst.startsWith('Violin')?'arco':undefined,inst.startsWith('Bandoneon')?Math.min(1,1.3/n.duration):undefined);
         }
         continue;
@@ -1318,6 +1356,14 @@ export function generate(p:Project):Score {
           const first=harmony(0),last=harmony(2);
           put(closest(first[0],40,28,55),0,1,98,undefined,0.82);
           put(closest(last[2]??last[0],42,28,55),2,0.85,68,undefined,0.58);
+          continue;
+        }
+        if(styled&&inst.startsWith('Contrabass')){
+          for(const [index,pulse] of stylePulses('bass').entries()){
+            const pcs=harmony(pulse.beat),pc=pcs[index%2===0?0:2]??pcs[0];
+            const before=notes.length;put(closest(pc,40,28,55),pulse.beat,pulse.duration,styleVelocity(pulse.accent),undefined,styleGate);
+            if(notes.length>before)Object.assign(notes[notes.length-1],{accent:pulse.accent,articulation:styleArticulation(pulse.accent)});
+          }
           continue;
         }
         for(let beat=0;beat<p.beats;beat+=2){
@@ -1359,6 +1405,19 @@ export function generate(p:Project):Score {
           }
           continue;
         }
+        if(styled&&!p.pianoFigures?.[bar.section]){
+          const bassCeiling=Math.min(range[1],(p.pianoSplitPitch??60)-1,55);
+          for(const [index,pulse] of stylePulses('bass').entries()){
+            const pcs=harmony(pulse.beat),pc=pcs[index%2===0?0:2]??pcs[0];
+            const before=notes.length;put(pianoBassReinforcement(pc,40,range[0],bassCeiling),pulse.beat,pulse.duration,styleVelocity(pulse.accent),undefined,styleGate);
+            if(notes.length>before)Object.assign(notes[notes.length-1],{accent:pulse.accent,articulation:styleArticulation(pulse.accent)});
+          }
+          for(const pulse of stylePulses('chords')){
+            const before=notes.length;putPianoChord(harmony(pulse.beat),style.register,pulse.beat,pulse.duration,styleVelocity(pulse.accent),styleGate);
+            for(const n of notes.slice(before))Object.assign(n,{accent:pulse.accent,articulation:styleArticulation(pulse.accent)});
+          }
+          continue;
+        }
         const figure=p.pianoFigures?.[bar.section]??'chords_up';
         const variation=p.pianoFigureVariation?.[bar.section]??0;
         for(const n of figureMeasure(p,inst,b,figure,variation,notes))put(n.pitch,n.start-offset,n.duration,n.velocity,undefined,n.gate);
@@ -1378,7 +1437,7 @@ export function generate(p:Project):Score {
               // Rotate chord tones; always use the chord active on this beat.
               const pc=tones[(beat+(inst==='Violin II'?1:0))%tones.length];
               const pitch=closest(pc,inst==='Violin I'?76:69,range[0],range[1]);
-              const style=violinChordNoteStyle(p,bar.section,violin,beat,technique);
+              const style=violinChordNoteStyle(p,bar.section,violin,beat,technique,styleId);
               put(pitch,beat,1,style.accent?82:72,style.technique);
               Object.assign(notes[notes.length-1],style);
             }
@@ -1425,7 +1484,10 @@ export function generate(p:Project):Score {
       }
       if(role==='fill'&&primary.length){
         const last=primary[primary.length-1];
-        if(last.start+last.duration<=p.beats-0.5){const at=Math.max(0,p.beats-1),t=harmony(at);put(closest(t[1]??t[0],70,range[0],range[1]),at,0.5,68);put(closest(t[0],72,range[0],range[1]),at+0.5,0.5,75);}
+        if(last.start+last.duration<=p.beats-0.5){
+          const at=Math.max(last.start+last.duration,p.beats-1),count=styled&&strength>=.5&&p.beats-at>=1?Math.max(2,shape.response):2,step=(p.beats-at)/count;
+          for(let i=0;i<count;i++){const beat=at+i*step,t=harmony(beat);put(closest(t[(count-i-1)%t.length]??t[0],i===count-1?72:70+i,range[0],range[1]),beat,step,i===count-1?75:68);}
+        }
       }
       // Tango texture continuity: a bandoneon with sparse assigned material
       // receives an accompaniment figure rather than arbitrary full-measure rests.
@@ -1452,7 +1514,7 @@ export function generate(p:Project):Score {
     if(mode && n.articulation===undefined){
       n.articulation=mode;
       // A new phrase-level articulation supersedes a previously inferred short gate.
-      if(plannedArticulation(p,inst,barIndex,phrase))n.gate=undefined;
+      if(explicit)n.gate=undefined;
       // Articulation changes playback gate, not the written rhythmic value.
       // Marcato has a longer release and a stronger attack than tango staccato.
       if(mode==='marcato_staccato'){

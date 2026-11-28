@@ -60,7 +60,7 @@ export function duplicateProjectSection(original:Project,index:number):Duplicate
    measureBassTechniques:copyMeasureMap(current.measureBassTechniques),
    violinMarcatoBeats:copySectionMap(current.violinMarcatoBeats),
    violinArpeggioDirections:copySectionMap(current.violinArpeggioDirections),
-   pianoFigures:copySectionMap(current.pianoFigures),
+   pianoFigures:copySectionMap(current.pianoFigures),sectionStyles:copySectionMap(current.sectionStyles),
    pianoFigureVariation:copySectionMap(current.pianoFigureVariation),
    measureDynamics:copyMeasureMap(current.measureDynamics),
    orchestration:current.orchestration?{

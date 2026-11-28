@@ -18,8 +18,9 @@ function load(name,imports={}){
 const gestures=load('src/tangoGestures.ts');
 const phrases=load('src/phrasePlan.ts');
 const bandoneon=load('src/bandoneon.ts');
-const music=load('src/music.ts',{'./tangoGestures':gestures,'./phrasePlan':phrases,'./bandoneon':bandoneon});
-const editions=load('src/editions.ts',{'./music':music,'./phrasePlan':phrases});
+const style=load('src/orchestraStyle.ts');
+const music=load('src/music.ts',{'./orchestraStyle':style,'./tangoGestures':gestures,'./phrasePlan':phrases,'./bandoneon':bandoneon});
+const editions=load('src/editions.ts',{'./orchestraStyle':style,'./music':music,'./phrasePlan':phrases});
 const io=load('src/io.ts',{'./bandoneon':bandoneon,'./tempoExpressions':load('src/tempoExpressions.ts'),'./music':music,'./editions':editions,'./tangoGestures':gestures,'./musicXmlImport':{parseMusicXmlDetailed(){throw Error('Not used in export tests');}}});
 let checks=0;
 function check(label,task){task();checks++;console.log('PASS',label);}
