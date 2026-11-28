@@ -58,20 +58,20 @@ function chartRows(data:readonly (readonly string[])[]):Row[]{
   return [`r${y+1}c${x+1}`,pull,push] as const;
  }));
 }
-const einheitsLeft=rows('left',chartRows([
- ['Fis','ais1/fis1','g1','gis1','a1'],
- ['C','F/Ais','A/d','g/ais','dis/c1','f1/cis','ais/c'],
- ['Dis','d/G','a/g','c1/h','e1/d1','c/f1','G/fis'],
- ['D','E/A','gis/e','h/a','d1/cis1','fis1/e1','cis1/gis','Ais/Gis'],
- ['Cis','Gis/H','H/E','f/F','e/dis','dis1','fis/f','cis/Cis']
-]),[2,1,1.5,.75,0]);
-const einheitsRight=rows('right',chartRows([
- ['cis1/c1','g','fis3/ais2','e3/c3','dis3','a3/g3'],
- ['c1/d1','d1/cis1','g1/gis1','ais2/ais1','c3/c2','d3','f3/fis3'],
- ['h','e1/fis1','cis2/fis2','fis1/g1','a1/h1','c2/d2','e2/g2'],
- ['a','f1','ais1/e1','gis1/a1','h1/cis2','d2/e2','gis2/a2','h2/cis3'],
- ['gis','ais','dis1','f2','dis2','fis2/gis2','a2/h2','cis3/e3','g2/f3']
-]),[2,1.5,1,.5,0]);
+const einheitsLeft=rows('left',[
+ [['1/4','Fis','Fis'],['0/0','ais1','fis1'],['triangle','g1','g1'],['star','gis1','gis1'],['cross','a1','a1']],
+ [['5/5','C','C'],['1/1','F','Ais'],['1/2','A','d'],['2/3','g','ais'],['3/4','dis','c1'],['4/0','f1','cis'],['+','ais','c']],
+ [['2/2','Dis','Dis'],['1','d','G'],['2','a','g'],['3','c1','h'],['4','e1','d1'],['0','c','f1'],['2/0','G','fis']],
+ [['3/3','D','D'],['5','E','A'],['6','gis','e'],['7','h','a'],['8','d1','cis1'],['9','fis1','e1'],['3/0','cis1','gis'],['16','Ais','Gis']],
+ [['4/4','Cis','Cis'],['5/0','Gis','H'],['10','H','E'],['11','f','F'],['12','e','dis'],['13','dis1','dis1'],['14','fis','f'],['15','cis','Cis']]
+],[2,.5,1,.5,0]);
+const einheitsRight=rows('right',[
+ [['4/4','cis1','c1'],['triangle','g','g'],['1/1','fis3','ais2'],['2/2','e3','c3'],['3/3','dis3','dis3'],['0/0','a3','g3']],
+ [['star','c1','d1'],['cross','d1','cis1'],['0/1','g1','gis1'],['1/2','ais2','ais1'],['2/3','c3','c2'],['3/4','d3','d3'],['15','f3','fis3']],
+ rheinischeRight[3],
+ rheinischeRight[4],
+ [['9/0','gis','gis'],...rheinischeRight[5].slice(0,3),['10','dis2','dis2'],...rheinischeRight[5].slice(4,7),['14','g2','f3']]
+],[2,1.5,1,.5,0]);
 
 const peguriLeft=rows('left',chartRows([
  ['cis2','c2','Gis','G','Fis'],
@@ -90,13 +90,13 @@ const peguriRight=rows('right',chartRows([
 ]),[5,[1.6,2.6,5.5,6.5,7.5],[1.15,2.15,3.15,5,6,7],1.15,.65,0]);
 
 export const PHYSICAL_LAYOUTS:readonly PhysicalBandoneonLayout[]=[
- {model:'rheinische-142',verified:true,source:'https://bandonionfabrik.de/assets/grifftabellen-bc-142-rheinische-tonlage.pdf',buttons:rheinische142},
+ {model:'rheinische-142',verified:true,source:'https://bandonionfabrik.de/instrumente/grifftabellen/142.pdf',buttons:rheinische142},
  {model:'rheinische-152-gutjahr',verified:true,source:'https://www.klausgutjahr.de/images/Argentinisch.jpg',buttons:[
   ...rows('left',gutjahrLeft,[1,.5,1,.5,0]),
   ...rows('right',gutjahrRight,[2,1.5,1,.5,0,-.5])
  ]},
- {model:'einheits-144',verified:true,source:'https://bandonionfabrik.de/assets/144.pdf',buttons:[...einheitsLeft,...einheitsRight]},
- {model:'peguri-146',verified:true,source:'https://bandonionfabrik.de/assets/146p.pdf',buttons:[...peguriLeft,...peguriRight]}
+ {model:'einheits-144',verified:true,source:'https://bandonionfabrik.de/instrumente/grifftabellen/144.pdf',buttons:[...einheitsLeft,...einheitsRight]},
+ {model:'peguri-146',verified:true,source:'https://bandonionfabrik.de/instrumente/grifftabellen/146p.pdf',buttons:[...peguriLeft,...peguriRight]}
 ];
 export function physicalBandoneonLayout(model:string){return PHYSICAL_LAYOUTS.find(l=>l.model===model);}
 export type ButtonTarget={pitch:number;hand?:BandoneonHand};
